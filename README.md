@@ -2,7 +2,7 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/) [![Python Version](https://img.shields.io/badge/nodejs-18%2B-blue)](https://nodejs.org/zh-cn/) [![LLM Powered](https://img.shields.io/badge/LLM-powered-FF6F61)](https://platform.openai.com/)
 
-基于大语言模型的智能电商客服解决方案，实现闲鱼平台7×24小时自动化值守，支持多专家协同决策、智能议价和上下文感知对话。
+专为闲鱼平台打造的AI值守解决方案，实现闲鱼平台7×24小时自动化值守，支持多专家协同决策、智能议价和上下文感知对话。
 
 
 ## 🌟 核心特性
@@ -23,23 +23,30 @@
 
 ## 🎨效果图
 <div align="center">
-  <img src="./images/demo1.png" width="600" alt="登录界面">
+  <img src="./images/demo1.png" width="600" alt="客服">
   <br>
   <em>图1: 客服随叫随到</em>
 </div>
 
 
 <div align="center">
-  <img src="./images/demo2.png" width="600" alt="对话流程">
+  <img src="./images/demo2.png" width="600" alt="议价专家">
   <br>
   <em>图2: 阶梯式议价</em>
 </div>
 
 <div align="center">
-  <img src="./images/demo3.png" width="600" alt="管理面板"> 
+  <img src="./images/demo3.png" width="600" alt="技术专家"> 
   <br>
   <em>图3: 技术专家上场</em>
 </div>
+
+<div align="center">
+  <img src="./images/log.png" width="600" alt="后台log"> 
+  <br>
+  <em>图4: 后台log</em>
+</div>
+
 
 ## 🚴 快速开始
 
@@ -83,11 +90,8 @@ python main.py
 
 ## 🤝 参与贡献
 
-欢迎通过以下方式参与项目：
+欢迎通过 Issue 提交建议或 PR 贡献代码，请遵循 [贡献指南](https://contributing.md/)
 
-1. 欢迎通过 Issue 提交建议或 PR 贡献代码，请遵循 [贡献指南](https://contributing.md/)
-2. Fork仓库并提交PR
-3. 扩展专家Agent模块
 
 
 ## 🛡 注意事项
