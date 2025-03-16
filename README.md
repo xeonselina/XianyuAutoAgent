@@ -102,6 +102,11 @@ python main.py
 
 如需学习交流，请联系：[coderxiu@qq.com](https://mailto:coderxiu@qq.com/)
 
+## 🧸特别鸣谢
+本项目参考了以下开源项目：
+https://github.com/cv-cat/XianYuApis
+
+感谢<a href="https://github.com/cv-cat">@CVcat</a>的技术支持
 
 ## ☕ 请喝咖啡
 您的☕和⭐将助力项目持续更新：
@@ -112,6 +117,11 @@ python main.py
 </div>
 
 
-## 🧸特别鸣谢
-感谢<a href="https://github.com/cv-cat">@CVcat</a>的技术支持
-
+## 📈 Star 趋势
+<a href="https://www.star-history.com/#shaxiu/XianyuAutoAgent&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=shaxiu/XianyuAutoAgent&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=shaxiu/XianyuAutoAgent&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=shaxiu/XianyuAutoAgent&type=Date" />
+ </picture>
+</a>
