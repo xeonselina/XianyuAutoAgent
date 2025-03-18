@@ -98,9 +98,10 @@ class XianyuLive:
             }
         }
         await ws.send(json.dumps(msg))
+
         msg = {"lwp": "/r/SyncStatus/ackDiff", "headers": {"mid": "5701741704675979 0"}, "body": [
             {"pipeline": "sync", "tooLong2Tag": "PNM,1", "channel": "sync", "topic": "sync", "highPts": 0,
-             "pts": 1741704666107000, "seq": 0, "timestamp": 1741704675971}]}
+             "pts": int(time.time() * 1000) * 1000, "seq": 0, "timestamp": int(time.time() * 1000)}]}
         await ws.send(json.dumps(msg))
         logger.info('连接注册完成')
 
