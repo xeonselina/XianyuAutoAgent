@@ -186,7 +186,7 @@ class XianyuLive:
                 try:
                     data = base64.b64decode(data).decode("utf-8")
                     data = json.loads(data)
-                    logger.info(f"无需解密 message: {data}")
+                    # logger.info(f"无需解密 message: {data}")
                     return
                 except Exception as e:
                     # logger.info(f'加密数据: {data}')
@@ -197,6 +197,7 @@ class XianyuLive:
                 return
 
             try:
+                # 判断是否为订单消息,需要自行编写付款后的逻辑
                 if message['3']['redReminder'] == '等待买家付款':
                     user_id = message['1'].split('@')[0]
                     user_url = f'https://www.goofish.com/personal?userId={user_id}'
