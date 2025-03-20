@@ -5,9 +5,9 @@ subprocess.Popen = partial(subprocess.Popen, encoding="utf-8")
 import execjs
 
 try:
-    xianyu_js = execjs.compile(open(r'../static/xianyu_js.js', 'r', encoding='utf-8').read())
+    xianyu_js = execjs.compile(open(r'../static/xianyu_js_version_2.js', 'r', encoding='utf-8').read())
 except:
-    xianyu_js = execjs.compile(open(r'static/xianyu_js.js', 'r', encoding='utf-8').read())
+    xianyu_js = execjs.compile(open(r'static/xianyu_js_version_2.js', 'r', encoding='utf-8').read())
 
 def trans_cookies(cookies_str):
     cookies = dict()

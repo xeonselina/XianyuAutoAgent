@@ -78,11 +78,3 @@ class XianyuApis:
         response = requests.post('https://h5api.m.goofish.com/h5/mtop.taobao.idle.pc.detail/1.0/', params=params, cookies=cookies, headers=self.headers, data=data)
         res_json = response.json()
         return res_json
-def trans_cookies(cookies_str):
-    cookies = dict()
-    for i in cookies_str.split("; "):
-        try:
-            cookies[i.split('=')[0]] = '='.join(i.split('=')[1:])
-        except:
-            continue
-    return cookies

@@ -32,9 +32,6 @@ class XianyuLive:
         self.heartbeat_task = None
         self.ws = None
 
-    async def send_ack(self, ws, Packet_sid):
-        pass
-
     async def send_msg(self, ws, cid, toid, text):
         text = {
             "contentType": 1,
@@ -151,6 +148,26 @@ class XianyuLive:
     async def handle_message(self, message_data, websocket):
         """处理所有类型的消息"""
         try:
+
+            try:
+                message = message_data
+                ack = {
+                    "code": 200,
+                    "headers": {
+                        "mid": message["headers"]["mid"] if "mid" in message["headers"] else generate_mid(),
+                        "sid": message["headers"]["sid"] if "sid" in message["headers"] else '',
+                    }
+                }
+                if 'app-key' in message["headers"]:
+                    ack["headers"]["app-key"] = message["headers"]["app-key"]
+                if 'ua' in message["headers"]:
+                    ack["headers"]["ua"] = message["headers"]["ua"]
+                if 'dt' in message["headers"]:
+                    ack["headers"]["dt"] = message["headers"]["dt"]
+                await websocket.send(json.dumps(ack))
+            except Exception as e:
+                pass
+
             # 如果不是同步包消息，直接返回
             if not self.is_sync_package(message_data):
                 return
@@ -165,11 +182,39 @@ class XianyuLive:
 
             # 解密数据
             try:
-                decrypted_data = decrypt(sync_data["data"])
-                message = json.loads(decrypted_data)
+                data = sync_data["data"]
+                try:
+                    data = base64.b64decode(data).decode("utf-8")
+                    data = json.loads(data)
+                    logger.info(f"无需解密 message: {data}")
+                    return
+                except Exception as e:
+                    # logger.info(f'加密数据: {data}')
+                    decrypted_data = decrypt(data)
+                    message = json.loads(decrypted_data)
             except Exception as e:
                 logger.error(f"消息解密失败: {e}")
                 return
+
+            try:
+                if message['3']['redReminder'] == '等待买家付款':
+                    user_id = message['1'].split('@')[0]
+                    user_url = f'https://www.goofish.com/personal?userId={user_id}'
+                    logger.info(f'等待买家 {user_url} 付款')
+                    return
+                elif message['3']['redReminder'] == '交易关闭':
+                    user_id = message['1'].split('@')[0]
+                    user_url = f'https://www.goofish.com/personal?userId={user_id}'
+                    logger.info(f'卖家 {user_url} 交易关闭')
+                    return
+                elif message['3']['redReminder'] == '等待卖家发货':
+                    user_id = message['1'].split('@')[0]
+                    user_url = f'https://www.goofish.com/personal?userId={user_id}'
+                    logger.info(f'交易成功 {user_url} 等待卖家发货')
+                    return
+
+            except:
+                pass
 
             # 判断消息类型
             if self.is_typing_status(message):
