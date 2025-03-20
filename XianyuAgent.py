@@ -168,7 +168,7 @@ class IntentRouter:
             if re.search(pattern, text_clean):
                 # logger.debug(f"技术类正则匹配: {pattern}")
                 return 'tech'
-        
+
         # 3. 价格类检查
         for intent in ['price']:
             if any(kw in text_clean for kw in self.rules[intent]['keywords']):
