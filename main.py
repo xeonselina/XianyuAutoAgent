@@ -95,7 +95,8 @@ class XianyuLive:
             }
         }
         await ws.send(json.dumps(msg))
-
+        # 等待一段时间，确保连接注册完成
+        await asyncio.sleep(1)
         msg = {"lwp": "/r/SyncStatus/ackDiff", "headers": {"mid": "5701741704675979 0"}, "body": [
             {"pipeline": "sync", "tooLong2Tag": "PNM,1", "channel": "sync", "topic": "sync", "highPts": 0,
              "pts": int(time.time() * 1000) * 1000, "seq": 0, "timestamp": int(time.time() * 1000)}]}
