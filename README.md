@@ -108,6 +108,17 @@ https://github.com/cv-cat/XianYuApis
 
 感谢<a href="https://github.com/cv-cat">@CVcat</a>的技术支持
 
+## 💼 寻找机会
+
+### <a href="https://github.com/shaxiu">@Shaxiu</a>
+**🔍寻求方向**：**AI产品经理实习**  
+**🛠️项目贡献：**：需求分析、agent方案设计与实现  
+**📫 联系：** coderxiu@qq.com
+
+### <a href="https://github.com/cv-cat">@CVcat</a>
+**🔍寻求方向**：**研发工程师实习**（python、java、逆向、爬虫）  
+**🛠️项目贡献：**：闲鱼逆向工程  
+**📫 联系：** 992822653@qq.com
 ## ☕ 请喝咖啡
 您的☕和⭐将助力项目持续更新：
 
@@ -125,3 +136,5 @@ https://github.com/cv-cat/XianYuApis
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=shaxiu/XianyuAutoAgent&type=Date" />
  </picture>
 </a>
+
+
