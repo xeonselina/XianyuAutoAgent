@@ -113,12 +113,12 @@ https://github.com/cv-cat/XianYuApis
 ### <a href="https://github.com/shaxiu">@Shaxiu</a>
 **🔍寻求方向**：**AI产品经理实习**  
 **🛠️项目贡献：**：需求分析、agent方案设计与实现  
-**📫 联系：** coderxiu@qq.com
+**📫 联系：** **email**:coderxiu@qq.com；**wx:** coderxiu
 
 ### <a href="https://github.com/cv-cat">@CVcat</a>
 **🔍寻求方向**：**研发工程师实习**（python、java、逆向、爬虫）  
 **🛠️项目贡献：**：闲鱼逆向工程  
-**📫 联系：** 992822653@qq.com
+**📫 联系：** **email:** 992822653@qq.com；**wx:** CVZC15751076989
 ## ☕ 请喝咖啡
 您的☕和⭐将助力项目持续更新：
 
