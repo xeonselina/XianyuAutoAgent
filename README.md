@@ -124,8 +124,8 @@ https://github.com/cv-cat/XianYuApis
       <td align="center"><strong>交流群6（推荐加入）</strong></td>
     </tr>
     <tr>
-      <td><img src="./images/wx_group5.png" width="300px" alt="交流群1"></td>
-      <td><img src="./images/wx_group6-1.jpg" width="300px" alt="交流群2"></td>
+      <td><img src="./images/wx_group6.png" width="300px" alt="交流群1"></td>
+      <td><img src="./images/wx_group7.png" width="300px" alt="交流群2"></td>
     </tr>
   </table>
 </div>
