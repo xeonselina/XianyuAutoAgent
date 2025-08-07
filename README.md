@@ -120,12 +120,12 @@ https://github.com/cv-cat/XianYuApis
 <div align="center">
   <table>
     <tr>
-      <td align="center"><strong>交流群8（已满200）</strong></td>
-      <td align="center"><strong>交流群9（推荐加入）</strong></td>
+      <td align="center"><strong>交流群9（已满200）</strong></td>
+      <td align="center"><strong>交流群10（推荐加入）</strong></td>
     </tr>
     <tr>
-      <td><img src="./images/wx_group8.png" width="300px" alt="交流群1"></td>
-      <td><img src="./images/wx_group9-1.png" width="300px" alt="交流群2"></td>
+      <td><img src="./images/wx_group9-1.png" width="300px" alt="交流群1"></td>
+      <td><img src="./images/wx_group10.png" width="300px" alt="交流群2"></td>
     </tr>
   </table>
 </div>
