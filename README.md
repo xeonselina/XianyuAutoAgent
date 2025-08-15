@@ -125,7 +125,7 @@ https://github.com/cv-cat/XianYuApis
     </tr>
     <tr>
       <td><img src="./images/wx_group9-1.png" width="300px" alt="交流群1"></td>
-      <td><img src="./images/wx_group10.png" width="300px" alt="交流群2"></td>
+      <td><img src="./images/wx_group10-1.png" width="300px" alt="交流群2"></td>
     </tr>
   </table>
 </div>
@@ -133,12 +133,12 @@ https://github.com/cv-cat/XianYuApis
 ## 💼 寻找机会
 
 ### <a href="https://github.com/shaxiu">@Shaxiu</a>
-**🔍寻求方向**：**AI产品经理实习**  
+**🔍寻求方向**：**AI产品经理**  
 **🛠️项目贡献：**：需求分析、agent方案设计与实现  
 **📫 联系：** **email**:coderxiu@qq.com；**wx:** coderxiu
 
 ### <a href="https://github.com/cv-cat">@CVcat</a>
-**🔍寻求方向**：**研发工程师实习**（python、java、逆向、爬虫）  
+**🔍寻求方向**：**研发工程师**（python、java、逆向、爬虫）  
 **🛠️项目贡献：**：闲鱼逆向工程  
 **📫 联系：** **email:** 992822653@qq.com；**wx:** CVZC15751076989
 ## ☕ 请喝咖啡
