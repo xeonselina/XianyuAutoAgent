@@ -77,7 +77,7 @@ env-docker: ## 配置Docker环境
 .PHONY: db-init
 db-init: ## 初始化数据库
 	@echo "初始化数据库..."
-	export FLASK_APP=$(FLASK_APP) && export FLASK_ENV=$(FLASK_ENV) && flask init-db
+	export DATABASE_URL="mysql+pymysql://root:123456@localhost:3306/testdb" && python3 init_db.py
 
 .PHONY: db-seed
 db-seed: ## 填充示例数据

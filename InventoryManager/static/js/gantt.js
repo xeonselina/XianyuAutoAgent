@@ -19,6 +19,7 @@ class GanttChart {
         this.setupDateRange();
         this.loadData();
         this.setupEventListeners();
+        this.initRegionSelectors();
         this.updateStats();
     }
     
@@ -99,8 +100,7 @@ class GanttChart {
             }
             
             dateHeader.innerHTML = `
-                <div>${currentDate.getDate()}</div>
-                <div style="font-size: 0.8em;">${this.getDayName(currentDate)}</div>
+                <div>${this.formatDateHeader(currentDate)}</div>
             `;
             headerRow.appendChild(dateHeader);
             
@@ -123,10 +123,10 @@ class GanttChart {
                 <div>
                     <div><strong>${device.name}</strong></div>
                     <div style="font-size: 0.8em; color: #6c757d;">
-                        ${device.type} - ${device.model || 'N/A'}
+                        编号: ${device.serial_number || 'N/A'}
                     </div>
                     <div style="font-size: 0.8em; color: #6c757d;">
-                        状态: ${this.getStatusText(device.status)}
+                        位置: ${device.location || 'N/A'} | 状态: ${this.getStatusText(device.status)}
                     </div>
                 </div>
             `;
@@ -144,7 +144,9 @@ class GanttChart {
                     dateCell.appendChild(this.createRentalElement(rental));
                 } else if (device.status === 'available') {
                     dateCell.className += ' available';
-                    dateCell.onclick = () => this.handleCellClick(device, currentDate);
+                    // 使用日期副本以避免闭包中被后续循环修改
+                    const dateCopy = new Date(currentDate);
+                    dateCell.onclick = () => this.handleCellClick(device, dateCopy);
                 }
                 
                 row.appendChild(dateCell);
@@ -229,6 +231,10 @@ class GanttChart {
     
     openAddRentalModal(device, startDate, endDate) {
         // 填充模态框数据
+        // 确保设备下拉已填充
+        this.populateDeviceSelect();
+        // 确保地区下拉已填充（如果初始渲染时未成功，这里兜底）
+        this.ensureRegionSelectorsPopulated();
         document.getElementById('device-select').value = device.id;
         document.getElementById('start-date').value = this.formatDate(startDate);
         document.getElementById('end-date').value = this.formatDate(endDate);
@@ -383,16 +389,11 @@ class GanttChart {
     }
     
     populateFilters() {
-        // 填充设备类型过滤器
+        // 设备类型字段当前未使用，避免渲染无效选项
         const typeFilter = document.getElementById('device-type-filter');
-        const types = [...new Set(this.devices.map(d => d.type))];
-        
-        types.forEach(type => {
-            const option = document.createElement('option');
-            option.value = type;
-            option.textContent = type;
-            typeFilter.appendChild(option);
-        });
+        if (typeFilter) {
+            typeFilter.innerHTML = '<option value="">全部类型</option>';
+        }
         
         // 填充位置过滤器
         const locationFilter = document.getElementById('location-filter');
@@ -407,12 +408,9 @@ class GanttChart {
         
         // 填充查询模态框的设备类型
         const queryTypeFilter = document.getElementById('query-device-type');
-        types.forEach(type => {
-            const option = document.createElement('option');
-            option.value = type;
-            option.textContent = type;
-            queryTypeFilter.appendChild(option);
-        });
+        if (queryTypeFilter) {
+            queryTypeFilter.innerHTML = '<option value="">全部类型</option>';
+        }
     }
     
     applyFilters() {
@@ -479,7 +477,11 @@ class GanttChart {
     
     // 工具方法
     formatDate(date) {
-        return date.toISOString().split('T')[0];
+        // 使用本地时间，避免 toISOString 带来的时区回退（如 8 小时导致前一天）
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
     }
     
     isToday(date) {
@@ -490,6 +492,250 @@ class GanttChart {
     getDayName(date) {
         const days = ['日', '一', '二', '三', '四', '五', '六'];
         return days[date.getDay()];
+    }
+
+    // 如：1 日(周五)
+    formatDateHeader(date) {
+        const day = date.getDate();
+        const week = this.getDayName(date);
+        return `${day} 日(周${week})`;
+    }
+
+    // ---------------- 地区联动（省/市/区） ----------------
+    initRegionSelectors() {
+        // 优先使用用户提供的离线 JSON：/InventoryManager/pca-code.json
+        // 结构：[{code,name,children:[{code,name,children:[{code,name}]}]}]
+        const buildFromPca = (pca) => {
+            const regions = {};
+            pca.forEach(prov => {
+                regions[prov.name] = {};
+                (prov.children || []).forEach(city => {
+                    regions[prov.name][city.name] = (city.children || []).map(a => a.name);
+                });
+            });
+            return regions;
+        };
+
+        // 异步加载离线 JSON（不阻塞下拉初始化）
+        this.REGIONS = {
+            '北京市': { '北京市': ['东城区', '西城区', '朝阳区', '海淀区', '丰台区', '通州区'] },
+            '上海市': { '上海市': ['黄浦区', '徐汇区', '长宁区', '浦东新区'] },
+            '广东省': { '广州市': ['天河区', '越秀区', '荔湾区', '白云区'], '深圳市': ['南山区', '福田区', '罗湖区', '宝安区'] },
+            '浙江省': { '杭州市': ['上城区', '拱墅区', '西湖区'], '宁波市': ['海曙区', '江北区'] }
+        };
+        // 从静态目录加载，附带时间戳避免缓存
+        fetch(`/static/data/pca-code.json?t=${Date.now()}`, { cache: 'no-cache' })
+            .then(res => res.ok ? res.json() : null)
+            .then(pca => {
+                if (!pca) return;
+                this.REGIONS = buildFromPca(pca);
+                // 用新数据重建三联动选项，尽量保留当前选择
+                if (this.provinceSelect && this.citySelect && this.districtSelect) {
+                    this.refreshRegionSelectOptions();
+                }
+            })
+            .catch(() => {/* 静默失败，继续使用兜底数据 */});
+
+        this.provinceSelect = document.getElementById('province-select');
+        this.citySelect = document.getElementById('city-select');
+        this.districtSelect = document.getElementById('district-select');
+
+        if (!this.provinceSelect || !this.citySelect || !this.districtSelect) return;
+
+        const fillOptions = (selectEl, items) => {
+            const prev = selectEl.value;
+            selectEl.innerHTML = '';
+            items.forEach(v => {
+                const opt = document.createElement('option');
+                opt.value = v;
+                opt.textContent = v;
+                selectEl.appendChild(opt);
+            });
+            // 恢复之前的选择（如果存在）
+            if (items.includes(prev)) selectEl.value = prev;
+        };
+
+        // 省份
+        fillOptions(this.provinceSelect, Object.keys(this.REGIONS));
+
+        this.provinceSelect.oninput = () => {
+            const prov = this.provinceSelect.value;
+            const cities = prov && this.REGIONS[prov] ? Object.keys(this.REGIONS[prov]) : [];
+            fillOptions(this.citySelect, cities);
+            this.citySelect.oninput();
+        };
+
+        // 城市
+        this.citySelect.oninput = () => {
+            const prov = this.provinceSelect.value;
+            const city = this.citySelect.value;
+            const dists = prov && city && this.REGIONS[prov] && this.REGIONS[prov][city] ? this.REGIONS[prov][city] : [];
+            fillOptions(this.districtSelect, dists);
+        };
+
+        // 注入下拉内搜索的样式
+        this.injectFilterDropdownStyles();
+        // 为三个选择框增加“展开后顶部可输入搜索”的下拉
+        this.attachFilterDropdown(this.provinceSelect, () => Object.keys(this.REGIONS || {}), (val) => {
+            if (!val) return;
+            this.provinceSelect.value = val;
+            this.provinceSelect.oninput();
+        });
+        this.attachFilterDropdown(this.citySelect, () => {
+            const prov = this.provinceSelect.value; return prov ? Object.keys(this.REGIONS[prov] || {}) : [];
+        }, (val) => {
+            if (!val) return;
+            this.citySelect.value = val;
+            this.citySelect.oninput();
+        });
+        this.attachFilterDropdown(this.districtSelect, () => {
+            const prov = this.provinceSelect.value; const city = this.citySelect.value;
+            return prov && city ? (this.REGIONS[prov][city] || []) : [];
+        }, (val) => {
+            if (!val) return;
+            this.districtSelect.value = val;
+        });
+
+        // 初始化一次
+        this.provinceSelect.oninput();
+
+        // 在模态框打开时再次兜底填充（防止某些浏览器延迟渲染导致元素未就绪）
+        const modalEl = document.getElementById('addRentalModal');
+        if (modalEl) {
+            modalEl.addEventListener('shown.bs.modal', () => {
+                this.ensureRegionSelectorsPopulated();
+            });
+        }
+    }
+
+    // 填充设备下拉（新增租赁弹窗）
+    populateDeviceSelect() {
+        const sel = document.getElementById('device-select');
+        if (!sel) return;
+        const current = sel.value;
+        sel.innerHTML = '<option value="">选择设备</option>';
+        this.devices.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d.id;
+            opt.textContent = `${d.name}`;
+            sel.appendChild(opt);
+        });
+        if (current) sel.value = current;
+    }
+
+    // 兜底保证省市区下拉有数据
+    ensureRegionSelectorsPopulated() {
+        this.provinceSelect = document.getElementById('province-select');
+        this.citySelect = document.getElementById('city-select');
+        this.districtSelect = document.getElementById('district-select');
+        if (!this.provinceSelect || !this.citySelect || !this.districtSelect) return;
+        if (this.provinceSelect.options.length === 0) {
+            const provinces = Object.keys(this.REGIONS || {});
+            if (provinces.length > 0) {
+                const fill = (el, arr) => { el.innerHTML = ''; arr.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;el.appendChild(o);}); };
+                fill(this.provinceSelect, provinces);
+                const firstProv = this.provinceSelect.value || provinces[0];
+                const cities = firstProv && this.REGIONS[firstProv] ? Object.keys(this.REGIONS[firstProv]) : [];
+                fill(this.citySelect, cities);
+                const firstCity = this.citySelect.value || cities[0];
+                const dists = firstProv && firstCity ? (this.REGIONS[firstProv][firstCity] || []) : [];
+                fill(this.districtSelect, dists);
+            }
+        }
+    }
+
+    // 使用当前 REGIONS 重建省/市/区选项，尽量保留原选项
+    refreshRegionSelectOptions() {
+        const provinces = Object.keys(this.REGIONS || {});
+        const prevProv = this.provinceSelect.value;
+        const prevCity = this.citySelect.value;
+        const prevDist = this.districtSelect.value;
+
+        const fill = (el, arr) => { el.innerHTML = ''; arr.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;el.appendChild(o);}); };
+
+        fill(this.provinceSelect, provinces);
+        const provToUse = provinces.includes(prevProv) ? prevProv : provinces[0];
+        this.provinceSelect.value = provToUse;
+
+        const cities = provToUse && this.REGIONS[provToUse] ? Object.keys(this.REGIONS[provToUse]) : [];
+        fill(this.citySelect, cities);
+        const cityToUse = cities.includes(prevCity) ? prevCity : cities[0];
+        this.citySelect.value = cityToUse;
+
+        const dists = provToUse && cityToUse ? (this.REGIONS[provToUse][cityToUse] || []) : [];
+        fill(this.districtSelect, dists);
+        const distToUse = dists.includes(prevDist) ? prevDist : dists[0];
+        this.districtSelect.value = distToUse;
+    }
+
+    // 为原生 select 附加“展开后顶部可输入搜索”的下拉浮层
+    attachFilterDropdown(selectEl, getAllItems, onPick) {
+        if (!selectEl) return;
+        let panel = null;
+        let input = null;
+        let list = null;
+
+        const closePanel = () => {
+            if (panel) panel.style.display = 'none';
+        };
+
+        const openPanel = () => {
+            if (!panel) {
+                panel = document.createElement('div');
+                panel.className = 'filter-dropdown-panel';
+                panel.innerHTML = `
+                    <input class="filter-input" type="text" placeholder="搜索..." />
+                    <div class="filter-list" role="listbox"></div>
+                `;
+                selectEl.parentElement.style.position = 'relative';
+                selectEl.parentElement.appendChild(panel);
+                input = panel.querySelector('.filter-input');
+                list = panel.querySelector('.filter-list');
+                input.addEventListener('input', () => renderList());
+            }
+            renderList();
+            panel.style.display = 'block';
+            input.value = '';
+            input.focus();
+        };
+
+        const renderList = () => {
+            const keyword = (input?.value || '').toLowerCase();
+            const items = (getAllItems() || []).filter(v => v.toLowerCase().includes(keyword));
+            list.innerHTML = '';
+            items.forEach(v => {
+                const a = document.createElement('div');
+                a.className = 'filter-item';
+                a.textContent = v;
+                a.onclick = () => { onPick(v); closePanel(); };
+                list.appendChild(a);
+            });
+        };
+
+        // 打开下拉时显示搜索面板
+        selectEl.addEventListener('mousedown', (e) => {
+            // 延迟到浏览器展开原生下拉后再显示我们面板
+            setTimeout(openPanel, 0);
+        });
+        // 滚动或点击外部关闭
+        document.addEventListener('click', (e) => {
+            if (!panel || panel.contains(e.target) || e.target === selectEl) return;
+            closePanel();
+        });
+    }
+
+    injectFilterDropdownStyles() {
+        if (document.getElementById('filter-dropdown-style')) return;
+        const style = document.createElement('style');
+        style.id = 'filter-dropdown-style';
+        style.textContent = `
+        .filter-dropdown-panel{position:absolute;left:0;right:0;top:100%;z-index:1051;background:#fff;border:1px solid #dee2e6;border-radius:.25rem;box-shadow:0 .5rem 1rem rgba(0,0,0,.15);}
+        .filter-dropdown-panel .filter-input{width:100%;padding:.375rem .75rem;border:none;border-bottom:1px solid #dee2e6;outline:none;}
+        .filter-dropdown-panel .filter-list{max-height:240px;overflow:auto;}
+        .filter-dropdown-panel .filter-item{padding:.375rem .75rem;cursor:pointer;}
+        .filter-dropdown-panel .filter-item:hover{background:#f8f9fa;}
+        `;
+        document.head.appendChild(style);
     }
     
     getStatusText(status) {
