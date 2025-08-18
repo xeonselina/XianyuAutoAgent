@@ -24,6 +24,7 @@ class XianyuReplyBot:
             'classify':ClassifyAgent(self.client, self.classify_prompt, self._safe_filter),
             'price': PriceAgent(self.client, self.price_prompt, self._safe_filter),
             'tech': TechAgent(self.client, self.tech_prompt, self._safe_filter),
+            'schedule': ScheduleAgent(self.client, self.schedule_prompt, self._safe_filter),
             'default': DefaultAgent(self.client, self.default_prompt, self._safe_filter),
         }
 
@@ -51,6 +52,11 @@ class XianyuReplyBot:
             with open(os.path.join(prompt_dir, "default_prompt.txt"), "r", encoding="utf-8") as f:
                 self.default_prompt = f.read()
                 logger.debug(f"已加载默认提示词，长度: {len(self.default_prompt)} 字符")
+            
+            # 加载档期提示词
+            with open(os.path.join(prompt_dir, "schedule_prompt.txt"), "r", encoding="utf-8") as f:
+                self.schedule_prompt = f.read()
+                logger.debug(f"已加载档期提示词，长度: {len(self.schedule_prompt)} 字符")
                 
             logger.info("成功加载所有提示词")
         except Exception as e:
@@ -142,20 +148,26 @@ class IntentRouter:
     def __init__(self, classify_agent):
         self.rules = {
             'tech': {  # 技术类优先判定
-                'keywords': ['参数', '规格', '型号', '连接', '对比'],
+                'keywords': ['参数', '规格', '型号', '连接', '对比', '套装', '增距镜'],
                 'patterns': [
                     r'和.+比'             
                 ]
             },
+            'schedule': {  # 档期类优先判定
+                'keywords': ['档期', '库存', '现货', '明天', '后天', '下周', '什么时候', '能收到', '发货', '快递', '时效'],
+                'patterns': [
+                    r'\d+号', r'\d+日', r'\d+月\d+号', r'周[一二三四五六日]', r'明天|后天|大后天'
+                ]
+            },
             'price': {
-                'keywords': ['便宜', '价', '砍价', '少点'],
+                'keywords': ['便宜', '价', '砍价', '少点','免押','押金','多少钱'],
                 'patterns': [r'\d+元', r'能少\d+']
             }
         }
         self.classify_agent = classify_agent
 
     def detect(self, user_msg: str, item_desc, context) -> str:
-        """三级路由策略（技术优先）"""
+        """四级路由策略（技术>档期>价格>默认）"""
         text_clean = re.sub(r'[^\w\u4e00-\u9fa5]', '', user_msg)
         
         # 1. 技术类关键词优先检查
@@ -169,7 +181,17 @@ class IntentRouter:
                 # logger.debug(f"技术类正则匹配: {pattern}")
                 return 'tech'
 
-        # 3. 价格类检查
+        # 3. 档期类检查
+        if any(kw in text_clean for kw in self.rules['schedule']['keywords']):
+            # logger.debug(f"档期类关键词匹配: {[kw for kw in self.rules['schedule']['keywords'] if kw in text_clean]}")
+            return 'schedule'
+            
+        for pattern in self.rules['schedule']['patterns']:
+            if re.search(pattern, text_clean):
+                # logger.debug(f"档期类正则匹配: {pattern}")
+                return 'schedule'
+
+        # 4. 价格类检查
         for intent in ['price']:
             if any(kw in text_clean for kw in self.rules[intent]['keywords']):
                 # logger.debug(f"价格类关键词匹配: {[kw for kw in self.rules[intent]['keywords'] if kw in text_clean]}")
@@ -180,7 +202,7 @@ class IntentRouter:
                     # logger.debug(f"价格类正则匹配: {pattern}")
                     return intent
         
-        # 4. 大模型兜底
+        # 5. 大模型兜底
         # logger.debug("使用大模型进行意图分类")
         return self.classify_agent.generate(
             user_msg=user_msg,
@@ -277,6 +299,101 @@ class ClassifyAgent(BaseAgent):
     def generate(self, **args) -> str:
         response = super().generate(**args)
         return response
+
+
+class ScheduleAgent(BaseAgent):
+    """档期管理Agent"""
+    
+    def __init__(self, client, system_prompt, safety_filter):
+        super().__init__(client, system_prompt, safety_filter)
+        self.inventory_manager = None
+        self._init_inventory_manager()
+    
+    def _init_inventory_manager(self):
+        """初始化库存管理器"""
+        try:
+            from utils.inventory_manager import InventoryManager
+            
+            # 从环境变量获取腾讯文档配置
+            sheet_id = os.getenv("TENCENT_DOCS_SHEET_ID")
+            access_token = os.getenv("TENCENT_DOCS_ACCESS_TOKEN")
+            
+            if sheet_id and access_token:
+                self.inventory_manager = InventoryManager(sheet_id, access_token)
+                logger.info("档期Agent已连接到腾讯文档库存系统")
+            else:
+                logger.warning("腾讯文档配置不完整，无法初始化库存管理器")
+                self.inventory_manager = None
+                
+        except Exception as e:
+            logger.error(f"初始化库存管理器失败: {e}")
+            self.inventory_manager = None
+    
+    def generate(self, user_msg: str, item_desc: str, context: str, bargain_count: int=0) -> str:
+        """重写生成逻辑，处理档期查询"""
+        messages = self._build_messages(user_msg, item_desc, context)
+        
+        # 检查是否需要多agent协作
+        if self._needs_price_agent(user_msg):
+            messages[0]['content'] += "\n▲多agent协作：检测到用户同时询问档期和价格，需要与价格agent配合工作"
+        
+        # 如果有库存管理器，添加库存信息
+        if self.inventory_manager:
+            inventory_info = self._get_inventory_context(user_msg)
+            if inventory_info:
+                messages[0]['content'] += f"\n▲库存信息：{inventory_info}"
+        
+        response = self.client.chat.completions.create(
+            model=os.getenv("MODEL_NAME", "qwen-max"),
+            messages=messages,
+            temperature=0.4,
+            max_tokens=600,  # 档期回复可以稍长一些
+            top_p=0.8
+        )
+        return self.safety_filter(response.choices[0].message.content)
+    
+    def _needs_price_agent(self, user_msg: str) -> bool:
+        """检查是否需要价格agent配合"""
+        price_keywords = ['价格', '多少钱', '费用', '租金', '押金', '便宜', '优惠']
+        return any(kw in user_msg for kw in price_keywords)
+    
+    def _get_inventory_context(self, user_msg: str) -> str:
+        """获取库存上下文信息"""
+        try:
+            if not self.inventory_manager:
+                return ""
+            
+            # 从用户消息中提取日期信息
+            import re
+            date_patterns = [
+                r'(\d{4})年(\d{1,2})月(\d{1,2})日',
+                r'(\d{1,2})月(\d{1,2})日',
+                r'(\d{1,2})号',
+                r'(\d{1,2})日',
+                r'明天',
+                r'后天',
+                r'下周'
+            ]
+            
+            extracted_dates = []
+            for pattern in date_patterns:
+                matches = re.findall(pattern, user_msg)
+                if matches:
+                    extracted_dates.extend(matches)
+            
+            if not extracted_dates:
+                # 如果没有具体日期，返回库存摘要
+                summary = self.inventory_manager.get_inventory_summary()
+                return f"当前库存总数：{summary.get('total', 0)}台，可用：{summary.get('status_breakdown', {}).get('available', 0)}台"
+            
+            # 如果有日期，尝试检查档期
+            # 这里简化处理，实际应该解析具体日期
+            summary = self.inventory_manager.get_inventory_summary()
+            return f"库存总数：{summary.get('total', 0)}台，可用：{summary.get('status_breakdown', {}).get('available', 0)}台"
+            
+        except Exception as e:
+            logger.error(f"获取库存上下文失败: {e}")
+            return ""
 
 
 class DefaultAgent(BaseAgent):
