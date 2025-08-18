@@ -52,3 +52,11 @@ htmlcov/
 .nox/
 .hypothesis/
 .coverage.* 
+配置说明.md
+.gitignore
+.gitignore
+start.sh
+prd.md
+InventoryManager/env.production
+InventoryManager/env.local
+InventoryManager/env.docker
