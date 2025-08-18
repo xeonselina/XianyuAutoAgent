@@ -74,10 +74,14 @@ env-docker: ## 配置Docker环境
 # 数据库命令
 # =============================================================================
 
+.PHONY: init-db
+init-db: ## 初始化数据库（从 .env 读取环境变量）
+	@echo "初始化数据库（读取 .env）..."
+	@[ -f .env ] || { echo "未找到 .env，请先创建并配置数据库连接信息（可参考 env.example）"; exit 1; }
+	@set -a; . .env; set +a; python3 init_db.py
+
 .PHONY: db-init
-db-init: ## 初始化数据库
-	@echo "初始化数据库..."
-	export DATABASE_URL="mysql+pymysql://root:123456@localhost:3306/testdb" && python3 init_db.py
+db-init: init-db ## 初始化数据库（兼容旧命令）
 
 .PHONY: db-seed
 db-seed: ## 填充示例数据

@@ -11,6 +11,7 @@
             overflow-x: auto;
             overflow-y: auto;
             max-height: 80vh;
+            position: relative;
         }
         
         .gantt-header {
@@ -23,13 +24,13 @@
         .gantt-row {
             display: flex;
             border-bottom: 1px solid #dee2e6;
-            min-height: 50px;
+            min-height: 35px;
         }
         
         .gantt-cell {
             border-right: 1px solid #dee2e6;
-            padding: 8px;
-            min-width: 120px;
+            padding: 4px;
+            min-width: 80px;
             text-align: center;
             display: flex;
             align-items: center;
@@ -37,17 +38,23 @@
         }
         
         .gantt-device-cell {
-            min-width: 200px;
+            min-width: 150px;
             background: #f8f9fa;
             font-weight: bold;
             position: sticky;
             left: 0;
             z-index: 50;
         }
+
+        /* 让左上角单元格同时固定在顶部与左侧，并在层级上覆盖其他元素 */
+        .gantt-header .gantt-device-cell {
+            top: 0;
+            z-index: 250;
+        }
         
         .gantt-date-cell {
             background: #f8f9fa;
-            font-size: 0.9em;
+            font-size: 0.8em;
         }
         
         .gantt-today {
@@ -59,16 +66,31 @@
         .gantt-rental {
             background: #ffc107;
             border-radius: 4px;
-            margin: 2px;
-            padding: 4px 8px;
-            font-size: 0.8em;
+            margin: 1px;
+            padding: 2px 4px;
+            font-size: 0.7em;
             cursor: pointer;
             position: relative;
+            min-height: 25px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .gantt-rental.logistics-time {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .gantt-rental.rental-time {
+            background: #ffc107;
+            color: #212529;
+            font-weight: bold;
         }
         
         .gantt-rental:hover {
-            background: #ffca2c;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            z-index: 1000;
         }
         
         .gantt-rental .rental-info {
@@ -80,13 +102,29 @@
             border: 1px solid #dee2e6;
             border-radius: 4px;
             padding: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            z-index: 1000;
-            min-width: 200px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            z-index: 1001;
+            min-width: 250px;
+            white-space: nowrap;
         }
         
         .gantt-rental:hover .rental-info {
             display: block;
+        }
+        
+        .gantt-rental .rental-info .info-row {
+            margin-bottom: 4px;
+            font-size: 0.8em;
+        }
+        
+        .gantt-rental .rental-info .info-label {
+            font-weight: bold;
+            color: #495057;
+            margin-right: 8px;
+        }
+        
+        .gantt-rental .rental-info .info-value {
+            color: #212529;
         }
         
         .gantt-rental .delete-btn {
@@ -157,6 +195,138 @@
             color: #6c757d;
             font-size: 0.9rem;
         }
+        
+        /* 日历组件样式 */
+        .calendar-container {
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            background: #fff;
+        }
+        
+        .calendar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .calendar-grid {
+            width: 100%;
+        }
+        
+        .calendar-weekdays {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            text-align: center;
+            font-weight: bold;
+            color: #6c757d;
+            margin-bottom: 10px;
+        }
+        
+        .calendar-weekdays > div {
+            padding: 8px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        .calendar-days {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 1px;
+            background: #dee2e6;
+        }
+        
+        .calendar-day {
+            background: #fff;
+            padding: 8px;
+            text-align: center;
+            cursor: pointer;
+            min-height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        
+        .calendar-day:hover {
+            background: #f8f9fa;
+        }
+        
+        .calendar-day.other-month {
+            color: #adb5bd;
+            background: #f8f9fa;
+        }
+        
+        .calendar-day.today {
+            background: #007bff;
+            color: white;
+            font-weight: bold;
+        }
+        
+        .calendar-day.selected-start {
+            background: #28a745;
+            color: white;
+            font-weight: bold;
+        }
+        
+        .calendar-day.selected-end {
+            background: #dc3545;
+            color: white;
+            font-weight: bold;
+        }
+        
+        .calendar-day.in-range {
+            background: #ffc107;
+            color: #212529;
+        }
+        
+        .calendar-day.disabled {
+            background: #e9ecef;
+            color: #adb5bd;
+            cursor: not-allowed;
+        }
+        
+        .calendar-day.disabled:hover {
+            background: #e9ecef;
+        }
+
+        /* 两色嵌套占用条样式 */
+        .gantt-occupy {
+            position: relative;
+            width: 100%;
+            height: 70%;
+            background: #6c757d; /* 外层：寄出-收回（物流+缓冲）灰色 */
+            border-radius: 4px;
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2);
+        }
+        .gantt-occupy-inner {
+            position: absolute;
+            top: 15%;
+            left: 10%;
+            right: 10%;
+            bottom: 15%;
+            background: #ffc107; /* 内层：租赁区间黄色 */
+            border-radius: 3px;
+        }
+        .gantt-occupy:hover {
+            box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+            z-index: 5;
+        }
+        .gantt-occupy .rental-info {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            background: #fff;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            z-index: 10;
+            min-width: 250px;
+            white-space: nowrap;
+        }
+        .gantt-occupy:hover .rental-info { display: block; }
     </style>
 </head>
 <body>
@@ -262,6 +432,9 @@
                         <button type="button" class="btn btn-outline-secondary" onclick="clearFilters()">
                             清除
                         </button>
+                        <button type="button" class="btn btn-info ms-2" onclick="openBookingModal()">
+                            <i class="bi bi-calendar-plus"></i> 预定设备
+                        </button>
                     </div>
                 </div>
             </div>
@@ -273,64 +446,76 @@
         </div>
     </div>
 
-    <!-- 添加租赁模态框 -->
-    <div class="modal fade" id="addRentalModal" tabindex="-1">
+    <!-- 预定设备模态框 -->
+    <div class="modal fade" id="bookingModal" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">添加租赁记录</h5>
+                    <h5 class="modal-title">预定设备</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <form id="addRentalForm">
+                    <form id="bookingForm">
                         <div class="mb-3">
-                            <label for="device-select" class="form-label">设备</label>
-                            <select class="form-select" id="device-select" required>
-                                <option value="">选择设备</option>
-                            </select>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6">
-                                <label for="start-date" class="form-label">开始日期</label>
-                                <input type="date" class="form-control" id="start-date" required>
+                            <label class="form-label">租赁时间范围</label>
+                            <div class="calendar-container">
+                                <div class="calendar-header">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="previousMonth()">
+                                        <i class="bi bi-chevron-left"></i>
+                                    </button>
+                                    <span id="current-month-year" class="fw-bold"></span>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="nextMonth()">
+                                        <i class="bi bi-chevron-right"></i>
+                                    </button>
+                                </div>
+                                <div class="calendar-grid">
+                                    <div class="calendar-weekdays">
+                                        <div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div>
+                                    </div>
+                                    <div id="calendar-days" class="calendar-days"></div>
+                                </div>
+                                <div class="date-selection-info mt-2">
+                                    <small class="text-muted">
+                                        开始日期: <span id="selected-start-date" class="text-primary">未选择</span> | 
+                                        结束日期: <span id="selected-end-date" class="text-primary">未选择</span>
+                                    </small>
+                                </div>
                             </div>
-                            <div class="col-md-6">
-                                <label for="end-date" class="form-label">结束日期</label>
-                                <input type="date" class="form-control" id="end-date" required>
-                            </div>
                         </div>
-                        <div class="mb-3">
-                            <label for="customer-name" class="form-label">客户姓名</label>
-                            <input type="text" class="form-control" id="customer-name" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="customer-phone" class="form-label">客户电话</label>
-                            <input type="tel" class="form-control" id="customer-phone">
-                        </div>
-                        <!-- 省市区（可搜索联动） -->
                         <div class="mb-3">
                             <label class="form-label">目的地</label>
                             <div class="row g-2">
                                 <div class="col-md-4">
-                                    <select class="form-select" id="province-select"></select>
+                                    <select class="form-select" id="province-select" required></select>
                                 </div>
                                 <div class="col-md-4">
-                                    <select class="form-select" id="city-select"></select>
+                                    <select class="form-select" id="city-select" required></select>
                                 </div>
                                 <div class="col-md-4">
-                                    <select class="form-select" id="district-select"></select>
+                                    <select class="form-select" id="district-select" required></select>
                                 </div>
                             </div>
                         </div>
                         <div class="mb-3">
-                            <label for="purpose" class="form-label">使用目的</label>
-                            <textarea class="form-control" id="purpose" rows="3"></textarea>
+                            <label for="logistics-days" class="form-label">物流时间（天）</label>
+                            <input type="number" class="form-control" id="logistics-days" min="-1" value="1" required>
+                            <div class="form-text">负数表示提前到达，正数表示延后到达</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="customer-name" class="form-label">租赁人</label>
+                            <input type="text" class="form-control" id="customer-name" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="customer-phone" class="form-label">手机号</label>
+                            <input type="tel" class="form-control" id="customer-phone" pattern="^1[3-9]\d{9}$" required>
+                            <div class="form-text">请输入11位手机号码</div>
                         </div>
                     </form>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="button" class="btn btn-primary" onclick="submitRental()">创建租赁</button>
+                    <button type="button" class="btn btn-info" onclick="findAvailableSlot()">找档期</button>
+                    <button type="button" class="btn btn-primary" onclick="submitBooking()" disabled id="submit-booking-btn">提交预定</button>
                 </div>
             </div>
         </div>
@@ -379,3 +564,4 @@
     <script src="/static/js/gantt.js"></script>
 </body>
 </html>
+

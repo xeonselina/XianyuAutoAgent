@@ -194,7 +194,7 @@ class InventoryService:
                     'start_date': rental.start_date.isoformat(),
                     'end_date': rental.end_date.isoformat(),
                     'customer_name': rental.customer_name,
-                    'purpose': rental.purpose,
+                    'destination': rental.destination,
                     'status': rental.status,
                     'daily_rate': float(rental.daily_rate) if rental.daily_rate else None,
                     'total_cost': float(rental.total_cost) if rental.total_cost else None

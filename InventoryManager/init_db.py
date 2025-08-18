@@ -13,7 +13,7 @@ from datetime import datetime, date, timedelta
 def init_database():
     """初始化数据库"""
     # 设置环境变量
-    os.environ.setdefault('DATABASE_URL', 'mysql+pymysql://root:123456@localhost:3306/testdb')
+    #os.environ.setdefault('DATABASE_URL', 'mysql+pymysql://root:123456@localhost:3306/testdb')
     
     # 创建应用实例
     app = create_app()

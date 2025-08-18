@@ -64,7 +64,7 @@ def gantt_data():
         
         # 获取指定时间范围内的租赁记录
         rentals = Rental.query.filter(
-            Rental.status == 'active',
+            Rental.status != 'cancelled',
             db.or_(
                 db.and_(
                     Rental.start_date <= start_date,
@@ -110,8 +110,13 @@ def gantt_data():
                 'device_id': rental.device_id,
                 'start_date': rental.start_date.isoformat(),
                 'end_date': rental.end_date.isoformat(),
+                'ship_out_time': rental.ship_out_time.isoformat() if rental.ship_out_time else None,
+                'ship_in_time': rental.ship_in_time.isoformat() if rental.ship_in_time else None,
                 'customer_name': rental.customer_name,
                 'customer_phone': rental.customer_phone,
+                'destination': rental.destination,
+                'ship_out_tracking_no': rental.ship_out_tracking_no,
+                'ship_in_tracking_no': rental.ship_in_tracking_no,
                 'status': rental.status
             }
             gantt_data['rentals'].append(rental_data)
@@ -344,8 +349,22 @@ def create_rental():
             start_date=start_date,
             end_date=end_date,
             customer_name=data['customer_name'],
-            customer_phone=data.get('customer_phone')
+            customer_phone=data.get('customer_phone'),
+            destination=data.get('destination')
         )
+        
+        # 设置物流时间（如果提供）
+        if data.get('ship_out_time'):
+            try:
+                rental.ship_out_time = datetime.fromisoformat(data['ship_out_time'].replace('Z', '+00:00'))
+            except ValueError:
+                pass
+        
+        if data.get('ship_in_time'):
+            try:
+                rental.ship_in_time = datetime.fromisoformat(data['ship_in_time'].replace('Z', '+00:00'))
+            except ValueError:
+                pass
         
         db.session.add(rental)
         db.session.commit()
