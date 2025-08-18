@@ -9,8 +9,13 @@ class GanttChart {
         this.endDate = new Date();
         this.devices = [];
         this.rentals = [];
-        this.selectedCell = null;
-        this.rentalStartDate = null;
+        this.availableSlot = null;
+        
+        // 日历相关
+        this.calendarDate = new Date();
+        this.selectedStartDate = null;
+        this.selectedEndDate = null;
+        this.isSelectingEnd = false;
         
         this.init();
     }
@@ -37,10 +42,6 @@ class GanttChart {
         // 设置日期输入框的默认值
         document.getElementById('query-start-date').value = this.formatDate(this.startDate);
         document.getElementById('query-end-date').value = this.formatDate(this.endDate);
-        
-        // 设置添加租赁模态框的日期
-        document.getElementById('start-date').value = this.formatDate(new Date());
-        document.getElementById('end-date').value = this.formatDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
     }
     
     async loadData() {
@@ -62,6 +63,7 @@ class GanttChart {
                 console.error('加载数据失败:', response.data.error);
             }
         } catch (error) {
+            this.showToast('加载数据异常: ' + this.getErrorMessage(error), 'error');
             console.error('加载数据异常:', error);
         }
     }
@@ -122,10 +124,10 @@ class GanttChart {
             deviceCell.innerHTML = `
                 <div>
                     <div><strong>${device.name}</strong></div>
-                    <div style="font-size: 0.8em; color: #6c757d;">
+                    <div style="font-size: 0.7em; color: #6c757d;">
                         编号: ${device.serial_number || 'N/A'}
                     </div>
-                    <div style="font-size: 0.8em; color: #6c757d;">
+                    <div style="font-size: 0.7em; color: #6c757d;">
                         位置: ${device.location || 'N/A'} | 状态: ${this.getStatusText(device.status)}
                     </div>
                 </div>
@@ -138,15 +140,13 @@ class GanttChart {
                 const dateCell = document.createElement('div');
                 dateCell.className = 'gantt-cell';
                 
-                // 检查是否有租赁记录
+                // 检查是否有租赁记录（扩展到寄出-收回时间）
                 const rental = this.getRentalForDeviceAndDate(device.id, currentDate);
                 if (rental) {
-                    dateCell.appendChild(this.createRentalElement(rental));
+                    const el = this.createOccupancyElement(rental, currentDate);
+                    if (el) dateCell.appendChild(el);
                 } else if (device.status === 'available') {
                     dateCell.className += ' available';
-                    // 使用日期副本以避免闭包中被后续循环修改
-                    const dateCopy = new Date(currentDate);
-                    dateCell.onclick = () => this.handleCellClick(device, dateCopy);
                 }
                 
                 row.appendChild(dateCell);
@@ -157,124 +157,381 @@ class GanttChart {
         });
     }
     
-    createRentalElement(rental) {
-        const rentalDiv = document.createElement('div');
-        rentalDiv.className = 'gantt-rental';
-        rentalDiv.style.width = this.calculateRentalWidth(rental) + 'px';
+    // 计算寄出/收回时间（优先使用后端提供字段）
+    getShipOutDate(rental) {
+        if (rental.ship_out_time) {
+            return new Date(rental.ship_out_time);
+        }
+        const startDate = new Date(rental.start_date);
+        const logisticsDays = 1; // 兜底：老数据没有物流天数则按1天
+        const shipOut = new Date(startDate);
+        shipOut.setDate(shipOut.getDate() - 1 - logisticsDays);
+        return shipOut;
+    }
+    
+    getShipInDate(rental) {
+        if (rental.ship_in_time) {
+            return new Date(rental.ship_in_time);
+        }
+        const endDate = new Date(rental.end_date);
+        const logisticsDays = 1;
+        const shipIn = new Date(endDate);
+        shipIn.setDate(shipIn.getDate() + 1 + logisticsDays);
+        return shipIn;
+    }
+    
+    // 在单元格内渲染占用条（外层：寄出-收回；内层：租赁期间）
+    createOccupancyElement(rental, currentDate) {
+        const dayStr = this.formatDate(currentDate);
+        const shipOut = this.getShipOutDate(rental);
+        const shipIn = this.getShipInDate(rental);
+        const startDate = new Date(rental.start_date);
+        const endDate = new Date(rental.end_date);
         
-        rentalDiv.innerHTML = `
-            <div class="rental-info">
-                <strong>客户:</strong> ${rental.customer_name}<br>
-                <strong>目的:</strong> ${rental.purpose || 'N/A'}<br>
-                <strong>状态:</strong> ${this.getRentalStatusText(rental.status)}
-            </div>
-            <button class="delete-btn" onclick="ganttChart.deleteRental(${rental.id})">
-                <i class="bi bi-trash"></i>
-            </button>
-            ${rental.customer_name}
-        `;
+        const inFullRange = this.formatDate(shipOut) <= dayStr && dayStr <= this.formatDate(shipIn);
+        if (!inFullRange) return null;
         
-        return rentalDiv;
+        const inRentalRange = this.formatDate(startDate) <= dayStr && dayStr <= this.formatDate(endDate);
+        
+        const wrap = document.createElement('div');
+        wrap.className = 'gantt-occupy';
+        
+        if (inRentalRange) {
+            const inner = document.createElement('div');
+            inner.className = 'gantt-occupy-inner';
+            wrap.appendChild(inner);
+        }
+        
+        // 悬停信息
+        wrap.appendChild(this.createRentalInfoElement(rental, shipOut, shipIn));
+        
+        return wrap;
     }
     
-    calculateRentalWidth(rental) {
-        const start = new Date(rental.start_date);
-        const end = new Date(rental.end_date);
-        const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
-        return Math.max(days * 120, 120); // 最小宽度120px
-    }
-    
-    getRentalForDeviceAndDate(deviceId, date) {
-        const dateStr = this.formatDate(date);
-        return this.rentals.find(rental => 
-            rental.device_id === deviceId &&
-            rental.start_date <= dateStr &&
-            rental.end_date >= dateStr &&
-            rental.status === 'active'
-        );
-    }
-    
-    handleCellClick(device, date) {
-        if (!this.rentalStartDate) {
-            // 第一次点击，设置开始日期
-            this.rentalStartDate = date;
-            this.selectedCell = event.target;
-            event.target.style.backgroundColor = '#007bff';
-            event.target.style.color = 'white';
+    createCompleteRentalElements(rental, currentDate) {
+        const elements = [];
+        const currentDateStr = this.formatDate(currentDate);
+        
+        // 确保日期是Date对象
+        const startDate = new Date(rental.start_date);
+        const endDate = new Date(rental.end_date);
+        
+        // 计算寄出时间和收回时间
+        const logisticsDays = 1; // 默认物流时间1天，可以根据实际情况调整
+        const shipOutDate = new Date(startDate);
+        shipOutDate.setDate(shipOutDate.getDate() - 1 - logisticsDays);
+        
+        const shipInDate = new Date(endDate);
+        shipInDate.setDate(shipInDate.getDate() + 1 + logisticsDays);
+        
+        // 检查当前日期是否在寄出到收回的时间范围内
+        if (currentDateStr >= this.formatDate(shipOutDate) && currentDateStr <= this.formatDate(shipInDate)) {
+            const rentalElement = document.createElement('div');
             
-            // 显示提示
-            this.showToast('请选择结束日期', 'info');
-        } else {
-            // 第二次点击，设置结束日期
-            const endDate = date;
-            
-            if (endDate < this.rentalStartDate) {
-                this.showToast('结束日期不能早于开始日期', 'error');
-                this.resetSelection();
-                return;
+            // 判断当前日期属于哪个时间段
+            if (currentDateStr >= this.formatDate(shipOutDate) && currentDateStr < this.formatDate(startDate)) {
+                // 寄出物流时间
+                rentalElement.className = 'gantt-rental logistics-time';
+                rentalElement.textContent = '寄出';
+            } else if (currentDateStr >= this.formatDate(startDate) && currentDateStr <= this.formatDate(endDate)) {
+                // 租赁时间
+                rentalElement.className = 'gantt-rental rental-time';
+                rentalElement.textContent = rental.customer_name;
+            } else {
+                // 收回物流时间
+                rentalElement.className = 'gantt-rental logistics-time';
+                rentalElement.textContent = '收回';
             }
             
-            // 打开添加租赁模态框
-            this.openAddRentalModal(device, this.rentalStartDate, endDate);
-            this.resetSelection();
+            // 添加悬停提示信息
+            rentalElement.appendChild(this.createRentalInfoElement(rental, shipOutDate, shipInDate));
+            
+            // 添加删除按钮（只在租赁时间显示）
+            if (currentDateStr >= this.formatDate(startDate) && currentDateStr <= this.formatDate(endDate)) {
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'delete-btn';
+                deleteBtn.innerHTML = '<i class="bi bi-trash"></i>';
+                deleteBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    this.deleteRental(rental.id);
+                };
+                rentalElement.appendChild(deleteBtn);
+            }
+            
+            elements.push(rentalElement);
         }
+        
+        return elements;
     }
     
-    resetSelection() {
-        if (this.selectedCell) {
-            this.selectedCell.style.backgroundColor = '';
-            this.selectedCell.style.color = '';
-            this.selectedCell = null;
-        }
-        this.rentalStartDate = null;
+    createRentalInfoElement(rental, shipOutDate, shipInDate) {
+        const infoDiv = document.createElement('div');
+        infoDiv.className = 'rental-info';
+        
+        const logisticsDays = 1; // 默认物流时间1天
+        
+        infoDiv.innerHTML = `
+            <div class="info-row">
+                <span class="info-label">客户名:</span>
+                <span class="info-value">${rental.customer_name}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">联系方式:</span>
+                <span class="info-value">${rental.customer_phone || 'N/A'}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">寄出时间:</span>
+                <span class="info-value">${this.formatDate(shipOutDate)}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">租赁开始:</span>
+                <span class="info-value">${this.formatDate(new Date(rental.start_date))}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">租赁结束:</span>
+                <span class="info-value">${this.formatDate(new Date(rental.end_date))}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">收回时间:</span>
+                <span class="info-value">${this.formatDate(shipInDate)}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">寄出运单:</span>
+                <span class="info-value">${rental.ship_out_tracking_no || 'N/A'}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">寄回运单:</span>
+                <span class="info-value">${rental.ship_in_tracking_no || 'N/A'}</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">目的地:</span>
+                <span class="info-value">${rental.destination || 'N/A'}</span>
+            </div>
+        `;
+        
+        return infoDiv;
     }
     
-    openAddRentalModal(device, startDate, endDate) {
-        // 填充模态框数据
-        // 确保设备下拉已填充
-        this.populateDeviceSelect();
-        // 确保地区下拉已填充（如果初始渲染时未成功，这里兜底）
+    // 重写：在寄出-收回范围内判断有无记录
+    getRentalForDeviceAndDate(deviceId, date) {
+        const dateStr = this.formatDate(date);
+        return this.rentals.find(rental => {
+            if (rental.device_id !== deviceId) return false;
+            if (rental.status === 'cancelled') return false;
+            const shipOutStr = this.formatDate(this.getShipOutDate(rental));
+            const shipInStr = this.formatDate(this.getShipInDate(rental));
+            return shipOutStr <= dateStr && dateStr <= shipInStr;
+        });
+    }
+    
+    openBookingModal() {
+        // 确保地区下拉已填充
         this.ensureRegionSelectorsPopulated();
-        document.getElementById('device-select').value = device.id;
-        document.getElementById('start-date').value = this.formatDate(startDate);
-        document.getElementById('end-date').value = this.formatDate(endDate);
+        
+        // 重置表单和状态
+        document.getElementById('bookingForm').reset();
+        document.getElementById('submit-booking-btn').disabled = true;
+        this.availableSlot = null;
+        
+        // 重置日历选择
+        this.resetCalendarSelection();
+        
+        // 设置默认物流时间
+        document.getElementById('logistics-days').value = '1';
+        
+        // 添加物流时间输入框的实时验证
+        this.attachLogisticsTimeValidation();
         
         // 显示模态框
-        const modal = new bootstrap.Modal(document.getElementById('addRentalModal'));
+        const modal = new bootstrap.Modal(document.getElementById('bookingModal'));
         modal.show();
+        
+        // 模态框显示后渲染日历
+        setTimeout(() => {
+            this.renderCalendar();
+        }, 100);
     }
     
-    async submitRental() {
+    attachLogisticsTimeValidation() {
+        const logisticsInput = document.getElementById('logistics-days');
+        if (!logisticsInput) return;
+        
+        logisticsInput.addEventListener('input', () => {
+            // 如果已经选择了日期，实时验证物流时间是否合适
+            if (this.selectedStartDate) {
+                this.validateLogisticsTime();
+            }
+        });
+    }
+    
+    validateLogisticsTime() {
+        if (!this.selectedStartDate) return;
+        
+        const logisticsDays = parseInt(document.getElementById('logistics-days').value) || 1;
+        const shipOutDate = new Date(this.selectedStartDate);
+        shipOutDate.setDate(shipOutDate.getDate() - 1 - logisticsDays);
+        
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        if (shipOutDate < today) {
+            // 显示警告，但不阻止用户继续操作
+            const warningDiv = document.getElementById('logistics-warning') || this.createLogisticsWarning();
+            warningDiv.style.display = 'block';
+            warningDiv.textContent = `⚠️ 当前物流时间会导致寄出时间早于今天（${this.formatDate(shipOutDate)}）`;
+        } else {
+            // 隐藏警告
+            const warningDiv = document.getElementById('logistics-warning');
+            if (warningDiv) {
+                warningDiv.style.display = 'none';
+            }
+        }
+    }
+    
+    createLogisticsWarning() {
+        const warningDiv = document.createElement('div');
+        warningDiv.id = 'logistics-warning';
+        warningDiv.className = 'alert alert-warning mt-2';
+        warningDiv.style.fontSize = '0.8em';
+        warningDiv.style.display = 'none';
+        
+        const logisticsContainer = document.getElementById('logistics-days').closest('.mb-3');
+        if (logisticsContainer) {
+            logisticsContainer.appendChild(warningDiv);
+        }
+        
+        return warningDiv;
+    }
+    
+    async findAvailableSlot() {
+        if (!this.selectedStartDate || !this.selectedEndDate) {
+            this.showToast('请先在日历中选择租赁开始和结束日期', 'error');
+            return;
+        }
+        
+        const logisticsDays = parseInt(document.getElementById('logistics-days').value);
+        
+        if (!logisticsDays || logisticsDays < -1) {
+            this.showToast('物流时间不能少于-1天', 'error');
+            return;
+        }
+        
+        // 验证日期 - 允许开始和结束日期是同一天
+        if (this.selectedStartDate > this.selectedEndDate) {
+            this.showToast('开始日期不能晚于结束日期', 'error');
+            return;
+        }
+        
+        // 计算寄出时间和收回时间
+        const shipOutDate = new Date(this.selectedStartDate);
+        shipOutDate.setDate(shipOutDate.getDate() - 1 - logisticsDays);
+        
+        const shipInDate = new Date(this.selectedEndDate);
+        shipInDate.setDate(shipInDate.getDate() + 1 + logisticsDays);
+        
+        // 检查寄出时间不能早于今天
+        const today = new Date();
+        today.setHours(0, 0, 0, 0); // 设置为今天的开始时间
+        
+        if (shipOutDate < today) {
+            this.showToast(`寄出时间不能早于今天。当前计算的寄出时间是：${this.formatDate(shipOutDate)}，请调整租赁时间或物流时间。`, 'error');
+            return;
+        }
+        
+        // 查找可用档期
+        const availableSlot = this.findAvailableTimeSlot(shipOutDate, shipInDate);
+        
+        if (availableSlot) {
+            this.availableSlot = availableSlot;
+            document.getElementById('submit-booking-btn').disabled = false;
+            this.showToast(`找到可用档期：${availableSlot.device.name}，寄出：${this.formatDate(shipOutDate)}，收回：${this.formatDate(shipInDate)}`, 'success');
+        } else {
+            this.showToast('未找到可用档期，请调整时间或物流时间', 'error');
+            document.getElementById('submit-booking-btn').disabled = true;
+        }
+    }
+    
+    findAvailableTimeSlot(shipOutDate, shipInDate) {
+        // 遍历所有设备，查找在指定时间段内可用的设备
+        for (const device of this.devices) {
+            if (device.status !== 'available') continue;
+            
+            // 检查设备在指定时间段是否可用
+            if (this.isDeviceAvailableInPeriod(device.id, shipOutDate, shipInDate)) {
+                return { device, shipOutDate, shipInDate };
+            }
+        }
+        return null;
+    }
+    
+    isDeviceAvailableInPeriod(deviceId, startDate, endDate) {
+        // 检查设备在指定时间段是否有冲突的租赁记录
+        const conflictingRentals = this.rentals.filter(rental => 
+            rental.device_id === deviceId &&
+            rental.status !== 'cancelled' &&
+            this.datesOverlap(
+                new Date(rental.start_date),
+                new Date(rental.end_date),
+                startDate,
+                endDate
+            )
+        );
+        
+        return conflictingRentals.length === 0;
+    }
+    
+    datesOverlap(start1, end1, start2, end2) {
+        return start1 <= end2 && start2 <= end1;
+    }
+    
+    async submitBooking() {
+        if (!this.selectedStartDate || !this.selectedEndDate) {
+            this.showToast('请先选择租赁开始和结束日期', 'error');
+            return;
+        }
+        
         const formData = {
-            device_id: document.getElementById('device-select').value,
-            start_date: document.getElementById('start-date').value,
-            end_date: document.getElementById('end-date').value,
+            device_id: this.availableSlot.device.id,
+            start_date: this.formatDate(this.selectedStartDate),
+            end_date: this.formatDate(this.selectedEndDate),
             customer_name: document.getElementById('customer-name').value,
             customer_phone: document.getElementById('customer-phone').value,
-            purpose: document.getElementById('purpose').value
+            destination: this.getDestinationString(),
+            ship_out_time: this.availableSlot.shipOutDate.toISOString(),
+            ship_in_time: this.availableSlot.shipInDate.toISOString()
         };
         
         try {
             const response = await axios.post('/api/rentals', formData);
             
             if (response.data.success) {
-                this.showToast('租赁记录创建成功', 'success');
+                this.showToast('预定成功！', 'success');
                 
                 // 关闭模态框
-                const modal = bootstrap.Modal.getInstance(document.getElementById('addRentalModal'));
+                const modal = bootstrap.Modal.getInstance(document.getElementById('bookingModal'));
                 modal.hide();
                 
                 // 刷新数据
                 this.loadData();
                 
-                // 清空表单
-                document.getElementById('addRentalForm').reset();
+                // 清空表单和日历选择
+                document.getElementById('bookingForm').reset();
+                document.getElementById('submit-booking-btn').disabled = true;
+                this.availableSlot = null;
+                this.resetCalendarSelection();
             } else {
                 this.showToast('创建失败: ' + response.data.error, 'error');
             }
         } catch (error) {
-            this.showToast('创建失败: ' + error.message, 'error');
+            this.showToast('创建失败: ' + this.getErrorMessage(error), 'error');
         }
+    }
+    
+    getDestinationString() {
+        const province = document.getElementById('province-select').value;
+        const city = document.getElementById('city-select').value;
+        const district = document.getElementById('district-select').value;
+        return `${province} ${city} ${district}`.trim();
     }
     
     async deleteRental(rentalId) {
@@ -292,7 +549,7 @@ class GanttChart {
                 this.showToast('删除失败: ' + response.data.error, 'error');
             }
         } catch (error) {
-            this.showToast('删除失败: ' + error.message, 'error');
+            this.showToast('删除失败: ' + this.getErrorMessage(error), 'error');
         }
     }
     
@@ -321,7 +578,7 @@ class GanttChart {
                 this.showToast('查询失败: ' + response.data.error, 'error');
             }
         } catch (error) {
-            this.showToast('查询失败: ' + error.message, 'error');
+            this.showToast('查询失败: ' + this.getErrorMessage(error), 'error');
         }
     }
     
@@ -575,7 +832,7 @@ class GanttChart {
 
         // 注入下拉内搜索的样式
         this.injectFilterDropdownStyles();
-        // 为三个选择框增加“展开后顶部可输入搜索”的下拉
+        // 为三个选择框增加"展开后顶部可输入搜索"的下拉
         this.attachFilterDropdown(this.provinceSelect, () => Object.keys(this.REGIONS || {}), (val) => {
             if (!val) return;
             this.provinceSelect.value = val;
@@ -600,7 +857,7 @@ class GanttChart {
         this.provinceSelect.oninput();
 
         // 在模态框打开时再次兜底填充（防止某些浏览器延迟渲染导致元素未就绪）
-        const modalEl = document.getElementById('addRentalModal');
+        const modalEl = document.getElementById('bookingModal');
         if (modalEl) {
             modalEl.addEventListener('shown.bs.modal', () => {
                 this.ensureRegionSelectorsPopulated();
@@ -668,7 +925,7 @@ class GanttChart {
         this.districtSelect.value = distToUse;
     }
 
-    // 为原生 select 附加“展开后顶部可输入搜索”的下拉浮层
+    // 为原生 select 附加"展开后顶部可输入搜索"的下拉浮层
     attachFilterDropdown(selectEl, getAllItems, onPick) {
         if (!selectEl) return;
         let panel = null;
@@ -759,6 +1016,20 @@ class GanttChart {
         return statusMap[status] || status;
     }
     
+    getErrorMessage(error) {
+        try {
+            if (error && error.response && error.response.data) {
+                const data = error.response.data;
+                if (typeof data === 'string') return data;
+                return data.error || data.message || data.detail || JSON.stringify(data);
+            }
+            if (error && error.message) return error.message;
+            return '请求失败';
+        } catch (e) {
+            return '请求失败';
+        }
+    }
+
     showToast(message, type = 'info') {
         // 简单的提示实现
         const alertClass = type === 'error' ? 'alert-danger' : 
@@ -780,6 +1051,168 @@ class GanttChart {
                 toast.parentNode.removeChild(toast);
             }
         }, 5000);
+    }
+
+    // 日历相关方法
+    renderCalendar() {
+        const calendarDays = document.getElementById('calendar-days');
+        const currentMonthYear = document.getElementById('current-month-year');
+        
+        if (!calendarDays || !currentMonthYear) return;
+        
+        // 更新月份年份显示
+        const year = this.calendarDate.getFullYear();
+        const month = this.calendarDate.getMonth();
+        currentMonthYear.textContent = `${year}年${month + 1}月`;
+        
+        // 获取当月第一天和最后一天
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        const firstDayOfWeek = firstDay.getDay();
+        const daysInMonth = lastDay.getDate();
+        
+        // 清空日历
+        calendarDays.innerHTML = '';
+        
+        // 添加上个月的日期
+        const prevMonth = new Date(year, month, 0);
+        const daysInPrevMonth = prevMonth.getDate();
+        for (let i = firstDayOfWeek - 1; i >= 0; i--) {
+            const day = document.createElement('div');
+            day.className = 'calendar-day other-month';
+            day.textContent = daysInPrevMonth - i;
+            day.onclick = () => this.selectDate(new Date(year, month - 1, daysInPrevMonth - i));
+            calendarDays.appendChild(day);
+        }
+        
+        // 添加当月的日期
+        for (let day = 1; day <= daysInMonth; day++) {
+            const dayElement = document.createElement('div');
+            dayElement.className = 'calendar-day';
+            dayElement.textContent = day;
+            
+            const currentDate = new Date(year, month, day);
+            
+            // 检查是否是今天
+            if (this.isToday(currentDate)) {
+                dayElement.classList.add('today');
+            }
+            
+            // 检查是否是已选择的开始日期
+            if (this.selectedStartDate && this.isSameDate(currentDate, this.selectedStartDate)) {
+                dayElement.classList.add('selected-start');
+            }
+            
+            // 检查是否是已选择的结束日期
+            if (this.selectedEndDate && this.isSameDate(currentDate, this.selectedEndDate)) {
+                dayElement.classList.add('selected-end');
+            }
+            
+            // 检查是否在选择的范围内
+            if (this.selectedStartDate && this.selectedEndDate && 
+                currentDate > this.selectedStartDate && currentDate < this.selectedEndDate) {
+                dayElement.classList.add('in-range');
+            }
+            
+            // 检查是否应该禁用（过去的日期）
+            if (currentDate < new Date().setHours(0, 0, 0, 0)) {
+                dayElement.classList.add('disabled');
+            } else {
+                dayElement.onclick = () => this.selectDate(currentDate);
+            }
+            
+            calendarDays.appendChild(dayElement);
+        }
+        
+        // 添加下个月的日期
+        const remainingCells = 42 - (firstDayOfWeek + daysInMonth); // 6行7列 = 42
+        for (let day = 1; day <= remainingCells; day++) {
+            const dayElement = document.createElement('div');
+            dayElement.className = 'calendar-day other-month';
+            dayElement.textContent = day;
+            dayElement.onclick = () => this.selectDate(new Date(year, month + 1, day));
+            calendarDays.appendChild(dayElement);
+        }
+        
+        this.updateDateSelectionInfo();
+    }
+    
+    selectDate(date) {
+        if (date < new Date().setHours(0, 0, 0, 0)) {
+            return; // 不能选择过去的日期
+        }
+        
+        if (!this.isSelectingEnd) {
+            // 第一次点击，选择开始日期
+            this.selectedStartDate = new Date(date);
+            this.selectedEndDate = null;
+            this.isSelectingEnd = true;
+            this.showToast('请选择结束日期', 'info');
+        } else {
+            // 第二次点击，选择结束日期
+            if (date <= this.selectedStartDate) {
+                this.showToast('结束日期必须晚于开始日期', 'error');
+                return;
+            }
+            
+            // 验证选择的日期范围是否会导致寄出时间早于今天
+            const logisticsDays = parseInt(document.getElementById('logistics-days').value) || 1;
+            const shipOutDate = new Date(this.selectedStartDate);
+            shipOutDate.setDate(shipOutDate.getDate() - 1 - logisticsDays);
+            
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            if (shipOutDate < today) {
+                this.showToast(`选择的日期范围会导致寄出时间早于今天（${this.formatDate(shipOutDate)}）。请选择更晚的租赁开始时间或减少物流时间。`, 'error');
+                return;
+            }
+            
+            this.selectedEndDate = new Date(date);
+            this.isSelectingEnd = false;
+            this.showToast('日期选择完成，可以点击"找档期"按钮', 'success');
+        }
+        
+        this.renderCalendar();
+    }
+    
+    isSameDate(date1, date2) {
+        return date1.getFullYear() === date2.getFullYear() &&
+               date1.getMonth() === date2.getMonth() &&
+               date1.getDate() === date2.getDate();
+    }
+    
+    updateDateSelectionInfo() {
+        const startDateSpan = document.getElementById('selected-start-date');
+        const endDateSpan = document.getElementById('selected-end-date');
+        
+        if (startDateSpan) {
+            startDateSpan.textContent = this.selectedStartDate ? 
+                this.formatDate(this.selectedStartDate) : '未选择';
+        }
+        
+        if (endDateSpan) {
+            endDateSpan.textContent = this.selectedEndDate ? 
+                this.formatDate(this.selectedEndDate) : '未选择';
+        }
+    }
+    
+    previousMonth() {
+        this.calendarDate.setMonth(this.calendarDate.getMonth() - 1);
+        this.renderCalendar();
+    }
+    
+    nextMonth() {
+        this.calendarDate.setMonth(this.calendarDate.getMonth() + 1);
+        this.renderCalendar();
+    }
+    
+    resetCalendarSelection() {
+        this.selectedStartDate = null;
+        this.selectedEndDate = null;
+        this.isSelectingEnd = false;
+        this.calendarDate = new Date();
+        this.renderCalendar();
     }
 }
 
@@ -812,10 +1245,26 @@ function clearFilters() {
     ganttChart.clearFilters();
 }
 
-function submitRental() {
-    ganttChart.submitRental();
+function openBookingModal() {
+    ganttChart.openBookingModal();
+}
+
+function submitBooking() {
+    ganttChart.submitBooking();
+}
+
+function findAvailableSlot() {
+    ganttChart.findAvailableSlot();
 }
 
 function queryInventory() {
     ganttChart.queryInventory();
+}
+
+function previousMonth() {
+    ganttChart.previousMonth();
+}
+
+function nextMonth() {
+    ganttChart.nextMonth();
 }

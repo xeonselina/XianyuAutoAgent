@@ -227,12 +227,7 @@ def create_rental_api():
             end_date=end_date,
             customer_name=data['customer_name'],
             customer_phone=data.get('customer_phone'),
-            customer_email=data.get('customer_email'),
-            customer_company=data.get('customer_company'),
-            purpose=data.get('purpose'),
-            daily_rate=device.daily_rate,
-            total_cost=device.calculate_rental_cost(start_date, end_date),
-            created_by=data.get('created_by', 'api_system')
+            destination=data.get('destination')
         )
         
         from app import db
@@ -293,7 +288,7 @@ def update_rental_api(rental_id):
         data = request.get_json()
         
         # 只允许更新特定字段
-        allowed_fields = ['customer_phone', 'customer_email', 'customer_company', 'purpose', 'notes']
+        allowed_fields = ['customer_phone', 'customer_email', 'customer_company', 'notes']
         
         for field, value in data.items():
             if field in allowed_fields and hasattr(rental, field):
