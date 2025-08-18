@@ -3,6 +3,7 @@
 """
 
 from app import db
+from app.models.rental import Rental
 from datetime import datetime
 
 

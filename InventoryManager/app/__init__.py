@@ -17,7 +17,12 @@ migrate = Migrate()
 
 def create_app(config_class=Config):
     """应用工厂函数"""
-    app = Flask(__name__)
+    # 获取项目根目录的绝对路径
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    
+    app = Flask(__name__, 
+                template_folder=os.path.join(project_root, 'templates'),
+                static_folder=os.path.join(project_root, 'static'))
     app.config.from_object(config_class)
     
     # 初始化扩展

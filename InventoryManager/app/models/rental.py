@@ -15,15 +15,22 @@ class Rental(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     
     # 关联信息
-    device_id = db.Column(db.String(50), db.ForeignKey('devices.id'), nullable=False, comment='设备ID')
+    device_id = db.Column(db.Integer, db.ForeignKey('devices.id'), nullable=False, comment='设备ID')
     
     # 时间信息
     start_date = db.Column(db.Date, nullable=False, comment='开始日期')
     end_date = db.Column(db.Date, nullable=False, comment='结束日期')
+    ship_out_time = db.Column(db.DateTime, nullable=True, comment='寄出时间')
+    ship_in_time = db.Column(db.DateTime, nullable=True, comment='收回时间')
     
     # 客户信息
     customer_name = db.Column(db.String(100), nullable=False, comment='客户姓名')
     customer_phone = db.Column(db.String(20), comment='客户电话')
+    destination = db.Column(db.String(100), comment='目的地')
+
+    # 物流信息
+    ship_out_tracking_no = db.Column(db.String(50), comment='寄出快递单号')
+    ship_in_tracking_no = db.Column(db.String(50), comment='寄回快递单号')
     
     # 状态信息
     status = db.Column(
@@ -49,8 +56,13 @@ class Rental(db.Model):
             'device_id': self.device_id,
             'start_date': self.start_date.isoformat(),
             'end_date': self.end_date.isoformat(),
+            'ship_out_time': self.ship_out_time.isoformat() if self.ship_out_time else None,
+            'ship_in_time': self.ship_in_time.isoformat() if self.ship_in_time else None,
             'customer_name': self.customer_name,
             'customer_phone': self.customer_phone,
+            'destination': self.destination,
+            'ship_out_tracking_no': self.ship_out_tracking_no,
+            'ship_in_tracking_no': self.ship_in_tracking_no,
             'status': self.status,
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat(),

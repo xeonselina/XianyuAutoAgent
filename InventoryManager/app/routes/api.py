@@ -68,7 +68,7 @@ def get_available_inventory():
             }), 400
         
         # 查询可用设备
-        available_devices = Device.get_available_devices(start_date, end_date, device_type)
+        available_devices = Device.get_available_devices(start_date, end_date)
         
         # 构建响应数据
         response_data = []
@@ -76,13 +76,9 @@ def get_available_inventory():
             device_info = {
                 'device_id': device.id,
                 'device_name': device.name,
-                'device_type': device.type,
-                'model': device.model,
-                'brand': device.brand,
+                'serial_number': device.serial_number,
                 'status': 'available',
-                'daily_rate': float(device.daily_rate) if device.daily_rate else None,
-                'location': device.location,
-                'condition': device.condition
+                'location': device.location
             }
             response_data.append(device_info)
         
@@ -91,8 +87,7 @@ def get_available_inventory():
             'data': response_data,
             'query_params': {
                 'start_date': start_date_str,
-                'end_date': end_date_str,
-                'device_type': device_type
+                'end_date': end_date_str
             },
             'total_available': len(response_data),
             'timestamp': datetime.utcnow().isoformat()
@@ -364,16 +359,16 @@ def cancel_rental_api(rental_id):
 def get_devices_api():
     """获取设备列表"""
     try:
-        device_type = request.args.get('type')
         status = request.args.get('status')
+        location = request.args.get('location')
         
         query = Device.query
         
-        if device_type:
-            query = query.filter(Device.type == device_type)
-        
         if status:
             query = query.filter(Device.status == status)
+        
+        if location:
+            query = query.filter(Device.location == location)
         
         devices = query.all()
         
@@ -448,15 +443,19 @@ def get_statistics_api():
         # 租赁统计
         rental_stats = Rental.get_rental_statistics(start_date, end_date)
         
-        # 按类型统计设备
-        device_types = Device.get_device_count_by_type()
+        # 按位置统计设备（使用实际存在的字段）
+        from app import db
+        location_stats = db.session.query(
+            Device.location, 
+            db.func.count(Device.id)
+        ).filter(Device.location.isnot(None)).group_by(Device.location).all()
         
         return jsonify({
             'success': True,
             'data': {
                 'devices': device_stats,
                 'rentals': rental_stats,
-                'device_types': [{'type': t[0], 'count': t[1]} for t in device_types]
+                'device_locations': [{'location': loc[0], 'count': loc[1]} for loc in location_stats]
             },
             'timestamp': datetime.utcnow().isoformat()
         })

@@ -307,6 +307,21 @@
                             <label for="customer-phone" class="form-label">客户电话</label>
                             <input type="tel" class="form-control" id="customer-phone">
                         </div>
+                        <!-- 省市区（可搜索联动） -->
+                        <div class="mb-3">
+                            <label class="form-label">目的地</label>
+                            <div class="row g-2">
+                                <div class="col-md-4">
+                                    <select class="form-select" id="province-select"></select>
+                                </div>
+                                <div class="col-md-4">
+                                    <select class="form-select" id="city-select"></select>
+                                </div>
+                                <div class="col-md-4">
+                                    <select class="form-select" id="district-select"></select>
+                                </div>
+                            </div>
+                        </div>
                         <div class="mb-3">
                             <label for="purpose" class="form-label">使用目的</label>
                             <textarea class="form-control" id="purpose" rows="3"></textarea>

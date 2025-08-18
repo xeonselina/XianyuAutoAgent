@@ -3,7 +3,8 @@
 """
 
 from flask import Blueprint, render_template, request, jsonify, current_app
-from app.models import Device, Rental
+from app.models.device import Device
+from app.models.rental import Rental
 from app.services.inventory_service import InventoryService
 from app.services.rental_service import RentalService
 from datetime import datetime, date, timedelta
@@ -96,9 +97,9 @@ def gantt_data():
             device_data = {
                 'id': device.id,
                 'name': device.name,
-                'type': device.type,
-                'model': device.model,
-                'status': device.status
+                'serial_number': device.serial_number,
+                'status': device.status,
+                'location': device.location
             }
             gantt_data['devices'].append(device_data)
         
@@ -110,7 +111,7 @@ def gantt_data():
                 'start_date': rental.start_date.isoformat(),
                 'end_date': rental.end_date.isoformat(),
                 'customer_name': rental.customer_name,
-                'purpose': rental.purpose,
+                'customer_phone': rental.customer_phone,
                 'status': rental.status
             }
             gantt_data['rentals'].append(rental_data)
@@ -168,8 +169,8 @@ def create_device():
     try:
         data = request.get_json()
         
-        # 验证必填字段
-        required_fields = ['name', 'type']
+        # 验证必填字段（以模型真实字段为准）
+        required_fields = ['name']
         for field in required_fields:
             if not data.get(field):
                 return jsonify({
@@ -180,14 +181,8 @@ def create_device():
         # 创建设备
         device = Device(
             name=data['name'],
-            type=data['type'],
-            model=data.get('model'),
-            brand=data.get('brand'),
             serial_number=data.get('serial_number'),
-            location=data.get('location'),
-            condition=data.get('condition', 'good'),
-            daily_rate=data.get('daily_rate'),
-            description=data.get('description')
+            location=data.get('location')
         )
         
         db.session.add(device)
@@ -310,9 +305,11 @@ def get_rental(rental_id):
 def create_rental():
     """创建租赁记录"""
     try:
+        # 避免潜在的循环导入：在函数内进行局部导入
+        from app.models.rental import Rental as RentalModel
         data = request.get_json()
         
-        # 验证必填字段
+        # 验证必填字段（与模型定义保持一致）
         required_fields = ['device_id', 'start_date', 'end_date', 'customer_name']
         for field in required_fields:
             if not data.get(field):
@@ -338,27 +335,16 @@ def create_rental():
                 'error': '开始日期不能早于今天'
             }), 400
         
-        # 检查设备可用性
+        # 检查设备存在
         device = Device.query.get_or_404(data['device_id'])
-        if not device.is_available(start_date, end_date):
-            return jsonify({
-                'success': False,
-                'error': '设备在指定时间段不可用'
-            }), 400
         
         # 创建租赁记录
-        rental = Rental(
+        rental = RentalModel(
             device_id=data['device_id'],
             start_date=start_date,
             end_date=end_date,
             customer_name=data['customer_name'],
-            customer_phone=data.get('customer_phone'),
-            customer_email=data.get('customer_email'),
-            customer_company=data.get('customer_company'),
-            purpose=data.get('purpose'),
-            daily_rate=device.daily_rate,
-            total_cost=device.calculate_rental_cost(start_date, end_date),
-            created_by=data.get('created_by', 'system')
+            customer_phone=data.get('customer_phone')
         )
         
         db.session.add(rental)
@@ -425,15 +411,18 @@ def get_statistics():
         # 租赁统计
         rental_stats = Rental.get_rental_statistics()
         
-        # 按类型统计设备
-        device_types = Device.get_device_count_by_type()
+        # 按位置统计设备（使用实际存在的 location 字段）
+        location_stats = db.session.query(
+            Device.location, 
+            db.func.count(Device.id)
+        ).filter(Device.location.isnot(None)).group_by(Device.location).all()
         
         return jsonify({
             'success': True,
             'data': {
                 'devices': device_stats,
                 'rentals': rental_stats,
-                'device_types': [{'type': t[0], 'count': t[1]} for t in device_types]
+                'device_locations': [{'location': loc[0], 'count': loc[1]} for loc in location_stats]
             }
         })
         

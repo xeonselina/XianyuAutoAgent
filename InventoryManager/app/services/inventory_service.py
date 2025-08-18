@@ -16,14 +16,13 @@ class InventoryService:
     
     @staticmethod
     def get_available_devices(start_date: date, end_date: date, 
-                            device_type: str = None, location: str = None) -> List[Device]:
+                            location: str = None) -> List[Device]:
         """
-        获取指定时间段可用的设备
+        获取指定时间段内可用的设备
         
         Args:
             start_date: 开始日期
             end_date: 结束日期
-            device_type: 设备类型（可选）
             location: 设备位置（可选）
             
         Returns:
@@ -32,10 +31,6 @@ class InventoryService:
         try:
             # 基础查询：状态为可用的设备
             query = Device.query.filter(Device.status == 'available')
-            
-            # 按类型过滤
-            if device_type:
-                query = query.filter(Device.type == device_type)
             
             # 按位置过滤
             if location:
@@ -234,7 +229,12 @@ class InventoryService:
         try:
             # 设备统计
             device_stats = Device.get_device_count_by_status()
-            device_type_stats = Device.get_device_count_by_type()
+            
+            # 按位置统计设备（使用实际存在的字段）
+            location_stats = db.session.query(
+                Device.location, 
+                db.func.count(Device.id)
+            ).filter(Device.location.isnot(None)).group_by(Device.location).all()
             
             # 租赁统计
             today = date.today()
@@ -266,7 +266,7 @@ class InventoryService:
                     'devices': {
                         'total': sum(count for _, count in device_stats),
                         'by_status': {status: count for status, count in device_stats},
-                        'by_type': {device_type: count for device_type, count in device_type_stats}
+                        'by_location': {location: count for location, count in location_stats}
                     },
                     'rentals': {
                         'active': active_rentals,
@@ -285,19 +285,18 @@ class InventoryService:
             }
     
     @staticmethod
-    def search_devices(keyword: str = None, device_type: str = None, 
-                      status: str = None, location: str = None) -> List[Device]:
+    def search_devices(keyword: str = None, status: str = None,
+                      location: str = None) -> List[Device]:
         """
         搜索设备
         
         Args:
-            keyword: 搜索关键词（设备名称、型号、序列号）
-            device_type: 设备类型
+            keyword: 搜索关键词（设备名称或序列号）
             status: 设备状态
             location: 设备位置
             
         Returns:
-            List[Device]: 搜索结果
+            List[Device]: 设备列表
         """
         try:
             query = Device.query
@@ -307,15 +306,9 @@ class InventoryService:
                 query = query.filter(
                     db.or_(
                         Device.name.contains(keyword),
-                        Device.model.contains(keyword),
-                        Device.serial_number.contains(keyword),
-                        Device.brand.contains(keyword)
+                        Device.serial_number.contains(keyword)
                     )
                 )
-            
-            # 类型过滤
-            if device_type:
-                query = query.filter(Device.type == device_type)
             
             # 状态过滤
             if status:
@@ -449,7 +442,10 @@ class InventoryService:
                 'summary': {
                     'total_devices': len(devices),
                     'total_rentals': len(rentals),
-                    'device_types': Device.get_device_count_by_type(),
+                    'device_locations': db.session.query(
+                        Device.location, 
+                        db.func.count(Device.id)
+                    ).filter(Device.location.isnot(None)).group_by(Device.location).all(),
                     'device_status': Device.get_device_count_by_status()
                 }
             }

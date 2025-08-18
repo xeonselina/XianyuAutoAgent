@@ -15,7 +15,7 @@ class AuditLog(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     
     # 关联信息
-    device_id = db.Column(db.String(50), db.ForeignKey('devices.id'), comment='相关设备ID')
+    device_id = db.Column(db.Integer, db.ForeignKey('devices.id'), comment='相关设备ID')
     rental_id = db.Column(db.Integer, db.ForeignKey('rentals.id'), comment='相关租赁ID')
     
     # 操作信息

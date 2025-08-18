@@ -26,82 +26,7 @@ def make_shell_context():
     }
 
 
-@app.cli.command()
-def init_db():
-    """初始化数据库"""
-    try:
-        # 创建所有表
-        db.create_all()
-        print("数据库表创建成功")
-        
-        # 创建示例设备
-        sample_devices = [
-            {
-                'name': 'iPhone 15 Pro',
-                'serial_number': 'IP15P001',
-                'location': '深圳仓库',
-                'status': 'available'
-            },
-            {
-                'name': 'MacBook Pro 14',
-                'serial_number': 'MBP14001',
-                'location': '深圳仓库',
-                'status': 'available'
-            },
-            {
-                'name': 'Sony A7M4',
-                'serial_number': 'SA7M4001',
-                'location': '深圳仓库',
-                'status': 'available'
-            },
-            {
-                'name': 'DJI Mini 3 Pro',
-                'serial_number': 'DJM3P001',
-                'location': '深圳仓库',
-                'status': 'available'
-            },
-            {
-                'name': 'GoPro Hero 11',
-                'serial_number': 'GPH11001',
-                'location': '深圳仓库',
-                'status': 'available'
-            }
-        ]
-        
-        for device_data in sample_devices:
-            device = Device(**device_data)
-            db.session.add(device)
-        
-        # 创建示例租赁记录
-        sample_rentals = [
-            {
-                'device_id': '1',  # 假设第一个设备的ID
-                'start_date': date.today() + timedelta(days=1),
-                'end_date': date.today() + timedelta(days=3),
-                'customer_name': '张三',
-                'customer_phone': '13800138000',
-                'status': 'active'
-            },
-            {
-                'device_id': '2',  # 假设第二个设备的ID
-                'start_date': date.today() + timedelta(days=5),
-                'end_date': date.today() + timedelta(days=7),
-                'customer_name': '李四',
-                'customer_phone': '13900139000',
-                'status': 'active'
-            }
-        ]
-        
-        for rental_data in sample_rentals:
-            rental = Rental(**rental_data)
-            db.session.add(rental)
-        
-        db.session.commit()
-        print("示例数据创建成功")
-        
-    except Exception as e:
-        db.session.rollback()
-        print(f"初始化数据库失败: {e}")
+## init_db 逻辑已移至独立脚本 init_db.py，避免与运行主进程混合
 
 
 @app.cli.command()
@@ -125,59 +50,7 @@ def reset_db():
         print(f"重置数据库失败: {e}")
 
 
-@app.cli.command()
-def seed_data():
-    """填充示例数据"""
-    try:
-        # 检查是否已有数据
-        if Device.query.count() > 0:
-            print("数据库中已有数据，跳过填充")
-            return
-        
-        # 创建示例设备
-        sample_devices = [
-            {
-                'name': 'iPhone 15 Pro',
-                'serial_number': 'IP15P001',
-                'location': '深圳仓库',
-                'status': 'available'
-            },
-            {
-                'name': 'MacBook Pro 14',
-                'serial_number': 'MBP14001',
-                'location': '深圳仓库',
-                'status': 'available'
-            },
-            {
-                'name': 'Sony A7M4',
-                'serial_number': 'SA7M4001',
-                'location': '深圳仓库',
-                'status': 'available'
-            },
-            {
-                'name': 'DJI Mini 3 Pro',
-                'serial_number': 'DJM3P001',
-                'location': '深圳仓库',
-                'status': 'available'
-            },
-            {
-                'name': 'GoPro Hero 11',
-                'serial_number': 'GPH11001',
-                'location': '深圳仓库',
-                'status': 'available'
-            }
-        ]
-        
-        for device_data in sample_devices:
-            device = Device(**device_data)
-            db.session.add(device)
-        
-        db.session.commit()
-        print("示例数据填充成功")
-        
-    except Exception as e:
-        db.session.rollback()
-        print(f"填充示例数据失败: {e}")
+## seed 数据同样在 init_db.py 中统一处理
 
 
 @app.cli.command()
@@ -258,4 +131,5 @@ def check_device_status():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    port = int(os.environ.get('APP_PORT', 5001))  # 使用环境变量或默认端口5001
+    app.run(debug=True, host='0.0.0.0', port=port)
