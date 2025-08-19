@@ -3,8 +3,14 @@
 """
 
 import os
+import threading
+import time
+import atexit
+import signal
+from flask import Flask
 from app import create_app, db
 from app.models import Device, Rental, AuditLog
+from app.services.device_status_service import DeviceStatusService
 from datetime import datetime, date, timedelta
 import uuid
 
@@ -13,6 +19,73 @@ app = create_app()
 
 # 设置环境变量
 os.environ.setdefault('FLASK_ENV', 'development')
+
+
+# ===================== 内置调度器（随应用启动/停止） =====================
+_scheduler_thread = None
+_scheduler_stop_event = threading.Event()
+
+
+def _scheduler_loop(app_instance: "Flask", interval_seconds: int) -> None:
+    """后台循环：按固定间隔执行设备状态更新。"""
+    try:
+        app_instance.logger.info(f"内置调度器启动，间隔 {interval_seconds}s")
+        while not _scheduler_stop_event.is_set():
+            started_at = time.time()
+            try:
+                with app_instance.app_context():
+                    DeviceStatusService.update_device_statuses()
+            except Exception as exc:  # 不中断主循环
+                app_instance.logger.error(f"内置调度器执行失败: {exc}")
+            # 精确等待剩余时间，避免漂移
+            elapsed = time.time() - started_at
+            wait_seconds = max(0.0, interval_seconds - elapsed)
+            _scheduler_stop_event.wait(wait_seconds)
+    finally:
+        try:
+            app_instance.logger.info("内置调度器已停止")
+        except Exception:
+            pass
+
+
+def start_embedded_scheduler() -> None:
+    """按需启动内置调度器，避免热重载重复启动。"""
+    global _scheduler_thread
+    if os.getenv('SCHEDULER_ENABLED', 'true').lower() not in ('1', 'true', 'yes', 'on'):
+        return
+    # 避免 Flask debug 热重载导致的两次启动
+    if os.getenv('WERKZEUG_RUN_MAIN') not in ('true', 'True', '1', 'yes') and app.debug:
+        return
+    if _scheduler_thread and _scheduler_thread.is_alive():
+        return
+    _scheduler_stop_event.clear()
+    interval = int(os.getenv('SCHEDULER_INTERVAL_SECONDS', '60'))
+    _scheduler_thread = threading.Thread(
+        target=_scheduler_loop, args=(app, interval), daemon=True
+    )
+    _scheduler_thread.start()
+
+
+def stop_embedded_scheduler(*_args) -> None:
+    """停止内置调度器（应用退出时调用）。"""
+    if not _scheduler_thread:
+        return
+    _scheduler_stop_event.set()
+    # 最多等待2秒结束
+    try:
+        _scheduler_thread.join(timeout=2.0)
+    except Exception:
+        pass
+
+
+# 应用退出时清理
+atexit.register(stop_embedded_scheduler)
+try:
+    signal.signal(signal.SIGTERM, stop_embedded_scheduler)
+    signal.signal(signal.SIGINT, stop_embedded_scheduler)
+except Exception:
+    # 某些平台（如 Windows）可能不支持全部信号
+    pass
 
 
 @app.shell_context_processor
@@ -132,4 +205,6 @@ def check_device_status():
 
 if __name__ == '__main__':
     port = int(os.environ.get('APP_PORT', 5001))  # 使用环境变量或默认端口5001
+    # 启动内置调度器
+    start_embedded_scheduler()
     app.run(debug=True, host='0.0.0.0', port=port)

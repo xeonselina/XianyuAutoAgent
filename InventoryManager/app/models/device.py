@@ -20,8 +20,8 @@ class Device(db.Model):
     
     # 状态信息
     status = db.Column(
-        db.Enum('available', 'rented', 'maintenance', 'retired', name='device_status'),
-        default='available',
+        db.Enum('idle', 'pending_ship', 'renting', 'pending_return', 'returned', 'offline', name='device_status'),
+        default='idle',
         comment='设备状态'
     )
     
@@ -53,7 +53,7 @@ class Device(db.Model):
     
     def is_available(self, start_date=None, end_date=None):
         """检查设备在指定时间段是否可用"""
-        if self.status != 'available':
+        if self.status != 'idle':
             return False
         
         if start_date and end_date:

@@ -95,7 +95,34 @@ db-seed: ## 填充示例数据
 .PHONY: run
 run: ## 运行开发服务器
 	@echo "启动开发服务器..."
-	export FLASK_APP=$(FLASK_APP) && export FLASK_ENV=$(FLASK_ENV) && python app.py
+	export FLASK_APP=$(FLASK_APP) && export FLASK_ENV=$(FLASK_ENV) && python3 app.py
+
+.PHONY: run-scheduler
+run-scheduler: ## 运行设备状态自动更新定时任务
+	@echo "启动设备状态自动更新定时任务..."
+	@echo "使用改进的启动脚本..."
+	./start_scheduler.sh
+
+.PHONY: run-scheduler-direct
+run-scheduler-direct: ## 直接运行定时任务（不检查环境）
+	@echo "直接启动设备状态自动更新定时任务..."
+	export FLASK_APP=$(FLASK_APP) && export FLASK_ENV=$(FLASK_ENV) && python3 device_status_scheduler.py
+
+.PHONY: run-with-scheduler
+run-with-scheduler: ## 同时运行Flask应用和定时任务（后台模式）
+	@echo "同时启动Flask应用和定时任务..."
+	@echo "启动Flask应用..."
+	@export FLASK_APP=$(FLASK_APP) && export FLASK_ENV=$(FLASK_ENV) && python3 app.py &
+	@echo "启动定时任务..."
+	@export FLASK_APP=$(FLASK_APP) && export FLASK_ENV=$(FLASK_ENV) && python3 device_status_scheduler.py &
+	@echo "所有服务已启动，使用 'make stop-all' 停止"
+
+.PHONY: stop-all
+stop-all: ## 停止所有后台服务
+	@echo "停止所有后台服务..."
+	@pkill -f "python3 app.py" || true
+	@pkill -f "python3 device_status_scheduler.py" || true
+	@echo "所有服务已停止"
 
 .PHONY: run-gunicorn
 run-gunicorn: ## 使用Gunicorn运行（生产模式）
@@ -144,12 +171,12 @@ docker-logs: ## 查看Docker Compose日志
 .PHONY: test
 test: ## 运行测试
 	@echo "运行测试..."
-	python -m pytest tests/ -v
+	python3 -m pytest tests/ -v
 
 .PHONY: test-cov
 test-cov: ## 运行测试并生成覆盖率报告
 	@echo "运行测试并生成覆盖率报告..."
-	python -m pytest tests/ --cov=app --cov-report=html --cov-report=term
+	python3 -m pytest tests/ --cov=app --cov-report=html --cov-report=term
 
 # =============================================================================
 # 代码质量命令

@@ -24,7 +24,6 @@ class GanttChart {
         this.setupDateRange();
         this.loadData();
         this.setupEventListeners();
-        this.initRegionSelectors();
         this.updateStats();
     }
     
@@ -38,10 +37,23 @@ class GanttChart {
         this.updateDateNavigation();
     }
     
+    getMonthEndDate(year, month) {
+        // 获取指定年月的最后一天
+        return new Date(year, month + 1, 0);
+    }
+    
+    getMonthStartDate(year, month) {
+        // 获取指定年月的第一天
+        return new Date(year, month, 1);
+    }
+    
     setupEventListeners() {
         // 设置日期输入框的默认值
         document.getElementById('query-start-date').value = this.formatDate(this.startDate);
         document.getElementById('query-end-date').value = this.formatDate(this.endDate);
+        
+        // 监听收件信息变化，自动提取手机号
+        this.setupShippingInfoListener();
     }
     
     async loadData() {
@@ -120,15 +132,24 @@ class GanttChart {
             
             // 设备信息列
             const deviceCell = document.createElement('div');
-            deviceCell.className = 'gantt-cell gantt-device-cell';
+            deviceCell.className = `gantt-cell gantt-device-cell device-status-${device.status}`;
             deviceCell.innerHTML = `
                 <div>
                     <div><strong>${device.name}</strong></div>
                     <div style="font-size: 0.7em; color: #6c757d;">
                         编号: ${device.serial_number || 'N/A'}
                     </div>
-                    <div style="font-size: 0.7em; color: #6c757d;">
-                        位置: ${device.location || 'N/A'} | 状态: ${this.getStatusText(device.status)}
+                    <div style="margin-top: 5px;">
+                        <select class="form-select form-select-sm device-status-select" 
+                                data-device-id="${device.id}" 
+                                onchange="ganttChart.updateDeviceStatus(${device.id}, this.value)">
+                            <option value="idle" ${device.status === 'idle' ? 'selected' : ''}>空闲</option>
+                            <option value="pending_ship" ${device.status === 'pending_ship' ? 'selected' : ''}>待寄出</option>
+                            <option value="renting" ${device.status === 'renting' ? 'selected' : ''}>租赁中</option>
+                            <option value="pending_return" ${device.status === 'pending_return' ? 'selected' : ''}>待寄回</option>
+                            <option value="returned" ${device.status === 'returned' ? 'selected' : ''}>已寄回</option>
+                            <option value="offline" ${device.status === 'offline' ? 'selected' : ''}>下架</option>
+                        </select>
                     </div>
                 </div>
             `;
@@ -365,7 +386,7 @@ class GanttChart {
         document.getElementById('edit-end-date').value = (typeof rental.end_date === 'string') ? rental.end_date : this.formatDate(new Date(rental.end_date));
         document.getElementById('edit-customer-name').value = rental.customer_name;
         document.getElementById('edit-customer-phone').value = rental.customer_phone || '';
-        document.getElementById('edit-destination').value = rental.destination || '';
+        document.getElementById('edit-shipping-info').value = rental.destination || '';
         document.getElementById('edit-ship-out-tracking').value = rental.ship_out_tracking_no || '';
         document.getElementById('edit-ship-in-tracking').value = rental.ship_in_tracking_no || '';
         
@@ -379,7 +400,7 @@ class GanttChart {
         const formData = {
             end_date: document.getElementById('edit-end-date').value,
             customer_phone: document.getElementById('edit-customer-phone').value,
-            destination: document.getElementById('edit-destination').value,
+            destination: document.getElementById('edit-shipping-info').value,
             ship_out_tracking_no: document.getElementById('edit-ship-out-tracking').value,
             ship_in_tracking_no: document.getElementById('edit-ship-in-tracking').value
         };
@@ -417,9 +438,6 @@ class GanttChart {
     }
     
     openBookingModal() {
-        // 确保地区下拉已填充
-        this.ensureRegionSelectorsPopulated();
-        
         // 重置表单和状态
         document.getElementById('bookingForm').reset();
         document.getElementById('submit-booking-btn').disabled = true;
@@ -504,7 +522,7 @@ class GanttChart {
             end_date: this.formatDate(this.selectedEndDate),
             customer_name: document.getElementById('customer-name').value,
             customer_phone: document.getElementById('customer-phone').value,
-            destination: this.getDestinationString(),
+            destination: document.getElementById('shipping-info').value,
             ship_out_time: this.formatDate(this.availableSlot.shipOutDate),
             ship_in_time: this.formatDate(this.availableSlot.shipInDate)
         };
@@ -535,11 +553,77 @@ class GanttChart {
         }
     }
     
+    setupShippingInfoListener() {
+        // 监听收件信息输入框变化
+        const shippingInfoInput = document.getElementById('shipping-info');
+        if (shippingInfoInput) {
+            shippingInfoInput.addEventListener('input', (e) => {
+                this.autoExtractPhoneNumber(e.target.value);
+            });
+        }
+        
+        // 监听编辑模态框中的收件信息变化
+        const editShippingInfoInput = document.getElementById('edit-shipping-info');
+        if (editShippingInfoInput) {
+            editShippingInfoInput.addEventListener('input', (e) => {
+                this.autoExtractPhoneNumberForEdit(e.target.value);
+            });
+        }
+    }
+    
+    autoExtractPhoneNumber(shippingInfo) {
+        const phoneNumber = this.extractPhoneNumberFromText(shippingInfo);
+        if (phoneNumber) {
+            const phoneInput = document.getElementById('customer-phone');
+            if (phoneInput && !phoneInput.value) {
+                phoneInput.value = phoneNumber;
+                this.showToast(`已自动提取手机号: ${phoneNumber}`, 'info');
+            }
+        }
+    }
+    
+    autoExtractPhoneNumberForEdit(shippingInfo) {
+        const phoneNumber = this.extractPhoneNumberFromText(shippingInfo);
+        if (phoneNumber) {
+            const phoneInput = document.getElementById('edit-customer-phone');
+            if (phoneInput && !phoneInput.value) {
+                phoneInput.value = phoneNumber;
+                this.showToast(`已自动提取手机号: ${phoneNumber}`, 'info');
+            }
+        }
+    }
+    
+    extractPhoneNumberFromText(text) {
+        // 匹配中国大陆手机号的正则表达式
+        const phoneRegex = /1[3-9]\d{9}/g;
+        const matches = text.match(phoneRegex);
+        return matches ? matches[0] : null;
+    }
+    
     getDestinationString() {
-        const province = document.getElementById('province-select').value;
-        const city = document.getElementById('city-select').value;
-        const district = document.getElementById('district-select').value;
-        return `${province} ${city} ${district}`.trim();
+        // 这个方法现在返回收件信息文本框的值
+        return document.getElementById('shipping-info')?.value || '';
+    }
+    
+    async updateDeviceStatus(deviceId, newStatus) {
+        try {
+            const response = await axios.put(`/api/devices/${deviceId}/status`, {
+                status: newStatus
+            });
+            
+            if (response.data.success) {
+                this.showToast(`设备状态已更新为: ${this.getStatusText(newStatus)}`, 'success');
+                // 更新本地数据
+                const device = this.devices.find(d => d.id === deviceId);
+                if (device) {
+                    device.status = newStatus;
+                }
+            } else {
+                this.showToast('状态更新失败: ' + response.data.error, 'error');
+            }
+        } catch (error) {
+            this.showToast('状态更新失败: ' + this.getErrorMessage(error), 'error');
+        }
     }
     
     async queryInventory() {
@@ -621,12 +705,16 @@ class GanttChart {
     updateStats() {
         // 更新统计信息
         document.getElementById('total-devices').textContent = this.devices.length;
-        document.getElementById('available-devices').textContent = 
-            this.devices.filter(d => d.status === 'available').length;
-        document.getElementById('active-rentals').textContent = 
-            this.rentals.filter(r => r.status === 'active').length;
         
-        // 计算逾期租赁
+        // 计算可用设备数（状态为idle的设备）
+        const availableCount = this.devices.filter(d => d.status === 'idle').length;
+        document.getElementById('available-devices').textContent = availableCount;
+        
+        // 计算活动租赁数
+        const activeCount = this.rentals.filter(r => r.status === 'active').length;
+        document.getElementById('active-rentals').textContent = activeCount;
+        
+        // 计算逾期租赁数
         const today = new Date();
         const overdueCount = this.rentals.filter(r => 
             r.status === 'active' && new Date(r.end_date) < today
@@ -635,24 +723,10 @@ class GanttChart {
     }
     
     populateFilters() {
-        // 设备类型字段当前未使用，避免渲染无效选项
-        const typeFilter = document.getElementById('device-type-filter');
-        if (typeFilter) {
-            typeFilter.innerHTML = '<option value="">全部类型</option>';
-        }
+        // 新的筛选器不需要预填充选项，因为它们是文本输入框
+        // 设备名称和租赁人使用文本搜索，设备状态使用预定义的选项
         
-        // 填充位置过滤器
-        const locationFilter = document.getElementById('location-filter');
-        const locations = [...new Set(this.devices.map(d => d.location).filter(Boolean))];
-        
-        locations.forEach(location => {
-            const option = document.createElement('option');
-            option.value = location;
-            option.textContent = location;
-            locationFilter.appendChild(option);
-        });
-        
-        // 填充查询模态框的设备类型
+        // 填充查询模态框的设备类型（如果存在）
         const queryTypeFilter = document.getElementById('query-device-type');
         if (queryTypeFilter) {
             queryTypeFilter.innerHTML = '<option value="">全部类型</option>';
@@ -660,23 +734,31 @@ class GanttChart {
     }
     
     applyFilters() {
-        const deviceType = document.getElementById('device-type-filter').value;
+        const deviceName = document.getElementById('device-name-filter').value.toLowerCase();
         const deviceStatus = document.getElementById('device-status-filter').value;
-        const location = document.getElementById('location-filter').value;
+        const customerName = document.getElementById('customer-name-filter').value.toLowerCase();
         
         // 过滤设备
         let filteredDevices = this.devices;
         
-        if (deviceType) {
-            filteredDevices = filteredDevices.filter(d => d.type === deviceType);
+        if (deviceName) {
+            filteredDevices = filteredDevices.filter(d => 
+                d.name.toLowerCase().includes(deviceName) || 
+                d.serial_number.toLowerCase().includes(deviceName)
+            );
         }
         
         if (deviceStatus) {
             filteredDevices = filteredDevices.filter(d => d.status === deviceStatus);
         }
         
-        if (location) {
-            filteredDevices = filteredDevices.filter(d => d.location === location);
+        // 过滤租赁记录（如果指定了租赁人）
+        if (customerName) {
+            const customerRentals = this.rentals.filter(r => 
+                r.customer_name && r.customer_name.toLowerCase().includes(customerName)
+            );
+            const customerDeviceIds = [...new Set(customerRentals.map(r => r.device_id))];
+            filteredDevices = filteredDevices.filter(d => customerDeviceIds.includes(d.id));
         }
         
         // 重新渲染甘特图
@@ -685,19 +767,35 @@ class GanttChart {
     }
     
     clearFilters() {
-        document.getElementById('device-type-filter').value = '';
+        document.getElementById('device-name-filter').value = '';
         document.getElementById('device-status-filter').value = '';
-        document.getElementById('location-filter').value = '';
+        document.getElementById('customer-name-filter').value = '';
         
         // 重新加载所有数据
         this.loadData();
     }
     
     navigateDate(days) {
-        this.startDate.setDate(this.startDate.getDate() + days);
-        this.endDate.setDate(this.endDate.getDate() + days);
-        this.currentDate.setDate(this.currentDate.getDate() + days);
+        // 计算新的开始和结束日期
+        const newStartDate = new Date(this.startDate);
+        newStartDate.setDate(newStartDate.getDate() + days);
         
+        const newEndDate = new Date(this.endDate);
+        newEndDate.setDate(newEndDate.getDate() + days);
+        
+        // 如果跨越月份边界，调整到整月
+        if (newStartDate.getMonth() !== newEndDate.getMonth()) {
+            const startMonth = newStartDate.getMonth();
+            const startYear = newStartDate.getFullYear();
+            
+            this.startDate = this.getMonthStartDate(startYear, startMonth);
+            this.endDate = this.getMonthEndDate(startYear, startMonth);
+        } else {
+            this.startDate = newStartDate;
+            this.endDate = newEndDate;
+        }
+        
+        this.currentDate = new Date(this.startDate);
         this.updateDateNavigation();
         this.loadData();
     }
@@ -747,112 +845,7 @@ class GanttChart {
         return `${day} 日(周${week})`;
     }
 
-    // ---------------- 地区联动（省/市/区） ----------------
-    initRegionSelectors() {
-        // 优先使用用户提供的离线 JSON：/InventoryManager/pca-code.json
-        // 结构：[{code,name,children:[{code,name,children:[{code,name}]}]}]
-        const buildFromPca = (pca) => {
-            const regions = {};
-            pca.forEach(prov => {
-                regions[prov.name] = {};
-                (prov.children || []).forEach(city => {
-                    regions[prov.name][city.name] = (city.children || []).map(a => a.name);
-                });
-            });
-            return regions;
-        };
 
-        // 异步加载离线 JSON（不阻塞下拉初始化）
-        this.REGIONS = {
-            '北京市': { '北京市': ['东城区', '西城区', '朝阳区', '海淀区', '丰台区', '通州区'] },
-            '上海市': { '上海市': ['黄浦区', '徐汇区', '长宁区', '浦东新区'] },
-            '广东省': { '广州市': ['天河区', '越秀区', '荔湾区', '白云区'], '深圳市': ['南山区', '福田区', '罗湖区', '宝安区'] },
-            '浙江省': { '杭州市': ['上城区', '拱墅区', '西湖区'], '宁波市': ['海曙区', '江北区'] }
-        };
-        // 从静态目录加载，附带时间戳避免缓存
-        fetch(`/static/data/pca-code.json?t=${Date.now()}`, { cache: 'no-cache' })
-            .then(res => res.ok ? res.json() : null)
-            .then(pca => {
-                if (!pca) return;
-                this.REGIONS = buildFromPca(pca);
-                // 用新数据重建三联动选项，尽量保留当前选择
-                if (this.provinceSelect && this.citySelect && this.districtSelect) {
-                    this.refreshRegionSelectOptions();
-                }
-            })
-            .catch(() => {/* 静默失败，继续使用兜底数据 */});
-
-        this.provinceSelect = document.getElementById('province-select');
-        this.citySelect = document.getElementById('city-select');
-        this.districtSelect = document.getElementById('district-select');
-
-        if (!this.provinceSelect || !this.citySelect || !this.districtSelect) return;
-
-        const fillOptions = (selectEl, items) => {
-            const prev = selectEl.value;
-            selectEl.innerHTML = '';
-            items.forEach(v => {
-                const opt = document.createElement('option');
-                opt.value = v;
-                opt.textContent = v;
-                selectEl.appendChild(opt);
-            });
-            // 恢复之前的选择（如果存在）
-            if (items.includes(prev)) selectEl.value = prev;
-        };
-
-        // 省份
-        fillOptions(this.provinceSelect, Object.keys(this.REGIONS));
-
-        this.provinceSelect.oninput = () => {
-            const prov = this.provinceSelect.value;
-            const cities = prov && this.REGIONS[prov] ? Object.keys(this.REGIONS[prov]) : [];
-            fillOptions(this.citySelect, cities);
-            this.citySelect.oninput();
-        };
-
-        // 城市
-        this.citySelect.oninput = () => {
-            const prov = this.provinceSelect.value;
-            const city = this.citySelect.value;
-            const dists = prov && city && this.REGIONS[prov] && this.REGIONS[prov][city] ? this.REGIONS[prov][city] : [];
-            fillOptions(this.districtSelect, dists);
-        };
-
-        // 注入下拉内搜索的样式
-        this.injectFilterDropdownStyles();
-        // 为三个选择框增加"展开后顶部可输入搜索"的下拉
-        this.attachFilterDropdown(this.provinceSelect, () => Object.keys(this.REGIONS || {}), (val) => {
-            if (!val) return;
-            this.provinceSelect.value = val;
-            this.provinceSelect.oninput();
-        });
-        this.attachFilterDropdown(this.citySelect, () => {
-            const prov = this.provinceSelect.value; return prov ? Object.keys(this.REGIONS[prov] || {}) : [];
-        }, (val) => {
-            if (!val) return;
-            this.citySelect.value = val;
-            this.citySelect.oninput();
-        });
-        this.attachFilterDropdown(this.districtSelect, () => {
-            const prov = this.provinceSelect.value; const city = this.citySelect.value;
-            return prov && city ? (this.REGIONS[prov][city] || []) : [];
-        }, (val) => {
-            if (!val) return;
-            this.districtSelect.value = val;
-        });
-
-        // 初始化一次
-        this.provinceSelect.oninput();
-
-        // 在模态框打开时再次兜底填充（防止某些浏览器延迟渲染导致元素未就绪）
-        const modalEl = document.getElementById('bookingModal');
-        if (modalEl) {
-            modalEl.addEventListener('shown.bs.modal', () => {
-                this.ensureRegionSelectorsPopulated();
-            });
-        }
-    }
 
     // 填充设备下拉（新增租赁弹窗）
     populateDeviceSelect() {
@@ -869,127 +862,18 @@ class GanttChart {
         if (current) sel.value = current;
     }
 
-    // 兜底保证省市区下拉有数据
-    ensureRegionSelectorsPopulated() {
-        this.provinceSelect = document.getElementById('province-select');
-        this.citySelect = document.getElementById('city-select');
-        this.districtSelect = document.getElementById('district-select');
-        if (!this.provinceSelect || !this.citySelect || !this.districtSelect) return;
-        if (this.provinceSelect.options.length === 0) {
-            const provinces = Object.keys(this.REGIONS || {});
-            if (provinces.length > 0) {
-                const fill = (el, arr) => { el.innerHTML = ''; arr.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;el.appendChild(o);}); };
-                fill(this.provinceSelect, provinces);
-                const firstProv = this.provinceSelect.value || provinces[0];
-                const cities = firstProv && this.REGIONS[firstProv] ? Object.keys(this.REGIONS[firstProv]) : [];
-                fill(this.citySelect, cities);
-                const firstCity = this.citySelect.value || cities[0];
-                const dists = firstProv && firstCity ? (this.REGIONS[firstProv][firstCity] || []) : [];
-                fill(this.districtSelect, dists);
-            }
-        }
-    }
 
-    // 使用当前 REGIONS 重建省/市/区选项，尽量保留原选项
-    refreshRegionSelectOptions() {
-        const provinces = Object.keys(this.REGIONS || {});
-        const prevProv = this.provinceSelect.value;
-        const prevCity = this.citySelect.value;
-        const prevDist = this.districtSelect.value;
 
-        const fill = (el, arr) => { el.innerHTML = ''; arr.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;el.appendChild(o);}); };
 
-        fill(this.provinceSelect, provinces);
-        const provToUse = provinces.includes(prevProv) ? prevProv : provinces[0];
-        this.provinceSelect.value = provToUse;
-
-        const cities = provToUse && this.REGIONS[provToUse] ? Object.keys(this.REGIONS[provToUse]) : [];
-        fill(this.citySelect, cities);
-        const cityToUse = cities.includes(prevCity) ? prevCity : cities[0];
-        this.citySelect.value = cityToUse;
-
-        const dists = provToUse && cityToUse ? (this.REGIONS[provToUse][cityToUse] || []) : [];
-        fill(this.districtSelect, dists);
-        const distToUse = dists.includes(prevDist) ? prevDist : dists[0];
-        this.districtSelect.value = distToUse;
-    }
-
-    // 为原生 select 附加"展开后顶部可输入搜索"的下拉浮层
-    attachFilterDropdown(selectEl, getAllItems, onPick) {
-        if (!selectEl) return;
-        let panel = null;
-        let input = null;
-        let list = null;
-
-        const closePanel = () => {
-            if (panel) panel.style.display = 'none';
-        };
-
-        const openPanel = () => {
-            if (!panel) {
-                panel = document.createElement('div');
-                panel.className = 'filter-dropdown-panel';
-                panel.innerHTML = `
-                    <input class="filter-input" type="text" placeholder="搜索..." />
-                    <div class="filter-list" role="listbox"></div>
-                `;
-                selectEl.parentElement.style.position = 'relative';
-                selectEl.parentElement.appendChild(panel);
-                input = panel.querySelector('.filter-input');
-                list = panel.querySelector('.filter-list');
-                input.addEventListener('input', () => renderList());
-            }
-            renderList();
-            panel.style.display = 'block';
-            input.value = '';
-            input.focus();
-        };
-
-        const renderList = () => {
-            const keyword = (input?.value || '').toLowerCase();
-            const items = (getAllItems() || []).filter(v => v.toLowerCase().includes(keyword));
-            list.innerHTML = '';
-            items.forEach(v => {
-                const a = document.createElement('div');
-                a.className = 'filter-item';
-                a.textContent = v;
-                a.onclick = () => { onPick(v); closePanel(); };
-                list.appendChild(a);
-            });
-        };
-
-        // 打开下拉时显示搜索面板
-        selectEl.addEventListener('mousedown', (e) => {
-            // 延迟到浏览器展开原生下拉后再显示我们面板
-            setTimeout(openPanel, 0);
-        });
-        // 滚动或点击外部关闭
-        document.addEventListener('click', (e) => {
-            if (!panel || panel.contains(e.target) || e.target === selectEl) return;
-            closePanel();
-        });
-    }
-
-    injectFilterDropdownStyles() {
-        if (document.getElementById('filter-dropdown-style')) return;
-        const style = document.createElement('style');
-        style.id = 'filter-dropdown-style';
-        style.textContent = `
-        .filter-dropdown-panel{position:absolute;left:0;right:0;top:100%;z-index:1051;background:#fff;border:1px solid #dee2e6;border-radius:.25rem;box-shadow:0 .5rem 1rem rgba(0,0,0,.15);}
-        .filter-dropdown-panel .filter-input{width:100%;padding:.375rem .75rem;border:none;border-bottom:1px solid #dee2e6;outline:none;}
-        .filter-dropdown-panel .filter-list{max-height:240px;overflow:auto;}
-        .filter-dropdown-panel .filter-item{padding:.375rem .75rem;cursor:pointer;}
-        .filter-dropdown-panel .filter-item:hover{background:#f8f9fa;}
-        `;
-        document.head.appendChild(style);
-    }
     
     getStatusText(status) {
         const statusMap = {
-            'available': '可用',
-            'rented': '已租出',
-            'maintenance': '维护中',
-            'retired': '已报废'
+            'idle': '空闲',
+            'pending_ship': '待寄出',
+            'renting': '租赁中',
+            'pending_return': '待寄回',
+            'returned': '已寄回',
+            'offline': '下架'
         };
         return statusMap[status] || status;
     }
@@ -1247,4 +1131,8 @@ function previousMonth() {
 
 function nextMonth() {
     ganttChart.nextMonth();
+}
+
+function updateDeviceStatus(deviceId, newStatus) {
+    ganttChart.updateDeviceStatus(deviceId, newStatus);
 }
