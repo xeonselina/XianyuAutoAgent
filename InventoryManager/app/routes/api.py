@@ -27,6 +27,64 @@ def require_api_key(f):
     return decorated_function
 
 
+@bp.route('/devices/<int:device_id>/status', methods=['PUT'])
+def update_device_status(device_id):
+    """更新设备状态"""
+    try:
+        data = request.get_json()
+        if not data or 'status' not in data:
+            return jsonify({
+                'success': False,
+                'error': '缺少状态参数'
+            }), 400
+        
+        new_status = data['status']
+        valid_statuses = ['idle', 'pending_ship', 'renting', 'pending_return', 'returned', 'offline']
+        
+        if new_status not in valid_statuses:
+            return jsonify({
+                'success': False,
+                'error': f'无效的状态值: {new_status}'
+            }), 400
+        
+        # 查找设备
+        device = Device.query.get(device_id)
+        if not device:
+            return jsonify({
+                'success': False,
+                'error': '设备不存在'
+            }), 404
+        
+        # 更新状态
+        old_status = device.status
+        device.status = new_status
+        device.updated_at = datetime.utcnow()
+        
+        # 保存到数据库
+        from app import db
+        db.session.commit()
+        
+        current_app.logger.info(f"设备 {device.name} (ID: {device_id}) 状态从 {old_status} 更新为 {new_status}")
+        
+        return jsonify({
+            'success': True,
+            'message': f'设备状态已更新为: {new_status}',
+            'data': {
+                'device_id': device_id,
+                'old_status': old_status,
+                'new_status': new_status,
+                'updated_at': device.updated_at.isoformat()
+            }
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"更新设备状态失败: {e}")
+        return jsonify({
+            'success': False,
+            'error': '服务器内部错误'
+        }), 500
+
+
 @bp.route('/inventory/available', methods=['GET'])
 @require_api_key
 def get_available_inventory():

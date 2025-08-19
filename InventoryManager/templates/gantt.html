@@ -45,6 +45,86 @@
             left: 0;
             z-index: 50;
         }
+        
+        /* 设备状态颜色 */
+        .device-status-idle {
+            background: #d4edda !important;
+            border-left: 4px solid #28a745;
+        }
+        
+        .device-status-pending-ship {
+            background: #f8d7da !important;
+            border-left: 4px solid #dc3545;
+        }
+        
+        .device-status-renting {
+            background: #d1ecf1 !important;
+            border-left: 4px solid #17a2b8;
+        }
+        
+        .device-status-pending-return {
+            background: #fff3cd !important;
+            border-left: 4px solid #ffc107;
+        }
+        
+        .device-status-returned {
+            background: #e2d9f3 !important;
+            border-left: 4px solid #6f42c1;
+        }
+        
+        .device-status-offline {
+            background: #e2e3e5 !important;
+            border-left: 4px solid #6c757d;
+        }
+        
+        /* 状态说明样式 */
+        .device-status-legend {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            border: 1px solid #dee2e6;
+        }
+        
+        .status-items {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-top: 10px;
+        }
+        
+        .status-item {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 500;
+            color: white;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        }
+        
+        .status-idle {
+            background: #28a745;
+        }
+        
+        .status-pending-ship {
+            background: #dc3545;
+        }
+        
+        .status-renting {
+            background: #17a2b8;
+        }
+        
+        .status-pending-return {
+            background: #ffc107;
+            color: #212529;
+        }
+        
+        .status-returned {
+            background: #6f42c1;
+        }
+        
+        .status-offline {
+            background: #6c757d;
+        }
 
         /* 让左上角单元格同时固定在顶部与左侧，并在层级上覆盖其他元素 */
         .gantt-header .gantt-device-cell {
@@ -423,7 +503,7 @@
             <div class="col-md-3">
                 <div class="stats-card">
                     <div class="number" id="active-rentals">-</div>
-                    <div class="label">活动租赁</div>
+                    <div class="label">租赁中</div>
                 </div>
             </div>
             <div class="col-md-3">
@@ -469,26 +549,24 @@
         <div class="device-filter">
             <div class="row align-items-center">
                 <div class="col-md-3">
-                    <label for="device-type-filter" class="form-label">设备类型</label>
-                    <select class="form-select" id="device-type-filter">
-                        <option value="">全部类型</option>
-                    </select>
+                    <label for="device-name-filter" class="form-label">设备名称</label>
+                    <input type="text" class="form-control" id="device-name-filter" placeholder="输入设备名称关键词">
                 </div>
                 <div class="col-md-3">
                     <label for="device-status-filter" class="form-label">设备状态</label>
                     <select class="form-select" id="device-status-filter">
                         <option value="">全部状态</option>
-                        <option value="available">可用</option>
-                        <option value="rented">已租出</option>
-                        <option value="maintenance">维护中</option>
-                        <option value="retired">已报废</option>
+                        <option value="idle">空闲</option>
+                        <option value="pending_ship">待寄出</option>
+                        <option value="renting">租赁中</option>
+                        <option value="pending_return">待寄回</option>
+                        <option value="returned">已寄回</option>
+                        <option value="offline">下架</option>
                     </select>
                 </div>
                 <div class="col-md-3">
-                    <label for="location-filter" class="form-label">位置</label>
-                    <select class="form-select" id="location-filter">
-                        <option value="">全部位置</option>
-                    </select>
+                    <label for="customer-name-filter" class="form-label">租赁人</label>
+                    <input type="text" class="form-control" id="customer-name-filter" placeholder="输入租赁人姓名">
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">&nbsp;</label>
@@ -502,6 +580,23 @@
                         <button type="button" class="btn btn-info ms-2" onclick="openBookingModal()">
                             <i class="bi bi-calendar-plus"></i> 预定设备
                         </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 设备状态说明 -->
+        <div class="device-status-legend mt-3 mb-3">
+            <div class="row">
+                <div class="col-12">
+                    <h6><i class="bi bi-info-circle"></i> 设备状态说明</h6>
+                    <div class="status-items">
+                        <span class="status-item status-idle">空闲</span>
+                        <span class="status-item status-pending-ship">待寄出</span>
+                        <span class="status-item status-renting">租赁中</span>
+                        <span class="status-item status-pending-return">待寄回</span>
+                        <span class="status-item status-returned">已寄回</span>
+                        <span class="status-item status-offline">下架</span>
                     </div>
                 </div>
             </div>
@@ -550,18 +645,9 @@
                             </div>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">目的地</label>
-                            <div class="row g-2">
-                                <div class="col-md-4">
-                                    <select class="form-select" id="province-select" required></select>
-                                </div>
-                                <div class="col-md-4">
-                                    <select class="form-select" id="city-select" required></select>
-                                </div>
-                                <div class="col-md-4">
-                                    <select class="form-select" id="district-select" required></select>
-                                </div>
-                            </div>
+                            <label for="shipping-info" class="form-label">收件信息</label>
+                            <textarea class="form-control" id="shipping-info" rows="3" placeholder="请填写详细的收件地址、收件人姓名等信息" required></textarea>
+                            <div class="form-text">填写收件信息后，系统将自动尝试提取手机号</div>
                         </div>
                         <div class="mb-3">
                             <label for="logistics-days" class="form-label">物流时间（天）</label>
@@ -570,12 +656,12 @@
                         </div>
                         <div class="mb-3">
                             <label for="customer-name" class="form-label">租赁人</label>
-                            <input type="text" class="form-control" id="customer-name" required>
+                            <input type="text" class="form-control" id="customer-name" placeholder="请输入租赁人闲鱼号" required>
                         </div>
                         <div class="mb-3">
                             <label for="customer-phone" class="form-label">手机号</label>
                             <input type="tel" class="form-control" id="customer-phone" pattern="^1[3-9]\d{9}$" required>
-                            <div class="form-text">请输入11位手机号码</div>
+                            <div class="form-text">请输入11位手机号码，或填写收件信息后自动提取</div>
                         </div>
                     </form>
                 </div>
@@ -620,8 +706,8 @@
                             <div class="form-text">请输入11位手机号码</div>
                         </div>
                         <div class="mb-3">
-                            <label for="edit-destination" class="form-label">目的地</label>
-                            <input type="text" class="form-control" id="edit-destination">
+                            <label for="edit-shipping-info" class="form-label">收件信息</label>
+                            <textarea class="form-control" id="edit-shipping-info" rows="3" placeholder="请填写详细的收件地址、收件人姓名等信息"></textarea>
                         </div>
                         <div class="mb-3">
                             <label for="edit-ship-out-tracking" class="form-label">寄出运单号</label>

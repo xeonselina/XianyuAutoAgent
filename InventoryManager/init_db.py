@@ -41,38 +41,15 @@ def init_database():
             print("数据库表创建成功")
             
             # 创建示例设备
-            sample_devices = [
-                {
-                    'name': 'iPhone 15 Pro',
-                    'serial_number': 'IP15P001',
+            sample_devices = []
+            for i in range(1, 27):
+                device_name = f"20{i:02d}" 
+                sample_devices.append({
+                    'name': device_name,
+                    'serial_number': f'DEV{i:03d}',
                     'location': '深圳仓库',
-                    'status': 'available'
-                },
-                {
-                    'name': 'MacBook Pro 14',
-                    'serial_number': 'MBP14001',
-                    'location': '深圳仓库',
-                    'status': 'available'
-                },
-                {
-                    'name': 'Sony A7M4',
-                    'serial_number': 'SA7M4001',
-                    'location': '深圳仓库',
-                    'status': 'available'
-                },
-                {
-                    'name': 'DJI Mini 3 Pro',
-                    'serial_number': 'DJM3P001',
-                    'location': '深圳仓库',
-                    'status': 'available'
-                },
-                {
-                    'name': 'GoPro Hero 11',
-                    'serial_number': 'GPH11001',
-                    'location': '深圳仓库',
-                    'status': 'available'
-                }
-            ]
+                    'status': 'idle'
+                })
             
             for device_data in sample_devices:
                 device = Device(**device_data)
