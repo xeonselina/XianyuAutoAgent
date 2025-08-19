@@ -199,10 +199,36 @@ class GanttChart {
         if (inRentalRange) {
             const inner = document.createElement('div');
             inner.className = 'gantt-occupy-inner';
+            
+            // 在租赁时间段显示客户姓名
+            inner.textContent = rental.customer_name;
+            
+            // 在租赁时间段添加编辑按钮
+            const editBtn = document.createElement('button');
+            editBtn.className = 'edit-btn';
+            editBtn.innerHTML = '<i class="bi bi-pencil"></i>';
+            editBtn.title = '编辑租赁记录';
+            editBtn.onclick = (e) => {
+                e.stopPropagation();
+                this.editRental(rental);
+            };
+            inner.appendChild(editBtn);
+            
+            // 在租赁时间段添加删除按钮
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'delete-btn';
+            deleteBtn.innerHTML = '<i class="bi bi-trash"></i>';
+            deleteBtn.title = '删除租赁记录';
+            deleteBtn.onclick = (e) => {
+                e.stopPropagation();
+                this.deleteRental(rental.id);
+            };
+            inner.appendChild(deleteBtn);
+            
             wrap.appendChild(inner);
         }
         
-        // 悬停信息
+        // 添加悬停提示信息
         wrap.appendChild(this.createRentalInfoElement(rental, shipOut, shipIn));
         
         return wrap;
@@ -312,6 +338,72 @@ class GanttChart {
         return infoDiv;
     }
     
+    async deleteRental(rentalId) {
+        if (!confirm('确定要删除这个租赁记录吗？此操作不可恢复。')) {
+            return;
+        }
+        
+        try {
+            const response = await axios.delete(`/web/rentals/${rentalId}`);
+            
+            if (response.data.success) {
+                this.showToast('租赁记录删除成功', 'success');
+                // 刷新甘特图数据
+                this.loadData();
+            } else {
+                this.showToast('删除失败: ' + response.data.error, 'error');
+            }
+        } catch (error) {
+            this.showToast('删除失败: ' + this.getErrorMessage(error), 'error');
+        }
+    }
+    
+    editRental(rental) {
+        // 填充编辑表单
+        document.getElementById('edit-rental-id').value = rental.id;
+        document.getElementById('edit-start-date').value = (typeof rental.start_date === 'string') ? rental.start_date : this.formatDate(new Date(rental.start_date));
+        document.getElementById('edit-end-date').value = (typeof rental.end_date === 'string') ? rental.end_date : this.formatDate(new Date(rental.end_date));
+        document.getElementById('edit-customer-name').value = rental.customer_name;
+        document.getElementById('edit-customer-phone').value = rental.customer_phone || '';
+        document.getElementById('edit-destination').value = rental.destination || '';
+        document.getElementById('edit-ship-out-tracking').value = rental.ship_out_tracking_no || '';
+        document.getElementById('edit-ship-in-tracking').value = rental.ship_in_tracking_no || '';
+        
+        // 显示编辑模态框
+        const modal = new bootstrap.Modal(document.getElementById('editRentalModal'));
+        modal.show();
+    }
+    
+    async updateRental() {
+        const rentalId = document.getElementById('edit-rental-id').value;
+        const formData = {
+            end_date: document.getElementById('edit-end-date').value,
+            customer_phone: document.getElementById('edit-customer-phone').value,
+            destination: document.getElementById('edit-destination').value,
+            ship_out_tracking_no: document.getElementById('edit-ship-out-tracking').value,
+            ship_in_tracking_no: document.getElementById('edit-ship-in-tracking').value
+        };
+        
+        try {
+            const response = await axios.put(`/web/rentals/${rentalId}`, formData);
+            
+            if (response.data.success) {
+                this.showToast('租赁记录更新成功', 'success');
+                
+                // 关闭模态框
+                const modal = bootstrap.Modal.getInstance(document.getElementById('editRentalModal'));
+                modal.hide();
+                
+                // 刷新数据
+                this.loadData();
+            } else {
+                this.showToast('更新失败: ' + response.data.error, 'error');
+            }
+        } catch (error) {
+            this.showToast('更新失败: ' + this.getErrorMessage(error), 'error');
+        }
+    }
+    
     // 重写：在寄出-收回范围内判断有无记录
     getRentalForDeviceAndDate(deviceId, date) {
         const dateStr = this.formatDate(date);
@@ -339,9 +431,6 @@ class GanttChart {
         // 设置默认物流时间
         document.getElementById('logistics-days').value = '1';
         
-        // 添加物流时间输入框的实时验证
-        this.attachLogisticsTimeValidation();
-        
         // 显示模态框
         const modal = new bootstrap.Modal(document.getElementById('bookingModal'));
         modal.show();
@@ -350,57 +439,6 @@ class GanttChart {
         setTimeout(() => {
             this.renderCalendar();
         }, 100);
-    }
-    
-    attachLogisticsTimeValidation() {
-        const logisticsInput = document.getElementById('logistics-days');
-        if (!logisticsInput) return;
-        
-        logisticsInput.addEventListener('input', () => {
-            // 如果已经选择了日期，实时验证物流时间是否合适
-            if (this.selectedStartDate) {
-                this.validateLogisticsTime();
-            }
-        });
-    }
-    
-    validateLogisticsTime() {
-        if (!this.selectedStartDate) return;
-        
-        const logisticsDays = parseInt(document.getElementById('logistics-days').value) || 1;
-        const shipOutDate = new Date(this.selectedStartDate);
-        shipOutDate.setDate(shipOutDate.getDate() - 1 - logisticsDays);
-        
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        
-        if (shipOutDate < today) {
-            // 显示警告，但不阻止用户继续操作
-            const warningDiv = document.getElementById('logistics-warning') || this.createLogisticsWarning();
-            warningDiv.style.display = 'block';
-            warningDiv.textContent = `⚠️ 当前物流时间会导致寄出时间早于今天（${this.formatDate(shipOutDate)}）`;
-        } else {
-            // 隐藏警告
-            const warningDiv = document.getElementById('logistics-warning');
-            if (warningDiv) {
-                warningDiv.style.display = 'none';
-            }
-        }
-    }
-    
-    createLogisticsWarning() {
-        const warningDiv = document.createElement('div');
-        warningDiv.id = 'logistics-warning';
-        warningDiv.className = 'alert alert-warning mt-2';
-        warningDiv.style.fontSize = '0.8em';
-        warningDiv.style.display = 'none';
-        
-        const logisticsContainer = document.getElementById('logistics-days').closest('.mb-3');
-        if (logisticsContainer) {
-            logisticsContainer.appendChild(warningDiv);
-        }
-        
-        return warningDiv;
     }
     
     async findAvailableSlot() {
@@ -422,66 +460,36 @@ class GanttChart {
             return;
         }
         
-        // 计算寄出时间和收回时间
-        const shipOutDate = new Date(this.selectedStartDate);
-        shipOutDate.setDate(shipOutDate.getDate() - 1 - logisticsDays);
-        
-        const shipInDate = new Date(this.selectedEndDate);
-        shipInDate.setDate(shipInDate.getDate() + 1 + logisticsDays);
-        
-        // 检查寄出时间不能早于今天
-        const today = new Date();
-        today.setHours(0, 0, 0, 0); // 设置为今天的开始时间
-        
-        if (shipOutDate < today) {
-            this.showToast(`寄出时间不能早于今天。当前计算的寄出时间是：${this.formatDate(shipOutDate)}，请调整租赁时间或物流时间。`, 'error');
-            return;
-        }
-        
-        // 查找可用档期
-        const availableSlot = this.findAvailableTimeSlot(shipOutDate, shipInDate);
-        
-        if (availableSlot) {
-            this.availableSlot = availableSlot;
-            document.getElementById('submit-booking-btn').disabled = false;
-            this.showToast(`找到可用档期：${availableSlot.device.name}，寄出：${this.formatDate(shipOutDate)}，收回：${this.formatDate(shipInDate)}`, 'success');
-        } else {
-            this.showToast('未找到可用档期，请调整时间或物流时间', 'error');
+        try {
+            // 调用后端API查找档期
+            const response = await axios.post('/api/rentals/find-slot', {
+                start_date: this.formatDate(this.selectedStartDate),
+                end_date: this.formatDate(this.selectedEndDate),
+                logistics_days: logisticsDays
+            });
+            
+            if (response.data.success) {
+                const data = response.data.data;
+                this.availableSlot = {
+                    device: data.device,
+                    shipOutDate: new Date(data.ship_out_date),
+                    shipInDate: new Date(data.ship_in_date)
+                };
+                
+                document.getElementById('submit-booking-btn').disabled = false;
+                this.showToast(data.message, 'success');
+            } else {
+                this.showToast(response.data.error, 'error');
+                document.getElementById('submit-booking-btn').disabled = true;
+            }
+        } catch (error) {
+            if (error.response && error.response.status === 404) {
+                this.showToast('未找到可用档期，请调整时间或物流时间', 'error');
+            } else {
+                this.showToast('查找档期失败: ' + this.getErrorMessage(error), 'error');
+            }
             document.getElementById('submit-booking-btn').disabled = true;
         }
-    }
-    
-    findAvailableTimeSlot(shipOutDate, shipInDate) {
-        // 遍历所有设备，查找在指定时间段内可用的设备
-        for (const device of this.devices) {
-            if (device.status !== 'available') continue;
-            
-            // 检查设备在指定时间段是否可用
-            if (this.isDeviceAvailableInPeriod(device.id, shipOutDate, shipInDate)) {
-                return { device, shipOutDate, shipInDate };
-            }
-        }
-        return null;
-    }
-    
-    isDeviceAvailableInPeriod(deviceId, startDate, endDate) {
-        // 检查设备在指定时间段是否有冲突的租赁记录
-        const conflictingRentals = this.rentals.filter(rental => 
-            rental.device_id === deviceId &&
-            rental.status !== 'cancelled' &&
-            this.datesOverlap(
-                new Date(rental.start_date),
-                new Date(rental.end_date),
-                startDate,
-                endDate
-            )
-        );
-        
-        return conflictingRentals.length === 0;
-    }
-    
-    datesOverlap(start1, end1, start2, end2) {
-        return start1 <= end2 && start2 <= end1;
     }
     
     async submitBooking() {
@@ -497,8 +505,8 @@ class GanttChart {
             customer_name: document.getElementById('customer-name').value,
             customer_phone: document.getElementById('customer-phone').value,
             destination: this.getDestinationString(),
-            ship_out_time: this.availableSlot.shipOutDate.toISOString(),
-            ship_in_time: this.availableSlot.shipInDate.toISOString()
+            ship_out_time: this.formatDate(this.availableSlot.shipOutDate),
+            ship_in_time: this.formatDate(this.availableSlot.shipInDate)
         };
         
         try {
@@ -532,25 +540,6 @@ class GanttChart {
         const city = document.getElementById('city-select').value;
         const district = document.getElementById('district-select').value;
         return `${province} ${city} ${district}`.trim();
-    }
-    
-    async deleteRental(rentalId) {
-        if (!confirm('确定要删除这个租赁记录吗？')) {
-            return;
-        }
-        
-        try {
-            const response = await axios.delete(`/api/rentals/${rentalId}`);
-            
-            if (response.data.success) {
-                this.showToast('租赁记录删除成功', 'success');
-                this.loadData();
-            } else {
-                this.showToast('删除失败: ' + response.data.error, 'error');
-            }
-        } catch (error) {
-            this.showToast('删除失败: ' + this.getErrorMessage(error), 'error');
-        }
     }
     
     async queryInventory() {
@@ -1110,7 +1099,7 @@ class GanttChart {
             
             // 检查是否在选择的范围内
             if (this.selectedStartDate && this.selectedEndDate && 
-                currentDate > this.selectedStartDate && currentDate < this.selectedEndDate) {
+                currentDate >= this.selectedStartDate && currentDate <= this.selectedEndDate) {
                 dayElement.classList.add('in-range');
             }
             
@@ -1150,21 +1139,8 @@ class GanttChart {
             this.showToast('请选择结束日期', 'info');
         } else {
             // 第二次点击，选择结束日期
-            if (date <= this.selectedStartDate) {
-                this.showToast('结束日期必须晚于开始日期', 'error');
-                return;
-            }
-            
-            // 验证选择的日期范围是否会导致寄出时间早于今天
-            const logisticsDays = parseInt(document.getElementById('logistics-days').value) || 1;
-            const shipOutDate = new Date(this.selectedStartDate);
-            shipOutDate.setDate(shipOutDate.getDate() - 1 - logisticsDays);
-            
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            
-            if (shipOutDate < today) {
-                this.showToast(`选择的日期范围会导致寄出时间早于今天（${this.formatDate(shipOutDate)}）。请选择更晚的租赁开始时间或减少物流时间。`, 'error');
+            if (date < this.selectedStartDate) {
+                this.showToast('结束日期不能早于开始日期', 'error');
                 return;
             }
             
@@ -1255,6 +1231,10 @@ function submitBooking() {
 
 function findAvailableSlot() {
     ganttChart.findAvailableSlot();
+}
+
+function updateRental() {
+    ganttChart.updateRental();
 }
 
 function queryInventory() {

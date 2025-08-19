@@ -307,6 +307,13 @@
             bottom: 15%;
             background: #ffc107; /* 内层：租赁区间黄色 */
             border-radius: 3px;
+            position: relative; /* 为删除按钮定位 */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7em;
+            color: #212529;
+            font-weight: bold;
         }
         .gantt-occupy:hover {
             box-shadow: 0 2px 6px rgba(0,0,0,0.25);
@@ -327,6 +334,66 @@
             white-space: nowrap;
         }
         .gantt-occupy:hover .rental-info { display: block; }
+        
+        /* 删除按钮样式 */
+        .delete-btn {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            font-size: 12px;
+            cursor: pointer;
+            display: none;
+            z-index: 10;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        /* 编辑按钮样式 */
+        .edit-btn {
+            position: absolute;
+            top: -8px;
+            right: 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            font-size: 12px;
+            cursor: pointer;
+            display: none;
+            z-index: 10;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .gantt-occupy-inner:hover .delete-btn,
+        .gantt-occupy-inner:hover .edit-btn {
+            display: block;
+        }
+        
+        .delete-btn:hover {
+            background: #c82333;
+            transform: scale(1.1);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+        
+        .edit-btn:hover {
+            background: #0056b3;
+            transform: scale(1.1);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+        }
+        
+        .delete-btn:active,
+        .edit-btn:active {
+            transform: scale(0.95);
+        }
     </style>
 </head>
 <body>
@@ -516,6 +583,59 @@
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
                     <button type="button" class="btn btn-info" onclick="findAvailableSlot()">找档期</button>
                     <button type="button" class="btn btn-primary" onclick="submitBooking()" disabled id="submit-booking-btn">提交预定</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑租赁记录模态框 -->
+    <div class="modal fade" id="editRentalModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">编辑租赁记录</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editRentalForm">
+                        <input type="hidden" id="edit-rental-id">
+                        <div class="mb-3">
+                            <label for="edit-start-date" class="form-label">租赁开始日期</label>
+                            <input type="date" class="form-control" id="edit-start-date" readonly>
+                            <div class="form-text text-muted">开始日期不可修改</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-end-date" class="form-label">租赁结束日期</label>
+                            <input type="date" class="form-control" id="edit-end-date" required>
+                            <div class="form-text">修改后将自动更新收回时间</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-customer-name" class="form-label">客户姓名</label>
+                            <input type="text" class="form-control" id="edit-customer-name" readonly>
+                            <div class="form-text text-muted">客户姓名不可修改</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-customer-phone" class="form-label">客户电话</label>
+                            <input type="tel" class="form-control" id="edit-customer-phone" pattern="^1[3-9]\d{9}$">
+                            <div class="form-text">请输入11位手机号码</div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-destination" class="form-label">目的地</label>
+                            <input type="text" class="form-control" id="edit-destination">
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-ship-out-tracking" class="form-label">寄出运单号</label>
+                            <input type="text" class="form-control" id="edit-ship-out-tracking" placeholder="如有请填写">
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-ship-in-tracking" class="form-label">寄回运单号</label>
+                            <input type="text" class="form-control" id="edit-ship-in-tracking" placeholder="如有请填写">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="updateRental()">保存修改</button>
                 </div>
             </div>
         </div>

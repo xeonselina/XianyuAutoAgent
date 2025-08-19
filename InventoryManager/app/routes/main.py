@@ -328,10 +328,10 @@ def create_rental():
         end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date()
         
         # 验证日期
-        if start_date >= end_date:
+        if start_date > end_date:
             return jsonify({
                 'success': False,
-                'error': '开始日期必须早于结束日期'
+                'error': '开始日期不能晚于结束日期'
             }), 400
         
         if start_date < date.today():
@@ -356,13 +356,25 @@ def create_rental():
         # 设置物流时间（如果提供）
         if data.get('ship_out_time'):
             try:
-                rental.ship_out_time = datetime.fromisoformat(data['ship_out_time'].replace('Z', '+00:00'))
+                # 处理日期字符串（如 "2025-08-19"）
+                if len(data['ship_out_time']) == 10:  # YYYY-MM-DD 格式
+                    ship_out_date = datetime.strptime(data['ship_out_time'], '%Y-%m-%d').date()
+                    rental.ship_out_time = datetime.combine(ship_out_date, datetime.min.time())
+                else:
+                    # 处理 ISO 格式
+                    rental.ship_out_time = datetime.fromisoformat(data['ship_out_time'].replace('Z', '+00:00'))
             except ValueError:
                 pass
         
         if data.get('ship_in_time'):
             try:
-                rental.ship_in_time = datetime.fromisoformat(data['ship_in_time'].replace('Z', '+00:00'))
+                # 处理日期字符串（如 "2025-08-19"）
+                if len(data['ship_in_time']) == 10:  # YYYY-MM-DD 格式
+                    ship_in_date = datetime.strptime(data['ship_in_time'], '%Y-%m-%d').date()
+                    rental.ship_in_time = datetime.combine(ship_in_date, datetime.min.time())
+                else:
+                    # 处理 ISO 格式
+                    rental.ship_in_time = datetime.fromisoformat(data['ship_in_time'].replace('Z', '+00:00'))
             except ValueError:
                 pass
         
@@ -385,6 +397,7 @@ def create_rental():
 
 
 @bp.route('/api/rentals/<rental_id>', methods=['DELETE'])
+@bp.route('/web/rentals/<rental_id>', methods=['DELETE'])
 def delete_rental(rental_id):
     """删除租赁记录"""
     try:
@@ -412,6 +425,60 @@ def delete_rental(rental_id):
             'success': False,
             'error': str(e)
         }), 500
+
+
+@bp.route('/api/rentals/<rental_id>', methods=['PUT'])
+@bp.route('/web/rentals/<rental_id>', methods=['PUT'])
+def update_rental(rental_id):
+    """更新租赁记录（不需要API Key）"""
+    try:
+        rental = Rental.query.get_or_404(rental_id)
+        data = request.get_json() or {}
+
+        updated_end_date = False
+
+        # 可更新字段
+        if 'customer_phone' in data:
+            rental.customer_phone = data.get('customer_phone')
+        if 'destination' in data:
+            rental.destination = data.get('destination')
+        if 'ship_out_tracking_no' in data:
+            rental.ship_out_tracking_no = data.get('ship_out_tracking_no')
+        if 'ship_in_tracking_no' in data:
+            rental.ship_in_tracking_no = data.get('ship_in_tracking_no')
+        if 'end_date' in data and data.get('end_date'):
+            try:
+                new_end = datetime.strptime(data['end_date'], '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'success': False, 'error': '结束日期格式不正确，应为YYYY-MM-DD'}), 400
+            # 允许等于开始日期
+            if new_end < rental.start_date:
+                return jsonify({'success': False, 'error': '结束日期不能早于开始日期'}), 400
+            rental.end_date = new_end
+            updated_end_date = True
+
+        # 如果结束日期更新了，则同步更新 ship_in_time
+        if updated_end_date:
+            # 通过现有 ship_out_time 与 start_date 反推出 logistics_days
+            logistics_days = 1
+            if rental.ship_out_time:
+                try:
+                    ship_out_d = rental.ship_out_time.date()
+                    logistics_days = (rental.start_date - ship_out_d).days - 1
+                except Exception:
+                    logistics_days = 1
+            if logistics_days is None:
+                logistics_days = 1
+            # 计算新的 ship_in_time = end_date + 1 + logistics_days （按本地日0点保存）
+            new_ship_in_date = rental.end_date + timedelta(days=1 + int(logistics_days))
+            rental.ship_in_time = datetime.combine(new_ship_in_date, datetime.min.time())
+
+        db.session.commit()
+        return jsonify({'success': True, 'data': rental.to_dict(), 'message': '租赁记录更新成功'})
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"更新租赁记录失败: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @bp.route('/api/statistics')
@@ -472,3 +539,143 @@ def health_check():
             'database': 'disconnected',
             'error': str(e)
         }), 500
+
+
+@bp.route('/api/rentals/find-slot', methods=['POST'])
+def find_available_slot():
+    """查找可用档期"""
+    try:
+        data = request.get_json()
+        
+        # 验证必填字段
+        required_fields = ['start_date', 'end_date', 'logistics_days']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({
+                    'success': False,
+                    'error': f'缺少必填字段: {field}'
+                }), 400
+        
+        # 解析日期
+        start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date()
+        end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date()
+        logistics_days = int(data['logistics_days'])
+        
+        # 验证日期
+        if start_date > end_date:
+            return jsonify({
+                'success': False,
+                'error': '开始日期不能晚于结束日期'
+            }), 400
+        
+        if start_date < date.today():
+            return jsonify({
+                'success': False,
+                'error': '开始日期不能早于今天'
+            }), 400
+        
+        # 计算寄出时间和收回时间
+        ship_out_date = start_date - timedelta(days=1 + logistics_days)
+        ship_in_date = end_date + timedelta(days=1 + logistics_days)
+        
+        # 检查寄出时间不能早于今天
+        if ship_out_date < date.today():
+            return jsonify({
+                'success': False,
+                'error': f'寄出时间不能早于今天。当前计算的寄出时间是：{ship_out_date}，请调整租赁时间或物流时间。'
+            }), 400
+        
+        # 查找可用档期
+        available_slot = find_available_time_slot(ship_out_date, ship_in_date)
+        
+        if available_slot:
+            return jsonify({
+                'success': True,
+                'data': {
+                    'device': available_slot['device'],
+                    'ship_out_date': ship_out_date.isoformat(),
+                    'ship_in_date': ship_in_date.isoformat(),
+                    'message': f'找到可用档期：{available_slot["device"]["name"]}'
+                }
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': '未找到可用档期，请调整时间或物流时间'
+            }), 404
+        
+    except Exception as e:
+        current_app.logger.error(f"查找档期失败: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+def find_available_time_slot(ship_out_date, ship_in_date):
+    """查找可用档期（内部函数）"""
+    try:
+        # 获取所有可用设备
+        available_devices = Device.query.filter_by(status='available').all()
+        
+        for device in available_devices:
+            # 检查设备在指定时间段是否可用
+            if is_device_available_in_period(device.id, ship_out_date, ship_in_date):
+                return {
+                    'device': {
+                        'id': device.id,
+                        'name': device.name,
+                        'serial_number': device.serial_number,
+                        'location': device.location,
+                        'status': device.status
+                    }
+                }
+        
+        return None
+        
+    except Exception as e:
+        current_app.logger.error(f"查找可用档期失败: {e}")
+        return None
+
+
+def is_device_available_in_period(device_id, start_date, end_date):
+    """检查设备在指定时间段是否可用（内部函数）"""
+    try:
+        # 查找与指定时间段重叠的租赁记录
+        # 使用 ship_out_time 和 ship_in_time 来判断重叠
+        conflicting_rentals = Rental.query.filter(
+            db.and_(
+                Rental.device_id == device_id,
+                Rental.status != 'cancelled',
+                db.or_(
+                    # 情况1：现有租赁的寄出时间在查询时间段内
+                    db.and_(
+                        Rental.ship_out_time.isnot(None),
+                        Rental.ship_in_time.isnot(None),
+                        db.or_(
+                            db.and_(
+                                Rental.ship_out_time <= datetime.combine(end_date, datetime.min.time()),
+                                Rental.ship_in_time >= datetime.combine(start_date, datetime.min.time())
+                            )
+                        )
+                    ),
+                    # 情况2：现有租赁没有物流时间，使用租赁时间判断（向后兼容）
+                    db.and_(
+                        Rental.ship_out_time.is_(None),
+                        Rental.ship_in_time.is_(None),
+                        db.or_(
+                            db.and_(
+                                Rental.start_date <= end_date,
+                                Rental.end_date >= start_date
+                            )
+                        )
+                    )
+                )
+            )
+        ).first()
+        
+        return conflicting_rentals is None
+        
+    except Exception as e:
+        current_app.logger.error(f"检查设备可用性失败: {e}")
+        return False
