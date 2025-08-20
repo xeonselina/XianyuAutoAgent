@@ -542,6 +542,7 @@ def health_check():
 
 
 @bp.route('/api/rentals/find-slot', methods=['POST'])
+@bp.route('/web/rentals/find-slot', methods=['POST'])
 def find_available_slot():
     """查找可用档期"""
     try:
@@ -599,10 +600,12 @@ def find_available_slot():
                 }
             })
         else:
+            # 不再返回 404，改为 200 且 success=false，避免前端/日志把其当作错误
             return jsonify({
                 'success': False,
-                'error': '未找到可用档期，请调整时间或物流时间'
-            }), 404
+                'error': '未找到可用档期，请调整时间或物流时间',
+                'code': 'NO_SLOT'
+            })
         
     except Exception as e:
         current_app.logger.error(f"查找档期失败: {e}")
@@ -615,8 +618,8 @@ def find_available_slot():
 def find_available_time_slot(ship_out_date, ship_in_date):
     """查找可用档期（内部函数）"""
     try:
-        # 获取所有可用设备
-        available_devices = Device.query.filter_by(status='available').all()
+        # 获取所有可用设备（新枚举：idle）
+        available_devices = Device.query.filter_by(status='idle').all()
         
         for device in available_devices:
             # 检查设备在指定时间段是否可用
