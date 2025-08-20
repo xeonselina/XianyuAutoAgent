@@ -40,9 +40,9 @@ def create_app(config_class=Config):
     CORS(app)
     
     # 注册蓝图
-    from app.routes import main, api
-    app.register_blueprint(main.bp)
-    app.register_blueprint(api.bp, url_prefix='/api')
+    from app.routes import web, external_api
+    app.register_blueprint(web.bp)
+    app.register_blueprint(external_api.bp, url_prefix='/api')
     
     # 配置日志
     if not app.debug and not app.testing:

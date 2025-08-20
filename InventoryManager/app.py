@@ -206,5 +206,5 @@ def check_device_status():
 if __name__ == '__main__':
     port = int(os.environ.get('APP_PORT', 5001))  # 使用环境变量或默认端口5001
     # 启动内置调度器
-    start_embedded_scheduler()
+    #start_embedded_scheduler()
     app.run(debug=True, host='0.0.0.0', port=port)

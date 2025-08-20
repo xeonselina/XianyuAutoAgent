@@ -207,35 +207,4 @@ class Rental(db.Model):
             }
         }
     
-    @classmethod
-    def check_device_availability(cls, device_id, start_date, end_date, exclude_rental_id=None):
-        """检查设备在指定时间段是否可用"""
-        query = cls.query.filter(
-            db.and_(
-                cls.device_id == device_id,
-                cls.status == 'active'
-            )
-        )
-        
-        if exclude_rental_id:
-            query = query.filter(cls.id != exclude_rental_id)
-        
-        # 检查时间冲突
-        conflicting_rental = query.filter(
-            db.or_(
-                db.and_(
-                    cls.start_date <= start_date,
-                    cls.end_date >= start_date
-                ),
-                db.and_(
-                    cls.start_date <= end_date,
-                    cls.end_date >= end_date
-                ),
-                db.and_(
-                    cls.start_date >= start_date,
-                    cls.end_date <= end_date
-                )
-            )
-        ).first()
-        
-        return conflicting_rental is None
+
