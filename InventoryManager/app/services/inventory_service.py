@@ -53,15 +53,15 @@ class InventoryService:
             return []
     
     @staticmethod
-    def check_device_availability(device_id: str, start_date: date, 
-                                end_date: date) -> Dict:
+    def check_device_availability(device_id: str, ship_out_time: datetime, 
+                                ship_in_time: datetime) -> Dict:
         """
-        检查指定设备在指定时间段是否可用
+        检查指定设备在指定寄出和收回时间段是否可用
         
         Args:
             device_id: 设备ID
-            start_date: 开始日期
-            end_date: 结束日期
+            ship_out_time: 寄出时间
+            ship_in_time: 收回时间
             
         Returns:
             Dict: 可用性检查结果
@@ -76,7 +76,7 @@ class InventoryService:
                 }
             
             # 检查设备状态
-            if device.status != 'available':
+            if device.status != 'idle':
                 return {
                     'available': False,
                     'reason': f'设备状态为: {device.status}',
@@ -84,8 +84,8 @@ class InventoryService:
                     'device_status': device.status
                 }
             
-            # 检查时间冲突
-            if device.is_available(start_date, end_date):
+            # 检查寄出和收回时间冲突
+            if device.is_available(ship_out_time, ship_in_time):
                 return {
                     'available': True,
                     'device_id': device_id,
@@ -99,16 +99,16 @@ class InventoryService:
                         Rental.status == 'active',
                         db.or_(
                             db.and_(
-                                Rental.start_date <= start_date,
-                                Rental.end_date >= start_date
+                                Rental.ship_out_time <= ship_out_time,
+                                Rental.ship_in_time >= ship_out_time
                             ),
                             db.and_(
-                                Rental.start_date <= end_date,
-                                Rental.end_date >= end_date
+                                Rental.ship_out_time <= ship_in_time,
+                                Rental.ship_in_time >= ship_in_time
                             ),
                             db.and_(
-                                Rental.start_date >= start_date,
-                                Rental.end_date <= end_date
+                                Rental.ship_out_time >= ship_out_time,
+                                Rental.ship_in_time <= ship_in_time
                             )
                         )
                     )
@@ -116,13 +116,13 @@ class InventoryService:
                 
                 return {
                     'available': False,
-                    'reason': '时间冲突',
+                    'reason': '寄出和收回时间冲突',
                     'device_id': device_id,
                     'conflicting_rentals': [
                         {
                             'rental_id': rental.id,
-                            'start_date': rental.start_date.isoformat(),
-                            'end_date': rental.end_date.isoformat(),
+                            'ship_out_time': rental.ship_out_time.isoformat() if rental.ship_out_time else None,
+                            'ship_in_time': rental.ship_in_time.isoformat() if rental.ship_in_time else None,
                             'customer_name': rental.customer_name
                         }
                         for rental in conflicting_rentals
