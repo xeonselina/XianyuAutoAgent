@@ -133,6 +133,7 @@ class GanttChart {
             // 设备信息列
             const deviceCell = document.createElement('div');
             deviceCell.className = `gantt-cell gantt-device-cell device-status-${device.status}`;
+            deviceCell.setAttribute('data-device-id', device.id);
             deviceCell.innerHTML = `
                 <div>
                     <div><strong>${device.name}</strong></div>
@@ -216,6 +217,11 @@ class GanttChart {
         
         const wrap = document.createElement('div');
         wrap.className = 'gantt-occupy';
+        
+        // 使用随机颜色而不是固定的灰色
+        const rentalColor = this.getRentalColor(rental.id);
+        wrap.style.backgroundColor = rentalColor;
+        wrap.style.opacity = '0.8';
         
         if (inRentalRange) {
             const inner = document.createElement('div');
@@ -437,6 +443,33 @@ class GanttChart {
         });
     }
     
+    // 为 rental 生成随机颜色
+    getRentalColor(rentalId) {
+        // 如果已经有颜色，直接返回
+        if (this.rentalColors && this.rentalColors[rentalId]) {
+            return this.rentalColors[rentalId];
+        }
+        
+        // 初始化颜色映射
+        if (!this.rentalColors) {
+            this.rentalColors = {};
+        }
+        
+        // 预定义一组美观的颜色
+        const colors = [
+            '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
+            '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9',
+            '#F8C471', '#82E0AA', '#F1948A', '#85C1E9', '#D7BDE2',
+            '#A9CCE3', '#F9E79F', '#D5A6BD', '#A3E4D7', '#FAD7A0'
+        ];
+        
+        // 为这个 rental 分配一个颜色
+        const colorIndex = Object.keys(this.rentalColors).length % colors.length;
+        this.rentalColors[rentalId] = colors[colorIndex];
+        
+        return this.rentalColors[rentalId];
+    }
+    
     openBookingModal() {
         // 重置表单和状态
         document.getElementById('bookingForm').reset();
@@ -607,9 +640,7 @@ class GanttChart {
     
     async updateDeviceStatus(deviceId, newStatus) {
         try {
-            const response = await axios.put(`/api/devices/${deviceId}/status`, {
-                status: newStatus
-            });
+            const response = await axios.put(`/api/devices/${deviceId}`, { status: newStatus });
             
             if (response.data.success) {
                 this.showToast(`设备状态已更新为: ${this.getStatusText(newStatus)}`, 'success');
@@ -617,6 +648,15 @@ class GanttChart {
                 const device = this.devices.find(d => d.id === deviceId);
                 if (device) {
                     device.status = newStatus;
+                }
+                // 即时更新设备单元格的颜色类
+                const cell = document.querySelector(`.gantt-device-cell[data-device-id="${deviceId}"]`);
+                if (cell) {
+                    // 移除旧的 device-status-* 类
+                    [...cell.classList].forEach(cls => {
+                        if (cls.startsWith('device-status-')) cell.classList.remove(cls);
+                    });
+                    cell.classList.add(`device-status-${newStatus}`);
                 }
             } else {
                 this.showToast('状态更新失败: ' + response.data.error, 'error');

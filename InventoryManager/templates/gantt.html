@@ -24,12 +24,12 @@
         .gantt-row {
             display: flex;
             border-bottom: 1px solid #dee2e6;
-            min-height: 35px;
+            min-height: 28px;
         }
         
         .gantt-cell {
             border-right: 1px solid #dee2e6;
-            padding: 4px;
+            padding: 2px 4px;
             min-width: 80px;
             text-align: center;
             display: flex;
@@ -47,35 +47,12 @@
         }
         
         /* 设备状态颜色 */
-        .device-status-idle {
-            background: #d4edda !important;
-            border-left: 4px solid #28a745;
-        }
-        
-        .device-status-pending-ship {
-            background: #f8d7da !important;
-            border-left: 4px solid #dc3545;
-        }
-        
-        .device-status-renting {
-            background: #d1ecf1 !important;
-            border-left: 4px solid #17a2b8;
-        }
-        
-        .device-status-pending-return {
-            background: #fff3cd !important;
-            border-left: 4px solid #ffc107;
-        }
-        
-        .device-status-returned {
-            background: #e2d9f3 !important;
-            border-left: 4px solid #6f42c1;
-        }
-        
-        .device-status-offline {
-            background: #e2e3e5 !important;
-            border-left: 4px solid #6c757d;
-        }
+        .gantt-device-cell.device-status-idle { background-color: #00c14d; }
+        .gantt-device-cell.device-status-pending_ship { background-color: #fb7575; /* 红色浅底 */ }
+        .gantt-device-cell.device-status-renting { background-color: #7ac5ff; }
+        .gantt-device-cell.device-status-pending_return { background-color: #ffdc68; /* 黄色浅底 */ }
+        .gantt-device-cell.device-status-returned { background-color: #bc81ff; }
+        .gantt-device-cell.device-status-offline { background-color: #949494; color: #6c757d; }
         
         /* 状态说明样式 */
         .device-status-legend {
@@ -395,7 +372,15 @@
             color: #212529;
             font-weight: bold;
         }
-        .gantt-occupy:hover {
+
+        /* 绿色括号视觉：整个物流时间段的边框 */
+        .logistics-bracket {
+            border: 2px solid #28a745 !important;
+            margin: 1px;
+            box-sizing: border-box;
+        }
+        
+        .gantt-occupy-inner:hover {
             box-shadow: 0 2px 6px rgba(0,0,0,0.25);
             z-index: 5;
         }
@@ -767,7 +752,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-    <script src="/static/js/gantt.js"></script>
+    <script src="/static/js/gantt.js?v=2"></script>
 </body>
 </html>
 

@@ -6,6 +6,13 @@ from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flask_migrate import Migrate
+from dotenv import load_dotenv
+import os
+
+# 提前加载 .env，确保 Config 读取到环境变量
+_BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+load_dotenv(os.path.join(_BASE_DIR, '.env'))
+
 from config import Config
 import logging
 from logging.handlers import RotatingFileHandler
