@@ -222,6 +222,8 @@ class GanttChart {
         const rentalColor = this.getRentalColor(rental.id);
         wrap.style.backgroundColor = rentalColor;
         wrap.style.opacity = '0.8';
+        wrap.style.position = 'relative';
+        wrap.style.zIndex = '1';
         
         if (inRentalRange) {
             const inner = document.createElement('div');
@@ -256,7 +258,57 @@ class GanttChart {
         }
         
         // 添加悬停提示信息
-        wrap.appendChild(this.createRentalInfoElement(rental, shipOut, shipIn));
+        const tooltip = this.createRentalInfoElement(rental, shipOut, shipIn);
+        let hideTimeout;
+        let isTooltipVisible = false;
+        let isMouseOverTooltip = false;
+        
+        const showTooltip = () => {
+            if (!isTooltipVisible) {
+                clearTimeout(hideTimeout);
+                document.body.appendChild(tooltip);
+                const rect = wrap.getBoundingClientRect();
+                tooltip.style.left = `${rect.left}px`;
+                tooltip.style.top = `${rect.bottom + 5}px`;
+                tooltip.style.display = 'block';
+                tooltip.style.pointerEvents = 'auto';
+                isTooltipVisible = true;
+            }
+        };
+        
+        const hideTooltip = () => {
+            if (isTooltipVisible && !isMouseOverTooltip) {
+                tooltip.style.display = 'none';
+                tooltip.style.pointerEvents = 'none';
+                if (tooltip.parentNode) {
+                    tooltip.parentNode.removeChild(tooltip);
+                }
+                isTooltipVisible = false;
+            }
+        };
+        
+        // 租赁时段的鼠标事件
+        wrap.addEventListener('mouseenter', () => {
+            clearTimeout(hideTimeout);
+            showTooltip();
+        });
+        
+        wrap.addEventListener('mouseleave', () => {
+            hideTimeout = setTimeout(() => {
+                hideTooltip();
+            }, 300); // 增加延迟时间
+        });
+        
+        // 弹出层的鼠标事件
+        tooltip.addEventListener('mouseenter', () => {
+            clearTimeout(hideTimeout);
+            isMouseOverTooltip = true;
+        });
+        
+        tooltip.addEventListener('mouseleave', () => {
+            isMouseOverTooltip = false;
+            hideTooltip();
+        });
         
         return wrap;
     }
@@ -320,10 +372,29 @@ class GanttChart {
     createRentalInfoElement(rental, shipOutDate, shipInDate) {
         const infoDiv = document.createElement('div');
         infoDiv.className = 'rental-info';
+        infoDiv.style.position = 'fixed';
+        infoDiv.style.background = 'white';
+        infoDiv.style.border = '1px solid #dee2e6';
+        infoDiv.style.borderRadius = '4px';
+        infoDiv.style.padding = '8px';
+        infoDiv.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+        infoDiv.style.zIndex = '99999';
+        infoDiv.style.minWidth = '250px';
+        infoDiv.style.whiteSpace = 'nowrap';
+        infoDiv.style.display = 'none';
+        infoDiv.style.pointerEvents = 'none';
         
         const logisticsDays = 1; // 默认物流时间1天
         
         infoDiv.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #dee2e6; padding-bottom: 8px;">
+                <strong style="color: #495057;">租赁信息</strong>
+                <button type="button" class="btn btn-sm btn-primary shipping-order-btn" 
+                        onclick="ganttChart.viewShippingOrder(${rental.id})"
+                        style="font-size: 12px; padding: 2px 8px;">
+                    <i class="bi bi-file-earmark-text"></i> 出货单
+                </button>
+            </div>
             <div class="info-row">
                 <span class="info-label">客户名:</span>
                 <span class="info-value">${rental.customer_name}</span>
@@ -495,9 +566,9 @@ class GanttChart {
     async findAvailableSlot() {
         if (!this.selectedStartDate || !this.selectedEndDate) {
             this.showToast('请先在日历中选择租赁开始和结束日期', 'error');
-            return;
-        }
-        
+                return;
+            }
+            
         const logisticsDays = parseInt(document.getElementById('logistics-days').value);
         
         if (!logisticsDays || logisticsDays < -1) {
@@ -942,7 +1013,7 @@ class GanttChart {
             return '请求失败';
         }
     }
-
+    
     showToast(message, type = 'info') {
         // 简单的提示实现
         const alertClass = type === 'error' ? 'alert-danger' : 
@@ -1113,6 +1184,25 @@ class GanttChart {
         this.isSelectingEnd = false;
         this.calendarDate = new Date();
         this.renderCalendar();
+    }
+    
+    async viewShippingOrder(rentalId) {
+        try {
+            this.showToast('正在打开出货单...', 'info');
+            
+            // 打开出货单页面
+            const shippingOrderUrl = `/shipping-order/${rentalId}`;
+            const shippingOrderWindow = window.open(shippingOrderUrl, '_blank', 'width=800,height=1000,scrollbars=yes,resizable=yes');
+            
+            if (shippingOrderWindow) {
+                this.showToast('出货单已打开', 'success');
+            } else {
+                this.showToast('无法打开出货单页面，请检查浏览器弹窗设置', 'warning');
+            }
+        } catch (error) {
+            console.error('打开出货单失败:', error);
+            this.showToast('打开出货单失败: ' + this.getErrorMessage(error), 'error');
+        }
     }
 }
 
