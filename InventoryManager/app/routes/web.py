@@ -9,6 +9,7 @@ from app.services.inventory_service import InventoryService
 from app.services.rental_service import RentalService
 from datetime import datetime, date, timedelta
 import json
+import re
 from app import db
 
 bp = Blueprint('web', __name__)
@@ -26,6 +27,36 @@ def index():
 def gantt():
     """甘特图页面"""
     return render_template('gantt.html')
+
+
+@bp.route('/shipping-order/<int:rental_id>')
+def shipping_order(rental_id):
+    """出货单页面"""
+    try:
+        # 获取租赁记录
+        rental = Rental.query.get(rental_id)
+        if not rental:
+            return render_template('error.html', 
+                                 error_title='租赁记录不存在',
+                                 error_message=f'找不到ID为{rental_id}的租赁记录'), 404
+
+        # 获取设备信息
+        device = rental.device
+        if not device:
+            return render_template('error.html',
+                                 error_title='设备信息不存在', 
+                                 error_message='该租赁记录关联的设备不存在'), 404
+
+        # 准备模板数据
+        data = _prepare_shipping_order_data(rental, device)
+        
+        return render_template('shipping_order.html', **data)
+        
+    except Exception as e:
+        current_app.logger.error(f"显示出货单页面失败: {e}")
+        return render_template('error.html',
+                             error_title='页面加载失败',
+                             error_message=str(e)), 500
 
 
 @bp.route('/devices')
@@ -905,3 +936,54 @@ def web_delete_rental(rental_id):
 def web_update_rental(rental_id):
     """Web界面更新租赁记录（别名）"""
     return update_rental(rental_id)
+
+
+def _prepare_shipping_order_data(rental, device):
+    """准备出货单模板数据"""
+    # 提取电话号码
+    phone_number = extract_phone_from_address(rental.destination or '')
+    phone_display = phone_number if phone_number else '未提取到电话'
+    
+    # 计算时间
+    if rental.ship_out_time:
+        ship_out_date = rental.ship_out_time.date()
+    else:
+        ship_out_date = rental.start_date - timedelta(days=1)
+        
+    if rental.ship_in_time:
+        ship_in_date = rental.ship_in_time.date()
+    else:
+        ship_in_date = rental.end_date + timedelta(days=1)
+    
+    # 计算租赁天数
+    rental_days = (rental.end_date - rental.start_date).days + 1
+    
+    # 计算归还时间：租赁结束日期 + 1天
+    return_date = rental.end_date + timedelta(days=1)
+    
+    return {
+        'customer_name': rental.customer_name,
+        'phone_number': phone_display,
+        'destination': rental.destination or '未填写地址',
+        'device_name': device.name,
+        'serial_number': device.serial_number or '未设置',
+        'start_date': str(rental.start_date),
+        'end_date': str(rental.end_date),
+        'ship_out_date': str(ship_out_date),
+        'ship_in_date': str(ship_in_date),
+        'return_date': str(return_date),
+        'rental_days': str(rental_days),
+        'customer_message': getattr(rental, 'customer_message', ''),
+    }
+
+
+def extract_phone_from_address(address_text):
+    """从地址文本中提取手机号码"""
+    if not address_text:
+        return None
+        
+    # 中国大陆手机号正则表达式
+    phone_pattern = r'1[3-9]\d{9}'
+    matches = re.findall(phone_pattern, address_text)
+    
+    return matches[0] if matches else None
