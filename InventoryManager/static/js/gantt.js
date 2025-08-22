@@ -389,11 +389,18 @@ class GanttChart {
         infoDiv.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #dee2e6; padding-bottom: 8px;">
                 <strong style="color: #495057;">租赁信息</strong>
-                <button type="button" class="btn btn-sm btn-primary shipping-order-btn" 
-                        onclick="ganttChart.viewShippingOrder(${rental.id})"
-                        style="font-size: 12px; padding: 2px 8px;">
-                    <i class="bi bi-file-earmark-text"></i> 出货单
-                </button>
+                <div style="display: flex; gap: 5px;">
+                    <button type="button" class="btn btn-sm btn-success rental-contract-btn" 
+                            onclick="ganttChart.viewRentalContract(${rental.id})"
+                            style="font-size: 12px; padding: 2px 8px;">
+                        <i class="bi bi-file-earmark-text"></i> 租赁合同
+                    </button>
+                    <button type="button" class="btn btn-sm btn-primary shipping-order-btn" 
+                            onclick="ganttChart.viewShippingOrder(${rental.id})"
+                            style="font-size: 12px; padding: 2px 8px;">
+                        <i class="bi bi-file-earmark-text"></i> 出货单
+                    </button>
+                </div>
             </div>
             <div class="info-row">
                 <span class="info-label">客户名:</span>
@@ -1202,6 +1209,25 @@ class GanttChart {
         } catch (error) {
             console.error('打开出货单失败:', error);
             this.showToast('打开出货单失败: ' + this.getErrorMessage(error), 'error');
+        }
+    }
+    
+    async viewRentalContract(rentalId) {
+        try {
+            this.showToast('正在打开租赁合同...', 'info');
+            
+            // 打开租赁合同页面
+            const contractUrl = `/rental-contract/${rentalId}`;
+            const contractWindow = window.open(contractUrl, '_blank', 'width=1000,height=800,scrollbars=yes,resizable=yes');
+            
+            if (contractWindow) {
+                this.showToast('租赁合同已打开', 'success');
+            } else {
+                this.showToast('无法打开租赁合同页面，请检查浏览器弹窗设置', 'warning');
+            }
+        } catch (error) {
+            console.error('打开租赁合同失败:', error);
+            this.showToast('打开租赁合同失败: ' + this.getErrorMessage(error), 'error');
         }
     }
 }
