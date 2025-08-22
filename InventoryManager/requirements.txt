@@ -42,8 +42,10 @@ Jinja2==3.1.2
 
 # 图像处理和OCR识别
 Pillow==10.0.0
-# 阿里云OCR SDK
+# 阿里云OCR SDK（按官方文档）
 alibabacloud-ocr-api20210707==2.0.3
+alibabacloud-credentials>=1.0.0
+alibabacloud-tea-util>=0.3.0
 
 # Word文档处理和HTML解析
 python-docx==1.2.0
