@@ -2,7 +2,11 @@
 前端页面路由 + 内部API
 """
 
-from flask import Blueprint, render_template, request, jsonify, current_app
+from flask import Blueprint, render_template, request, jsonify, current_app, send_file
+import os
+import base64
+import io
+from PIL import Image
 from app.models.device import Device
 from app.models.rental import Rental
 from app.services.inventory_service import InventoryService
@@ -54,6 +58,36 @@ def shipping_order(rental_id):
         
     except Exception as e:
         current_app.logger.error(f"显示出货单页面失败: {e}")
+        return render_template('error.html',
+                             error_title='页面加载失败',
+                             error_message=str(e)), 500
+
+
+@bp.route('/rental-contract/<int:rental_id>')
+def rental_contract(rental_id):
+    """租赁合同页面"""
+    try:
+        # 获取租赁记录
+        rental = Rental.query.get(rental_id)
+        if not rental:
+            return render_template('error.html', 
+                                 error_title='租赁记录不存在',
+                                 error_message=f'找不到ID为{rental_id}的租赁记录'), 404
+
+        # 获取设备信息
+        device = rental.device
+        if not device:
+            return render_template('error.html',
+                                 error_title='设备信息不存在', 
+                                 error_message='该租赁记录关联的设备不存在'), 404
+
+        # 准备合同数据
+        data = _prepare_contract_data(rental, device)
+        
+        return render_template('rental_contract.html', **data)
+        
+    except Exception as e:
+        current_app.logger.error(f"显示租赁合同页面失败: {e}")
         return render_template('error.html',
                              error_title='页面加载失败',
                              error_message=str(e)), 500
@@ -740,6 +774,72 @@ def health_check():
     })
 
 
+@bp.route('/api/ocr/id-card', methods=['POST'])
+def ocr_id_card():
+    """身份证OCR识别"""
+    try:
+        # 检查是否有文件上传
+        if 'id_card' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': '没有上传文件'
+            }), 400
+        
+        file = request.files['id_card']
+        
+        # 检查文件是否为空
+        if file.filename == '':
+            return jsonify({
+                'success': False,
+                'error': '文件名为空'
+            }), 400
+        
+        # 检查文件类型
+        if not file.content_type.startswith('image/'):
+            return jsonify({
+                'success': False,
+                'error': '文件类型不正确，请上传图片'
+            }), 400
+        
+        # 读取文件内容
+        file_content = file.read()
+        
+        # 验证是否为有效图片
+        try:
+            image = Image.open(io.BytesIO(file_content))
+            # 转换为RGB格式（如果需要）
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+        except Exception as e:
+            current_app.logger.error(f"图片格式验证失败: {e}")
+            return jsonify({
+                'success': False,
+                'error': '图片格式不正确或文件损坏'
+            }), 400
+        
+        # 调用OCR识别服务
+        ocr_result = recognize_id_card(file_content)
+        
+        if ocr_result:
+            return jsonify({
+                'success': True,
+                'data': ocr_result,
+                'message': '身份证识别成功'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': '无法识别身份证信息，请确保照片清晰且为身份证正面'
+            })
+        
+    except Exception as e:
+        current_app.logger.error(f"身份证OCR识别失败: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'识别服务异常: {str(e)}'
+        }), 500
+
+
 @bp.route('/api/rentals/find-slot', methods=['POST'])
 def find_rental_slot():
     """查找可用的租赁时间段"""
@@ -987,3 +1087,64 @@ def extract_phone_from_address(address_text):
     matches = re.findall(phone_pattern, address_text)
     
     return matches[0] if matches else None
+
+
+def _prepare_contract_data(rental, device):
+    """准备租赁合同模板数据"""
+    # 提取电话号码
+    phone_number = extract_phone_from_address(rental.destination or '')
+    phone_display = phone_number if phone_number else rental.customer_phone or '未提供'
+    
+    # 计算时间
+    if rental.ship_out_time:
+        ship_out_date = rental.ship_out_time.date()
+    else:
+        ship_out_date = rental.start_date - timedelta(days=1)
+        
+    if rental.ship_in_time:
+        ship_in_date = rental.ship_in_time.date()
+    else:
+        ship_in_date = rental.end_date + timedelta(days=1)
+    
+    # 计算租赁天数和金额
+    rental_days = (rental.end_date - rental.start_date).days + 1
+    daily_rate = getattr(device, 'daily_rate', 0) or 100  # 默认日租金100元
+    total_amount = rental_days * daily_rate
+    deposit = total_amount * 2  # 押金为总租金的2倍
+    
+    # 当前日期
+    current_date = date.today()
+    
+    # 计算设备总价值（用于押金计算和合同显示）
+    total_device_value = getattr(device, 'value', 0) or 7500  # 默认7500元设备价值
+    
+    return {
+        'rental_id': rental.id,
+        'customer_name': rental.customer_name,
+        'customer_phone': phone_display,
+        'customer_address': rental.destination or '未填写地址',
+        'device_name': device.name,
+        'device_model': getattr(device, 'model', '') or '未设置',
+        'serial_number': device.serial_number or '未设置',
+        'start_date': str(rental.start_date),
+        'end_date': str(rental.end_date),
+        'rental_days': str(rental_days),
+        'daily_rate': str(daily_rate),
+        'total_amount': str(total_amount),
+        'deposit': str(deposit),
+        'total_device_value': str(total_device_value),
+        'contract_date': str(current_date),
+        'ship_out_date': str(ship_out_date),
+        'ship_in_date': str(ship_in_date),
+        # 身份证信息占位符，需要通过OCR识别后填入
+        'id_name': '',
+        'id_number': '',
+        '身份证上姓名': '{{身份证上姓名}}',  # 前端会通过JavaScript替换
+        '身份证号': '{{身份证号}}',  # 前端会通过JavaScript替换
+    }
+
+
+# 导入OCR函数
+from ocr_functions import recognize_id_card
+
+# 这里的recognize_id_card函数已经移到ocr_functions.py中
