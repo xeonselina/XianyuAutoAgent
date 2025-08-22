@@ -62,12 +62,9 @@ def _recognize_with_aliyun_advanced_ocr(image_data):
         # 创建客户端
         client = OcrClient(config)
         
-        # 将图像数据转换为base64
-        image_base64 = base64.b64encode(image_data).decode('utf-8')
-        
-        # 创建通用OCR请求
+        # 按照官方文档方式，直接传入图像数据
         request = ocr_models.RecognizeAdvancedRequest(
-            body=image_base64,
+            body=image_data,           # 直接传入原始图像数据，不需要base64编码
             need_rotate=True,          # 自动旋转
             need_sort_page=True,       # 排序
             output_char_info=False,    # 不需要字符级信息
@@ -75,12 +72,15 @@ def _recognize_with_aliyun_advanced_ocr(image_data):
             no_stamp=True             # 忽略印章
         )
         
-        # 调用API
-        response = client.recognize_advanced(request)
+        # 调用API（使用带运行时选项的方法，参照官方文档）
+        from alibabacloud_tea_util import models as util_models
+        runtime = util_models.RuntimeOptions()
+        response = client.recognize_advanced_with_options(request, runtime)
         
         # 解析结果
-        if response.body and response.body.data and response.body.data.content:
-            content = response.body.data.content
+        if response.body and response.body.data:
+            # 阿里云通用OCR返回的是字符串格式的内容
+            content = response.body.data
             current_app.logger.info(f"阿里云OCR识别到的完整文本: {content}")
             
             # 从识别到的文本中提取身份证信息
@@ -99,7 +99,11 @@ def _extract_id_info_from_text(text):
     """从OCR识别的文本中提取身份证信息"""
     result = {
         'name': '',
-        'id_number': ''
+        'id_number': '',
+        'gender': '',
+        'nation': '',
+        'birth': '',
+        'address': ''
     }
     
     current_app.logger.info(f"开始从文本提取身份证信息: {text}")
