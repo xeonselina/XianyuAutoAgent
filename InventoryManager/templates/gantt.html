@@ -6,6 +6,8 @@
     <title>库存管理 - 甘特图</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
     <style>
         .gantt-container {
             overflow-x: auto;
@@ -464,66 +466,25 @@
 <body>
     <div class="container-fluid">
         <!-- 页面标题 -->
-        <div class="row mt-3">
-            <div class="col">
-                <h1><i class="bi bi-calendar-range"></i> 库存甘特图</h1>
-                <p class="text-muted">可视化设备租赁时间管理</p>
-            </div>
-        </div>
-
-        <!-- 统计卡片 -->
-        <div class="row stats-cards">
-            <div class="col-md-3">
-                <div class="stats-card">
-                    <div class="number" id="total-devices">-</div>
-                    <div class="label">总设备数</div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="stats-card">
-                    <div class="number" id="available-devices">-</div>
-                    <div class="label">可用设备</div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="stats-card">
-                    <div class="number" id="active-rentals">-</div>
-                    <div class="label">租赁中</div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="stats-card">
-                    <div class="number" id="overdue-rentals">-</div>
-                    <div class="label">逾期租赁</div>
-                </div>
-            </div>
-        </div>
-
         <!-- 日期导航 -->
         <div class="date-navigation">
             <div class="row align-items-center">
                 <div class="col-md-6">
                     <div class="btn-group" role="group">
-                        <button type="button" class="btn btn-outline-primary" onclick="navigateDate(-30)">
-                            <i class="bi bi-chevron-left"></i> 上月
-                        </button>
-                        <button type="button" class="btn btn-outline-primary" onclick="navigateDate(-7)">
+                        <button type="button" class="btn btn-outline-primary" onclick="if(window.ganttChart) window.ganttChart.navigateToWeek(-1); else console.error('ganttChart not ready');">
                             <i class="bi bi-chevron-left"></i> 上周
                         </button>
-                        <button type="button" class="btn btn-outline-primary" onclick="goToToday()">
+                        <button type="button" class="btn btn-outline-primary" onclick="if(window.ganttChart) window.ganttChart.goToToday(); else console.error('ganttChart not ready');">
                             今天
                         </button>
-                        <button type="button" class="btn btn-outline-primary" onclick="navigateDate(7)">
+                        <button type="button" class="btn btn-outline-primary" onclick="if(window.ganttChart) window.ganttChart.navigateToWeek(1); else console.error('ganttChart not ready');">
                             下周 <i class="bi bi-chevron-right"></i>
-                        </button>
-                        <button type="button" class="btn btn-outline-primary" onclick="navigateDate(30)">
-                            下月 <i class="bi bi-chevron-right"></i>
                         </button>
                     </div>
                 </div>
                 <div class="col-md-6 text-end">
                     <span class="badge bg-primary" id="current-period">当前期间</span>
-                    <button type="button" class="btn btn-success ms-2" onclick="refreshData()">
+                    <button type="button" class="btn btn-success ms-2" onclick="if(window.ganttChart) window.ganttChart.refreshData(); else console.error('ganttChart not ready');">
                         <i class="bi bi-arrow-clockwise"></i> 刷新
                     </button>
                 </div>
@@ -556,13 +517,13 @@
                 <div class="col-md-3">
                     <label class="form-label">&nbsp;</label>
                     <div>
-                        <button type="button" class="btn btn-primary" onclick="applyFilters()">
+                        <button type="button" class="btn btn-primary" onclick="if(window.ganttChart) window.ganttChart.applyFilters(); else console.error('ganttChart not ready');">
                             <i class="bi bi-funnel"></i> 应用过滤
                         </button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="clearFilters()">
+                        <button type="button" class="btn btn-outline-secondary" onclick="if(window.ganttChart) window.ganttChart.clearFilters(); else console.error('ganttChart not ready');">
                             清除
                         </button>
-                        <button type="button" class="btn btn-info ms-2" onclick="openBookingModal()">
+                        <button type="button" class="btn btn-info ms-2" onclick="if(window.ganttChart) window.ganttChart.showBookingModal(); else console.error('ganttChart not ready');">
                             <i class="bi bi-calendar-plus"></i> 预定设备
                         </button>
                     </div>
@@ -605,21 +566,16 @@
                     <form id="bookingForm">
                         <div class="mb-3">
                             <label class="form-label">租赁时间范围</label>
-                            <div class="calendar-container">
-                                <div class="calendar-header">
-                                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="previousMonth()">
-                                        <i class="bi bi-chevron-left"></i>
-                                    </button>
-                                    <span id="current-month-year" class="fw-bold"></span>
-                                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="nextMonth()">
-                                        <i class="bi bi-chevron-right"></i>
-                                    </button>
-                                </div>
-                                <div class="calendar-grid">
-                                    <div class="calendar-weekdays">
-                                        <div>日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div>
+                            <div class="date-range-container">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <label for="start-date-picker" class="form-label">开始日期</label>
+                                        <input type="text" class="form-control" id="start-date-picker" placeholder="选择开始日期" readonly>
                                     </div>
-                                    <div id="calendar-days" class="calendar-days"></div>
+                                    <div class="col-md-6">
+                                        <label for="end-date-picker" class="form-label">结束日期</label>
+                                        <input type="text" class="form-control" id="end-date-picker" placeholder="选择结束日期" readonly>
+                                    </div>
                                 </div>
                                 <div class="date-selection-info mt-2">
                                     <small class="text-muted">
@@ -652,8 +608,8 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="button" class="btn btn-info" onclick="findAvailableSlot()">找档期</button>
-                    <button type="button" class="btn btn-primary" onclick="submitBooking()" disabled id="submit-booking-btn">提交预定</button>
+                    <button type="button" class="btn btn-info" onclick="if(window.ganttChart) window.ganttChart.findAvailableSlot(); else console.error('ganttChart not ready');">找档期</button>
+                    <button type="button" class="btn btn-primary" onclick="if(window.ganttChart) window.ganttChart.submitBooking(); else console.error('ganttChart not ready');" disabled id="submit-booking-btn">提交预定</button>
                 </div>
             </div>
         </div>
@@ -706,7 +662,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="button" class="btn btn-primary" onclick="updateRental()">保存修改</button>
+                    <button type="button" class="btn btn-primary" onclick="if(window.ganttChart) window.ganttChart.updateRental(); else console.error('ganttChart not ready');">保存修改</button>
                 </div>
             </div>
         </div>
@@ -739,7 +695,7 @@
                             </select>
                         </div>
                         <div class="mb-3">
-                            <button type="button" class="btn btn-primary" onclick="queryInventory()">
+                            <button type="button" class="btn btn-primary" onclick="if(window.ganttChart) window.ganttChart.queryInventory(); else console.error('ganttChart not ready');">
                                 <i class="bi bi-search"></i> 查询
                             </button>
                         </div>
@@ -752,7 +708,31 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-    <script src="/static/js/gantt.js?v=2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script>
+        // Flatpickr 中文语言包
+        flatpickr.localize({
+            firstDayOfWeek: 1,
+            weekdays: {
+                shorthand: ["周日", "周一", "周二", "周三", "周四", "周五", "周六"],
+                longhand: ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"]
+            },
+            months: {
+                shorthand: ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],
+                longhand: ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"]
+            }
+        });
+    </script>
+    <!-- 直接嵌入Vue应用 -->
+    <div id="vue-app">
+        <!-- Vue应用将在这里渲染 -->
+    </div>
+    
+    <!-- 加载Vue应用 -->
+    <script>
+        // 直接加载Vue应用
+        window.location.href = '/vue';
+    </script>
 </body>
 </html>
 

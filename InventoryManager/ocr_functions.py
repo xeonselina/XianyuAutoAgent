@@ -114,6 +114,7 @@ def _extract_id_info_from_text(text):
         r'\b\d{15}\b'         # 15位身份证（老版本）
     ]
     
+    #处理空格
     for pattern in id_patterns:
         id_match = re.search(pattern, text)
         if id_match:
@@ -124,6 +125,7 @@ def _extract_id_info_from_text(text):
     # 提取姓名（多种模式）
     name_patterns = [
         r'姓\s*名\s*[:：]?\s*([^\s\d]{2,4})',      # "姓名: 张三"
+        r'姓\s*名\s*[:：]?\s*([^\s\d]+\s+[^\s\d]+)',   # "姓 名：张 三" - 姓名中间有空格的格式
         r'姓名\s*[:：]?\s*([^\s\d]{2,4})',         # "姓名：张三"
         r'名\s*[:：]?\s*([^\s\d]{2,4})',           # "名: 张三"
         r'([^\s\d]{2,4})\s*[男女]',                # "张三 男"
@@ -137,6 +139,8 @@ def _extract_id_info_from_text(text):
         name_match = re.search(pattern, text)
         if name_match:
             potential_name = name_match.group(1)
+            # 去除姓名中的空格（处理"张 三"这种格式）
+            potential_name = re.sub(r'\s+', '', potential_name)
             # 验证是否为合理的姓名
             if len(potential_name) >= 2 and len(potential_name) <= 4:
                 # 排除一些明显不是姓名的词
@@ -145,19 +149,6 @@ def _extract_id_info_from_text(text):
                     result['name'] = potential_name
                     current_app.logger.info(f"提取到姓名: {result['name']}")
                     break
-    
-    # 提取性别
-    if '男' in text and '女' not in text:
-        result['gender'] = '男'
-    elif '女' in text and '男' not in text:
-        result['gender'] = '女'
-    
-    # 提取民族
-    nations = ['汉', '蒙古', '回', '藏', '维吾尔', '苗', '彝', '壮', '布依', '朝鲜', '满', '侗', '瑶', '白', '土家', '哈尼', '哈萨克', '傣', '黎', '傈僳', '佤', '畲', '高山', '拉祜', '水', '东乡', '纳西', '景颇', '柯尔克孜', '土', '达斡尔', '仫佬', '羌', '布朗', '撒拉', '毛南', '仡佬', '锡伯', '阿昌', '普米', '塔吉克', '怒', '乌孜别克', '俄罗斯', '鄂温克', '德昂', '保安', '裕固', '京', '塔塔尔', '独龙', '鄂伦春', '赫哲', '门巴', '珞巴', '基诺']
-    for nation in nations:
-        if nation in text:
-            result['nation'] = nation
-            break
     
     current_app.logger.info(f"最终提取结果: 姓名={result['name']}, 身份证号={result['id_number']}")
     return result

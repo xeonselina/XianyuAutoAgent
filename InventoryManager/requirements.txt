@@ -37,6 +37,9 @@ gunicorn==21.2.0
 # 定时任务
 schedule==1.2.0
 
+# HTTP请求库
+requests==2.31.0
+
 # 模板引擎
 Jinja2==3.1.2
 
