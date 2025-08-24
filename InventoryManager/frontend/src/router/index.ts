@@ -1,0 +1,31 @@
+import { createRouter, createWebHistory } from 'vue-router'
+import GanttView from '../views/GanttView.vue'
+import RentalContractView from '../views/RentalContractView.vue'
+import ShippingOrderView from '../views/ShippingOrderView.vue'
+
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes: [
+    {
+      path: '/',
+      name: 'gantt',
+      component: GanttView,
+    },
+    {
+      path: '/gantt',
+      redirect: '/'
+    },
+    {
+      path: '/contract/:id',
+      name: 'rental-contract',
+      component: RentalContractView,
+    },
+    {
+      path: '/shipping/:id',
+      name: 'shipping-order',
+      component: ShippingOrderView,
+    }
+  ],
+})
+
+export default router

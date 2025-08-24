@@ -11,6 +11,41 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _check_device_availability(device_id: int, start_date: date, end_date: date) -> bool:
+    """
+    检查设备在指定时间段是否可用
+    
+    Args:
+        device_id: 设备ID
+        start_date: 开始日期
+        end_date: 结束日期
+        
+    Returns:
+        bool: 是否可用
+    """
+    try:
+        from app.models.rental import Rental
+        
+        # 查找在指定时间段内有冲突的租赁记录
+        conflicting_rentals = Rental.query.filter(
+            db.and_(
+                Rental.device_id == device_id,
+                Rental.status.in_(['pending', 'active']),  # 包括待处理和活动中的租赁
+                # 租赁时间段与请求时间段重叠
+                db.and_(
+                    Rental.start_date <= end_date,
+                    Rental.end_date >= start_date
+                )
+            )
+        ).count()
+        
+        return conflicting_rentals == 0
+        
+    except Exception as e:
+        logger.error(f"检查设备可用性失败: {e}")
+        return False
+
+
 class RentalService:
     """租赁管理服务"""
     
@@ -49,7 +84,7 @@ class RentalService:
                 }
             
             # 检查时间冲突
-            if not device.is_available(start_date, end_date):
+            if not _check_device_availability(device.id, start_date, end_date):
                 return {
                     'success': False,
                     'message': '设备在指定时间段不可用',
@@ -130,7 +165,7 @@ class RentalService:
             
             # 再次检查设备可用性
             device = rental.device
-            if not device.is_available(rental.start_date, rental.end_date):
+            if not _check_device_availability(device.id, rental.start_date, rental.end_date):
                 return {
                     'success': False,
                     'message': '设备在指定时间段不可用',
@@ -299,7 +334,7 @@ class RentalService:
             
             # 检查设备在新时间段是否可用
             device = rental.device
-            if not device.is_available(rental.end_date + timedelta(days=1), new_end_date):
+            if not _check_device_availability(device.id, rental.end_date + timedelta(days=1), new_end_date):
                 return {
                     'success': False,
                     'message': '设备在新时间段不可用',

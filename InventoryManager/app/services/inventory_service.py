@@ -5,7 +5,8 @@
 from app.models import Device, Rental
 from app import db
 from datetime import datetime, date, timedelta
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Union
+from app.utils.date_utils import convert_dates_to_datetime
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,38 +16,90 @@ class InventoryService:
     """库存管理服务"""
     
     @staticmethod
-    def get_available_devices(start_date: date, end_date: date, 
-                            location: str = None) -> List[Device]:
+    def get_available_devices(ship_out_time: datetime, ship_in_time: datetime) -> List[Device]:
         """
         获取指定时间段内可用的设备
         
         Args:
-            start_date: 开始日期
-            end_date: 结束日期
-            location: 设备位置（可选）
+            ship_out_time: 寄出时间
+            ship_in_time: 收回时间
             
         Returns:
-            List[Device]: 可用设备列表
+            List[Device]: 可用设备列表，按优选策略排序
         """
         try:
-            # 基础查询：状态为可用的设备
-            query = Device.query.filter(Device.status == 'available')
+            from app.models.rental import Rental
             
-            # 按位置过滤
-            if location:
-                query = query.filter(Device.location == location)
+            logger.info(f"calc available devices: ship_out_time: {ship_out_time}, ship_in_time: {ship_in_time}")
             
-            # 获取所有符合条件的设备
-            devices = query.all()
-            
-            # 过滤掉有时间冲突的设备
+            # 获取所有设备
+            all_devices = Device.query.all()
             available_devices = []
-            for device in devices:
-                if device.is_available(start_date, end_date):
-                    available_devices.append(device)
             
-            logger.info(f"查询到 {len(available_devices)} 台可用设备")
-            return available_devices
+            for device in all_devices:
+                # 检查设备在指定时间段内是否有冲突的租赁记录
+                conflicting_rentals = Rental.query.filter(
+                    db.and_(
+                        Rental.device_id == device.id,
+                        Rental.status.in_(['pending', 'active', 'completed']),  # 不包括取消的租赁
+                        Rental.ship_out_time.isnot(None),  # 必须有寄出时间
+                        Rental.ship_in_time.isnot(None),   # 必须有收回时间
+                        # 检查时间段重叠：租赁的物流时间段与查询时间段重叠
+                        db.and_(
+                            Rental.ship_out_time < ship_in_time,   # 租赁寄出时间 < 查询收回时间
+                            Rental.ship_in_time > ship_out_time    # 租赁收回时间 > 查询寄出时间
+                        )
+                    )
+                ).all()
+                
+                if not conflicting_rentals:
+                    # 没有冲突的租赁记录，设备可用
+                    # 查找设备的最近一次完成的租赁记录用于排序
+                    latest_completed_rental = Rental.query.filter(
+                        db.and_(
+                            Rental.device_id == device.id,
+                            Rental.ship_in_time.isnot(None),
+                            Rental.ship_in_time <= ship_out_time  # 已经完成的租赁
+                        )
+                    ).order_by(Rental.ship_in_time.desc()).first()
+                    
+                    if latest_completed_rental:
+                        time_gap = (ship_out_time - latest_completed_rental.ship_in_time).total_seconds() / 3600
+                    else:
+                        time_gap = float('inf')  # 没有历史租赁记录
+                    
+                    available_devices.append({
+                        'device': device,
+                        'latest_rental': latest_completed_rental,
+                        'time_gap': time_gap
+                    })
+            
+            # 优选策略排序
+            def sort_key(item):
+                device = item['device']
+                latest_rental = item['latest_rental']
+                time_gap = item['time_gap']
+                
+                if latest_rental is None:
+                    # 没有租赁记录的设备最优先
+                    return (0, 0)
+                
+                # 时间差小于4小时的排在最后
+                if time_gap < 4:
+                    return (3, time_gap)
+                
+                # 时间差接近但不小于4小时的优先（4-24小时）
+                if 4 <= time_gap <= 24:
+                    return (1, -time_gap)  # 负数确保时间差小的排在前面
+                
+                # 时间差较大的排在中间
+                return (2, time_gap)
+            
+            # 按优选策略排序
+            available_devices.sort(key=sort_key)
+            
+            # 返回排序后的设备列表
+            return [item['device'] for item in available_devices]
             
         except Exception as e:
             logger.error(f"获取可用设备失败: {e}")
@@ -75,54 +128,47 @@ class InventoryService:
                     'device_id': device_id
                 }
             
-            # 检查设备状态
+            # 检查设备状态（非idle状态通常意味着设备不可用）
             if device.status != 'idle':
                 return {
                     'available': False,
-                    'reason': f'设备状态为: {device.status}',
+                    'reason': f'设备当前状态为 {device.status}，不可预定',
                     'device_id': device_id,
                     'device_status': device.status
                 }
             
             # 检查寄出和收回时间冲突
-            if device.is_available(ship_out_time, ship_in_time):
+            # 查找在指定时间段内有冲突的租赁记录
+            conflicting_rentals = Rental.query.filter(
+                db.and_(
+                    Rental.device_id == device_id,
+                    Rental.status.in_(['pending', 'active']),  # 包括待处理和活动中的租赁
+                    db.or_(
+                        # 租赁时间段与请求时间段重叠
+                        db.and_(
+                            Rental.start_date <= ship_in_time.date(),
+                            Rental.end_date >= ship_out_time.date()
+                        )
+                    )
+                )
+            ).all()
+            
+            if not conflicting_rentals:
                 return {
                     'available': True,
                     'device_id': device_id,
                     'device_info': device.to_dict()
                 }
             else:
-                # 获取冲突的租赁记录
-                conflicting_rentals = Rental.query.filter(
-                    db.and_(
-                        Rental.device_id == device_id,
-                        Rental.status == 'active',
-                        db.or_(
-                            db.and_(
-                                Rental.ship_out_time <= ship_out_time,
-                                Rental.ship_in_time >= ship_out_time
-                            ),
-                            db.and_(
-                                Rental.ship_out_time <= ship_in_time,
-                                Rental.ship_in_time >= ship_in_time
-                            ),
-                            db.and_(
-                                Rental.ship_out_time >= ship_out_time,
-                                Rental.ship_in_time <= ship_in_time
-                            )
-                        )
-                    )
-                ).all()
-                
                 return {
                     'available': False,
-                    'reason': '寄出和收回时间冲突',
+                    'reason': '设备在指定时间段已被租赁',
                     'device_id': device_id,
                     'conflicting_rentals': [
                         {
                             'rental_id': rental.id,
-                            'ship_out_time': rental.ship_out_time.isoformat() if rental.ship_out_time else None,
-                            'ship_in_time': rental.ship_in_time.isoformat() if rental.ship_in_time else None,
+                            'start_date': rental.start_date.isoformat(),
+                            'end_date': rental.end_date.isoformat(),
                             'customer_name': rental.customer_name
                         }
                         for rental in conflicting_rentals
@@ -461,3 +507,52 @@ class InventoryService:
                 'success': False,
                 'error': str(e)
             }
+
+    @staticmethod
+    def query_available_inventory(start_date: date, end_date: date, 
+                                device_type: str = None) -> List[Dict]:
+        """
+        通用库存查询方法
+        
+        Args:
+            start_date: 开始日期
+            end_date: 结束日期
+            device_type: 设备类型过滤（可选）
+            
+        Returns:
+            List[Dict]: 可用设备列表，每个设备包含id和详细信息
+        """
+        try:
+            # 转换为datetime对象进行查询
+            ship_out_time, ship_in_time = convert_dates_to_datetime(
+                start_date, 
+                end_date, 
+                ship_out_hour="19:00:00",  # 使用最小时间
+                ship_in_hour="12:00:00"    # 使用最大时间
+            )
+            
+            # 查询可用设备（使用新的参数类型）
+            available_devices = InventoryService.get_available_devices(ship_out_time, ship_in_time)
+            logger.info(f"查询到 {available_devices} 可用设备")
+            
+            # 按设备类型过滤（如果指定）
+            if device_type:
+                available_devices = [d for d in available_devices if device_type.lower() in d.name.lower()]
+            
+            # 返回统一的设备信息格式
+            response_data = []
+            for device in available_devices:
+                device_info = {
+                    'id': device.id,
+                    'name': device.name,
+                    'serial_number': device.serial_number,
+                    'status': device.status,
+                    'location': device.location
+                }
+                response_data.append(device_info)
+            
+            return response_data
+                
+        except Exception as e:
+            logger.error(f"查询可用库存失败: {e}")
+            return []
