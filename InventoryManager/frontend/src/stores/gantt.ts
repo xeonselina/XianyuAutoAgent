@@ -8,7 +8,6 @@ export interface Device {
   name: string
   serial_number: string
   status: 'idle' | 'pending_ship' | 'renting' | 'pending_return' | 'returned' | 'offline'
-  location: string
   created_at: string
   updated_at: string
 }
@@ -212,6 +211,26 @@ export const useGanttStore = defineStore('gantt', () => {
     }
   }
 
+  // 添加设备
+  const addDevice = async (deviceData: { name: string; serial_number: string; description?: string }) => {
+    try {
+      const response = await axios.post('/api/devices', {
+        name: deviceData.name,
+        serial_number: deviceData.serial_number,
+        status: 'idle'
+      })
+      
+      if (response.data.success) {
+        await loadData() // 重新加载数据以显示新设备
+        return response.data
+      } else {
+        throw new Error(response.data.error || '添加设备失败')
+      }
+    } catch (err: any) {
+      throw new Error(err.response?.data?.error || err.message || '添加设备失败')
+    }
+  }
+
   return {
     // 状态
     devices,
@@ -236,6 +255,7 @@ export const useGanttStore = defineStore('gantt', () => {
     updateRental,
     deleteRental,
     getRentalById,
-    updateDeviceStatus
+    updateDeviceStatus,
+    addDevice
   }
 })

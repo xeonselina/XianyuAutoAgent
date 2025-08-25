@@ -24,7 +24,6 @@ def get_devices():
                 'name': device.name,
                 'serial_number': device.serial_number,
                 'status': device.status,
-                'location': device.location,
                 'created_at': device.created_at.isoformat(),
                 'updated_at': device.updated_at.isoformat()
             }
@@ -60,7 +59,6 @@ def get_device(device_id):
             'name': device.name,
             'serial_number': device.serial_number,
             'status': device.status,
-            'location': device.location,
             'created_at': device.created_at.isoformat(),
             'updated_at': device.updated_at.isoformat()
         }
@@ -85,7 +83,7 @@ def create_device():
         data = request.get_json()
         
         # 验证必填字段
-        required_fields = ['name', 'serial_number', 'location']
+        required_fields = ['name', 'serial_number']
         for field in required_fields:
             if not data.get(field):
                 return jsonify({
@@ -105,7 +103,6 @@ def create_device():
         device = Device(
             name=data['name'],
             serial_number=data['serial_number'],
-            location=data['location'],
             status='idle'
         )
         
@@ -119,8 +116,7 @@ def create_device():
                 'id': device.id,
                 'name': device.name,
                 'serial_number': device.serial_number,
-                'status': device.status,
-                'location': device.location
+                'status': device.status
             }
         })
         

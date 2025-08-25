@@ -23,6 +23,13 @@
         
         <el-col :span="8" class="text-right">
           <el-button 
+            type="success" 
+            @click="showAddDeviceDialog = true"
+            :icon="Plus"
+          >
+            添加设备
+          </el-button>
+          <el-button 
             type="primary" 
             @click="showBookingDialog = true"
             :icon="Plus"
@@ -134,6 +141,63 @@
       :rental="selectedRental"
       @success="handleEditSuccess"
     />
+
+    <!-- 添加设备对话框 -->
+    <el-dialog 
+      v-model="showAddDeviceDialog" 
+      title="添加设备" 
+      width="500px"
+      @close="resetAddDeviceForm"
+    >
+      <el-form 
+        ref="addDeviceFormRef" 
+        :model="addDeviceForm" 
+        :rules="addDeviceRules"
+        label-width="100px"
+      >
+        <el-form-item label="设备名称" prop="name">
+          <el-input 
+            v-model="addDeviceForm.name" 
+            placeholder="请输入设备名称" 
+            maxlength="100"
+            show-word-limit
+          />
+        </el-form-item>
+        
+        <el-form-item label="序列号" prop="serial_number">
+          <el-input 
+            v-model="addDeviceForm.serial_number" 
+            placeholder="请输入设备序列号" 
+            maxlength="50"
+            show-word-limit
+          />
+        </el-form-item>
+        
+        <el-form-item label="设备描述" prop="description">
+          <el-input 
+            v-model="addDeviceForm.description" 
+            type="textarea"
+            :rows="3"
+            placeholder="请输入设备描述（可选）" 
+            maxlength="500"
+            show-word-limit
+          />
+        </el-form-item>
+      </el-form>
+      
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="showAddDeviceDialog = false">取消</el-button>
+          <el-button 
+            type="primary" 
+            @click="handleAddDevice"
+            :loading="addingDevice"
+          >
+            添加设备
+          </el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -153,10 +217,34 @@ const ganttStore = useGanttStore()
 // 响应式状态
 const showBookingDialog = ref(false)
 const showEditDialog = ref(false)
+const showAddDeviceDialog = ref(false)
 const selectedRental = ref<Rental | null>(null)
 const selectedDeviceType = ref('')
 const selectedStatus = ref('')
 const dailyStats = ref<Record<string, {available_count: number, ship_out_count: number}>>({})
+
+// 添加设备表单
+const addDeviceFormRef = ref()
+const addingDevice = ref(false)
+const addDeviceForm = ref({
+  name: '',
+  serial_number: '',
+  description: ''
+})
+
+const addDeviceRules = {
+  name: [
+    { required: true, message: '请输入设备名称', trigger: 'blur' },
+    { min: 1, max: 100, message: '设备名称长度在 1 到 100 个字符', trigger: 'blur' }
+  ],
+  serial_number: [
+    { required: true, message: '请输入序列号', trigger: 'blur' },
+    { min: 1, max: 50, message: '序列号长度在 1 到 50 个字符', trigger: 'blur' }
+  ],
+  description: [
+    { max: 500, message: '描述不能超过 500 个字符', trigger: 'blur' }
+  ]
+}
 
 // 计算属性
 const dateArray = computed(() => {
@@ -238,6 +326,45 @@ const handleEditSuccess = () => {
   ElMessage.success('更新成功！')
   showEditDialog.value = false
   selectedRental.value = null
+}
+
+// 添加设备相关处理函数
+const resetAddDeviceForm = () => {
+  addDeviceForm.value = {
+    name: '',
+    serial_number: '',
+    description: ''
+  }
+  if (addDeviceFormRef.value) {
+    addDeviceFormRef.value.resetFields()
+  }
+}
+
+const handleAddDevice = async () => {
+  if (!addDeviceFormRef.value) return
+  
+  try {
+    await addDeviceFormRef.value.validate()
+    addingDevice.value = true
+    
+    // 调用API添加设备
+    await ganttStore.addDevice(addDeviceForm.value)
+    
+    ElMessage.success('设备添加成功！')
+    showAddDeviceDialog.value = false
+    resetAddDeviceForm()
+    
+    // 重新加载数据
+    await ganttStore.loadData()
+  } catch (error) {
+    if (typeof error === 'string') {
+      // 表单验证错误
+      return
+    }
+    ElMessage.error('添加设备失败：' + (error as Error).message)
+  } finally {
+    addingDevice.value = false
+  }
 }
 
 const handleDeleteRental = async (rental: Rental) => {

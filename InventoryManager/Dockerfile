@@ -18,9 +18,52 @@ RUN echo "Building on: $BUILDPLATFORM, targeting: $TARGETPLATFORM"
 # 设置环境变量
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
+
+# 应用基础配置
 ENV FLASK_APP=app.py
 ENV FLASK_ENV=production
+# 注意: SECRET_KEY, API_KEY, DATABASE_URL 等敏感信息应通过运行时环境变量传入
+# 不要在Dockerfile中硬编码敏感信息
+
+# 日志配置
+ENV LOG_LEVEL=INFO
+ENV LOG_FILE=logs/inventory_service.log
+
+# 安全配置
+ENV SESSION_COOKIE_SECURE=false
+ENV SESSION_COOKIE_HTTPONLY=true
+ENV SESSION_COOKIE_SAMESITE=Lax
+ENV CORS_ORIGINS=*
+
+# 业务配置
+ENV DEFAULT_RENTAL_DAYS=7
+ENV MAX_RENTAL_DAYS=30
+ENV MIN_ADVANCE_BOOKING_DAYS=1
+ENV TIMEZONE=Asia/Shanghai
+
+# 文件上传配置
+ENV MAX_CONTENT_LENGTH=16777216
+ENV UPLOAD_FOLDER=uploads
+
+# 缓存配置
+ENV CACHE_TYPE=simple
+ENV CACHE_DEFAULT_TIMEOUT=300
+
+# 分页配置
+ENV POSTS_PER_PAGE=20
+
+# 数据库连接池配置
+ENV DB_POOL_SIZE=10
+ENV DB_POOL_RECYCLE=3600
+ENV DB_POOL_PRE_PING=true
+
+# 应用端口配置
 ENV APP_PORT=5001
+ENV APP_HOST=0.0.0.0
+
+# 健康检查配置
+ENV HEALTH_CHECK_ENABLED=true
+ENV HEALTH_CHECK_TIMEOUT=30
 
 # 安装系统依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -59,6 +102,8 @@ RUN mkdir -p logs && \
 # 设置文件权限
 RUN chmod +x app.py
 
+# MySQL数据库将在容器启动时连接，无需本地初始化
+
 # 创建非root用户并设置权限
 RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /bin/bash appuser && \
     chown -R appuser:appuser /app && \
@@ -90,4 +135,4 @@ CMD ["gunicorn", \
      "--access-logfile", "-", \
      "--error-logfile", "-", \
      "--log-level", "info", \
-     "app:app"]
+     "run:app"]

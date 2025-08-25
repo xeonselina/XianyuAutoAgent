@@ -25,8 +25,6 @@ class Device(db.Model):
         comment='设备状态'
     )
     
-    # 物理信息
-    location = db.Column(db.String(100), comment='设备位置')
     
     # 时间戳
     created_at = db.Column(db.DateTime, default=datetime.utcnow, comment='创建时间')
@@ -46,7 +44,6 @@ class Device(db.Model):
             'name': self.name,
             'serial_number': self.serial_number,
             'status': self.status,
-            'location': self.location,
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat()
         }

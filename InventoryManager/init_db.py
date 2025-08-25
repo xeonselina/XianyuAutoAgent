@@ -47,7 +47,6 @@ def init_database():
                 sample_devices.append({
                     'name': device_name,
                     'serial_number': f'DEV{i:03d}',
-                    'location': '深圳仓库',
                     'status': 'idle'
                 })
             
