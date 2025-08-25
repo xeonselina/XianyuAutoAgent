@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker build:*)",
+      "Bash(docker:*)",
+      "Bash(ping:*)",
+      "Bash(export:*)",
+      "Bash(curl:*)",
+      "Bash(colima ssh:*)",
+      "Bash(colima stop:*)",
+      "Bash(HTTP_PROXY=http://127.0.0.1:10080 HTTPS_PROXY=http://127.0.0.1:10080 colima start --env HTTP_PROXY=http://127.0.0.1:10080 --env HTTPS_PROXY=http://127.0.0.1:10080)",
+      "Bash(env)",
+      "Bash(unset:*)"
+    ],
+    "deny": [],
+    "ask": [],
+    "additionalDirectories": [
+      "/Users/jimmypan/.docker"
+    ]
+  }
+}

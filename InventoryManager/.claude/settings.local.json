@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(colima status:*)",
+      "Bash(docker buildx:*)",
+      "Bash(docker:*)",
+      "Bash(colima:*)",
+      "Bash(chmod:*)",
+      "Bash(curl:*)"
+    ],
+    "deny": [],
+    "ask": [],
+    "additionalDirectories": [
+      "/Users/jimmypan/.docker"
+    ]
+  }
+}

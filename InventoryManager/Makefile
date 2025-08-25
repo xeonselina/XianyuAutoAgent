@@ -144,6 +144,33 @@ docker-build-arm: ## 构建ARM64镜像（本地测试）
 	@echo "构建ARM64镜像..."
 	docker build --platform linux/arm64 -t $(DOCKER_IMAGE):arm64 .
 
+.PHONY: docker-build-multiarch
+docker-build-multiarch: ## 构建多架构镜像（ARM64 + x86_64）
+	@echo "构建多架构镜像..."
+	./build-multiarch.sh
+
+.PHONY: setup-buildx
+setup-buildx: ## 设置Docker Buildx多架构构建
+	@echo "设置Docker Buildx..."
+	@if ! docker buildx version > /dev/null 2>&1; then \
+		echo "Docker Buildx未安装，请安装后重试"; \
+		echo "参考: https://docs.docker.com/buildx/working-with-buildx/"; \
+		exit 1; \
+	fi
+	@docker buildx create --name multiarch-builder --use --bootstrap || true
+	@docker buildx inspect
+	@echo "Buildx设置完成"
+
+.PHONY: docker-build-amd64
+docker-build-amd64: ## 构建AMD64镜像并加载到本地
+	@echo "构建AMD64镜像..."
+	docker buildx build --platform linux/amd64 -t $(DOCKER_IMAGE):amd64 --load .
+
+.PHONY: docker-build-arm64-local
+docker-build-arm64-local: ## 构建ARM64镜像并加载到本地
+	@echo "构建ARM64镜像..."
+	docker buildx build --platform linux/arm64 -t $(DOCKER_IMAGE):arm64 --load .
+
 .PHONY: docker-run
 docker-run: ## 运行Docker容器
 	@echo "运行Docker容器..."
