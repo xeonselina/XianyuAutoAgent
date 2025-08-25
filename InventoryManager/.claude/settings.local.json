@@ -6,7 +6,10 @@
       "Bash(docker:*)",
       "Bash(colima:*)",
       "Bash(chmod:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm install)",
+      "Bash(make:*)"
     ],
     "deny": [],
     "ask": [],

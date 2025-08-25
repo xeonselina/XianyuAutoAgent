@@ -130,6 +130,26 @@ run-gunicorn: ## 使用Gunicorn运行（生产模式）
 	gunicorn -w 4 -b 0.0.0.0:5000 --timeout 120 app:app
 
 # =============================================================================
+# 前端构建命令
+# =============================================================================
+
+.PHONY: frontend-install
+frontend-install: ## 安装前端依赖
+	@echo "安装前端依赖..."
+	cd frontend && npm install
+
+.PHONY: frontend-build
+frontend-build: frontend-install ## 构建前端应用
+	@echo "构建前端Vue应用..."
+	cd frontend && npm run build
+	@echo "前端构建完成，输出到: static/vue-dist/"
+
+.PHONY: frontend-dev
+frontend-dev: frontend-install ## 启动前端开发服务器
+	@echo "启动前端开发服务器..."
+	cd frontend && npm run dev
+
+# =============================================================================
 # Docker 构建和部署命令
 # =============================================================================
 
@@ -171,10 +191,80 @@ docker-build-arm64-local: ## 构建ARM64镜像并加载到本地
 	@echo "构建ARM64镜像..."
 	docker buildx build --platform linux/arm64 -t $(DOCKER_IMAGE):arm64 --load .
 
+# =============================================================================
+# 完整构建命令
+# =============================================================================
+
+.PHONY: build
+build: frontend-build docker-build-multiplatform ## 完整构建：前端+后端多平台Docker镜像
+	@echo "==============================================="
+	@echo "完整构建完成！"
+	@echo "==============================================="
+	@echo "前端：已构建到 static/vue-dist/"
+	@echo "Docker镜像："
+	@echo "  - $(DOCKER_IMAGE):arm64-local (ARM64)"
+	@echo "  - $(DOCKER_IMAGE):x86-local (AMD64)"
+	@echo "==============================================="
+
+.PHONY: build-arm
+build-arm: frontend-build ## 构建ARM64版本（前端+Docker）
+	@echo "构建ARM64版本..."
+	docker build --platform linux/arm64 -t $(DOCKER_IMAGE):arm64-local .
+	@echo "ARM64构建完成: $(DOCKER_IMAGE):arm64-local"
+
+.PHONY: build-x86
+build-x86: frontend-build ## 构建x86版本（前端+Docker）
+	@echo "构建x86版本..."
+	docker build --platform linux/amd64 -t $(DOCKER_IMAGE):x86-local .
+	@echo "x86构建完成: $(DOCKER_IMAGE):x86-local"
+
+.PHONY: docker-build-multiplatform
+docker-build-multiplatform: ## 构建多平台Docker镜像（ARM64 + x86）
+	@echo "构建多平台Docker镜像..."
+	@echo "构建ARM64镜像..."
+	docker build --platform linux/arm64 -t $(DOCKER_IMAGE):arm64-local .
+	@echo "构建x86镜像..."
+	docker build --platform linux/amd64 -t $(DOCKER_IMAGE):x86-local .
+	@echo "多平台镜像构建完成"
+
+.PHONY: build-and-run-arm
+build-and-run-arm: build-arm ## 构建ARM64镜像并运行
+	@echo "停止现有容器..."
+	@docker stop $(shell docker ps -q --filter "publish=5001") 2>/dev/null || true
+	@echo "启动ARM64容器..."
+	docker run -d -p 5001:5001 $(DOCKER_IMAGE):arm64-local
+	@echo "ARM64容器已启动，访问: http://localhost:5001"
+
+.PHONY: build-and-run-x86
+build-and-run-x86: build-x86 ## 构建x86镜像并运行
+	@echo "停止现有容器..."
+	@docker stop $(shell docker ps -q --filter "publish=5001") 2>/dev/null || true
+	@echo "启动x86容器..."
+	docker run -d -p 5001:5001 \
+		--add-host=host.docker.internal:host-gateway \
+		-e DATABASE_URL=mysql+pymysql://root:123456@host.docker.internal:3306/testdb \
+		-e SECRET_KEY=your-secret-key-change-in-production \
+		-e API_KEY=your-api-key-change-in-production \
+		-e ALIYUN_ACCESS_KEY_ID=aliyun-access-key-id \
+		-e ALIYUN_ACCESS_KEY_SECRET=aliyunsecret \
+		$(DOCKER_IMAGE):x86-local
+	@echo "x86容器已启动，访问: http://localhost:5001"
+
 .PHONY: docker-run
-docker-run: ## 运行Docker容器
-	@echo "运行Docker容器..."
-	docker run -p 5000:5000 --env-file .env $(DOCKER_IMAGE):$(DOCKER_TAG)
+docker-run: ## 运行Docker容器（从.env文件读取环境变量）
+	@echo "运行Docker容器（从.env文件读取环境变量）..."
+	@[ -f .env ] || { echo "未找到 .env 文件，请先创建"; exit 1; }
+	docker run -p 5001:5001 --add-host=host.docker.internal:host-gateway --env-file .env $(DOCKER_IMAGE):$(DOCKER_TAG)
+
+.PHONY: docker-run-secure
+docker-run-secure: ## 安全方式运行Docker容器（推荐，从.env读取）
+	@echo "安全方式运行Docker容器..."
+	@[ -f .env ] || { echo "未找到 .env 文件，请先创建"; exit 1; }
+	docker run -d --name inventory-container -p 5001:5001 \
+		--add-host=host.docker.internal:host-gateway \
+		--env-file .env \
+		$(DOCKER_IMAGE):x86-local
+	@echo "容器已启动，访问: http://localhost:5001"
 
 .PHONY: docker-compose-up
 docker-compose-up: ## 使用Docker Compose启动所有服务
