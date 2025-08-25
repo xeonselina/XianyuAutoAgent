@@ -1,8 +1,19 @@
-# 使用官方Python 3.11运行时作为基础镜像（适合x86架构）
+# 支持多架构构建的Python 3.11基础镜像
+# ARG指令必须在FROM之前定义（BuildKit要求）
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
 FROM python:3.11-slim
 
 # 设置工作目录
 WORKDIR /app
+
+# 构建信息标签
+LABEL org.opencontainers.image.title="Inventory Manager"
+LABEL org.opencontainers.image.description="库存管理系统 - 支持ARM64和AMD64架构"
+LABEL org.opencontainers.image.source="https://github.com/your-repo/InventoryManager"
+
+# 显示构建平台信息（调试用）
+RUN echo "Building on: $BUILDPLATFORM, targeting: $TARGETPLATFORM"
 
 # 设置环境变量
 ENV PYTHONUNBUFFERED=1
