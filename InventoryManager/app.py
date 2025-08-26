@@ -137,6 +137,6 @@ def check_device_status():
 
 
 if __name__ == '__main__':
-    port = int(os.environ.get('APP_PORT', 5001))  # 使用环境变量或默认端口5001
+    port = int(os.environ.get('APP_PORT', 5002))  # 使用环境变量或默认端口5002
     # 新的调度器已在应用初始化时启动（见 app/__init__.py）
     app.run(debug=True, host='0.0.0.0', port=port)
