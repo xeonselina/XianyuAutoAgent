@@ -230,41 +230,43 @@ docker-build-multiplatform: ## 构建多平台Docker镜像（ARM64 + x86）
 .PHONY: build-and-run-arm
 build-and-run-arm: build-arm ## 构建ARM64镜像并运行
 	@echo "停止现有容器..."
-	@docker stop $(shell docker ps -q --filter "publish=5001") 2>/dev/null || true
+	@docker stop $(shell docker ps -q --filter "publish=5002") 2>/dev/null || true
 	@echo "启动ARM64容器..."
-	docker run -d -p 5001:5001 $(DOCKER_IMAGE):arm64-local
-	@echo "ARM64容器已启动，访问: http://localhost:5001"
+	docker run -d -p 5002:5002 $(DOCKER_IMAGE):arm64-local
+	@echo "ARM64容器已启动，访问: http://localhost:5002"
 
 .PHONY: build-and-run-x86
 build-and-run-x86: build-x86 ## 构建x86镜像并运行
 	@echo "停止现有容器..."
-	@docker stop $(shell docker ps -q --filter "publish=5001") 2>/dev/null || true
+	@docker stop $(shell docker ps -q --filter "publish=5002") 2>/dev/null || true
 	@echo "启动x86容器..."
-	docker run -d -p 5001:5001 \
+	docker run -d -p 5002:5002 \
 		--add-host=host.docker.internal:host-gateway \
-		-e DATABASE_URL=mysql+pymysql://root:123456@host.docker.internal:3306/testdb \
-		-e SECRET_KEY=your-secret-key-change-in-production \
-		-e API_KEY=your-api-key-change-in-production \
-		-e ALIYUN_ACCESS_KEY_ID=aliyun-access-key-id \
-		-e ALIYUN_ACCESS_KEY_SECRET=aliyunsecret \
+		-e SECRET_KEY=Xs527215! \
+		-e API_KEY=Xs527215! \
+		-e DATABASE_URL=asdfasdf\
+		-e ALIYUN_ACCESS_KEY_ID=asdafd \
+		-e ALIYUN_ACCESS_KEY_SECRET=fdfd \
+		-e SF_PARTNER_ID=ccwcww \
+		-e SF_CHECKWORD=cwcwcw \
 		$(DOCKER_IMAGE):x86-local
-	@echo "x86容器已启动，访问: http://localhost:5001"
+	@echo "x86容器已启动，访问: http://localhost:5002"
 
 .PHONY: docker-run
 docker-run: ## 运行Docker容器（从.env文件读取环境变量）
 	@echo "运行Docker容器（从.env文件读取环境变量）..."
 	@[ -f .env ] || { echo "未找到 .env 文件，请先创建"; exit 1; }
-	docker run -p 5001:5001 --add-host=host.docker.internal:host-gateway --env-file .env $(DOCKER_IMAGE):$(DOCKER_TAG)
+	docker run -p 5002:5002 --add-host=host.docker.internal:host-gateway --env-file .env $(DOCKER_IMAGE):$(DOCKER_TAG)
 
 .PHONY: docker-run-secure
 docker-run-secure: ## 安全方式运行Docker容器（推荐，从.env读取）
 	@echo "安全方式运行Docker容器..."
 	@[ -f .env ] || { echo "未找到 .env 文件，请先创建"; exit 1; }
-	docker run -d --name inventory-container -p 5001:5001 \
+	docker run -d --name inventory-container -p 5002:5002 \
 		--add-host=host.docker.internal:host-gateway \
 		--env-file .env \
 		$(DOCKER_IMAGE):x86-local
-	@echo "容器已启动，访问: http://localhost:5001"
+	@echo "容器已启动，访问: http://localhost:5002"
 
 .PHONY: docker-compose-up
 docker-compose-up: ## 使用Docker Compose启动所有服务

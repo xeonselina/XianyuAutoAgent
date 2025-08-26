@@ -9,7 +9,8 @@
       "Bash(curl:*)",
       "Bash(npm run build:*)",
       "Bash(npm install)",
-      "Bash(make:*)"
+      "Bash(make:*)",
+      "Bash(rm:*)"
     ],
     "deny": [],
     "ask": [],
