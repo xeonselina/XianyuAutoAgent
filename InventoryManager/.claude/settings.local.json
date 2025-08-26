@@ -10,7 +10,10 @@
       "Bash(npm run build:*)",
       "Bash(npm install)",
       "Bash(make:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(python3:*)",
+      "Bash(DATABASE_URL=mysql+pymysql://root:123456@127.0.0.1:3306/testdb python3 init_db.py)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": [],

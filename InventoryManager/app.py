@@ -75,7 +75,7 @@ def list_devices():
             print(f"名称: {device.name}")
             print(f"序列号: {device.serial_number}")
             print(f"状态: {device.status}")
-            print(f"位置: {device.location}")
+            # print(f"位置: {device.location}")  # location字段已移除
             print(f"创建时间: {device.created_at}")
             print("-" * 80)
             

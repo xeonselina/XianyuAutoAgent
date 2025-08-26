@@ -141,7 +141,7 @@ def get_available_inventory():
                 'device_name': device.name,
                 'serial_number': device.serial_number,
                 'status': device.status,
-                'location': device.location
+                'location': None  # location字段已移除
             }
             response_data.append(device_info)
         
@@ -379,15 +379,16 @@ def get_devices():
     """获取设备列表"""
     try:
         status_filter = request.args.get('status')
-        location_filter = request.args.get('location')
+        location_filter = request.args.get('location')  # 已废弃
         
         query = Device.query
         
         if status_filter:
             query = query.filter(Device.status == status_filter)
         
-        if location_filter:
-            query = query.filter(Device.location == location_filter)
+        # location字段已移除，忽略位置过滤
+        # if location_filter:
+        #     query = query.filter(Device.location == location_filter)
         
         devices = query.all()
         
@@ -398,7 +399,7 @@ def get_devices():
                 'name': device.name,
                 'serial_number': device.serial_number,
                 'status': device.status,
-                'location': device.location,
+                'location': None,  # location字段已移除
                 'created_at': device.created_at.isoformat(),
                 'updated_at': device.updated_at.isoformat()
             }
@@ -410,7 +411,7 @@ def get_devices():
             'total': len(device_list),
             'filters': {
                 'status': status_filter,
-                'location': location_filter
+                'location': None  # location字段已移除
             }
         })
         
@@ -439,7 +440,7 @@ def get_device(device_id):
             'name': device.name,
             'serial_number': device.serial_number,
             'status': device.status,
-            'location': device.location,
+            'location': None,  # location字段已移除
             'created_at': device.created_at.isoformat(),
             'updated_at': device.updated_at.isoformat(),
             'current_rental': device.get_current_rental().to_dict() if device.get_current_rental() else None
