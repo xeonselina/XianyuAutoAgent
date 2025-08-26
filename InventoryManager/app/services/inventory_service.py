@@ -277,10 +277,8 @@ class InventoryService:
             device_stats = Device.get_device_count_by_status()
             
             # 按位置统计设备（使用实际存在的字段）
-            location_stats = db.session.query(
-                Device.location, 
-                db.func.count(Device.id)
-            ).filter(Device.location.isnot(None)).group_by(Device.location).all()
+            # location字段已移除，跳过位置统计
+            location_stats = []
             
             # 租赁统计
             today = date.today()
@@ -312,7 +310,7 @@ class InventoryService:
                     'devices': {
                         'total': sum(count for _, count in device_stats),
                         'by_status': {status: count for status, count in device_stats},
-                        'by_location': {location: count for location, count in location_stats}
+                        'by_location': {}  # location字段已移除
                     },
                     'rentals': {
                         'active': active_rentals,
@@ -332,14 +330,14 @@ class InventoryService:
     
     @staticmethod
     def search_devices(keyword: str = None, status: str = None,
-                      location: str = None) -> List[Device]:
+                      location: str = None) -> List[Device]:  # location已废弃，保留参数兼容性
         """
         搜索设备
         
         Args:
             keyword: 搜索关键词（设备名称或序列号）
             status: 设备状态
-            location: 设备位置
+            location: 设备位置（已废弃）
             
         Returns:
             List[Device]: 设备列表
@@ -361,8 +359,9 @@ class InventoryService:
                 query = query.filter(Device.status == status)
             
             # 位置过滤
-            if location:
-                query = query.filter(Device.location == location)
+            # location字段已移除，忽略位置过滤
+            # if location:
+            #     query = query.filter(Device.location == location)
             
             devices = query.all()
             logger.info(f"搜索到 {len(devices)} 台设备")
@@ -488,10 +487,7 @@ class InventoryService:
                 'summary': {
                     'total_devices': len(devices),
                     'total_rentals': len(rentals),
-                    'device_locations': db.session.query(
-                        Device.location, 
-                        db.func.count(Device.id)
-                    ).filter(Device.location.isnot(None)).group_by(Device.location).all(),
+                    'device_locations': [],  # location字段已移除
                     'device_status': Device.get_device_count_by_status()
                 }
             }
@@ -547,7 +543,7 @@ class InventoryService:
                     'name': device.name,
                     'serial_number': device.serial_number,
                     'status': device.status,
-                    'location': device.location
+                    'location': None  # location字段已移除
                 }
                 response_data.append(device_info)
             

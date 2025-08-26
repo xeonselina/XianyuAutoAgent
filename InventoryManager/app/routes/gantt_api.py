@@ -81,7 +81,6 @@ def gantt_data():
                 'name': device.name,
                 'serial_number': device.serial_number,
                 'status': device.status,
-                'location': device.location,
                 'rentals': []
             }
             

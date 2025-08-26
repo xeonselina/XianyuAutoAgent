@@ -157,8 +157,9 @@ def update_device(device_id):
                     'error': '序列号已被其他设备使用'
                 }), 400
             device.serial_number = data['serial_number']
-        if 'location' in data:
-            device.location = data['location']
+        # location字段已移除
+        # if 'location' in data:
+        #     device.location = data['location']
         if 'status' in data:
             device.status = data['status']
         
@@ -172,8 +173,7 @@ def update_device(device_id):
                 'id': device.id,
                 'name': device.name,
                 'serial_number': device.serial_number,
-                'status': device.status,
-                'location': device.location
+                'status': device.status
             }
         })
         
