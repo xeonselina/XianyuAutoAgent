@@ -344,6 +344,19 @@ const handleSubmit = async () => {
 
   submitting.value = true
   try {
+    // Calculate ship times based on logistics days if not from available slot
+    let shipOutTime, shipInTime
+    if (availableSlot.value) {
+      shipOutTime = dayjs(availableSlot.value.shipOutDate).format('YYYY-MM-DD HH:mm:ss')
+      shipInTime = dayjs(availableSlot.value.shipInDate).format('YYYY-MM-DD HH:mm:ss')
+    } else {
+      // Calculate based on logistics days
+      const startDate = dayjs(form.startDate!)
+      const endDate = dayjs(form.endDate!)
+      shipOutTime = startDate.subtract(form.logisticsDays, 'day').format('YYYY-MM-DD HH:mm:ss')
+      shipInTime = endDate.add(form.logisticsDays, 'day').format('YYYY-MM-DD HH:mm:ss')
+    }
+
     const rentalData = {
       device_id: deviceId!,
       start_date: formatDateToString(form.startDate),
@@ -351,12 +364,8 @@ const handleSubmit = async () => {
       customer_name: form.customerName,
       customer_phone: form.customerPhone,
       destination: form.destination,
-      ship_out_time: availableSlot.value 
-        ? dayjs(availableSlot.value.shipOutDate).format('YYYY-MM-DD HH:mm:ss')
-        : undefined,
-      ship_in_time: availableSlot.value 
-        ? dayjs(availableSlot.value.shipInDate).format('YYYY-MM-DD HH:mm:ss')
-        : undefined
+      ship_out_time: shipOutTime,
+      ship_in_time: shipInTime
     }
 
     await ganttStore.createRental(rentalData)
@@ -398,6 +407,19 @@ const forceSubmitRental = async () => {
   const deviceId = form.selectedDeviceId || availableSlot.value?.device.id
   if (!deviceId) return
 
+  // Calculate ship times based on logistics days if not from available slot
+  let shipOutTime, shipInTime
+  if (availableSlot.value) {
+    shipOutTime = dayjs(availableSlot.value.shipOutDate).format('YYYY-MM-DD HH:mm:ss')
+    shipInTime = dayjs(availableSlot.value.shipInDate).format('YYYY-MM-DD HH:mm:ss')
+  } else {
+    // Calculate based on logistics days
+    const startDate = dayjs(form.startDate!)
+    const endDate = dayjs(form.endDate!)
+    shipOutTime = startDate.subtract(form.logisticsDays, 'day').format('YYYY-MM-DD HH:mm:ss')
+    shipInTime = endDate.add(form.logisticsDays, 'day').format('YYYY-MM-DD HH:mm:ss')
+  }
+
   const rentalData = {
     device_id: deviceId,
     start_date: formatDateToString(form.startDate),
@@ -405,12 +427,8 @@ const forceSubmitRental = async () => {
     customer_name: form.customerName,
     customer_phone: form.customerPhone,
     destination: form.destination,
-    ship_out_time: availableSlot.value 
-      ? dayjs(availableSlot.value.shipOutDate).format('YYYY-MM-DD HH:mm:ss')
-      : undefined,
-    ship_in_time: availableSlot.value 
-      ? dayjs(availableSlot.value.shipInDate).format('YYYY-MM-DD HH:mm:ss')
-      : undefined,
+    ship_out_time: shipOutTime,
+    ship_in_time: shipInTime,
     force_create: true // 强制创建标志
   }
 

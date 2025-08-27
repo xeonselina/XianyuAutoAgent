@@ -128,6 +128,30 @@
           </el-button>
         </div>
       </el-form-item>
+
+      <el-form-item label="寄出时间" prop="shipOutTime">
+        <el-date-picker
+          v-model="form.shipOutTime"
+          type="datetime"
+          placeholder="选择寄出时间"
+          style="width: 100%"
+          format="YYYY-MM-DD HH:mm"
+          value-format="YYYY-MM-DD HH:mm:ss"
+        />
+        <div class="form-tip">设备寄出的具体时间</div>
+      </el-form-item>
+
+      <el-form-item label="收回时间" prop="shipInTime">
+        <el-date-picker
+          v-model="form.shipInTime"
+          type="datetime"
+          placeholder="选择收回时间"
+          style="width: 100%"
+          format="YYYY-MM-DD HH:mm"
+          value-format="YYYY-MM-DD HH:mm:ss"
+        />
+        <div class="form-tip">设备收回的具体时间</div>
+      </el-form-item>
       
       <!-- 快递查询结果显示 -->
       <div v-if="trackingResults.shipOut" class="tracking-result">
@@ -272,7 +296,9 @@ const form = reactive({
   customerPhone: '',
   destination: '',
   shipOutTrackingNo: '',
-  shipInTrackingNo: ''
+  shipInTrackingNo: '',
+  shipOutTime: '' as string,
+  shipInTime: '' as string
 })
 
 // 计算属性
@@ -336,6 +362,8 @@ const loadLatestRentalData = async (rental: Rental) => {
       form.destination = latestRental.destination || ''
       form.shipOutTrackingNo = latestRental.ship_out_tracking_no || ''
       form.shipInTrackingNo = latestRental.ship_in_tracking_no || ''
+      form.shipOutTime = latestRental.ship_out_time || ''
+      form.shipInTime = latestRental.ship_in_time || ''
       
       console.log('=== 日期调试信息 ===')
       console.log('API返回的end_date:', latestRental.end_date)
@@ -351,6 +379,8 @@ const loadLatestRentalData = async (rental: Rental) => {
       form.destination = rental.destination || ''
       form.shipOutTrackingNo = rental.ship_out_tracking_no || ''
       form.shipInTrackingNo = rental.ship_in_tracking_no || ''
+      form.shipOutTime = rental.ship_out_time || ''
+      form.shipInTime = rental.ship_in_time || ''
       latestDataError.value = '获取最新数据失败，使用缓存数据'
     }
   } catch (error) {
@@ -360,6 +390,8 @@ const loadLatestRentalData = async (rental: Rental) => {
     form.destination = rental.destination || ''
     form.shipOutTrackingNo = rental.ship_out_tracking_no || ''
     form.shipInTrackingNo = rental.ship_in_tracking_no || ''
+    form.shipOutTime = rental.ship_out_time || ''
+    form.shipInTime = rental.ship_in_time || ''
     latestDataError.value = '获取最新数据失败：' + (error as Error).message
   } finally {
     loadingLatestData.value = false
@@ -403,7 +435,9 @@ const handleSubmit = async () => {
       customer_phone: form.customerPhone,
       destination: form.destination,
       ship_out_tracking_no: form.shipOutTrackingNo,
-      ship_in_tracking_no: form.shipInTrackingNo
+      ship_in_tracking_no: form.shipInTrackingNo,
+      ship_out_time: form.shipOutTime,
+      ship_in_time: form.shipInTime
     }
     
     console.log('提交的end_date:', endDateString)
@@ -608,6 +642,8 @@ const handleClose = () => {
   form.destination = ''
   form.shipOutTrackingNo = ''
   form.shipInTrackingNo = ''
+  form.shipOutTime = ''
+  form.shipInTime = ''
   
   // 清空快递查询结果
   trackingResults.shipOut = null
