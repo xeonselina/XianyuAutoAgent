@@ -13,7 +13,11 @@
       "Bash(rm:*)",
       "Bash(python3:*)",
       "Bash(DATABASE_URL=mysql+pymysql://root:123456@127.0.0.1:3306/testdb python3 init_db.py)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(brew install:*)",
+      "Bash(mysql:*)",
+      "Bash(/opt/homebrew/opt/mysql-client/bin/mysql --version)",
+      "Bash(DATABASE_URL=mysql+pymysql://root:123456@127.0.0.1:3306/testdb python3 export_data.py)"
     ],
     "deny": [],
     "ask": [],

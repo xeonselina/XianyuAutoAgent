@@ -395,6 +395,34 @@ def web_update_rental(rental_id):
         if 'ship_in_tracking_no' in data:
             rental.ship_in_tracking_no = data['ship_in_tracking_no']
         
+        # 处理寄出时间
+        if 'ship_out_time' in data:
+            if data['ship_out_time']:
+                try:
+                    rental.ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    # 如果时间格式解析失败，尝试只解析日期
+                    try:
+                        rental.ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d')
+                    except ValueError:
+                        current_app.logger.warning(f"无法解析寄出时间: {data['ship_out_time']}")
+            else:
+                rental.ship_out_time = None
+        
+        # 处理收回时间
+        if 'ship_in_time' in data:
+            if data['ship_in_time']:
+                try:
+                    rental.ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    # 如果时间格式解析失败，尝试只解析日期
+                    try:
+                        rental.ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d')
+                    except ValueError:
+                        current_app.logger.warning(f"无法解析收回时间: {data['ship_in_time']}")
+            else:
+                rental.ship_in_time = None
+        
         db.session.commit()
         
         return jsonify({
@@ -407,7 +435,9 @@ def web_update_rental(rental_id):
                 'destination': rental.destination,
                 'end_date': rental.end_date.isoformat(),
                 'ship_out_tracking_no': rental.ship_out_tracking_no,
-                'ship_in_tracking_no': rental.ship_in_tracking_no
+                'ship_in_tracking_no': rental.ship_in_tracking_no,
+                'ship_out_time': rental.ship_out_time.isoformat() if rental.ship_out_time else None,
+                'ship_in_time': rental.ship_in_time.isoformat() if rental.ship_in_time else None
             }
         })
         

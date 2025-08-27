@@ -197,12 +197,12 @@ const getShipTimeRentalsForDate = (date: Date) => {
       return false
     }
     
-    const shipOutDate = dayjs(rental.ship_out_time)
-    const shipInDate = dayjs(rental.ship_in_time)
-    const currentDate = dayjs(dateStr)
+    // 只比较日期部分，避免时区问题
+    const shipOutDate = dayjs(rental.ship_out_time).format('YYYY-MM-DD')
+    const shipInDate = dayjs(rental.ship_in_time).format('YYYY-MM-DD')
+    const currentDate = dateStr
     
-    return (currentDate.isAfter(shipOutDate) || currentDate.isSame(shipOutDate)) && 
-           (currentDate.isBefore(shipInDate) || currentDate.isSame(shipInDate))
+    return (currentDate >= shipOutDate) && (currentDate <= shipInDate)
   })
 }
 
@@ -230,18 +230,23 @@ const getRentalStyle = (rental: Rental, date: Date) => {
 }
 
 const getShipTimeStyle = (rental: Rental, date: Date) => {
-  const shipOutDate = dayjs(rental.ship_out_time)
-  const shipInDate = dayjs(rental.ship_in_time)
-  const currentDate = dayjs(date)
+  // 只比较日期部分，避免时区问题
+  const shipOutDateStr = dayjs(rental.ship_out_time).format('YYYY-MM-DD')
+  const shipInDateStr = dayjs(rental.ship_in_time).format('YYYY-MM-DD')
+  const currentDateStr = dayjs(date).format('YYYY-MM-DD')
   
   // 计算在当前日期格子中的显示样式
   let width = '100%'
   let marginLeft = '0%'
   
   // 如果是物流的第一天
-  if (currentDate.isSame(shipOutDate, 'day')) {
+  if (currentDateStr === shipOutDateStr) {
+    const shipOutDate = dayjs(shipOutDateStr)
+    const shipInDate = dayjs(shipInDateStr)
     const totalDays = shipInDate.diff(shipOutDate, 'day') + 1
-    width = `${Math.min(totalDays * 100, (props.dates.length - props.dates.findIndex(d => dayjs(d).isSame(currentDate))) * 100)}%`
+    const currentDateIndex = props.dates.findIndex(d => dayjs(d).format('YYYY-MM-DD') === currentDateStr)
+    const remainingDays = props.dates.length - currentDateIndex
+    width = `${Math.min(totalDays * 100, remainingDays * 100)}%`
   }
   
   return {

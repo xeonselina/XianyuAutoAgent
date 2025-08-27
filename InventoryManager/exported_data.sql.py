@@ -1,50 +1,6 @@
-#!/usr/bin/env python3
-"""
-数据库初始化脚本
-"""
+# 导出的数据库数据 - 用于插入到 init_db.py 中
+# 将以下代码复制到 init_db.py 的适当位置
 
-import os
-
-# 必须在导入app之前设置，因为init_db.py在宿主机运行
-os.environ['DATABASE_URL'] = 'mysql+pymysql://root:123456@localhost:3306/testdb'
-
-from app import create_app, db
-from app.models.device import Device
-from app.models.rental import Rental
-from sqlalchemy import text
-from datetime import datetime, date, timedelta
-
-def init_database():
-    """初始化数据库"""
-    
-    # 创建应用实例
-    app = create_app()
-    
-    with app.app_context():
-        try:
-            # 清空数据库（先关闭外键检查，避免删除顺序问题）
-            try:
-                db.session.execute(text('SET FOREIGN_KEY_CHECKS = 0;'))
-            except Exception:
-                # 非 MySQL 或权限不足时忽略
-                pass
-
-            db.drop_all()
-            db.session.commit()
-            print("已删除所有表")
-
-            try:
-                db.session.execute(text('SET FOREIGN_KEY_CHECKS = 1;'))
-            except Exception:
-                pass
-
-            # 创建所有表
-            db.create_all()
-            print("数据库表创建成功")
-            
-            
-            # 导入真实设备和租赁数据
-            print("正在导入真实设备和租赁数据...")
             # 导入设备数据
             db.session.execute(text("INSERT INTO devices (id, name, serial_number, status, created_at, updated_at) VALUES (1, '2001', '10AF4C15P8002JU', 'renting', '2025-08-26 11:44:07', '2025-08-27 05:40:00');"))
             db.session.execute(text("INSERT INTO devices (id, name, serial_number, status, created_at, updated_at) VALUES (2, '2002', '10AF4F2N88002K0', 'renting', '2025-08-26 11:44:07', '2025-08-27 06:08:29');"))
@@ -89,12 +45,3 @@ def init_database():
             # 提交所有导入的数据
             db.session.commit()
             print("数据导入成功")
-            
-            print("数据库初始化完成！")
-            
-        except Exception as e:
-            print(f"数据库初始化失败: {e}")
-            db.session.rollback()
-
-if __name__ == '__main__':
-    init_database()
