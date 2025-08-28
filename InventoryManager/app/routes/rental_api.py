@@ -370,7 +370,88 @@ def web_update_rental(rental_id):
         
         current_app.logger.info(f"更新租赁记录: {data}")
         
+        # 记录原始设备ID，用于检测是否修改了设备
+        original_device_id = rental.device_id
+        conflicts_detected = []
+        
+        # 检测设备修改和档期冲突
+        if 'device_id' in data and data['device_id'] != original_device_id:
+            # 验证新设备是否存在
+            new_device = Device.query.get(data['device_id'])
+            if not new_device:
+                return jsonify({
+                    'success': False,
+                    'error': '选择的设备不存在'
+                }), 400
+            
+            # 获取时间范围（使用现有的或更新的日期）
+            start_date = rental.start_date
+            end_date = rental.end_date
+            ship_out_time = rental.ship_out_time
+            ship_in_time = rental.ship_in_time
+            
+            # 如果请求中有新的日期，使用新日期
+            if 'start_date' in data:
+                start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date()
+            if 'end_date' in data:
+                end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date()
+            if 'ship_out_time' in data and data['ship_out_time']:
+                try:
+                    ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    try:
+                        ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d')
+                    except ValueError:
+                        pass
+            if 'ship_in_time' in data and data['ship_in_time']:
+                try:
+                    ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    try:
+                        ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d')
+                    except ValueError:
+                        pass
+            
+            # 检查新设备的档期冲突
+            if ship_out_time and ship_in_time:
+                from app.services.inventory_service import InventoryService
+                availability_check = InventoryService.check_device_availability(
+                    data['device_id'], 
+                    ship_out_time, 
+                    ship_in_time,
+                    exclude_rental_id=rental.id  # 排除当前租赁记录
+                )
+                
+                if not availability_check['available']:
+                    conflicts_detected.append({
+                        'type': 'device_conflict',
+                        'message': f'设备档期冲突: {availability_check["reason"]}',
+                        'details': availability_check
+                    })
+            
+            # 检查是否强制更新
+            force_update = data.get('force_update', False)
+            if conflicts_detected and not force_update:
+                return jsonify({
+                    'success': False,
+                    'error': '设备档期冲突',
+                    'conflicts': conflicts_detected,
+                    'requires_confirmation': True,
+                    'message': '检测到档期冲突，是否继续修改？'
+                }), 409  # 使用409 Conflict状态码
+        
         # 更新字段
+        if 'device_id' in data:
+            # 恢复原设备状态
+            if rental.device:
+                rental.device.status = 'idle'
+            
+            # 更新设备ID并设置新设备状态
+            rental.device_id = data['device_id']
+            new_device = Device.query.get(data['device_id'])
+            if new_device and rental.status == 'active':
+                new_device.status = 'renting'
+        
         if 'customer_name' in data:
             rental.customer_name = data['customer_name']
         
@@ -425,11 +506,13 @@ def web_update_rental(rental_id):
         
         db.session.commit()
         
-        return jsonify({
+        result_data = {
             'success': True,
             'message': '租赁记录更新成功',
             'data': {
                 'id': rental.id,
+                'device_id': rental.device_id,
+                'device_name': rental.device.name if rental.device else 'Unknown',
                 'customer_name': rental.customer_name,
                 'customer_phone': rental.customer_phone,
                 'destination': rental.destination,
@@ -439,7 +522,19 @@ def web_update_rental(rental_id):
                 'ship_out_time': rental.ship_out_time.isoformat() if rental.ship_out_time else None,
                 'ship_in_time': rental.ship_in_time.isoformat() if rental.ship_in_time else None
             }
-        })
+        }
+        
+        # 如果有冲突但强制更新了，添加警告信息
+        if conflicts_detected:
+            result_data['warnings'] = [
+                {
+                    'type': 'conflict_override',
+                    'message': '已强制更新租赁记录，请注意档期冲突',
+                    'conflicts': conflicts_detected
+                }
+            ]
+        
+        return jsonify(result_data)
         
     except Exception as e:
         db.session.rollback()

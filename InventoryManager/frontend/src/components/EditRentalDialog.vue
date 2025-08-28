@@ -130,27 +130,37 @@
       </el-form-item>
 
       <el-form-item label="寄出时间" prop="shipOutTime">
-        <el-date-picker
+        <VueDatePicker
           v-model="form.shipOutTime"
-          type="datetime"
           placeholder="选择寄出时间"
+          :format="'yyyy-MM-dd HH:mm'"
+          :locale="'zh-cn'"
+          :week-start="1"
+          :enable-time-picker="true"
+          time-picker-inline
+          auto-apply
+          :seconds="false"
           style="width: 100%"
-          format="YYYY-MM-DD HH:mm"
-          value-format="YYYY-MM-DD HH:mm:ss"
+          @update:model-value="handleShipOutTimeChange"
         />
         <div class="form-tip">设备寄出的具体时间</div>
       </el-form-item>
 
       <el-form-item label="收回时间" prop="shipInTime">
-        <el-date-picker
+        <VueDatePicker
           v-model="form.shipInTime"
-          type="datetime"
           placeholder="选择收回时间"
+          :format="'yyyy-MM-dd HH:mm'"
+          :locale="'zh-cn'"
+          :week-start="1"
+          :enable-time-picker="true"
+          time-picker-inline
+          auto-apply
+          :seconds="false"
           style="width: 100%"
-          format="YYYY-MM-DD HH:mm"
-          value-format="YYYY-MM-DD HH:mm:ss"
+          @update:model-value="handleShipInTimeChange"
         />
-        <div class="form-tip">设备收回的具体时间</div>
+        <div class="form-tip">设备收回时间的具体时间</div>
       </el-form-item>
       
       <!-- 快递查询结果显示 -->
@@ -261,6 +271,8 @@ import { useGanttStore, type Rental } from '../stores/gantt'
 import { Loading, Warning, Document, Box, Delete, Search } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
+import VueDatePicker from '@vuepic/vue-datepicker'
+import '@vuepic/vue-datepicker/dist/main.css'
 
 const props = defineProps<{
   modelValue: boolean
@@ -297,8 +309,8 @@ const form = reactive({
   destination: '',
   shipOutTrackingNo: '',
   shipInTrackingNo: '',
-  shipOutTime: '' as string,
-  shipInTime: '' as string
+  shipOutTime: null as Date | null,
+  shipInTime: null as Date | null
 })
 
 // 计算属性
@@ -347,6 +359,58 @@ const formatDateForForm = (dateString: string): Date | null => {
   }
 }
 
+// 日期时间处理函数 - 转换数据库datetime字符串为表单字符串
+const formatDateTimeForForm = (dateTimeString: string): string => {
+  if (!dateTimeString) return ''
+  
+  try {
+    // 假设数据库返回的是 Asia/Shanghai 时区的时间字符串 (YYYY-MM-DD HH:mm:ss)
+    // 我们直接返回这个字符串，让 el-date-picker 的 value-format 处理
+    console.log('原始datetime字符串:', dateTimeString)
+    return dateTimeString
+  } catch (error) {
+    console.error('日期时间处理错误:', error)
+    return ''
+  }
+}
+
+// 时间变化处理函数 - VueDatePicker 返回 Date 对象
+const handleShipOutTimeChange = (value: Date | null) => {
+  console.log('=== 寄出时间变化 ===')
+  console.log('选择的 Date 对象:', value)
+  if (value) {
+    console.log('格式化后的时间:', dayjs(value).format('YYYY-MM-DD HH:mm:ss'))
+    console.log('本地时间显示:', value.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }))
+  }
+  form.shipOutTime = value
+}
+
+const handleShipInTimeChange = (value: Date | null) => {
+  console.log('=== 收回时间变化 ===')
+  console.log('选择的 Date 对象:', value)
+  if (value) {
+    console.log('格式化后的时间:', dayjs(value).format('YYYY-MM-DD HH:mm:ss'))
+    console.log('本地时间显示:', value.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }))
+  }
+  form.shipInTime = value
+}
+
+// 转换数据库时间字符串为 Date 对象
+const parseDateTime = (dateTimeString: string): Date | null => {
+  if (!dateTimeString) return null
+  
+  try {
+    // 假设数据库存储的是本地时间 (Asia/Shanghai)
+    // 直接使用 dayjs 解析，它会按本地时区处理
+    const parsedDate = dayjs(dateTimeString).toDate()
+    console.log('解析时间字符串:', dateTimeString, '-> Date对象:', parsedDate)
+    return parsedDate
+  } catch (error) {
+    console.error('解析日期时间错误:', error)
+    return null
+  }
+}
+
 // 加载最新数据的函数
 const loadLatestRentalData = async (rental: Rental) => {
   loadingLatestData.value = true
@@ -362,8 +426,12 @@ const loadLatestRentalData = async (rental: Rental) => {
       form.destination = latestRental.destination || ''
       form.shipOutTrackingNo = latestRental.ship_out_tracking_no || ''
       form.shipInTrackingNo = latestRental.ship_in_tracking_no || ''
-      form.shipOutTime = latestRental.ship_out_time || ''
-      form.shipInTime = latestRental.ship_in_time || ''
+      // 转换数据库时间字符串为 Date 对象，用于 VueDatePicker
+      form.shipOutTime = parseDateTime(latestRental.ship_out_time || '')
+      form.shipInTime = parseDateTime(latestRental.ship_in_time || '')
+      
+      console.log('加载的寄出时间:', latestRental.ship_out_time, '-> Date:', form.shipOutTime)
+      console.log('加载的收回时间:', latestRental.ship_in_time, '-> Date:', form.shipInTime)
       
       console.log('=== 日期调试信息 ===')
       console.log('API返回的end_date:', latestRental.end_date)
@@ -379,8 +447,9 @@ const loadLatestRentalData = async (rental: Rental) => {
       form.destination = rental.destination || ''
       form.shipOutTrackingNo = rental.ship_out_tracking_no || ''
       form.shipInTrackingNo = rental.ship_in_tracking_no || ''
-      form.shipOutTime = rental.ship_out_time || ''
-      form.shipInTime = rental.ship_in_time || ''
+      // 转换数据库时间字符串为 Date 对象
+      form.shipOutTime = parseDateTime(rental.ship_out_time || '')
+      form.shipInTime = parseDateTime(rental.ship_in_time || '')
       latestDataError.value = '获取最新数据失败，使用缓存数据'
     }
   } catch (error) {
@@ -390,8 +459,9 @@ const loadLatestRentalData = async (rental: Rental) => {
     form.destination = rental.destination || ''
     form.shipOutTrackingNo = rental.ship_out_tracking_no || ''
     form.shipInTrackingNo = rental.ship_in_tracking_no || ''
-    form.shipOutTime = rental.ship_out_time || ''
-    form.shipInTime = rental.ship_in_time || ''
+    // 转换数据库时间字符串为 Date 对象
+    form.shipOutTime = parseDateTime(rental.ship_out_time || '')
+    form.shipInTime = parseDateTime(rental.ship_in_time || '')
     latestDataError.value = '获取最新数据失败：' + (error as Error).message
   } finally {
     loadingLatestData.value = false
@@ -436,8 +506,8 @@ const handleSubmit = async () => {
       destination: form.destination,
       ship_out_tracking_no: form.shipOutTrackingNo,
       ship_in_tracking_no: form.shipInTrackingNo,
-      ship_out_time: form.shipOutTime,
-      ship_in_time: form.shipInTime
+      ship_out_time: form.shipOutTime ? dayjs(form.shipOutTime).format('YYYY-MM-DD HH:mm:ss') : '',
+      ship_in_time: form.shipInTime ? dayjs(form.shipInTime).format('YYYY-MM-DD HH:mm:ss') : ''
     }
     
     console.log('提交的end_date:', endDateString)
@@ -642,8 +712,8 @@ const handleClose = () => {
   form.destination = ''
   form.shipOutTrackingNo = ''
   form.shipInTrackingNo = ''
-  form.shipOutTime = ''
-  form.shipInTime = ''
+  form.shipOutTime = null
+  form.shipInTime = null
   
   // 清空快递查询结果
   trackingResults.shipOut = null

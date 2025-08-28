@@ -350,11 +350,11 @@ const handleSubmit = async () => {
       shipOutTime = dayjs(availableSlot.value.shipOutDate).format('YYYY-MM-DD HH:mm:ss')
       shipInTime = dayjs(availableSlot.value.shipInDate).format('YYYY-MM-DD HH:mm:ss')
     } else {
-      // Calculate based on logistics days
+      // Calculate based on logistics days - 寄出时间需要提前1天保证用户在开始前收到
       const startDate = dayjs(form.startDate!)
       const endDate = dayjs(form.endDate!)
-      shipOutTime = startDate.subtract(form.logisticsDays, 'day').format('YYYY-MM-DD HH:mm:ss')
-      shipInTime = endDate.add(form.logisticsDays, 'day').format('YYYY-MM-DD HH:mm:ss')
+      shipOutTime = startDate.subtract(form.logisticsDays, 'day').subtract(1, 'day').hour(9).minute(0).second(0).format('YYYY-MM-DD HH:mm:ss')
+      shipInTime = endDate.add(form.logisticsDays, 'day').hour(18).minute(0).second(0).format('YYYY-MM-DD HH:mm:ss')
     }
 
     const rentalData = {
@@ -413,11 +413,11 @@ const forceSubmitRental = async () => {
     shipOutTime = dayjs(availableSlot.value.shipOutDate).format('YYYY-MM-DD HH:mm:ss')
     shipInTime = dayjs(availableSlot.value.shipInDate).format('YYYY-MM-DD HH:mm:ss')
   } else {
-    // Calculate based on logistics days
+    // Calculate based on logistics days - 寄出时间需要提前1天保证用户在开始前收到
     const startDate = dayjs(form.startDate!)
     const endDate = dayjs(form.endDate!)
-    shipOutTime = startDate.subtract(form.logisticsDays, 'day').format('YYYY-MM-DD HH:mm:ss')
-    shipInTime = endDate.add(form.logisticsDays, 'day').format('YYYY-MM-DD HH:mm:ss')
+    shipOutTime = startDate.subtract(form.logisticsDays, 'day').subtract(1, 'day').hour(9).minute(0).second(0).format('YYYY-MM-DD HH:mm:ss')
+    shipInTime = endDate.add(form.logisticsDays, 'day').hour(18).minute(0).second(0).format('YYYY-MM-DD HH:mm:ss')
   }
 
   const rentalData = {

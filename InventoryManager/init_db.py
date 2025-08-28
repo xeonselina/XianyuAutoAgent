@@ -6,7 +6,7 @@
 import os
 
 # 必须在导入app之前设置，因为init_db.py在宿主机运行
-os.environ['DATABASE_URL'] = 'mysql+pymysql://root:123456@localhost:3306/testdb'
+#os.environ['DATABASE_URL'] = 'mysql+pymysql://root:123456@localhost:3306/testdb'
 
 from app import create_app, db
 from app.models.device import Device

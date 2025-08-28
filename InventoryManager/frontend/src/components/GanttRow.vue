@@ -76,8 +76,13 @@
 
 <script setup lang="ts">
 import { computed, ref, defineAsyncComponent, onUnmounted } from 'vue'
-import dayjs from 'dayjs'
 import type { Device, Rental } from '../stores/gantt'
+import {
+  toSystemDateString,
+  isSameDay,
+  parseSystemDate,
+  isToday
+} from '@/utils/dateUtils'
 
 const RentalTooltip = defineAsyncComponent(() => import('./RentalTooltip.vue'))
 
@@ -173,33 +178,30 @@ onUnmounted(() => {
 })
 
 // 计算属性
-const isToday = (date: Date) => {
-  return dayjs(date).isSame(dayjs(), 'day')
-}
 
 const getRentalsForDate = (date: Date) => {
-  const dateStr = dayjs(date).format('YYYY-MM-DD')
+  const dateStr = toSystemDateString(date)
   return props.rentals.filter(rental => {
-    const startDate = dayjs(rental.start_date)
-    const endDate = dayjs(rental.end_date)
-    const currentDate = dayjs(dateStr)
+    const startDate = parseSystemDate(rental.start_date)
+    const endDate = parseSystemDate(rental.end_date)
+    const currentDate = parseSystemDate(dateStr)
     
-    return (currentDate.isAfter(startDate) || currentDate.isSame(startDate)) && 
-           (currentDate.isBefore(endDate) || currentDate.isSame(endDate))
+    return (currentDate.isAfter(startDate) || currentDate.isSame(startDate, 'day')) && 
+           (currentDate.isBefore(endDate) || currentDate.isSame(endDate, 'day'))
   })
 }
 
 const getShipTimeRentalsForDate = (date: Date) => {
-  const dateStr = dayjs(date).format('YYYY-MM-DD')
+  const dateStr = toSystemDateString(date)
   return props.rentals.filter(rental => {
     // 检查是否有ship_out_time和ship_in_time
     if (!rental.ship_out_time || !rental.ship_in_time) {
       return false
     }
     
-    // 只比较日期部分，避免时区问题
-    const shipOutDate = dayjs(rental.ship_out_time).format('YYYY-MM-DD')
-    const shipInDate = dayjs(rental.ship_in_time).format('YYYY-MM-DD')
+    // 使用统一时区处理
+    const shipOutDate = toSystemDateString(rental.ship_out_time)
+    const shipInDate = toSystemDateString(rental.ship_in_time)
     const currentDate = dateStr
     
     return (currentDate >= shipOutDate) && (currentDate <= shipInDate)
@@ -207,9 +209,9 @@ const getShipTimeRentalsForDate = (date: Date) => {
 }
 
 const getRentalStyle = (rental: Rental, date: Date) => {
-  const startDate = dayjs(rental.start_date)
-  const endDate = dayjs(rental.end_date)
-  const currentDate = dayjs(date)
+  const startDate = parseSystemDate(rental.start_date)
+  const endDate = parseSystemDate(rental.end_date)
+  const currentDate = parseSystemDate(toSystemDateString(date))
   
   // 计算在当前日期格子中的显示样式
   let width = '100%'
@@ -218,7 +220,8 @@ const getRentalStyle = (rental: Rental, date: Date) => {
   // 如果是租赁的第一天
   if (currentDate.isSame(startDate, 'day')) {
     const totalDays = endDate.diff(startDate, 'day') + 1
-    width = `${Math.min(totalDays * 100, (props.dates.length - props.dates.findIndex(d => dayjs(d).isSame(currentDate))) * 100)}%`
+    const currentDateIndex = props.dates.findIndex(d => isSameDay(d, currentDate.toDate()))
+    width = `${Math.min(totalDays * 100, (props.dates.length - currentDateIndex) * 100)}%`
   }
   
   return {
@@ -230,10 +233,10 @@ const getRentalStyle = (rental: Rental, date: Date) => {
 }
 
 const getShipTimeStyle = (rental: Rental, date: Date) => {
-  // 只比较日期部分，避免时区问题
-  const shipOutDateStr = dayjs(rental.ship_out_time).format('YYYY-MM-DD')
-  const shipInDateStr = dayjs(rental.ship_in_time).format('YYYY-MM-DD')
-  const currentDateStr = dayjs(date).format('YYYY-MM-DD')
+  // 使用统一时区处理
+  const shipOutDateStr = toSystemDateString(rental.ship_out_time!)
+  const shipInDateStr = toSystemDateString(rental.ship_in_time!)
+  const currentDateStr = toSystemDateString(date)
   
   // 计算在当前日期格子中的显示样式
   let width = '100%'
@@ -241,10 +244,10 @@ const getShipTimeStyle = (rental: Rental, date: Date) => {
   
   // 如果是物流的第一天
   if (currentDateStr === shipOutDateStr) {
-    const shipOutDate = dayjs(shipOutDateStr)
-    const shipInDate = dayjs(shipInDateStr)
+    const shipOutDate = parseSystemDate(shipOutDateStr)
+    const shipInDate = parseSystemDate(shipInDateStr)
     const totalDays = shipInDate.diff(shipOutDate, 'day') + 1
-    const currentDateIndex = props.dates.findIndex(d => dayjs(d).format('YYYY-MM-DD') === currentDateStr)
+    const currentDateIndex = props.dates.findIndex(d => toSystemDateString(d) === currentDateStr)
     const remainingDays = props.dates.length - currentDateIndex
     width = `${Math.min(totalDays * 100, remainingDays * 100)}%`
   }

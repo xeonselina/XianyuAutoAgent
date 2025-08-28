@@ -206,11 +206,17 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useGanttStore, type Device, type Rental } from '@/stores/gantt'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
-import dayjs from 'dayjs'
 import axios from 'axios'
 import GanttRow from './GanttRow.vue'
 import BookingDialog from './BookingDialog.vue'
 import EditRentalDialog from './EditRentalDialog.vue'
+import {
+  toSystemDateString,
+  isToday,
+  formatDisplayDate,
+  generateDateRange,
+  getCurrentDate
+} from '@/utils/dateUtils'
 
 const ganttStore = useGanttStore()
 
@@ -248,17 +254,10 @@ const addDeviceRules = {
 
 // 计算属性
 const dateArray = computed(() => {
-  const dates = []
-  const start = dayjs(ganttStore.dateRange.start)
-  const end = dayjs(ganttStore.dateRange.end)
-  
-  let current = start
-  while (current.isBefore(end) || current.isSame(end)) {
-    dates.push(current.toDate())
-    current = current.add(1, 'day')
-  }
-  
-  return dates
+  return generateDateRange(
+    getCurrentDate().subtract(15, 'day'),
+    getCurrentDate().add(15, 'day')
+  )
 })
 
 const deviceTypes = computed(() => {
@@ -290,12 +289,8 @@ const filteredDevices = computed(() => {
 })
 
 // 方法
-const isToday = (date: Date) => {
-  return dayjs(date).isSame(dayjs(), 'day')
-}
-
 const formatDay = (date: Date) => {
-  return dayjs(date).format('DD')
+  return formatDisplayDate(date, 'DD')
 }
 
 const formatWeekday = (date: Date) => {
@@ -408,7 +403,7 @@ const loadDailyStats = async () => {
   try {
     const stats = await Promise.all(
       dateArray.value.map(async (date) => {
-        const dateStr = dayjs(date).format('YYYY-MM-DD')
+        const dateStr = toSystemDateString(date)
         const response = await axios.get('/api/gantt/daily-stats', {
           params: { date: dateStr }
         })
@@ -443,7 +438,7 @@ const loadDailyStats = async () => {
 
 // 获取指定日期的统计信息
 const getStatsForDate = (date: Date) => {
-  const dateStr = dayjs(date).format('YYYY-MM-DD')
+  const dateStr = toSystemDateString(date)
   return dailyStats.value[dateStr] || { available_count: 0, ship_out_count: 0 }
 }
 

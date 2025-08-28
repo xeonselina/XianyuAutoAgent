@@ -17,7 +17,7 @@
     "@element-plus/icons-vue": "^2.3.2",
     "@vuepic/vue-datepicker": "^11.0.2",
     "axios": "^1.11.0",
-    "dayjs": "^1.11.13",
+    "dayjs": "^1.11.14",
     "element-plus": "^2.11.1",
     "pinia": "^3.0.3",
     "vue": "^3.5.18",
