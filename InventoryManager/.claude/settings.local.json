@@ -17,7 +17,8 @@
       "Bash(brew install:*)",
       "Bash(mysql:*)",
       "Bash(/opt/homebrew/opt/mysql-client/bin/mysql --version)",
-      "Bash(DATABASE_URL=mysql+pymysql://root:123456@127.0.0.1:3306/testdb python3 export_data.py)"
+      "Bash(DATABASE_URL=mysql+pymysql://root:123456@127.0.0.1:3306/testdb python3 export_data.py)",
+      "Bash(npm install:*)"
     ],
     "deny": [],
     "ask": [],

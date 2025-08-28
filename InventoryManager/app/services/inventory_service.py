@@ -37,6 +37,10 @@ class InventoryService:
             available_devices = []
             
             for device in all_devices:
+                # 只排除离线状态的设备
+                if device.status == 'offline':
+                    continue
+                
                 # 检查设备在指定时间段内是否有冲突的租赁记录
                 conflicting_rentals = Rental.query.filter(
                     db.and_(
@@ -107,7 +111,7 @@ class InventoryService:
     
     @staticmethod
     def check_device_availability(device_id: str, ship_out_time: datetime, 
-                                ship_in_time: datetime) -> Dict:
+                                ship_in_time: datetime, exclude_rental_id: int = None) -> Dict:
         """
         检查指定设备在指定寄出和收回时间段是否可用
         
@@ -115,6 +119,7 @@ class InventoryService:
             device_id: 设备ID
             ship_out_time: 寄出时间
             ship_in_time: 收回时间
+            exclude_rental_id: 要排除的租赁记录ID（用于编辑租赁时）
             
         Returns:
             Dict: 可用性检查结果
@@ -128,29 +133,35 @@ class InventoryService:
                     'device_id': device_id
                 }
             
-            # 检查设备状态（非idle状态通常意味着设备不可用）
-            if device.status != 'idle':
-                return {
-                    'available': False,
-                    'reason': f'设备当前状态为 {device.status}，不可预定',
-                    'device_id': device_id,
-                    'device_status': device.status
-                }
+            # 根据用户要求，不检查设备状态，只检测档期冲突
+            # if device.status != 'idle':
+            #     return {
+            #         'available': False,
+            #         'reason': f'设备当前状态为 {device.status}，不可预定',
+            #         'device_id': device_id,
+            #         'device_status': device.status
+            #     }
             
-            # 检查寄出和收回时间冲突
-            # 查找在指定时间段内有冲突的租赁记录
-            conflicting_rentals = Rental.query.filter(
+            # 检查寄出和收回时间冲突（使用寄出收回时间而不是租赁时间）
+            # 查找在指定寄出收回时间段内有冲突的租赁记录
+            query_filters = [
+                Rental.device_id == device_id,
+                Rental.status.in_(['pending', 'confirmed', 'shipped', 'returned']),  # 排除已取消的
+                Rental.ship_out_time.isnot(None),  # 必须有寄出时间
+                Rental.ship_in_time.isnot(None),   # 必须有收回时间
+                # 时间段重叠检测：寄出时间和收回时间有交叉
                 db.and_(
-                    Rental.device_id == device_id,
-                    Rental.status.in_(['pending', 'active']),  # 包括待处理和活动中的租赁
-                    db.or_(
-                        # 租赁时间段与请求时间段重叠
-                        db.and_(
-                            Rental.start_date <= ship_in_time.date(),
-                            Rental.end_date >= ship_out_time.date()
-                        )
-                    )
+                    Rental.ship_out_time < ship_in_time,   # 现有记录的寄出时间 < 新记录的收回时间
+                    Rental.ship_in_time > ship_out_time    # 现有记录的收回时间 > 新记录的寄出时间
                 )
+            ]
+            
+            # 如果提供了要排除的租赁记录ID，则排除该记录
+            if exclude_rental_id:
+                query_filters.append(Rental.id != exclude_rental_id)
+            
+            conflicting_rentals = Rental.query.filter(
+                db.and_(*query_filters)
             ).all()
             
             if not conflicting_rentals:
@@ -162,13 +173,15 @@ class InventoryService:
             else:
                 return {
                     'available': False,
-                    'reason': '设备在指定时间段已被租赁',
+                    'reason': '设备在指定寄出收回时间段内已被占用',
                     'device_id': device_id,
                     'conflicting_rentals': [
                         {
                             'rental_id': rental.id,
                             'start_date': rental.start_date.isoformat(),
                             'end_date': rental.end_date.isoformat(),
+                            'ship_out_time': rental.ship_out_time.isoformat() if rental.ship_out_time else None,
+                            'ship_in_time': rental.ship_in_time.isoformat() if rental.ship_in_time else None,
                             'customer_name': rental.customer_name
                         }
                         for rental in conflicting_rentals

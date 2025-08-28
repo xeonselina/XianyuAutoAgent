@@ -32,12 +32,12 @@ export default defineConfig({
     proxy: {
       // 代理 API 请求到 Flask 后端
       '/api': {
-        target: 'http://localhost:5000',
+        target: 'http://localhost:5002',
         changeOrigin: true,
         rewrite: (path) => path
       },
       '/web': {
-        target: 'http://localhost:5000',
+        target: 'http://localhost:5002',
         changeOrigin: true,
         rewrite: (path) => path
       }

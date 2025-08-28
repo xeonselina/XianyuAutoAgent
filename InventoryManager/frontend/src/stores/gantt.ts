@@ -1,7 +1,12 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import axios from 'axios'
-import dayjs from 'dayjs'
+import {
+  getCurrentDate,
+  toSystemDateString,
+  DateRangeUtils,
+  formatDisplayDate
+} from '@/utils/dateUtils'
 
 export interface Device {
   id: number
@@ -38,22 +43,23 @@ export const useGanttStore = defineStore('gantt', () => {
   // 状态
   const devices = ref<Device[]>([])
   const rentals = ref<Rental[]>([])
-  const currentDate = ref(new Date())
+  const currentDate = ref(getCurrentDate().toDate())
   const loading = ref(false)
   const error = ref<string | null>(null)
 
   // 计算属性
   const dateRange = computed(() => {
-    const start = dayjs(currentDate.value).subtract(15, 'day').toDate()
-    const end = dayjs(currentDate.value).add(15, 'day').toDate()
-    return { start, end }
+    const range = DateRangeUtils.getWeekRange(getCurrentDate())
+    return { start: range.start.toDate(), end: range.end.toDate() }
   })
 
   const currentPeriod = computed(() => {
     const { start, end } = dateRange.value
-    const startStr = dayjs(start).format('YYYY年MM月DD日')
-    const endStr = dayjs(end).format('YYYY年MM月DD日')
-    const totalDays = dayjs(end).diff(dayjs(start), 'day') + 1
+    const startStr = formatDisplayDate(start, 'YYYY年MM月DD日')
+    const endStr = formatDisplayDate(end, 'YYYY年MM月DD日')
+    const startDay = getCurrentDate().startOf('day')
+    const endDay = getCurrentDate().add(30, 'day').startOf('day')
+    const totalDays = endDay.diff(startDay, 'day') + 1
     return `${startStr} - ${endStr} (共${totalDays}天)`
   })
 
@@ -74,8 +80,8 @@ export const useGanttStore = defineStore('gantt', () => {
     try {
       const response = await axios.get('/api/gantt/data', {
         params: {
-          start_date: dayjs(dateRange.value.start).format('YYYY-MM-DD'),
-          end_date: dayjs(dateRange.value.end).format('YYYY-MM-DD')
+          start_date: toSystemDateString(dateRange.value.start),
+          end_date: toSystemDateString(dateRange.value.end)
         }
       })
       
@@ -94,17 +100,17 @@ export const useGanttStore = defineStore('gantt', () => {
   }
 
   const navigateWeek = (weeks: number) => {
-    currentDate.value = dayjs(currentDate.value).add(weeks * 7, 'day').toDate()
+    currentDate.value = getCurrentDate().add(weeks * 7, 'day').toDate()
     loadData()
   }
 
   const navigateToMonth = (months: number) => {
-    currentDate.value = dayjs(currentDate.value).add(months, 'month').toDate()
+    currentDate.value = getCurrentDate().add(months, 'month').toDate()
     loadData()
   }
 
   const goToToday = () => {
-    currentDate.value = new Date()
+    currentDate.value = getCurrentDate().toDate()
     loadData()
   }
 
