@@ -64,7 +64,8 @@ export const toAPIFormat = (date: string | Date | dayjs.Dayjs): string => {
  * 从API格式解析日期
  */
 export const fromAPIFormat = (isoString: string): dayjs.Dayjs => {
-  return dayjs(isoString).tz(SYSTEM_TIMEZONE)
+  // API返回的是UTC时间，需要先解析为UTC，再转换到系统时区
+  return dayjs.utc(isoString).tz(SYSTEM_TIMEZONE)
 }
 
 /**
