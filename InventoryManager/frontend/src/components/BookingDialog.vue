@@ -345,18 +345,10 @@ const handleSubmit = async () => {
 
   submitting.value = true
   try {
-    // Calculate ship times based on logistics days if not from available slot
-    let shipOutTime, shipInTime
-    if (availableSlot.value) {
-      shipOutTime = toAPIFormat(availableSlot.value.shipOutDate)
-      shipInTime = toAPIFormat(availableSlot.value.shipInDate)
-    } else {
-      // Calculate based on logistics days - 寄出时间需要提前1天保证用户在开始前收到
       const startDate = dayjs(form.startDate!)
       const endDate = dayjs(form.endDate!)
-      shipOutTime = toAPIFormat(startDate.subtract(form.logisticsDays, 'day').subtract(1, 'day').hour(9).minute(0).second(0))
-      shipInTime = toAPIFormat(endDate.add(form.logisticsDays, 'day').hour(18).minute(0).second(0))
-    }
+      const shipOutTime = toAPIFormat(startDate.subtract(form.logisticsDays, 'day').subtract(1, 'day').hour(9).minute(0).second(0))
+      const shipInTime = toAPIFormat(endDate.add(form.logisticsDays, 'day').add(1, 'day').hour(18).minute(0).second(0))
 
     const rentalData = {
       device_id: deviceId!,

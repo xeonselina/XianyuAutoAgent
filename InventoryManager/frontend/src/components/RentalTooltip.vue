@@ -83,7 +83,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Rental } from '../stores/gantt'
-import dayjs from 'dayjs'
+import { fromAPIFormat } from '@/utils/dateUtils'
 
 interface Props {
   rental: Rental | null
@@ -112,7 +112,8 @@ const handleTooltipLeave = () => {
 // 格式化日期时间
 const formatDateTime = (dateTime: string) => {
   if (!dateTime) return ''
-  return dayjs(dateTime).format('YYYY-MM-DD HH:mm')
+  // 使用 fromAPIFormat 将 UTC 时间转换为系统时区时间
+  return fromAPIFormat(dateTime).format('YYYY-MM-DD HH:mm')
 }
 
 // 获取状态类型
