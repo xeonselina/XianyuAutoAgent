@@ -397,20 +397,30 @@ def web_update_rental(rental_id):
                 end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date()
             if 'ship_out_time' in data and data['ship_out_time']:
                 try:
-                    ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d %H:%M:%S')
-                except ValueError:
+                    from dateutil import parser
+                    parsed_time = parser.isoparse(data['ship_out_time'])
+                    ship_out_time = parsed_time.replace(tzinfo=None)
+                except (ValueError, ImportError):
                     try:
-                        ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d')
+                        ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d %H:%M:%S')
                     except ValueError:
-                        pass
+                        try:
+                            ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d')
+                        except ValueError:
+                            pass
             if 'ship_in_time' in data and data['ship_in_time']:
                 try:
-                    ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d %H:%M:%S')
-                except ValueError:
+                    from dateutil import parser
+                    parsed_time = parser.isoparse(data['ship_in_time'])
+                    ship_in_time = parsed_time.replace(tzinfo=None)
+                except (ValueError, ImportError):
                     try:
-                        ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d')
+                        ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d %H:%M:%S')
                     except ValueError:
-                        pass
+                        try:
+                            ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d')
+                        except ValueError:
+                            pass
             
             # 检查新设备的档期冲突
             if ship_out_time and ship_in_time:
@@ -480,13 +490,20 @@ def web_update_rental(rental_id):
         if 'ship_out_time' in data:
             if data['ship_out_time']:
                 try:
-                    rental.ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d %H:%M:%S')
-                except ValueError:
-                    # 如果时间格式解析失败，尝试只解析日期
+                    # 尝试解析ISO 8601格式 (前端发送的UTC格式)
+                    from dateutil import parser
+                    parsed_time = parser.isoparse(data['ship_out_time'])
+                    # 转换为naive datetime (数据库存储UTC时间)
+                    rental.ship_out_time = parsed_time.replace(tzinfo=None)
+                except (ValueError, ImportError):
                     try:
-                        rental.ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d')
+                        # 备用格式解析
+                        rental.ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d %H:%M:%S')
                     except ValueError:
-                        current_app.logger.warning(f"无法解析寄出时间: {data['ship_out_time']}")
+                        try:
+                            rental.ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d')
+                        except ValueError:
+                            current_app.logger.warning(f"无法解析寄出时间: {data['ship_out_time']}")
             else:
                 rental.ship_out_time = None
         
@@ -494,13 +511,20 @@ def web_update_rental(rental_id):
         if 'ship_in_time' in data:
             if data['ship_in_time']:
                 try:
-                    rental.ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d %H:%M:%S')
-                except ValueError:
-                    # 如果时间格式解析失败，尝试只解析日期
+                    # 尝试解析ISO 8601格式 (前端发送的UTC格式)
+                    from dateutil import parser
+                    parsed_time = parser.isoparse(data['ship_in_time'])
+                    # 转换为naive datetime (数据库存储UTC时间)
+                    rental.ship_in_time = parsed_time.replace(tzinfo=None)
+                except (ValueError, ImportError):
                     try:
-                        rental.ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d')
+                        # 备用格式解析
+                        rental.ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d %H:%M:%S')
                     except ValueError:
-                        current_app.logger.warning(f"无法解析收回时间: {data['ship_in_time']}")
+                        try:
+                            rental.ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d')
+                        except ValueError:
+                            current_app.logger.warning(f"无法解析收回时间: {data['ship_in_time']}")
             else:
                 rental.ship_in_time = None
         

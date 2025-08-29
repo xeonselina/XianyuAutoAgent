@@ -14,14 +14,6 @@ from app.utils.date_utils import (
     create_error_response,
     create_success_response
 )
-from app.utils.timezone_utils import (
-    get_current_date,
-    parse_date,
-    get_system_date,
-    get_date_range_start_end,
-    to_api_format,
-    log_timezone_debug
-)
 from datetime import datetime, date, timedelta
 
 bp = Blueprint('gantt_api', __name__)
@@ -248,11 +240,9 @@ def get_daily_stats():
         # 计算指定日期空闲设备数量（不在任何租赁的shipouttime到shipintime时间范围内）
         from app.services.inventory_service import InventoryService
         
-        # 使用统一时区处理：将目标日期转换为时间段（当天00:00到23:59）
-        target_start, target_end = get_date_range_start_end(target_date)
-        
-        log_timezone_debug(target_start, f"目标日期开始时间")
-        log_timezone_debug(target_end, f"目标日期结束时间")
+        # 将目标日期转换为时间段（当天00:00到23:59）
+        target_start = datetime.combine(target_date, datetime.min.time())
+        target_end = datetime.combine(target_date, datetime.max.time())
         
         # 查询在目标日期这一天不被任何租赁物流时间占用的设备
         available_devices = InventoryService.get_available_devices(target_start, target_end)
@@ -270,8 +260,8 @@ def get_daily_stats():
         ship_out_count = 0
         for rental in rentals_with_ship_out:
             if rental.ship_out_time:
-                rental_ship_date = get_system_date(rental.ship_out_time)
-                log_timezone_debug(rental.ship_out_time, f"租赁{rental.id}的寄出时间")
+                # 直接比较日期部分（假设数据库存储的是UTC时间）
+                rental_ship_date = rental.ship_out_time.date()
                 if rental_ship_date == target_date:
                     ship_out_count += 1
                     current_app.logger.debug(f"租赁{rental.id}在{target_date}寄出")

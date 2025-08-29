@@ -83,6 +83,7 @@ import {
   parseSystemDate,
   isToday
 } from '@/utils/dateUtils'
+import dayjs from 'dayjs'
 
 const RentalTooltip = defineAsyncComponent(() => import('./RentalTooltip.vue'))
 
@@ -180,7 +181,7 @@ onUnmounted(() => {
 // 计算属性
 
 const getRentalsForDate = (date: Date) => {
-  const dateStr = toSystemDateString(date)
+  const dateStr = dayjs(date).format('YYYY-MM-DD')
   return props.rentals.filter(rental => {
     const startDate = parseSystemDate(rental.start_date)
     const endDate = parseSystemDate(rental.end_date)
@@ -192,7 +193,7 @@ const getRentalsForDate = (date: Date) => {
 }
 
 const getShipTimeRentalsForDate = (date: Date) => {
-  const dateStr = toSystemDateString(date)
+  const dateStr = dayjs(date).format('YYYY-MM-DD')
   return props.rentals.filter(rental => {
     // 检查是否有ship_out_time和ship_in_time
     if (!rental.ship_out_time || !rental.ship_in_time) {
@@ -234,8 +235,8 @@ const getRentalStyle = (rental: Rental, date: Date) => {
 
 const getShipTimeStyle = (rental: Rental, date: Date) => {
   // 使用统一时区处理
-  const shipOutDateStr = toSystemDateString(rental.ship_out_time!)
-  const shipInDateStr = toSystemDateString(rental.ship_in_time!)
+  const shipOutDateStr = dayjs(rental.ship_out_time!).format('YYYY-MM-DD')
+  const shipInDateStr = dayjs(rental.ship_in_time!).format('YYYY-MM-DD')
   const currentDateStr = toSystemDateString(date)
   
   // 计算在当前日期格子中的显示样式

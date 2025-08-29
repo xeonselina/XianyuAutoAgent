@@ -149,6 +149,7 @@ import { useGanttStore, type AvailableSlot } from '../stores/gantt'
 import dayjs from 'dayjs'
 import VueDatePicker from '@vuepic/vue-datepicker'
 import '@vuepic/vue-datepicker/dist/main.css'
+import { toAPIFormat } from '@/utils/dateUtils'
 
 const props = defineProps<{
   modelValue: boolean
@@ -347,14 +348,14 @@ const handleSubmit = async () => {
     // Calculate ship times based on logistics days if not from available slot
     let shipOutTime, shipInTime
     if (availableSlot.value) {
-      shipOutTime = dayjs(availableSlot.value.shipOutDate).format('YYYY-MM-DD HH:mm:ss')
-      shipInTime = dayjs(availableSlot.value.shipInDate).format('YYYY-MM-DD HH:mm:ss')
+      shipOutTime = toAPIFormat(availableSlot.value.shipOutDate)
+      shipInTime = toAPIFormat(availableSlot.value.shipInDate)
     } else {
       // Calculate based on logistics days - 寄出时间需要提前1天保证用户在开始前收到
       const startDate = dayjs(form.startDate!)
       const endDate = dayjs(form.endDate!)
-      shipOutTime = startDate.subtract(form.logisticsDays, 'day').subtract(1, 'day').hour(9).minute(0).second(0).format('YYYY-MM-DD HH:mm:ss')
-      shipInTime = endDate.add(form.logisticsDays, 'day').hour(18).minute(0).second(0).format('YYYY-MM-DD HH:mm:ss')
+      shipOutTime = toAPIFormat(startDate.subtract(form.logisticsDays, 'day').subtract(1, 'day').hour(9).minute(0).second(0))
+      shipInTime = toAPIFormat(endDate.add(form.logisticsDays, 'day').hour(18).minute(0).second(0))
     }
 
     const rentalData = {
@@ -410,14 +411,14 @@ const forceSubmitRental = async () => {
   // Calculate ship times based on logistics days if not from available slot
   let shipOutTime, shipInTime
   if (availableSlot.value) {
-    shipOutTime = dayjs(availableSlot.value.shipOutDate).format('YYYY-MM-DD HH:mm:ss')
-    shipInTime = dayjs(availableSlot.value.shipInDate).format('YYYY-MM-DD HH:mm:ss')
+    shipOutTime = toAPIFormat(availableSlot.value.shipOutDate)
+    shipInTime = toAPIFormat(availableSlot.value.shipInDate)
   } else {
     // Calculate based on logistics days - 寄出时间需要提前1天保证用户在开始前收到
     const startDate = dayjs(form.startDate!)
     const endDate = dayjs(form.endDate!)
-    shipOutTime = startDate.subtract(form.logisticsDays, 'day').subtract(1, 'day').hour(9).minute(0).second(0).format('YYYY-MM-DD HH:mm:ss')
-    shipInTime = endDate.add(form.logisticsDays, 'day').hour(18).minute(0).second(0).format('YYYY-MM-DD HH:mm:ss')
+    shipOutTime = toAPIFormat(startDate.subtract(form.logisticsDays, 'day').subtract(1, 'day').hour(9).minute(0).second(0))
+    shipInTime = toAPIFormat(endDate.add(form.logisticsDays, 'day').hour(18).minute(0).second(0))
   }
 
   const rentalData = {

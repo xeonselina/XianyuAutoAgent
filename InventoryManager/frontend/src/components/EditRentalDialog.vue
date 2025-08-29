@@ -273,6 +273,7 @@ import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import VueDatePicker from '@vuepic/vue-datepicker'
 import '@vuepic/vue-datepicker/dist/main.css'
+import { fromAPIFormat, toAPIFormat } from '../utils/dateUtils'
 
 const props = defineProps<{
   modelValue: boolean
@@ -329,30 +330,13 @@ const rules: FormRules = {
   ]
 }
 
-// 日期处理函数 - 转换为Date对象避免时区问题
+// 日期处理函数 - 安全转换为 Date（不做多余的时区偏移）
 const formatDateForForm = (dateString: string): Date | null => {
   if (!dateString) return null
-  
   try {
-    // 手动解析日期字符串，避免时区转换
     const [year, month, day] = dateString.split('-').map(Number)
-    
-    // 使用UTC时间创建日期，然后转换为本地时间
-    // 这样可以确保日期不会因为时区差异而偏移
-    const utcDate = new Date(Date.UTC(year, month - 1, day))
-    
-    // 获取本地时区的偏移量
-    const timezoneOffset = utcDate.getTimezoneOffset() * 60000
-    
-    // 创建正确的本地日期对象
-    const localDate = new Date(utcDate.getTime() + timezoneOffset)
-    
-    console.log('原始日期字符串:', dateString)
-    console.log('UTC日期对象:', utcDate.toDateString())
-    console.log('本地日期对象:', localDate.toDateString())
-    console.log('本地Date对象的年月日:', localDate.getFullYear(), localDate.getMonth() + 1, localDate.getDate())
-    
-    return localDate
+    // 直接用本地时区构造当天 00:00 的 Date，避免二次偏移
+    return new Date(year, month - 1, day)
   } catch (error) {
     console.error('日期处理错误:', error)
     return null
@@ -395,15 +379,14 @@ const handleShipInTimeChange = (value: Date | null) => {
   form.shipInTime = value
 }
 
-// 转换数据库时间字符串为 Date 对象
+// 转换数据库(UTC)时间字符串为东八区对应的 Date 对象
 const parseDateTime = (dateTimeString: string): Date | null => {
   if (!dateTimeString) return null
-  
   try {
-    // 假设数据库存储的是本地时间 (Asia/Shanghai)
-    // 直接使用 dayjs 解析，它会按本地时区处理
-    const parsedDate = dayjs(dateTimeString).toDate()
-    console.log('解析时间字符串:', dateTimeString, '-> Date对象:', parsedDate)
+    // API 返回为 UTC（ISO 或可解析为 UTC 的字符串）
+    // 先按 UTC 解析，再转换到 Asia/Shanghai，再转为 Date
+    const parsedDate = fromAPIFormat(dateTimeString).toDate()
+    console.log('解析时间字符串:', dateTimeString, '-> Date对象(东八区):', parsedDate)
     return parsedDate
   } catch (error) {
     console.error('解析日期时间错误:', error)
@@ -497,7 +480,7 @@ const handleSubmit = async () => {
 
   submitting.value = true
   try {
-    // 将Date对象转换为字符串格式发送给后端
+    // 将Date对象转换为字符串格式发送给后端，使用统一时区处理
     const endDateString = form.endDate ? dayjs(form.endDate).format('YYYY-MM-DD') : ''
     
     const updateData = {
@@ -506,8 +489,8 @@ const handleSubmit = async () => {
       destination: form.destination,
       ship_out_tracking_no: form.shipOutTrackingNo,
       ship_in_tracking_no: form.shipInTrackingNo,
-      ship_out_time: form.shipOutTime ? dayjs(form.shipOutTime).format('YYYY-MM-DD HH:mm:ss') : '',
-      ship_in_time: form.shipInTime ? dayjs(form.shipInTime).format('YYYY-MM-DD HH:mm:ss') : ''
+      ship_out_time: form.shipOutTime ? toAPIFormat(form.shipOutTime) : '',
+      ship_in_time: form.shipInTime ? toAPIFormat(form.shipInTime) : ''
     }
     
     console.log('提交的end_date:', endDateString)
