@@ -248,7 +248,8 @@ build-and-run-x86: build-x86 ## 构建x86镜像并运行
 		-e ALIYUN_ACCESS_KEY_ID=asdafd \
 		-e ALIYUN_ACCESS_KEY_SECRET=fdfd \
 		-e SF_PARTNER_ID=ccwcww \
-		-e SF_CHECKWORD=cwcwcw \
+		-e SF_CHECKPHONENO=4947 \
+		-e SF_CHECKWORD=ZhiSmaLymbrDhQAhjrpZ4D8SO57KgXtU \
 		$(DOCKER_IMAGE):x86-local
 	@echo "x86容器已启动，访问: http://localhost:5002"
 

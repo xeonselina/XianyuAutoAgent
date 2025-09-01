@@ -120,31 +120,32 @@ class SFExpressAPI:
             logger.error(f"API请求异常: {e}")
             return {"apiResultCode": "A9999", "apiErrorMsg": f"未知错误: {str(e)}"}
     
-    def search_routes(self, tracking_number: str) -> Dict:
+    def search_routes(self, tracking_number: str, check_phone_no: str) -> Dict:
         """
         查询快递路由信息
         
         Args:
             tracking_number: 快递单号
-            
+            check_phone_no: 收件人电话
         Returns:
             Dict: 路由信息
         """
         msg_data = {
             "trackingType": "1",  # 1:根据顺丰运单号查询
+            "checkPhoneNo": check_phone_no,
             "trackingNumber": [tracking_number],
             "methodType": "1"  # 1:标准查询
         }
         
         return self._make_request("EXP_RECE_SEARCH_ROUTES", msg_data)
     
-    def batch_search_routes(self, tracking_numbers: List[str]) -> Dict:
+    def batch_search_routes(self, tracking_numbers: List[str], check_phone_no: str) -> Dict:
         """
         批量查询快递路由信息
         
         Args:
             tracking_numbers: 快递单号列表
-            
+            check_phone_no: 收件人电话
         Returns:
             Dict: 路由信息
         """
@@ -153,6 +154,7 @@ class SFExpressAPI:
         
         msg_data = {
             "trackingType": "1",
+            "checkPhoneNo": check_phone_no,
             "trackingNumber": tracking_numbers,
             "methodType": "1"
         }
@@ -239,7 +241,7 @@ class SFExpressAPI:
         
         return result
     
-    def get_delivery_status(self, tracking_number: str) -> Dict:
+    def get_delivery_status(self, tracking_number: str, check_phone_no: str) -> Dict:
         """
         获取快递送达状态
         
@@ -249,7 +251,7 @@ class SFExpressAPI:
         Returns:
             Dict: 送达状态信息
         """
-        response = self.search_routes(tracking_number)
+        response = self.search_routes(tracking_number, check_phone_no)
         parsed_routes = self.parse_route_response(response)
         
         if tracking_number in parsed_routes:
@@ -308,11 +310,12 @@ def query_tracking_info(tracking_number: str, partner_id: str = None, checkword:
     Returns:
         Dict: 快递信息
     """
+    check_phone_no = os.getenv('SF_CHECKPHONENO')
     client = create_sf_client(partner_id, checkword)
-    return client.get_delivery_status(tracking_number)
+    return client.get_delivery_status(tracking_number,check_phone_no)
 
 
-def batch_query_tracking_info(tracking_numbers: List[str], partner_id: str = None, checkword: str = None) -> Dict[str, Dict]:
+def batch_query_tracking_info(tracking_numbers: List[str], partner_id: str = None, checkword: str = None ) -> Dict[str, Dict]:
     """
     批量查询快递信息的便捷函数
     
@@ -324,6 +327,7 @@ def batch_query_tracking_info(tracking_numbers: List[str], partner_id: str = Non
     Returns:
         Dict: 快递信息字典，键为单号
     """
+    check_phone_no = os.getenv('SF_CHECKPHONENO')
     client = create_sf_client(partner_id, checkword)
-    response = client.batch_search_routes(tracking_numbers)
+    response = client.batch_search_routes(tracking_numbers, check_phone_no)
     return client.parse_route_response(response)

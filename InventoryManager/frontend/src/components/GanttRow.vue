@@ -268,7 +268,18 @@ const generateRandomColor = (rentalId: number) => {
     '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
     '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9',
     '#F8C471', '#82E0AA', '#F1948A', '#85C1E9', '#D7BDE2',
-    '#F9E79F', '#D5A6BD', '#A9CCE3', '#FAD7A0', '#D2B4DE'
+    '#F9E79F', '#D5A6BD', '#A9CCE3', '#FAD7A0', '#D2B4DE',
+    '#FF8A80', '#80CBC4', '#81C784', '#FFB74D', '#BA68C8',
+    '#64B5F6', '#A1887F', '#90A4AE', '#FFAB91', '#C5E1A5',
+    '#BCAAA4', '#B39DDB', '#F48FB1', '#80DEEA', '#DCEDC8',
+    '#FFE082', '#FFCDD2', '#D1C4E9', '#C8E6C9', '#FFF3E0',
+    '#FF7043', '#26A69A', '#AB47BC', '#5C6BC0', '#EF5350',
+    '#66BB6A', '#FFA726', '#EC407A', '#42A5F5', '#FFCA28',
+    '#26C6DA', '#7E57C2', '#FF5722', '#009688', '#795548',
+    '#607D8B', '#FFC107', '#9C27B0', '#3F51B5', '#F44336',
+    '#4CAF50', '#FF9800', '#E91E63', '#2196F3', '#CDDC39',
+    '#00BCD4', '#673AB7', '#FF6F00', '#E65100', '#BF360C',
+    '#1B5E20', '#0D47A1', '#4A148C', '#B71C1C', '#33691E'
   ]
   return colors[rentalId % colors.length]
 }

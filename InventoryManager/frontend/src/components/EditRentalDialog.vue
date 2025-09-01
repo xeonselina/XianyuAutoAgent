@@ -45,8 +45,33 @@
       label-width="120px"
       v-if="rental"
     >
-      <el-form-item label="设备名称">
-        <el-input :value="rental.device_name" disabled />
+      <el-form-item label="设备名称" prop="deviceId">
+        <el-select
+          v-model="form.deviceId"
+          placeholder="选择设备"
+          style="width: 100%"
+          @change="handleDeviceChange"
+          :loading="loadingDevices"
+        >
+          <el-option
+            v-for="device in availableDevices"
+            :key="device.id"
+            :label="`${device.name} (${device.serial_number || '无序列号'})`"
+            :value="device.id"
+            :disabled="device.conflicted"
+          >
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>{{ device.name }}</span>
+              <div style="font-size: 12px; color: #999;">
+                <span v-if="device.serial_number">{{ device.serial_number }}</span>
+                <el-tag v-if="device.conflicted" type="danger" size="small" style="margin-left: 8px;">
+                  时间冲突
+                </el-tag>
+              </div>
+            </div>
+          </el-option>
+        </el-select>
+        <div class="form-tip">选择不同设备会检查时间冲突</div>
       </el-form-item>
 
       <el-form-item label="闲鱼 ID">
@@ -296,6 +321,8 @@ const loadingLatestData = ref(false)
 const latestDataError = ref<string | null>(null)
 const queryingShipOut = ref(false)
 const queryingShipIn = ref(false)
+const loadingDevices = ref(false)
+const availableDevices = ref<any[]>([])
 
 // 快递查询结果
 const trackingResults = reactive({
@@ -305,6 +332,7 @@ const trackingResults = reactive({
 
 // 表单数据
 const form = reactive({
+  deviceId: null as number | null,
   endDate: null as Date | null,
   customerPhone: '',
   destination: '',
@@ -322,6 +350,9 @@ const dialogVisible = computed({
 
 // 表单验证规则
 const rules: FormRules = {
+  deviceId: [
+    { required: true, message: '请选择设备', trigger: 'change' }
+  ],
   endDate: [
     { required: true, message: '请选择结束日期', trigger: 'change' }
   ],
@@ -394,6 +425,58 @@ const parseDateTime = (dateTimeString: string): Date | null => {
   }
 }
 
+// 加载所有设备并检查冲突
+const loadDevicesWithConflictCheck = async (rental: Rental) => {
+  loadingDevices.value = true
+  try {
+    const devices = ganttStore.devices
+    const conflictCheckPromises = devices.map(async (device) => {
+      // 检查当前设备是否与其他租赁有时间冲突
+      const hasConflict = await checkDeviceConflict(
+        device.id, 
+        rental.start_date, 
+        rental.end_date, 
+        rental.id // 排除当前租赁
+      )
+      return {
+        ...device,
+        conflicted: hasConflict
+      }
+    })
+    
+    availableDevices.value = await Promise.all(conflictCheckPromises)
+  } catch (error) {
+    console.error('加载设备列表失败:', error)
+    ElMessage.error('加载设备列表失败')
+  } finally {
+    loadingDevices.value = false
+  }
+}
+
+// 检查设备时间冲突
+const checkDeviceConflict = async (deviceId: number, startDate: string, endDate: string, excludeRentalId?: number) => {
+  try {
+    const response = await fetch('/api/rentals/check-conflict', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        device_id: deviceId,
+        start_date: startDate,
+        end_date: endDate,
+        exclude_rental_id: excludeRentalId
+      })
+    })
+    
+    const result = await response.json()
+    return result.has_conflict || false
+  } catch (error) {
+    console.error('检查设备冲突失败:', error)
+    return false
+  }
+}
+
 // 加载最新数据的函数
 const loadLatestRentalData = async (rental: Rental) => {
   loadingLatestData.value = true
@@ -404,6 +487,7 @@ const loadLatestRentalData = async (rental: Rental) => {
     const latestRental = await ganttStore.getRentalById(rental.id)
     if (latestRental) {
       // 使用最新数据更新表单，确保日期格式正确
+      form.deviceId = latestRental.device_id
       form.endDate = formatDateForForm(latestRental.end_date)
       form.customerPhone = latestRental.customer_phone || ''
       form.destination = latestRental.destination || ''
@@ -425,6 +509,7 @@ const loadLatestRentalData = async (rental: Rental) => {
       console.log('====================')
     } else {
       // 如果获取失败，使用传入的数据
+      form.deviceId = rental.device_id
       form.endDate = formatDateForForm(rental.end_date)
       form.customerPhone = rental.customer_phone || ''
       form.destination = rental.destination || ''
@@ -437,6 +522,7 @@ const loadLatestRentalData = async (rental: Rental) => {
     }
   } catch (error) {
     // 出错时使用传入的数据
+    form.deviceId = rental.device_id
     form.endDate = formatDateForForm(rental.end_date)
     form.customerPhone = rental.customer_phone || ''
     form.destination = rental.destination || ''
@@ -456,8 +542,59 @@ watch([() => props.modelValue, () => props.rental], async ([visible, rental]) =>
   // 只有当对话框显示且有rental数据时才加载最新数据
   if (visible && rental) {
     await loadLatestRentalData(rental)
+    await loadDevicesWithConflictCheck(rental)
   }
 }, { immediate: true })
+
+// 设备变更处理函数
+const handleDeviceChange = async (deviceId: number) => {
+  if (!props.rental || !deviceId) return
+  
+  // 重新检查所选设备的冲突状态
+  const hasConflict = await checkDeviceConflict(
+    deviceId, 
+    props.rental.start_date, 
+    props.rental.end_date, 
+    props.rental.id
+  )
+  
+  if (hasConflict) {
+    ElMessage.warning('所选设备在当前时间段有冲突，请检查时间安排')
+  }
+  
+  // 如果寄出时间或寄回时间发生变化，重新检查冲突
+  if (form.shipOutTime || form.shipInTime) {
+    await recheckDeviceConflicts()
+  }
+}
+
+// 重新检查所有设备的冲突状态
+const recheckDeviceConflicts = async () => {
+  if (!props.rental) return
+  
+  loadingDevices.value = true
+  try {
+    const updatedDevices = await Promise.all(
+      availableDevices.value.map(async (device) => {
+        const hasConflict = await checkDeviceConflict(
+          device.id,
+          props.rental!.start_date,
+          props.rental!.end_date,
+          props.rental!.id
+        )
+        return {
+          ...device,
+          conflicted: hasConflict
+        }
+      })
+    )
+    availableDevices.value = updatedDevices
+  } catch (error) {
+    console.error('重新检查设备冲突失败:', error)
+  } finally {
+    loadingDevices.value = false
+  }
+}
 
 // 方法
 const disabledDate = (date: Date) => {
@@ -484,6 +621,7 @@ const handleSubmit = async () => {
     const endDateString = form.endDate ? dayjs(form.endDate).format('YYYY-MM-DD') : ''
     
     const updateData = {
+      device_id: form.deviceId,
       end_date: endDateString,
       customer_phone: form.customerPhone,
       destination: form.destination,
@@ -690,6 +828,7 @@ const handleClose = () => {
   queryingShipIn.value = false
   
   // 清空表单数据
+  form.deviceId = null
   form.endDate = null
   form.customerPhone = ''
   form.destination = ''
