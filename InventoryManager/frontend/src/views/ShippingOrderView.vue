@@ -98,7 +98,7 @@
               </div>
               <div class="info-row compact">
                 <span class="info-label">归还时间：</span>
-                <span class="info-value return-date">{{ formatDate(rental?.ship_in_time) }} 中午 12:00 前</span>  
+                <span class="info-value return-date">{{ getReturnDate() }} 中午 12:00 前</span>  
               </div>
               <div class="info-row compact">
                 <span class="info-label">租赁天数：</span>
@@ -206,6 +206,11 @@ const goBack = () => {
 const formatDate = (dateString?: string) => {
   if (!dateString) return '-'
   return dayjs(dateString).format('YYYY-MM-DD')
+}
+
+const getReturnDate = () => {
+  if (!rental.value?.end_date) return '-'
+  return dayjs(rental.value.end_date).add(1, 'day').format('YYYY-MM-DD')
 }
 
 const printOrder = () => {

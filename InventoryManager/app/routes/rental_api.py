@@ -7,7 +7,7 @@ from app.models.device import Device
 from app.models.rental import Rental
 from app.services.rental_service import RentalService
 from app import db
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import re
 
 bp = Blueprint('rental_api', __name__)
@@ -334,6 +334,62 @@ def delete_rental(rental_id):
         return jsonify({
             'success': False,
             'error': '删除租赁记录失败'
+        }), 500
+
+
+@bp.route('/api/rentals/check-conflict', methods=['POST'])
+def check_rental_conflict():
+    """检查租赁时间冲突"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': '请求数据不能为空'
+            }), 400
+            
+        device_id = data.get('device_id')
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        exclude_rental_id = data.get('exclude_rental_id')
+        
+        if not all([device_id, start_date, end_date]):
+            return jsonify({
+                'success': False,
+                'error': '缺少必要参数'
+            }), 400
+        
+        # 解析日期并转换为datetime（使用寄出寄回的默认时间）
+        try:
+            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d')
+            end_date_obj = datetime.strptime(end_date, '%Y-%m-%d')
+            # 设置寄出时间为开始日期的19:00，寄回时间为结束日期+1天的12:00
+            ship_out_time = start_date_obj.replace(hour=19, minute=0, second=0)
+            ship_in_time = end_date_obj.replace(hour=12, minute=0, second=0) + timedelta(days=1)
+        except ValueError:
+            return jsonify({
+                'success': False,
+                'error': '日期格式错误'
+            }), 400
+        
+        # 使用现有的库存服务检查可用性
+        from app.services.inventory_service import InventoryService
+        availability_result = InventoryService.check_device_availability(
+            device_id, ship_out_time, ship_in_time, exclude_rental_id
+        )
+        
+        return jsonify({
+            'success': True,
+            'has_conflict': not availability_result['available'],
+            'reason': availability_result.get('reason', ''),
+            'conflict_details': availability_result.get('conflicting_rentals', [])
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"检查租赁冲突失败: {e}")
+        return jsonify({
+            'success': False,
+            'error': '检查冲突失败'
         }), 500
 
 

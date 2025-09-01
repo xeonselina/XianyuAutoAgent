@@ -46,11 +46,11 @@
       <el-form-item label="物流天数" prop="logisticsDays">
         <el-input-number
           v-model="form.logisticsDays"
-          :min="1"
+          :min="0"
           :max="7"
           style="width: 100%"
         />
-        <div class="form-tip">寄出和收回所需的物流时间</div>
+        <div class="form-tip">寄出和收回所需的物流时间，0天表示当天取送</div>
       </el-form-item>
 
       <el-form-item label="选择设备" prop="selectedDeviceId">

@@ -309,7 +309,9 @@ def manual_query_tracking(tracking_number: str) -> Dict:
     
     try:
         logger.info(f"调用SF客户端查询: partner_id={rental_scheduler.sf_client.partner_id}, test_mode={rental_scheduler.sf_client.test_mode}")
-        tracking_info = rental_scheduler.sf_client.get_delivery_status(tracking_number)
+        import os
+        check_phone_no = os.getenv('SF_CHECKPHONENO')
+        tracking_info = rental_scheduler.sf_client.get_delivery_status(tracking_number, check_phone_no)
         logger.info(f"SF客户端返回结果: {tracking_info}")
         
         return {
