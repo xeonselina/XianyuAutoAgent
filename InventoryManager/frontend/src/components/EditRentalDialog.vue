@@ -84,13 +84,18 @@
       </el-form-item>
 
       <el-form-item label="结束日期" prop="endDate">
-        <el-date-picker
+        <VueDatePicker
           v-model="form.endDate"
-          type="date"
           placeholder="选择结束日期"
-          :disabled-date="disabledDate"
+          format="yyyy-MM-dd"
+          preview-format="yyyy-MM-dd"
+          :locale="'zh-cn'"
+          :week-start="1"
+          :enable-time-picker="false"
+          :min-date="minSelectableDate || undefined"
+          auto-apply
           style="width: 100%"
-          format="YYYY-MM-DD"
+          @update:model-value="handleEndDateChange"
         />
         <div class="form-tip">修改后将自动更新收回时间</div>
       </el-form-item>
@@ -294,11 +299,9 @@ import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { useGanttStore, type Rental } from '../stores/gantt'
 import { Loading, Warning, Document, Box, Delete, Search } from '@element-plus/icons-vue'
-import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import VueDatePicker from '@vuepic/vue-datepicker'
 import '@vuepic/vue-datepicker/dist/main.css'
-import { fromAPIFormat, toAPIFormat } from '../utils/dateUtils'
 
 const props = defineProps<{
   modelValue: boolean
@@ -311,7 +314,6 @@ const emit = defineEmits<{
 }>()
 
 const ganttStore = useGanttStore()
-const router = useRouter()
 
 // 响应式状态
 const formRef = ref<FormInstance>()
@@ -348,6 +350,11 @@ const dialogVisible = computed({
   set: (value) => emit('update:modelValue', value)
 })
 
+const minSelectableDate = computed(() => {
+  if (!props.rental?.start_date) return null
+  return parseDateOnly(props.rental.start_date)
+})
+
 // 表单验证规则
 const rules: FormRules = {
   deviceId: [
@@ -361,35 +368,41 @@ const rules: FormRules = {
   ]
 }
 
-// 日期处理函数 - 安全转换为 Date（不做多余的时区偏移）
-const formatDateForForm = (dateString: string): Date | null => {
+// 日期处理函数 - 将日期字符串转换为Date对象（仅日期，无时间）
+const parseDateOnly = (dateString: string): Date | null => {
   if (!dateString) return null
   try {
+    // 方法1: 使用dayjs解析（可能有时区问题）
+    // const parsed = dayjs(dateString).toDate()
+    
+    // 方法2: 手动构造避免时区偏移
     const [year, month, day] = dateString.split('-').map(Number)
-    // 直接用本地时区构造当天 00:00 的 Date，避免二次偏移
-    return new Date(year, month - 1, day)
+    const parsed = new Date(year, month - 1, day, 12, 0, 0) // 设置为中午12点避免时区问题
+    
+    console.log('原始日期字符串:', dateString)
+    console.log('解析结果:', parsed)
+    console.log('解析后的日期显示:', parsed.toLocaleDateString('zh-CN'))
+    console.log('年月日:', parsed.getFullYear(), parsed.getMonth() + 1, parsed.getDate())
+    
+    return parsed
   } catch (error) {
     console.error('日期处理错误:', error)
     return null
   }
 }
 
-// 日期时间处理函数 - 转换数据库datetime字符串为表单字符串
-const formatDateTimeForForm = (dateTimeString: string): string => {
-  if (!dateTimeString) return ''
-  
-  try {
-    // 假设数据库返回的是 Asia/Shanghai 时区的时间字符串 (YYYY-MM-DD HH:mm:ss)
-    // 我们直接返回这个字符串，让 el-date-picker 的 value-format 处理
-    console.log('原始datetime字符串:', dateTimeString)
-    return dateTimeString
-  } catch (error) {
-    console.error('日期时间处理错误:', error)
-    return ''
-  }
-}
 
 // 时间变化处理函数 - VueDatePicker 返回 Date 对象
+const handleEndDateChange = (value: Date | null) => {
+  console.log('=== 结束日期变化 ===')
+  console.log('选择的 Date 对象:', value)
+  if (value) {
+    console.log('格式化后的日期:', dayjs(value).format('YYYY-MM-DD'))
+    console.log('本地时间显示:', value.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }))
+  }
+  form.endDate = value
+}
+
 const handleShipOutTimeChange = (value: Date | null) => {
   console.log('=== 寄出时间变化 ===')
   console.log('选择的 Date 对象:', value)
@@ -410,15 +423,43 @@ const handleShipInTimeChange = (value: Date | null) => {
   form.shipInTime = value
 }
 
-// 转换数据库(UTC)时间字符串为东八区对应的 Date 对象
+// 转换数据库时间字符串为本地 Date 对象（数据库存储的就是东八区时间）
 const parseDateTime = (dateTimeString: string): Date | null => {
   if (!dateTimeString) return null
   try {
-    // API 返回为 UTC（ISO 或可解析为 UTC 的字符串）
-    // 先按 UTC 解析，再转换到 Asia/Shanghai，再转为 Date
-    const parsedDate = fromAPIFormat(dateTimeString).toDate()
-    console.log('解析时间字符串:', dateTimeString, '-> Date对象(东八区):', parsedDate)
-    return parsedDate
+    // 移除可能的时区信息和毫秒
+    const cleanString = dateTimeString.replace(/[TZ]/g, ' ').replace(/\.\d+/, '').trim()
+    console.log('清理后的时间字符串:', cleanString)
+    
+    // 解析日期和时间部分
+    const parts = cleanString.split(' ')
+    const [year, month, day] = parts[0].split('-').map(Number)
+    const [hour, minute, second] = (parts[1] || '00:00:00').split(':').map(Number)
+    
+    // 创建一个 Date 对象，表示我们想要在 VueDatePicker 中显示的时间
+    // 不管用户在什么时区，都要显示数据库中存储的数字
+    
+    // 获取当前系统时区偏移量（分钟）
+    const systemOffset = new Date().getTimezoneOffset()
+    
+    // 如果系统时区不是东八区，需要调整
+    if (systemOffset !== -480) { // -480 表示东八区（UTC+8）
+      // 创建一个 UTC 时间，然后减去系统偏移，让本地显示为期望的数字
+      const utcTime = Date.UTC(year, month - 1, day, hour, minute, second)
+      const adjustedTime = utcTime - (systemOffset * 60 * 1000)
+      const result = new Date(adjustedTime)
+      
+      console.log('系统时区偏移:', systemOffset, '分钟')
+      console.log('调整后的 Date:', result.toString())
+      console.log('显示的小时:', result.getHours())
+      
+      return result
+    } else {
+      // 系统就是东八区，直接创建
+      const localDate = new Date(year, month - 1, day, hour, minute, second)
+      console.log('东八区环境，直接创建 Date:', localDate.toString())
+      return localDate
+    }
   } catch (error) {
     console.error('解析日期时间错误:', error)
     return null
@@ -486,9 +527,10 @@ const loadLatestRentalData = async (rental: Rental) => {
     // 实时获取最新的rental数据
     const latestRental = await ganttStore.getRentalById(rental.id)
     if (latestRental) {
-      // 使用最新数据更新表单，确保日期格式正确
+      // 使用最新数据更新表单，确保日期格式正确 - 统一使用Date对象
+      
       form.deviceId = latestRental.device_id
-      form.endDate = formatDateForForm(latestRental.end_date)
+      form.endDate = parseDateOnly(latestRental.end_date)
       form.customerPhone = latestRental.customer_phone || ''
       form.destination = latestRental.destination || ''
       form.shipOutTrackingNo = latestRental.ship_out_tracking_no || ''
@@ -500,6 +542,29 @@ const loadLatestRentalData = async (rental: Rental) => {
       console.log('加载的寄出时间:', latestRental.ship_out_time, '-> Date:', form.shipOutTime)
       console.log('加载的收回时间:', latestRental.ship_in_time, '-> Date:', form.shipInTime)
       
+      // 额外的调试信息
+      if (form.shipOutTime) {
+        console.log('shipOutTime 详细信息:')
+        console.log('  年:', form.shipOutTime.getFullYear())
+        console.log('  月:', form.shipOutTime.getMonth() + 1)
+        console.log('  日:', form.shipOutTime.getDate())
+        console.log('  时:', form.shipOutTime.getHours())
+        console.log('  分:', form.shipOutTime.getMinutes())
+        console.log('  toString():', form.shipOutTime.toString())
+        console.log('  toISOString():', form.shipOutTime.toISOString())
+      }
+      
+      if (form.shipInTime) {
+        console.log('shipInTime 详细信息:')
+        console.log('  年:', form.shipInTime.getFullYear())
+        console.log('  月:', form.shipInTime.getMonth() + 1)
+        console.log('  日:', form.shipInTime.getDate())
+        console.log('  时:', form.shipInTime.getHours())
+        console.log('  分:', form.shipInTime.getMinutes())
+        console.log('  toString():', form.shipInTime.toString())
+        console.log('  toISOString():', form.shipInTime.toISOString())
+      }
+      
       console.log('=== 日期调试信息 ===')
       console.log('API返回的end_date:', latestRental.end_date)
       console.log('API返回的start_date:', latestRental.start_date)
@@ -510,7 +575,7 @@ const loadLatestRentalData = async (rental: Rental) => {
     } else {
       // 如果获取失败，使用传入的数据
       form.deviceId = rental.device_id
-      form.endDate = formatDateForForm(rental.end_date)
+      form.endDate = parseDateOnly(rental.end_date)
       form.customerPhone = rental.customer_phone || ''
       form.destination = rental.destination || ''
       form.shipOutTrackingNo = rental.ship_out_tracking_no || ''
@@ -523,7 +588,7 @@ const loadLatestRentalData = async (rental: Rental) => {
   } catch (error) {
     // 出错时使用传入的数据
     form.deviceId = rental.device_id
-    form.endDate = formatDateForForm(rental.end_date)
+    form.endDate = parseDateOnly(rental.end_date)
     form.customerPhone = rental.customer_phone || ''
     form.destination = rental.destination || ''
     form.shipOutTrackingNo = rental.ship_out_tracking_no || ''
@@ -596,15 +661,6 @@ const recheckDeviceConflicts = async () => {
   }
 }
 
-// 方法
-const disabledDate = (date: Date) => {
-  if (!props.rental) return false
-  // 结束日期不能早于开始日期
-  // 使用dayjs避免时区问题
-  const startDate = dayjs(props.rental.start_date).startOf('day')
-  const currentDate = dayjs(date).startOf('day')
-  return currentDate.isBefore(startDate)
-}
 
 const handleSubmit = async () => {
   if (!props.rental) return
@@ -617,8 +673,10 @@ const handleSubmit = async () => {
 
   submitting.value = true
   try {
-    // 将Date对象转换为字符串格式发送给后端，使用统一时区处理
-    const endDateString = form.endDate ? dayjs(form.endDate).format('YYYY-MM-DD') : ''
+    // 将Date对象转换为字符串格式发送给后端，确保使用本地日期
+    const endDateString = form.endDate ? 
+      dayjs(form.endDate).format('YYYY-MM-DD') : 
+      ''
     
     const updateData = {
       device_id: form.deviceId,
@@ -627,8 +685,8 @@ const handleSubmit = async () => {
       destination: form.destination,
       ship_out_tracking_no: form.shipOutTrackingNo,
       ship_in_tracking_no: form.shipInTrackingNo,
-      ship_out_time: form.shipOutTime ? toAPIFormat(form.shipOutTime) : '',
-      ship_in_time: form.shipInTime ? toAPIFormat(form.shipInTime) : ''
+      ship_out_time: form.shipOutTime ? dayjs(form.shipOutTime).format('YYYY-MM-DD HH:mm:ss') : '',
+      ship_in_time: form.shipInTime ? dayjs(form.shipInTime).format('YYYY-MM-DD HH:mm:ss') : ''
     }
     
     console.log('提交的end_date:', endDateString)

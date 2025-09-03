@@ -3,10 +3,11 @@ import { ref, computed } from 'vue'
 import axios from 'axios'
 import {
   getCurrentDate,
-  toSystemDateString,
+  toDateString,
   DateRangeUtils,
   formatDisplayDate
 } from '@/utils/dateUtils'
+import dayjs from 'dayjs'
 
 export interface Device {
   id: number
@@ -49,7 +50,7 @@ export const useGanttStore = defineStore('gantt', () => {
 
   // 计算属性
   const dateRange = computed(() => {
-    const range = DateRangeUtils.getWeekRange(getCurrentDate())
+    const range = DateRangeUtils.getWeekRange(dayjs(currentDate.value))
     return { start: range.start.toDate(), end: range.end.toDate() }
   })
 
@@ -80,8 +81,8 @@ export const useGanttStore = defineStore('gantt', () => {
     try {
       const response = await axios.get('/api/gantt/data', {
         params: {
-          start_date: toSystemDateString(dateRange.value.start),
-          end_date: toSystemDateString(dateRange.value.end)
+          start_date: toDateString(dateRange.value.start),
+          end_date: toDateString(dateRange.value.end)
         }
       })
       
@@ -100,12 +101,12 @@ export const useGanttStore = defineStore('gantt', () => {
   }
 
   const navigateWeek = (weeks: number) => {
-    currentDate.value = getCurrentDate().add(weeks * 7, 'day').toDate()
+    currentDate.value = dayjs(currentDate.value).add(weeks * 7, 'day').toDate()
     loadData()
   }
 
   const navigateToMonth = (months: number) => {
-    currentDate.value = getCurrentDate().add(months, 'month').toDate()
+    currentDate.value = dayjs(currentDate.value).add(months, 'month').toDate()
     loadData()
   }
 
@@ -140,7 +141,17 @@ export const useGanttStore = defineStore('gantt', () => {
 
   const createRental = async (rentalData: any) => {
     try {
+      console.log('=== 前端发送创建租赁请求 ===')
+      console.log('完整请求数据:', rentalData)
+      console.log('ship_out_time 值:', rentalData.ship_out_time)
+      console.log('ship_in_time 值:', rentalData.ship_in_time)
+      console.log('ship_out_time 类型:', typeof rentalData.ship_out_time)
+      console.log('ship_in_time 类型:', typeof rentalData.ship_in_time)
+      
       const response = await axios.post('/api/rentals', rentalData)
+      
+      console.log('后端响应:', response.data)
+      
       if (response.data.success) {
         await loadData() // 重新加载数据
         return response.data
@@ -148,6 +159,7 @@ export const useGanttStore = defineStore('gantt', () => {
         throw new Error(response.data.error || '创建租赁失败')
       }
     } catch (err: any) {
+      console.error('创建租赁失败:', err)
       throw new Error(err.response?.data?.error || err.message || '创建租赁失败')
     }
   }
