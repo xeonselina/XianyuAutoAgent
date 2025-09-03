@@ -91,9 +91,10 @@
       <el-form-item label="客户电话" prop="customerPhone">
         <el-input
           v-model="form.customerPhone"
-          placeholder="请输入手机号码"
+          placeholder="请输入手机号码(可选)"
           maxlength="11"
         />
+        <div class="form-tip">可选填写，也可在收件信息中提供</div>
       </el-form-item>
 
       <el-form-item label="收件信息" prop="destination">
@@ -101,10 +102,10 @@
           v-model="form.destination"
           type="textarea"
           :rows="3"
-          placeholder="请填写详细的收件地址、收件人姓名等信息"
+          placeholder="请填写详细的收件地址、收件人姓名等信息(可选)"
           @input="handleDestinationChange"
         />
-        <div class="form-tip">系统会自动从收件信息中提取手机号码</div>
+        <div class="form-tip">可选填写，系统会自动从收件信息中提取手机号码</div>
       </el-form-item>
 
       <!-- 可用档期显示 -->
@@ -208,11 +209,10 @@ const rules: FormRules = {
     { required: true, message: '请输入闲鱼ID', trigger: 'blur' }
   ],
   customerPhone: [
-    { required: true, message: '请输入客户电话', trigger: 'blur' },
     { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的手机号码', trigger: 'blur' }
   ],
   destination: [
-    { required: true, message: '请输入收件信息', trigger: 'blur' }
+    // 收件信息改为非必填
   ]
 }
 
@@ -263,10 +263,12 @@ const disabledEndDate = (date: Date) => {
 
 const handleDestinationChange = (value: string) => {
   // 自动提取手机号码
-  const phoneMatch = value.match(/1[3-9]\d{9}/)
-  if (phoneMatch && !form.customerPhone) {
-    form.customerPhone = phoneMatch[0]
-    ElMessage.success(`已自动提取手机号: ${phoneMatch[0]}`)
+  if (value && value.trim()) {
+    const phoneMatch = value.match(/1[3-9]\d{9}/)
+    if (phoneMatch && !form.customerPhone) {
+      form.customerPhone = phoneMatch[0]
+      ElMessage.success(`已自动提取手机号: ${phoneMatch[0]}`)
+    }
   }
 }
 
@@ -355,8 +357,8 @@ const handleSubmit = async () => {
       start_date: formatDateToString(form.startDate),
       end_date: formatDateToString(form.endDate),
       customer_name: form.customerName,
-      customer_phone: form.customerPhone,
-      destination: form.destination,
+      customer_phone: form.customerPhone || '',
+      destination: form.destination || '',
       ship_out_time: shipOutTime,
       ship_in_time: shipInTime
     }
@@ -418,8 +420,8 @@ const forceSubmitRental = async () => {
     start_date: formatDateToString(form.startDate),
     end_date: formatDateToString(form.endDate),
     customer_name: form.customerName,
-    customer_phone: form.customerPhone,
-    destination: form.destination,
+    customer_phone: form.customerPhone || '',
+    destination: form.destination || '',
     ship_out_time: shipOutTime,
     ship_in_time: shipInTime,
     force_create: true // 强制创建标志

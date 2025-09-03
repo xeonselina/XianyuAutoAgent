@@ -98,7 +98,15 @@ def create_rental():
     try:
         data = request.get_json()
         
-        # 验证必填字段
+        # 添加调试日志 - 打印接收到的所有数据
+        current_app.logger.info(f"=== 创建租赁 - 接收到的原始数据 ===")
+        current_app.logger.info(f"完整数据: {data}")
+        current_app.logger.info(f"ship_out_time 原始值: {data.get('ship_out_time')}")
+        current_app.logger.info(f"ship_in_time 原始值: {data.get('ship_in_time')}")
+        current_app.logger.info(f"数据类型 - ship_out_time: {type(data.get('ship_out_time'))}")
+        current_app.logger.info(f"数据类型 - ship_in_time: {type(data.get('ship_in_time'))}")
+        
+        # 验证必填字段 (客户电话和地址设为非必填)
         required_fields = ['device_id', 'start_date', 'end_date', 'customer_name']
         for field in required_fields:
             if not data.get(field):
@@ -147,27 +155,59 @@ def create_rental():
         ship_out_time = None
         ship_in_time = None
         
+        current_app.logger.info(f"=== 开始处理时间字段 ===")
+        
         if data.get('ship_out_time'):
+            current_app.logger.info(f"处理 ship_out_time: {data['ship_out_time']}")
             try:
                 ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d %H:%M:%S')
+                current_app.logger.info(f"ship_out_time 解析成功 (格式1): {ship_out_time}")
             except ValueError:
+                current_app.logger.info(f"ship_out_time 格式1解析失败，尝试格式2")
                 # 如果时间格式解析失败，尝试只解析日期
                 try:
                     ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d')
+                    current_app.logger.info(f"ship_out_time 解析成功 (格式2): {ship_out_time}")
                 except ValueError:
                     current_app.logger.warning(f"无法解析寄出时间: {data['ship_out_time']}")
+                    # 尝试ISO格式解析
+                    try:
+                        from dateutil import parser
+                        ship_out_time = parser.isoparse(data['ship_out_time']).replace(tzinfo=None)
+                        current_app.logger.info(f"ship_out_time 解析成功 (ISO格式): {ship_out_time}")
+                    except:
+                        current_app.logger.error(f"ship_out_time 所有格式解析都失败: {data['ship_out_time']}")
+        else:
+            current_app.logger.info("ship_out_time 为空或不存在")
         
         if data.get('ship_in_time'):
+            current_app.logger.info(f"处理 ship_in_time: {data['ship_in_time']}")
             try:
                 ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d %H:%M:%S')
+                current_app.logger.info(f"ship_in_time 解析成功 (格式1): {ship_in_time}")
             except ValueError:
+                current_app.logger.info(f"ship_in_time 格式1解析失败，尝试格式2")
                 # 如果时间格式解析失败，尝试只解析日期
                 try:
                     ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d')
+                    current_app.logger.info(f"ship_in_time 解析成功 (格式2): {ship_in_time}")
                 except ValueError:
                     current_app.logger.warning(f"无法解析收回时间: {data['ship_in_time']}")
+                    # 尝试ISO格式解析
+                    try:
+                        from dateutil import parser
+                        ship_in_time = parser.isoparse(data['ship_in_time']).replace(tzinfo=None)
+                        current_app.logger.info(f"ship_in_time 解析成功 (ISO格式): {ship_in_time}")
+                    except:
+                        current_app.logger.error(f"ship_in_time 所有格式解析都失败: {data['ship_in_time']}")
+        else:
+            current_app.logger.info("ship_in_time 为空或不存在")
         
         # 创建租赁记录
+        current_app.logger.info(f"=== 创建租赁记录 ===")
+        current_app.logger.info(f"准备保存的 ship_out_time: {ship_out_time} (类型: {type(ship_out_time)})")
+        current_app.logger.info(f"准备保存的 ship_in_time: {ship_in_time} (类型: {type(ship_in_time)})")
+        
         rental = Rental(
             device_id=data['device_id'],
             start_date=start_date,
@@ -180,12 +220,23 @@ def create_rental():
             ship_in_time=ship_in_time
         )
         
+        current_app.logger.info(f"租赁对象创建后 - ship_out_time: {rental.ship_out_time}")
+        current_app.logger.info(f"租赁对象创建后 - ship_in_time: {rental.ship_in_time}")
+        
         # 更新设备状态（只有在非强制创建时才更新）
         if not force_create:
             device.status = 'renting'
         
         db.session.add(rental)
+        current_app.logger.info("租赁记录已添加到会话")
+        
         db.session.commit()
+        current_app.logger.info(f"数据库提交成功 - 租赁ID: {rental.id}")
+        
+        # 提交后再次检查数据库中的值
+        saved_rental = Rental.query.get(rental.id)
+        current_app.logger.info(f"数据库保存后查询 - ship_out_time: {saved_rental.ship_out_time}")
+        current_app.logger.info(f"数据库保存后查询 - ship_in_time: {saved_rental.ship_in_time}")
         
         return jsonify({
             'success': True,
@@ -546,20 +597,15 @@ def web_update_rental(rental_id):
         if 'ship_out_time' in data:
             if data['ship_out_time']:
                 try:
-                    # 尝试解析ISO 8601格式 (前端发送的UTC格式)
-                    from dateutil import parser
-                    parsed_time = parser.isoparse(data['ship_out_time'])
-                    # 转换为naive datetime (数据库存储UTC时间)
-                    rental.ship_out_time = parsed_time.replace(tzinfo=None)
-                except (ValueError, ImportError):
+                    # 直接按照东八区时间解析（前端发送的就是本地时间字符串）
+                    rental.ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d %H:%M:%S')
+                    current_app.logger.info(f"寄出时间解析成功: {data['ship_out_time']} -> {rental.ship_out_time}")
+                except ValueError:
                     try:
-                        # 备用格式解析
-                        rental.ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d %H:%M:%S')
+                        rental.ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d')
+                        current_app.logger.info(f"寄出时间解析成功(日期格式): {data['ship_out_time']} -> {rental.ship_out_time}")
                     except ValueError:
-                        try:
-                            rental.ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d')
-                        except ValueError:
-                            current_app.logger.warning(f"无法解析寄出时间: {data['ship_out_time']}")
+                        current_app.logger.warning(f"无法解析寄出时间: {data['ship_out_time']}")
             else:
                 rental.ship_out_time = None
         
@@ -567,20 +613,15 @@ def web_update_rental(rental_id):
         if 'ship_in_time' in data:
             if data['ship_in_time']:
                 try:
-                    # 尝试解析ISO 8601格式 (前端发送的UTC格式)
-                    from dateutil import parser
-                    parsed_time = parser.isoparse(data['ship_in_time'])
-                    # 转换为naive datetime (数据库存储UTC时间)
-                    rental.ship_in_time = parsed_time.replace(tzinfo=None)
-                except (ValueError, ImportError):
+                    # 直接按照东八区时间解析（前端发送的就是本地时间字符串）
+                    rental.ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d %H:%M:%S')
+                    current_app.logger.info(f"收回时间解析成功: {data['ship_in_time']} -> {rental.ship_in_time}")
+                except ValueError:
                     try:
-                        # 备用格式解析
-                        rental.ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d %H:%M:%S')
+                        rental.ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d')
+                        current_app.logger.info(f"收回时间解析成功(日期格式): {data['ship_in_time']} -> {rental.ship_in_time}")
                     except ValueError:
-                        try:
-                            rental.ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d')
-                        except ValueError:
-                            current_app.logger.warning(f"无法解析收回时间: {data['ship_in_time']}")
+                        current_app.logger.warning(f"无法解析收回时间: {data['ship_in_time']}")
             else:
                 rental.ship_in_time = None
         

@@ -217,6 +217,7 @@ import {
   generateDateRange,
   getCurrentDate
 } from '@/utils/dateUtils'
+import dayjs from 'dayjs'
 
 const ganttStore = useGanttStore()
 
@@ -255,8 +256,8 @@ const addDeviceRules = {
 // 计算属性
 const dateArray = computed(() => {
   return generateDateRange(
-    getCurrentDate().subtract(15, 'day'),
-    getCurrentDate().add(15, 'day')
+    dayjs(ganttStore.currentDate).subtract(15, 'day'),
+    dayjs(ganttStore.currentDate).add(15, 'day')
   )
 })
 
@@ -290,7 +291,7 @@ const filteredDevices = computed(() => {
 
 // 方法
 const formatDay = (date: Date) => {
-  return formatDisplayDate(date, 'DD')
+  return formatDisplayDate(date, 'M.D')
 }
 
 const formatWeekday = (date: Date) => {

@@ -1,83 +1,72 @@
 /**
- * 统一时区处理工具
+ * 简化的日期处理工具
  * 
  * 核心原则：
- * 1. 所有日期计算和比较都使用中国时区(Asia/Shanghai)
- * 2. API传输使用ISO 8601格式
- * 3. 显示时转换为用户本地时区
+ * 1. 前端、后端、数据库都使用本地时区时间
+ * 2. 不进行任何时区转换
+ * 3. 使用简单的日期字符串格式进行传输
  */
 
 import dayjs from 'dayjs'
-import utc from 'dayjs/plugin/utc'
-import timezone from 'dayjs/plugin/timezone'
-
-// 启用插件
-dayjs.extend(utc)
-dayjs.extend(timezone)
-
-// 系统统一时区 - 中国时区
-export const SYSTEM_TIMEZONE = 'Asia/Shanghai'
 
 /**
- * 获取当前日期(中国时区)
+ * 获取当前日期
  */
 export const getCurrentDate = (): dayjs.Dayjs => {
-  return dayjs().tz(SYSTEM_TIMEZONE)
+  return dayjs()
 }
 
 /**
- * 获取今天的日期字符串(YYYY-MM-DD格式，中国时区)
+ * 获取今天的日期字符串(YYYY-MM-DD格式)
  */
 export const getTodayString = (): string => {
-  return getCurrentDate().format('YYYY-MM-DD')
+  return dayjs().format('YYYY-MM-DD')
 }
 
 /**
- * 将任意日期转换为中国时区的日期字符串
+ * 将日期转换为日期字符串
  */
-export const toSystemDateString = (date: string | Date | dayjs.Dayjs): string => {
-  return dayjs(date).tz(SYSTEM_TIMEZONE).format('YYYY-MM-DD')
+export const toDateString = (date: string | Date | dayjs.Dayjs): string => {
+  return dayjs(date).format('YYYY-MM-DD')
 }
 
 /**
- * 将任意日期转换为中国时区的日期时间字符串
+ * 将日期转换为日期时间字符串
  */
-export const toSystemDateTimeString = (date: string | Date | dayjs.Dayjs): string => {
-  return dayjs(date).tz(SYSTEM_TIMEZONE).format('YYYY-MM-DD HH:mm:ss')
+export const toDateTimeString = (date: string | Date | dayjs.Dayjs): string => {
+  return dayjs(date).format('YYYY-MM-DD HH:mm:ss')
 }
 
 /**
- * 解析日期字符串为dayjs对象(中国时区)
+ * 解析日期字符串为dayjs对象
  */
-export const parseSystemDate = (dateString: string): dayjs.Dayjs => {
-  return dayjs.tz(dateString, SYSTEM_TIMEZONE)
+export const parseDate = (dateString: string): dayjs.Dayjs => {
+  return dayjs(dateString)
 }
 
 /**
- * 将日期转换为API传输格式(ISO 8601)
+ * 将日期转换为API传输格式 (ISO 8601 本地时间)
  */
 export const toAPIFormat = (date: string | Date | dayjs.Dayjs): string => {
-  return dayjs(date).tz(SYSTEM_TIMEZONE).toISOString()
+  return dayjs(date).format('YYYY-MM-DDTHH:mm:ss')
 }
 
 /**
  * 从API格式解析日期
  */
-export const fromAPIFormat = (isoString: string): dayjs.Dayjs => {
-  // API返回的是UTC时间，需要先解析为UTC，再转换到系统时区
-  return dayjs.utc(isoString).tz(SYSTEM_TIMEZONE)
+export const fromAPIFormat = (dateString: string): dayjs.Dayjs => {
+  return dayjs(dateString)
 }
 
 /**
- * 检查两个日期是否在同一天(中国时区)
+ * 检查两个日期是否在同一天
  */
 export const isSameDay = (date1: string | Date | dayjs.Dayjs, date2: string | Date | dayjs.Dayjs): boolean => {
-  return dayjs(date1).tz(SYSTEM_TIMEZONE).format('YYYY-MM-DD') === 
-         dayjs(date2).tz(SYSTEM_TIMEZONE).format('YYYY-MM-DD')
+  return dayjs(date1).format('YYYY-MM-DD') === dayjs(date2).format('YYYY-MM-DD')
 }
 
 /**
- * 检查日期是否是今天(中国时区)
+ * 检查日期是否是今天
  */
 export const isToday = (date: string | Date | dayjs.Dayjs): boolean => {
   return isSameDay(date, getCurrentDate())
@@ -88,8 +77,8 @@ export const isToday = (date: string | Date | dayjs.Dayjs): boolean => {
  */
 export const generateDateRange = (startDate: dayjs.Dayjs, endDate: dayjs.Dayjs): Date[] => {
   const dates: Date[] = []
-  let current = startDate.tz(SYSTEM_TIMEZONE)
-  const end = endDate.tz(SYSTEM_TIMEZONE)
+  let current = startDate
+  const end = endDate
   
   while (current.isBefore(end) || current.isSame(end, 'day')) {
     dates.push(current.toDate())
@@ -100,24 +89,24 @@ export const generateDateRange = (startDate: dayjs.Dayjs, endDate: dayjs.Dayjs):
 }
 
 /**
- * 格式化显示日期(根据用户本地时区)
+ * 格式化显示日期
  */
 export const formatDisplayDate = (date: string | Date | dayjs.Dayjs, format = 'YYYY-MM-DD'): string => {
   return dayjs(date).format(format)
 }
 
 /**
- * 格式化显示日期时间(根据用户本地时区)
+ * 格式化显示日期时间
  */
 export const formatDisplayDateTime = (date: string | Date | dayjs.Dayjs, format = 'YYYY-MM-DD HH:mm:ss'): string => {
   return dayjs(date).format(format)
 }
 
 /**
- * 创建中国时区的日期对象
+ * 创建日期对象
  */
-export const createSystemDate = (year: number, month: number, day: number, hour = 0, minute = 0, second = 0): dayjs.Dayjs => {
-  return dayjs.tz(`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}`, SYSTEM_TIMEZONE)
+export const createDate = (year: number, month: number, day: number, hour = 0, minute = 0, second = 0): dayjs.Dayjs => {
+  return dayjs(`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}`)
 }
 
 /**
@@ -125,16 +114,22 @@ export const createSystemDate = (year: number, month: number, day: number, hour 
  */
 export class DateRangeUtils {
   static getWeekRange(date: dayjs.Dayjs, weeks: number = 0): { start: dayjs.Dayjs, end: dayjs.Dayjs } {
-    const baseDate = date.add(weeks * 7, 'day').tz(SYSTEM_TIMEZONE)
+    const baseDate = date.add(weeks * 7, 'day')
     const start = baseDate.subtract(15, 'day')
     const end = baseDate.add(15, 'day')
     return { start, end }
   }
   
   static getMonthRange(date: dayjs.Dayjs): { start: dayjs.Dayjs, end: dayjs.Dayjs } {
-    const baseDate = date.tz(SYSTEM_TIMEZONE)
+    const baseDate = date
     const start = baseDate.startOf('month')
     const end = baseDate.endOf('month')
     return { start, end }
   }
 }
+
+// 向后兼容的别名
+export const toSystemDateString = toDateString
+export const toDateStringFromDB = toDateString
+export const parseSystemDate = parseDate
+export const toSystemDateTimeString = toDateTimeString
