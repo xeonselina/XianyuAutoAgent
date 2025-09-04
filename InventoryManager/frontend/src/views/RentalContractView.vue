@@ -268,7 +268,7 @@
         <!-- 违约条款 -->
         <div class="contract-section">
           <h6><strong>违约条款</strong></h6>
-          <p>1. 乙方逾期归还：每超1天支付50元/天的租金，必须提前24小时与甲方确认是否有档期，否则需按100元/天补齐租金。</p>
+          <p>1. 乙方逾期归还：每超1天支付<el-input v-model="contractForm.overdueRate" class="contract-input" style="width: 60px; display: inline-block; margin: 0 3px;" />元/天的租金，必须提前24小时与甲方确认是否有档期，否则需按<el-input v-model="contractForm.compensationRate" class="contract-input" style="width: 60px; display: inline-block; margin: 0 3px;" />元/天补齐租金。</p>
           <p>2. 甲方未按约定退还押金：每逾期1天按押金10%支付违约金。</p>
         </div>
         
@@ -334,7 +334,9 @@ const contractForm = ref({
   customerName: '',
   customerIdNumber: '',
   totalDeviceValue: '7500',
-  deposit: '1'
+  deposit: '1',
+  overdueRate: '30',
+  compensationRate: '60'
 })
 
 const formatDate = (dateString?: string) => {
@@ -671,6 +673,7 @@ onMounted(async () => {
   font-family: 'Microsoft YaHei', Arial, sans-serif;
   line-height: 1.3;
   font-size: 12px;
+  color: #333;
 }
 
 .contract-header {
@@ -693,6 +696,7 @@ onMounted(async () => {
 
 .contract-section p {
   margin-bottom: 4px;
+  color: #333;
 }
 
 .contract-section h6 {
@@ -715,6 +719,7 @@ onMounted(async () => {
   padding: 4px 6px;
   text-align: left;
   vertical-align: top;
+  color: #333;
 }
 
 .table-contract th {
