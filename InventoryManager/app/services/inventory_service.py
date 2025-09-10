@@ -32,8 +32,8 @@ class InventoryService:
             
             logger.info(f"calc available devices: ship_out_time: {ship_out_time}, ship_in_time: {ship_in_time}")
             
-            # 获取所有设备
-            all_devices = Device.query.all()
+            # 获取所有非附件设备（过滤掉手柄等附件）
+            all_devices = Device.query.filter(Device.is_accessory.is_(False)).all()
             available_devices = []
             
             for device in all_devices:

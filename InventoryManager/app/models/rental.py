@@ -68,7 +68,8 @@ class Rental(db.Model):
             'updated_at': self.updated_at.isoformat(),
             'duration_days': self.get_duration_days(),
             'is_overdue': self.is_overdue(),
-            'device_info': self.device.to_dict() if self.device else None
+            'device_info': self.device.to_dict() if self.device else None,
+            'accessories': [acc.to_dict() for acc in self.accessories] if hasattr(self, 'accessories') else []
         }
     
     def get_duration_days(self):

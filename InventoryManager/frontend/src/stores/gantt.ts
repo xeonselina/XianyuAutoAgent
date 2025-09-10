@@ -13,6 +13,8 @@ export interface Device {
   id: number
   name: string
   serial_number: string
+  model: string
+  is_accessory: boolean
   status: 'idle' | 'pending_ship' | 'renting' | 'pending_return' | 'returned' | 'offline'
   created_at: string
   updated_at: string
@@ -65,7 +67,9 @@ export const useGanttStore = defineStore('gantt', () => {
   })
 
   const availableDevices = computed(() => {
-    return devices.value.filter(device => device.status === 'idle')
+    return devices.value.filter(device => 
+      device.status === 'idle' && !device.is_accessory
+    )
   })
 
   // 获取指定设备的租赁记录
@@ -230,11 +234,19 @@ export const useGanttStore = defineStore('gantt', () => {
   }
 
   // 添加设备
-  const addDevice = async (deviceData: { name: string; serial_number: string; description?: string }) => {
+  const addDevice = async (deviceData: { 
+    name: string; 
+    serial_number: string; 
+    model: string;
+    is_accessory: boolean;
+    description?: string 
+  }) => {
     try {
       const response = await axios.post('/api/devices', {
         name: deviceData.name,
         serial_number: deviceData.serial_number,
+        model: deviceData.model,
+        is_accessory: deviceData.is_accessory,
         status: 'idle'
       })
       

@@ -110,6 +110,9 @@
               <span v-if="getStatsForDate(date).ship_out_count > 0" class="stat-ship-out">
                 {{ getStatsForDate(date).ship_out_count }} 寄
               </span>
+              <span v-if="getStatsForDate(date).controller_count > 0" class="stat-controller">
+                {{ getStatsForDate(date).controller_count }} 手柄
+              </span>
             </div>
           </div>
         </div>
@@ -171,6 +174,23 @@
             maxlength="50"
             show-word-limit
           />
+        </el-form-item>
+        
+        <el-form-item label="型号" prop="model">
+          <el-select 
+            v-model="addDeviceForm.model" 
+            placeholder="请选择型号"
+            style="width: 100%"
+          >
+            <el-option label="x200u" value="x200u" />
+            <el-option label="x200u 手柄" value="x200u_controller" />
+          </el-select>
+        </el-form-item>
+        
+        <el-form-item label="设备类型" prop="is_accessory">
+          <el-checkbox v-model="addDeviceForm.is_accessory">
+            附件设备（手柄等不在租赁列表中显示）
+          </el-checkbox>
         </el-form-item>
         
         <el-form-item label="设备描述" prop="description">
@@ -236,6 +256,8 @@ const addingDevice = ref(false)
 const addDeviceForm = ref({
   name: '',
   serial_number: '',
+  model: 'x200u',
+  is_accessory: false,
   description: ''
 })
 
@@ -247,6 +269,9 @@ const addDeviceRules = {
   serial_number: [
     { required: true, message: '请输入序列号', trigger: 'blur' },
     { min: 1, max: 50, message: '序列号长度在 1 到 50 个字符', trigger: 'blur' }
+  ],
+  model: [
+    { required: true, message: '请选择型号', trigger: 'change' }
   ],
   description: [
     { max: 500, message: '描述不能超过 500 个字符', trigger: 'blur' }
@@ -273,6 +298,9 @@ const deviceTypes = computed(() => {
 
 const filteredDevices = computed(() => {
   let devices = ganttStore.devices
+  
+  // 过滤掉附件设备（手柄）
+  devices = devices.filter(device => !device.is_accessory)
   
   if (selectedDeviceType.value) {
     devices = devices.filter(device => 
@@ -329,6 +357,8 @@ const resetAddDeviceForm = () => {
   addDeviceForm.value = {
     name: '',
     serial_number: '',
+    model: 'x200u',
+    is_accessory: false,
     description: ''
   }
   if (addDeviceFormRef.value) {
@@ -440,7 +470,43 @@ const loadDailyStats = async () => {
 // 获取指定日期的统计信息
 const getStatsForDate = (date: Date) => {
   const dateStr = toSystemDateString(date)
-  return dailyStats.value[dateStr] || { available_count: 0, ship_out_count: 0 }
+  const stats = dailyStats.value[dateStr] || { available_count: 0, ship_out_count: 0 }
+  
+  // 计算当日空闲手柄数量
+  const controllerCount = getIdleControllerCountForDate(date)
+  
+  return {
+    ...stats,
+    controller_count: controllerCount
+  }
+}
+
+// 计算指定日期的空闲手柄数量
+const getIdleControllerCountForDate = (date: Date) => {
+  // 获取所有手柄设备（is_accessory=true且model包含controller）
+  const controllers = ganttStore.devices.filter(device => 
+    device.is_accessory && device.model && device.model.includes('controller')
+  )
+  
+  // 计算当日空闲的手柄数量
+  let idleCount = 0
+  controllers.forEach(controller => {
+    // 检查该手柄在当日是否被租赁
+    const rentals = ganttStore.getRentalsForDevice(controller.id)
+    const dateStr = toSystemDateString(date)
+    
+    const isRented = rentals.some(rental => {
+      const startDate = new Date(rental.start_date)
+      const endDate = new Date(rental.end_date)
+      return date >= startDate && date <= endDate && rental.status === 'active'
+    })
+    
+    if (!isRented) {
+      idleCount++
+    }
+  })
+  
+  return idleCount
 }
 
 // 监听日期范围变化，重新加载统计数据
@@ -583,6 +649,16 @@ onMounted(async () => {
   padding: 1px 4px;
   border-radius: 3px;
   border: 1px solid rgba(245, 108, 108, 0.3);
+}
+
+.stat-controller {
+  font-size: 10px;
+  color: #909399;
+  font-weight: 600;
+  background: rgba(144, 147, 153, 0.1);
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid rgba(144, 147, 153, 0.3);
 }
 
 .gantt-scroll-container {
