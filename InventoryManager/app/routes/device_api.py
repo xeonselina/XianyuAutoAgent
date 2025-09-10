@@ -23,6 +23,8 @@ def get_devices():
                 'id': device.id,
                 'name': device.name,
                 'serial_number': device.serial_number,
+                'model': device.model,
+                'is_accessory': device.is_accessory,
                 'status': device.status,
                 'created_at': device.created_at.isoformat(),
                 'updated_at': device.updated_at.isoformat()
@@ -58,6 +60,8 @@ def get_device(device_id):
             'id': device.id,
             'name': device.name,
             'serial_number': device.serial_number,
+            'model': device.model,
+            'is_accessory': device.is_accessory,
             'status': device.status,
             'created_at': device.created_at.isoformat(),
             'updated_at': device.updated_at.isoformat()
@@ -103,6 +107,8 @@ def create_device():
         device = Device(
             name=data['name'],
             serial_number=data['serial_number'],
+            model=data.get('model', 'x200u'),
+            is_accessory=data.get('is_accessory', False),
             status='idle'
         )
         
@@ -116,6 +122,8 @@ def create_device():
                 'id': device.id,
                 'name': device.name,
                 'serial_number': device.serial_number,
+                'model': device.model,
+                'is_accessory': device.is_accessory,
                 'status': device.status
             }
         })
@@ -157,9 +165,10 @@ def update_device(device_id):
                     'error': '序列号已被其他设备使用'
                 }), 400
             device.serial_number = data['serial_number']
-        # location字段已移除
-        # if 'location' in data:
-        #     device.location = data['location']
+        if 'model' in data:
+            device.model = data['model']
+        if 'is_accessory' in data:
+            device.is_accessory = data['is_accessory']
         if 'status' in data:
             device.status = data['status']
         
@@ -173,6 +182,8 @@ def update_device(device_id):
                 'id': device.id,
                 'name': device.name,
                 'serial_number': device.serial_number,
+                'model': device.model,
+                'is_accessory': device.is_accessory,
                 'status': device.status
             }
         })

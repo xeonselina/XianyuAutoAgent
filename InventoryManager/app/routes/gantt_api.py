@@ -80,6 +80,8 @@ def gantt_data():
                 'id': device.id,
                 'name': device.name,
                 'serial_number': device.serial_number,
+                'model': getattr(device, 'model', 'x200u'),  # 默认值防止旧数据报错
+                'is_accessory': getattr(device, 'is_accessory', False),  # 默认值防止旧数据报错
                 'status': device.status,
                 'rentals': []
             }

@@ -5,6 +5,7 @@
 from flask import Blueprint, request, jsonify, current_app
 from app.models.device import Device
 from app.models.rental import Rental
+from app.models.rental_accessory import RentalAccessory
 from app.services.rental_service import RentalService
 from app import db
 from datetime import datetime, date, timedelta
@@ -230,24 +231,56 @@ def create_rental():
         db.session.add(rental)
         current_app.logger.info("租赁记录已添加到会话")
         
+        # 处理附件
+        accessories_data = data.get('accessories', [])
+        accessories_added = []
+        if accessories_data:
+            current_app.logger.info(f"处理附件: {accessories_data}")
+            for accessory_id in accessories_data:
+                # 验证附件存在且是附件类型
+                accessory_device = Device.query.get(accessory_id)
+                if accessory_device and accessory_device.is_accessory:
+                    # 检查附件在该时间段是否可用
+                    if ship_out_time and ship_in_time:
+                        from app.services.inventory_service import InventoryService
+                        availability = InventoryService.check_device_availability(
+                            accessory_id, ship_out_time, ship_in_time
+                        )
+                        if not availability['available'] and not force_create:
+                            current_app.logger.warning(f"附件{accessory_id}不可用: {availability['reason']}")
+                            continue
+                    
+                    # 创建附件关联
+                    rental_accessory = RentalAccessory(
+                        device_id=accessory_id
+                    )
+                    rental.accessories.append(rental_accessory)
+                    accessories_added.append(accessory_device.name)
+                    current_app.logger.info(f"添加附件: {accessory_device.name}")
+        
         db.session.commit()
-        current_app.logger.info(f"数据库提交成功 - 租赁ID: {rental.id}")
+        current_app.logger.info(f"数据库提交成功 - 租赁ID: {rental.id}, 附件: {accessories_added}")
         
         # 提交后再次检查数据库中的值
         saved_rental = Rental.query.get(rental.id)
         current_app.logger.info(f"数据库保存后查询 - ship_out_time: {saved_rental.ship_out_time}")
         current_app.logger.info(f"数据库保存后查询 - ship_in_time: {saved_rental.ship_in_time}")
         
+        message = '租赁记录创建成功'
+        if accessories_added:
+            message += f'，已添加附件: {", ".join(accessories_added)}'
+        
         return jsonify({
             'success': True,
-            'message': '租赁记录创建成功',
+            'message': message,
             'data': {
                 'id': rental.id,
                 'device_id': rental.device_id,
                 'start_date': rental.start_date.isoformat(),
                 'end_date': rental.end_date.isoformat(),
                 'customer_name': rental.customer_name,
-                'status': rental.status
+                'status': rental.status,
+                'accessories': accessories_added
             }
         })
         

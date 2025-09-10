@@ -108,6 +108,31 @@
         <div class="form-tip">可选填写，系统会自动从收件信息中提取手机号码</div>
       </el-form-item>
 
+      <!-- 附件选择 -->
+      <el-form-item label="附件选择" prop="accessories">
+        <div class="accessories-section">
+          <div v-for="accessory in availableAccessories" :key="accessory.id" class="accessory-item">
+            <el-checkbox 
+              v-model="form.selectedAccessories" 
+              :label="accessory.id"
+              :disabled="!isAccessoryAvailable(accessory)"
+            >
+              {{ accessory.name }}
+              <span v-if="!isAccessoryAvailable(accessory)" class="accessory-unavailable">
+                (不可用)
+              </span>
+              <span v-else class="accessory-available">
+                (可用: {{ getAvailableAccessoryCount(accessory) }}个)
+              </span>
+            </el-checkbox>
+          </div>
+          <div v-if="availableAccessories.length === 0" class="no-accessories">
+            暂无可用附件
+          </div>
+        </div>
+        <div class="form-tip">选择要一起租赁的附件设备（如手柄等）</div>
+      </el-form-item>
+
       <!-- 可用档期显示 -->
       <el-form-item v-if="availableSlot" label="可用档期">
         <el-alert type="success" :closable="false">
@@ -177,7 +202,8 @@ const form = reactive({
   selectedDeviceId: null as number | null,
   customerName: '',
   customerPhone: '',
-  destination: ''
+  destination: '',
+  selectedAccessories: [] as number[]
 })
 
 // 计算属性
@@ -191,7 +217,14 @@ const canSearchSlot = computed(() => {
 })
 
 const availableDevices = computed(() => {
-  return ganttStore.devices || []
+  return ganttStore.devices?.filter(device => !device.is_accessory) || []
+})
+
+const availableAccessories = computed(() => {
+  // 获取所有手柄类附件
+  return ganttStore.devices?.filter(device => 
+    device.is_accessory && device.model && device.model.includes('controller')
+  ) || []
 })
 
 // 表单验证规则
@@ -360,7 +393,8 @@ const handleSubmit = async () => {
       customer_phone: form.customerPhone || '',
       destination: form.destination || '',
       ship_out_time: shipOutTime,
-      ship_in_time: shipInTime
+      ship_in_time: shipInTime,
+      accessories: form.selectedAccessories
     }
 
     await ganttStore.createRental(rentalData)
@@ -424,6 +458,7 @@ const forceSubmitRental = async () => {
     destination: form.destination || '',
     ship_out_time: shipOutTime,
     ship_in_time: shipInTime,
+    accessories: form.selectedAccessories,
     force_create: true // 强制创建标志
   }
 
@@ -452,7 +487,8 @@ const handleClose = () => {
     selectedDeviceId: null,
     customerName: '',
     customerPhone: '',
-    destination: ''
+    destination: '',
+    selectedAccessories: []
   })
   
   emit('update:modelValue', false)
@@ -460,6 +496,37 @@ const handleClose = () => {
 
 const formatDateTime = (date: Date) => {
   return dayjs(date).format('YYYY-MM-DD HH:mm')
+}
+
+// 检查附件是否可用
+const isAccessoryAvailable = (accessory: any) => {
+  if (!form.startDate || !form.endDate) return true
+  
+  // 检查该附件在指定时间段是否被租赁
+  const rentals = ganttStore.getRentalsForDevice(accessory.id)
+  const startDate = new Date(form.startDate)
+  const endDate = new Date(form.endDate)
+  
+  const hasConflict = rentals.some(rental => {
+    const rentalStart = new Date(rental.start_date)
+    const rentalEnd = new Date(rental.end_date)
+    return (
+      rental.status === 'active' &&
+      ((startDate >= rentalStart && startDate <= rentalEnd) ||
+       (endDate >= rentalStart && endDate <= rentalEnd) ||
+       (startDate <= rentalStart && endDate >= rentalEnd))
+    )
+  })
+  
+  return !hasConflict
+}
+
+// 获取可用附件数量
+const getAvailableAccessoryCount = (accessory: any) => {
+  if (!form.startDate || !form.endDate) return 1
+  
+  // 简化逻辑：如果该附件可用就返回1，否则返回0
+  return isAccessoryAvailable(accessory) ? 1 : 0
 }
 </script>
 
@@ -501,6 +568,38 @@ const formatDateTime = (date: Date) => {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+}
+
+.accessories-section {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+  padding: 12px;
+  background-color: var(--el-fill-color-lighter);
+}
+
+.accessory-item {
+  margin-bottom: 8px;
+}
+
+.accessory-item:last-child {
+  margin-bottom: 0;
+}
+
+.accessory-unavailable {
+  color: var(--el-color-error);
+  font-size: 12px;
+}
+
+.accessory-available {
+  color: var(--el-color-success);
+  font-size: 12px;
+}
+
+.no-accessories {
+  text-align: center;
+  color: var(--el-text-color-secondary);
+  font-style: italic;
+  padding: 16px;
 }
 </style>
 
