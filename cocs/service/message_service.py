@@ -1,9 +1,9 @@
 import asyncio
 import json
-from typing import Dict, List, Optional, Callable
+from typing import Dict, List, Optional
 from datetime import datetime
 from loguru import logger
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI
 from pydantic import BaseModel
 import uuid
 
@@ -34,9 +34,11 @@ class MessageService:
         self.app = FastAPI()
         self.messages: Dict[str, Message] = {}
         self.chat_sessions: Dict[str, ChatSession] = {}
-        self.message_handlers: List[Callable] = []
         self.ai_service = None
         self.notification_service = None
+        
+        # AI处理锁，确保串行处理
+        self.ai_processing_lock = asyncio.Lock()
         
         # 设置路由
         self._setup_routes()
@@ -45,14 +47,14 @@ class MessageService:
         """设置FastAPI路由"""
         
         @self.app.post("/messages")
-        async def receive_message(message_data: dict, background_tasks: BackgroundTasks):
+        async def receive_message(message_data: dict):
             """接收新消息"""
             try:
                 message = await self.process_incoming_message(message_data)
                 
                 if message:
-                    # 异步处理消息
-                    background_tasks.add_task(self._handle_message_async, message)
+                    # 异步处理消息，但不使用BackgroundTasks以确保串行处理
+                    await self._handle_message_async(message)
                     
                     return {"status": "success", "message_id": message.id}
                 else:
@@ -154,21 +156,14 @@ class MessageService:
             self.chat_sessions[chat_id] = session
     
     async def _handle_message_async(self, message: Message):
-        """异步处理消息"""
+        """异步处理消息，确保AI处理串行"""
         try:
-            # 调用消息处理器
-            for handler in self.message_handlers:
-                try:
-                    if asyncio.iscoroutinefunction(handler):
-                        await handler(message)
-                    else:
-                        handler(message)
-                except Exception as e:
-                    logger.error(f"消息处理器执行失败: {e}")
-            
-            # 如果需要AI处理
+            # 如果需要AI处理，使用锁确保串行处理
             if self.ai_service and not message.processed:
-                await self._process_with_ai(message)
+                async with self.ai_processing_lock:
+                    logger.info(f"开始串行AI处理消息: {message.text}")
+                    await self._process_with_ai(message)
+                    logger.info(f"AI处理完成: {message.text}")
                 
         except Exception as e:
             logger.error(f"异步处理消息失败: {e}")
@@ -229,11 +224,6 @@ class MessageService:
         messages.sort(key=lambda x: x['timestamp'])
         return messages[-limit:]
     
-    def add_message_handler(self, handler: Callable):
-        """添加消息处理器"""
-        self.message_handlers.append(handler)
-        logger.info(f"添加消息处理器: {handler.__name__}")
-    
     def set_ai_service(self, ai_service):
         """设置AI服务"""
         self.ai_service = ai_service
@@ -271,4 +261,3 @@ class MessageService:
         # 清理资源
         self.messages.clear()
         self.chat_sessions.clear()
-        self.message_handlers.clear()

@@ -3,8 +3,7 @@
  * 1. 在浏览器中加载脚本：
   // 方法1：在控制台直接粘贴脚本内容
   // 方法2：创建书签
-  javascript:(function(){var script=document.createElement('script');script.src='file:///Users/jimmypan/git_repo/XianyuAutoAgent/cocs/dom-inspector
-  .js';document.head.appendChild(script);})();
+  javascript:(function(){var script=document.createElement('script');script.src='file:////Users/jimmypan/git_repo/XianyuAutoAgent/cocs/dom-inspector.js';document.head.appendChild(script);})();
   2. 启动检查器：
   inspectDOM()
   3. 使用流程：
