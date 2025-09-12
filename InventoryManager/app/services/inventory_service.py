@@ -144,7 +144,9 @@ class InventoryService:
             
             # 检查寄出和收回时间冲突（使用寄出收回时间而不是租赁时间）
             # 查找在指定寄出收回时间段内有冲突的租赁记录
-            query_filters = [
+            
+            # 检查设备的所有租赁记录（包括主设备和附件设备）
+            device_filters = [
                 Rental.device_id == device_id,
                 Rental.status.in_(['pending', 'confirmed', 'shipped', 'returned']),  # 排除已取消的
                 Rental.ship_out_time.isnot(None),  # 必须有寄出时间
@@ -158,13 +160,13 @@ class InventoryService:
             
             # 如果提供了要排除的租赁记录ID，则排除该记录
             if exclude_rental_id:
-                query_filters.append(Rental.id != exclude_rental_id)
+                device_filters.append(Rental.id != exclude_rental_id)
             
-            conflicting_rentals = Rental.query.filter(
-                db.and_(*query_filters)
+            all_conflicting_rentals = Rental.query.filter(
+                db.and_(*device_filters)
             ).all()
             
-            if not conflicting_rentals:
+            if not all_conflicting_rentals:
                 return {
                     'available': True,
                     'device_id': device_id,
@@ -173,7 +175,7 @@ class InventoryService:
             else:
                 return {
                     'available': False,
-                    'reason': '设备在指定寄出收回时间段内已被占用',
+                    'reason': '设备在指定寄出收回时间段内已被租赁',
                     'device_id': device_id,
                     'conflicting_rentals': [
                         {
@@ -182,9 +184,10 @@ class InventoryService:
                             'end_date': rental.end_date.isoformat(),
                             'ship_out_time': rental.ship_out_time.isoformat() if rental.ship_out_time else None,
                             'ship_in_time': rental.ship_in_time.isoformat() if rental.ship_in_time else None,
-                            'customer_name': rental.customer_name
+                            'customer_name': rental.customer_name,
+                            'is_accessory': rental.device.is_accessory if rental.device else False
                         }
-                        for rental in conflicting_rentals
+                        for rental in all_conflicting_rentals
                     ]
                 }
                 

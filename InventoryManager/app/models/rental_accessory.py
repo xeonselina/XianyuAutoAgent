@@ -1,5 +1,11 @@
 """
 租赁附件关联模型
+
+注意：该模型已废弃！
+新架构中，附件租赁直接作为独立的Rental记录，通过parent_rental_id关联到主租赁。
+请使用 Rental.parent_rental_id 和 Rental.child_rentals 来处理附件关联。
+
+@deprecated 该模型将在下个版本中删除
 """
 
 from app import db

@@ -43,8 +43,13 @@ class Rental(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, comment='创建时间')
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, comment='更新时间')
     
+    # 租赁关联（主租赁ID，用于关联主设备和附件设备的租赁记录）
+    parent_rental_id = db.Column(db.Integer, db.ForeignKey('rentals.id'), nullable=True, comment='父租赁记录ID（用于关联主设备和附件）')
+    
     # 关系
     audit_logs = db.relationship('AuditLog', backref='rental', lazy='dynamic')
+    # 子租赁记录（附件租赁）
+    child_rentals = db.relationship('Rental', backref=db.backref('parent_rental', remote_side='Rental.id'), lazy='dynamic')
     
     def __repr__(self):
         return f'<Rental {self.id}: {self.device_id} ({self.start_date} - {self.end_date})>'
@@ -69,7 +74,8 @@ class Rental(db.Model):
             'duration_days': self.get_duration_days(),
             'is_overdue': self.is_overdue(),
             'device_info': self.device.to_dict() if self.device else None,
-            'accessories': [acc.to_dict() for acc in self.accessories] if hasattr(self, 'accessories') else []
+            'parent_rental_id': self.parent_rental_id,
+            'child_rentals': [rental.to_dict() for rental in self.child_rentals] if self.child_rentals else []
         }
     
     def get_duration_days(self):
@@ -128,10 +134,45 @@ class Rental(db.Model):
             return True
         return False
     
+    def is_main_rental(self):
+        """检查是否为主租赁记录"""
+        return self.parent_rental_id is None
+    
+    def is_accessory_rental(self):
+        """检查是否为附件租赁记录"""
+        return self.parent_rental_id is not None
+    
+    def get_main_rental(self):
+        """获取主租赁记录"""
+        if self.is_main_rental():
+            return self
+        return self.parent_rental
+    
+    def get_all_related_rentals(self):
+        """获取所有关联的租赁记录（包括主租赁和附件租赁）"""
+        main_rental = self.get_main_rental()
+        if main_rental:
+            return [main_rental] + list(main_rental.child_rentals)
+        return [self]
+    
     @classmethod
-    def get_active_rentals(cls, date_range=None):
-        """获取活动租赁记录"""
-        query = cls.query.filter(cls.status == 'active')
+    def get_active_rentals(cls, date_range=None, include_accessories=False):
+        """获取活动租赁记录
+        
+        Args:
+            date_range: 时间范围
+            include_accessories: 是否包括附件租赁记录（默认只返回主租赁）
+        """
+        if include_accessories:
+            query = cls.query.filter(cls.status == 'active')
+        else:
+            # 只返回主租赁记录（用于甘特图显示）
+            query = cls.query.filter(
+                db.and_(
+                    cls.status == 'active',
+                    cls.parent_rental_id.is_(None)
+                )
+            )
         
         if date_range:
             start_date, end_date = date_range

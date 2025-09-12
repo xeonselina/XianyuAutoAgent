@@ -34,12 +34,17 @@ export interface Rental {
   status: string
   ship_out_time?: string
   ship_in_time?: string
+  parent_rental_id?: number
+  child_rentals?: Rental[]
+  accessories?: { id: number; name: string; model: string; is_accessory: boolean }[]
 }
 
 export interface AvailableSlot {
   device: Device
   shipOutDate: Date
   shipInDate: Date
+  availableControllers?: number[]
+  controllerCount?: number
 }
 
 export const useGanttStore = defineStore('gantt', () => {
@@ -119,12 +124,13 @@ export const useGanttStore = defineStore('gantt', () => {
     loadData()
   }
 
-  const findAvailableSlot = async (startDate: string, endDate: string, logisticsDays: number) => {
+  const findAvailableSlot = async (startDate: string, endDate: string, logisticsDays: number, model: string) => {
     try {
       const response = await axios.post('/api/rentals/find-slot', {
         start_date: startDate,
         end_date: endDate,
-        logistics_days: logisticsDays
+        logistics_days: logisticsDays,
+        model: model
       })
 
       if (response.data.success) {
@@ -133,6 +139,8 @@ export const useGanttStore = defineStore('gantt', () => {
           device: data.device,
           shipOutDate: new Date(data.ship_out_date),
           shipInDate: new Date(data.ship_in_date),
+          availableControllers: data.available_controllers || [],
+          controllerCount: data.controller_count || 0,
           message: response.data.message || '找到可用档期'
         }
       } else {
