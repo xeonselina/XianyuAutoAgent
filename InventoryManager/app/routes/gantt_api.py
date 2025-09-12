@@ -41,12 +41,13 @@ def gantt_data():
             except ValueError as e:
                 return create_error_response(str(e))
         
-        # 获取所有设备
-        devices = Device.query.all()
+        # 获取所有非附件设备（甘特图不显示附件）
+        devices = Device.query.filter(Device.is_accessory.is_(False)).all()
         
-        # 获取指定时间范围内的租赁记录
+        # 获取指定时间范围内的租赁记录（只包括主租赁记录，用于甘特图显示）
         rentals = Rental.query.filter(
             Rental.status != 'cancelled',
+            Rental.parent_rental_id.is_(None),  # 只显示主租赁记录
             db.or_(
                 db.and_(
                     Rental.start_date <= start_date,
@@ -146,7 +147,7 @@ def find_rental_slot():
         data = request.get_json()
         
         # 验证必填字段
-        required_fields = ['start_date', 'end_date', 'logistics_days']
+        required_fields = ['start_date', 'end_date', 'logistics_days', 'model']
         for field in required_fields:
             if not data.get(field):
                 return create_error_response(f'缺少必填字段: {field}')
@@ -158,6 +159,7 @@ def find_rental_slot():
             return create_error_response(str(e))
         
         logistics_days = int(data['logistics_days'])
+        model = data['model']
         
         # 验证日期范围（允许相同日期，因为这是租赁时间）
         validation_error = validate_date_range(start_date, end_date, allow_same_date=True)
@@ -167,14 +169,16 @@ def find_rental_slot():
         # 计算寄出时间和收回时间
         ship_out_date = start_date - timedelta(days=1 + logistics_days)
         ship_in_date = end_date + timedelta(days=1 + logistics_days)
-        current_app.logger.info(f"find_rental_slot: start_date: {start_date}, end_date: {end_date}, logistics_days: {logistics_days}, ship_out_date: {ship_out_date}, ship_in_date: {ship_in_date}")
+        current_app.logger.info(f"find_rental_slot: start_date: {start_date}, end_date: {end_date}, logistics_days: {logistics_days}, ship_out_date: {ship_out_date}, ship_in_date: {ship_in_date}, model: {model}")
         
         # 检查寄出时间不能早于今天
         if ship_out_date < date.today():
             return create_error_response(f'寄出时间不能早于今天。当前计算的寄出时间是：{ship_out_date}，请调整租赁时间或物流时间。')
         
-        # 查找可用档期
-        available_slot = find_available_time_slot(ship_out_date, ship_in_date)
+        current_app.logger.info(f"日期检查通过，开始查找可用档期")
+        
+        # 查找指定型号的可用档期
+        available_slot = find_available_time_slot(ship_out_date, ship_in_date, model)
         
         if available_slot:
             # 获取第一个可用设备的详细信息
@@ -189,32 +193,63 @@ def find_rental_slot():
                 'available_devices': available_slot['available_devices'],
                 'total_available': available_slot['total_available'],
                 'device': first_device.to_dict() if first_device else None
-            }, message=f'找到 {available_slot["total_available"]} 台可用设备')
+            }, message=f'找到 {available_slot["total_available"]} 台 {model} 型号的可用设备')
         else:
-            return create_error_response('在指定时间段内没有可用的设备档期')
+            return create_error_response(f'在指定时间段内没有可用的 {model} 型号设备档期')
             
     except Exception as e:
         current_app.logger.error(f"查找租赁档期失败: {e}")
         return create_error_response('查找档期失败', 500)
 
 
-def find_available_time_slot(ship_out_date, ship_in_date):
-    """查找可用档期（内部函数）"""
+def find_available_time_slot(ship_out_date, ship_in_date, model_filter):
+    """
+    查找指定型号设备的可用档期
+    
+    Args:
+        ship_out_date: 寄出日期
+        ship_in_date: 收回日期  
+        model_filter: 设备型号过滤条件，如 'x200u', '%controller%' 等
+    
+    Returns:
+        dict: 包含可用设备信息的字典，如果没有可用设备返回None
+    """
     try:
         from app.services.inventory_service import InventoryService
+        from app.utils.date_utils import convert_dates_to_datetime
         
-        # 使用通用库存查询方法
-        available_devices = InventoryService.query_available_inventory(
+        # 转换时间用于查询
+        ship_out_time, ship_in_time = convert_dates_to_datetime(
             ship_out_date, 
-            ship_in_date
+            ship_in_date, 
+            ship_out_hour="19:00:00",
+            ship_in_hour="12:00:00"
         )
         
+        # 构建查询条件
+        if '%' in model_filter:
+            devices = Device.query.filter(Device.model.like(model_filter)).all()
+        else:
+            devices = Device.query.filter(Device.model == model_filter).all()
+        
+        current_app.logger.info(f"查找型号 {model_filter} 的设备，找到 {len(devices)} 台设备")
+        
+        available_devices = []
+        
+        # 检查每个设备的可用性
+        for device in devices:
+            current_app.logger.info(f"检查设备 {device.id}({device.name}) 的可用性")
+            availability = InventoryService.check_device_availability(
+                device.id, ship_out_time, ship_in_time
+            )
+            current_app.logger.info(f"设备 {device.id} 可用性检查结果: {availability}")
+            if availability['available']:
+                available_devices.append(device.id)
+        
         if available_devices:
-            # 从统一格式中提取设备ID
-            device_ids = [device['id'] for device in available_devices]
             return {
-                'available_devices': device_ids,
-                'total_available': len(device_ids)
+                'available_devices': available_devices,
+                'total_available': len(available_devices)
             }
         else:
             return None

@@ -192,6 +192,73 @@
         />
         <div class="form-tip">设备收回时间的具体时间</div>
       </el-form-item>
+
+      <!-- 附件选择 -->
+      <el-form-item label="附件选择" prop="selectedAccessoryId">
+        <div class="device-selection">
+          <el-select
+            v-model="form.selectedControllerId"
+            placeholder="选择附件或查找可用附件"
+            clearable
+            filterable
+            style="flex: 1"
+          >
+            <el-option
+              v-for="controller in availableControllers"
+              :key="controller.id"
+              :label="controller.name"
+              :value="controller.id"
+            >
+              <span>{{ controller.name }}</span>
+              <span style="float: right; color: var(--el-text-color-secondary); font-size: 13px">
+                {{ controller.model }}
+              </span>
+            </el-option>
+          </el-select>
+          <el-button
+            type="info"
+            @click="findAvailableAccessory"
+            :loading="searchingAccessory"
+            style="margin-left: 8px"
+          >
+            查找附件
+          </el-button>
+        </div>
+        <div class="form-tip">选择具体附件或点击查找附件自动匹配可用附件</div>
+        
+        <!-- 查找到的附件信息 -->
+        <div v-if="availableAccessorySlot" class="slot-info" style="margin-top: 12px">
+          <div class="slot-device">
+            <el-icon><Monitor /></el-icon>
+            已找到可用附件: {{ availableAccessorySlot.accessory?.name || '未知附件' }}
+          </div>
+          <div class="slot-times">
+            <div class="slot-time">
+              <el-icon><Upload /></el-icon>
+              寄出: {{ formatDateTime(availableAccessorySlot.shipOutDate) }}
+            </div>
+            <div class="slot-time">
+              <el-icon><Download /></el-icon>
+              收回: {{ formatDateTime(availableAccessorySlot.shipInDate) }}
+            </div>
+          </div>
+        </div>
+        
+        <!-- 当前选择的附件显示 -->
+        <div v-if="currentControllers.length > 0" class="current-controllers">
+          <div class="current-controllers-label">当前附件：</div>
+          <el-tag 
+            v-for="controller in currentControllers" 
+            :key="controller.id"
+            type="success"
+            closable
+            @close="removeController(controller.id)"
+            style="margin-right: 8px; margin-top: 4px;"
+          >
+            {{ controller.name }} {{ controller.model ? '(' + controller.model + ')' : '' }}
+          </el-tag>
+        </div>
+      </el-form-item>
       
       <!-- 快递查询结果显示 -->
       <div v-if="trackingResults.shipOut" class="tracking-result">
@@ -298,7 +365,7 @@
 import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { useGanttStore, type Rental } from '../stores/gantt'
-import { Loading, Warning, Document, Box, Delete, Search } from '@element-plus/icons-vue'
+import { Loading, Warning, Document, Box, Delete, Search, WarningFilled } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import VueDatePicker from '@vuepic/vue-datepicker'
 import '@vuepic/vue-datepicker/dist/main.css'
@@ -325,6 +392,8 @@ const queryingShipOut = ref(false)
 const queryingShipIn = ref(false)
 const loadingDevices = ref(false)
 const availableDevices = ref<any[]>([])
+const searchingAccessory = ref(false)
+const availableAccessorySlot = ref<{ accessory: any; shipOutDate: Date; shipInDate: Date } | null>(null)
 
 // 快递查询结果
 const trackingResults = reactive({
@@ -341,7 +410,9 @@ const form = reactive({
   shipOutTrackingNo: '',
   shipInTrackingNo: '',
   shipOutTime: null as Date | null,
-  shipInTime: null as Date | null
+  shipInTime: null as Date | null,
+  selectedControllerId: null as number | null,
+  accessories: [] as number[]
 })
 
 // 计算属性
@@ -353,6 +424,21 @@ const dialogVisible = computed({
 const minSelectableDate = computed(() => {
   if (!props.rental?.start_date) return null
   return parseDateOnly(props.rental.start_date)
+})
+
+// 获取所有手柄设备
+const availableControllers = computed(() => {
+  return ganttStore.devices?.filter(device => 
+    device.is_accessory && device.model && device.model.includes('controller')
+  ) || []
+})
+
+
+// 当前已选择的手柄
+const currentControllers = computed(() => {
+  return availableControllers.value.filter(controller => 
+    form.accessories.includes(controller.id)
+  )
 })
 
 // 表单验证规则
@@ -539,6 +625,9 @@ const loadLatestRentalData = async (rental: Rental) => {
       form.shipOutTime = parseDateTime(latestRental.ship_out_time || '')
       form.shipInTime = parseDateTime(latestRental.ship_in_time || '')
       
+      // 加载附件信息（从child_rentals中获取）
+      form.accessories = (latestRental as any).child_rentals?.map((childRental: any) => childRental.device_id) || []
+      
       console.log('加载的寄出时间:', latestRental.ship_out_time, '-> Date:', form.shipOutTime)
       console.log('加载的收回时间:', latestRental.ship_in_time, '-> Date:', form.shipInTime)
       
@@ -583,6 +672,10 @@ const loadLatestRentalData = async (rental: Rental) => {
       // 转换数据库时间字符串为 Date 对象
       form.shipOutTime = parseDateTime(rental.ship_out_time || '')
       form.shipInTime = parseDateTime(rental.ship_in_time || '')
+      
+      // 加载附件信息（使用缓存数据，从child_rentals中获取）
+      form.accessories = (rental as any).child_rentals?.map((childRental: any) => childRental.device_id) || []
+      
       latestDataError.value = '获取最新数据失败，使用缓存数据'
     }
   } catch (error) {
@@ -596,6 +689,10 @@ const loadLatestRentalData = async (rental: Rental) => {
     // 转换数据库时间字符串为 Date 对象
     form.shipOutTime = parseDateTime(rental.ship_out_time || '')
     form.shipInTime = parseDateTime(rental.ship_in_time || '')
+    
+    // 加载附件信息（使用错误回退数据，从child_rentals中获取）
+    form.accessories = (rental as any).child_rentals?.map((childRental: any) => childRental.device_id) || []
+    
     latestDataError.value = '获取最新数据失败：' + (error as Error).message
   } finally {
     loadingLatestData.value = false
@@ -610,6 +707,133 @@ watch([() => props.modelValue, () => props.rental], async ([visible, rental]) =>
     await loadDevicesWithConflictCheck(rental)
   }
 }, { immediate: true })
+
+// 检查手柄是否可用
+const isControllerAvailable = (controller: any) => {
+  if (!props.rental) return true
+  
+  // 检查该手柄在指定时间段是否被租赁
+  const rentals = ganttStore.getRentalsForDevice(controller.id)
+  
+  // 使用租赁的寄出和收回时间进行检查
+  let startTime: Date | null = null
+  let endTime: Date | null = null
+  
+  if (form.shipOutTime && form.shipInTime) {
+    startTime = form.shipOutTime
+    endTime = form.shipInTime
+  } else if (props.rental.ship_out_time && props.rental.ship_in_time) {
+    startTime = parseDateTime(props.rental.ship_out_time)
+    endTime = parseDateTime(props.rental.ship_in_time)
+  } else {
+    // 如果没有具体时间，使用默认的寄出收回时间
+    const startDate = new Date(props.rental.start_date)
+    const endDate = new Date(props.rental.end_date)
+    startTime = new Date(startDate.getTime() - 24 * 60 * 60 * 1000) // 提前一天寄出
+    endTime = new Date(endDate.getTime() + 24 * 60 * 60 * 1000) // 延后一天收回
+  }
+  
+  if (!startTime || !endTime) return true
+  
+  const hasConflict = rentals.some(rental => {
+    if (rental.id === props.rental?.id) return false // 排除当前租赁
+    
+    let rentalStart: Date | null = null
+    let rentalEnd: Date | null = null
+    
+    if (rental.ship_out_time && rental.ship_in_time) {
+      rentalStart = new Date(rental.ship_out_time)
+      rentalEnd = new Date(rental.ship_in_time)
+    } else {
+      // 使用默认时间
+      const rStartDate = new Date(rental.start_date)
+      const rEndDate = new Date(rental.end_date)
+      rentalStart = new Date(rStartDate.getTime() - 24 * 60 * 60 * 1000)
+      rentalEnd = new Date(rEndDate.getTime() + 24 * 60 * 60 * 1000)
+    }
+    
+    return (
+      rental.status === 'active' &&
+      ((startTime >= rentalStart && startTime <= rentalEnd) ||
+       (endTime >= rentalStart && endTime <= rentalEnd) ||
+       (startTime <= rentalStart && endTime >= rentalEnd))
+    )
+  })
+  
+  return !hasConflict
+}
+
+
+// 添加手柄
+const addController = () => {
+  if (form.selectedControllerId && !form.accessories.includes(form.selectedControllerId)) {
+    form.accessories.push(form.selectedControllerId)
+    form.selectedControllerId = null
+  }
+}
+
+// 移除手柄
+const removeController = (controllerId: number) => {
+  form.accessories = form.accessories.filter(id => id !== controllerId)
+}
+
+// 查找可用附件
+const findAvailableAccessory = async () => {
+  if (!props.rental) {
+    ElMessage.warning('请先选择要编辑的租赁记录')
+    return
+  }
+
+  searchingAccessory.value = true
+  try {
+    // 使用统一的find-slot接口查找手柄附件
+    const result = await ganttStore.findAvailableSlot(
+      props.rental.start_date,
+      props.rental.end_date,
+      Math.ceil((new Date(props.rental.ship_out_time || '').getTime() - new Date(props.rental.start_date).getTime()) / (24 * 60 * 60 * 1000)) || 1,
+      '%controller%'  // 查找包含controller的设备型号
+    )
+
+    if (!result.device) {
+      throw new Error('在指定时间段内没有可用的手柄附件')
+    }
+
+    // 设置查找到的附件信息
+    availableAccessorySlot.value = {
+      accessory: result.device,
+      shipOutDate: result.shipOutDate,
+      shipInDate: result.shipInDate
+    }
+
+    // 自动选择找到的附件
+    form.selectedControllerId = result.device.id
+    
+    ElMessage.success(`找到可用附件: ${result.device.name}`)
+  } catch (error) {
+    console.error('查找附件失败:', error)
+    ElMessage.error((error as Error).message)
+    availableAccessorySlot.value = null
+  } finally {
+    searchingAccessory.value = false
+  }
+}
+
+// 格式化日期时间显示
+const formatDateTime = (date: Date) => {
+  return date.toLocaleString('zh-CN', {
+    month: 'numeric',
+    day: 'numeric', 
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+// 监听选择的手柄ID变化，自动添加到附件列表
+watch(() => form.selectedControllerId, (newId) => {
+  if (newId) {
+    addController()
+  }
+})
 
 // 设备变更处理函数
 const handleDeviceChange = async (deviceId: number) => {
@@ -686,7 +910,8 @@ const handleSubmit = async () => {
       ship_out_tracking_no: form.shipOutTrackingNo,
       ship_in_tracking_no: form.shipInTrackingNo,
       ship_out_time: form.shipOutTime ? dayjs(form.shipOutTime).format('YYYY-MM-DD HH:mm:ss') : '',
-      ship_in_time: form.shipInTime ? dayjs(form.shipInTime).format('YYYY-MM-DD HH:mm:ss') : ''
+      ship_in_time: form.shipInTime ? dayjs(form.shipInTime).format('YYYY-MM-DD HH:mm:ss') : '',
+      accessories: form.accessories
     }
     
     console.log('提交的end_date:', endDateString)
@@ -894,6 +1119,8 @@ const handleClose = () => {
   form.shipInTrackingNo = ''
   form.shipOutTime = null
   form.shipInTime = null
+  form.selectedControllerId = null
+  form.accessories = []
   
   // 清空快递查询结果
   trackingResults.shipOut = null
@@ -1025,5 +1252,75 @@ const handleClose = () => {
 .route-location {
   color: var(--el-text-color-secondary);
   font-size: 12px;
+}
+
+.controller-section {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+  padding: 12px;
+  background-color: var(--el-fill-color-lighter);
+}
+
+.controller-available {
+  color: var(--el-color-success);
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+.controller-unavailable {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--el-color-error);
+  font-size: 12px;
+}
+
+.controller-selection {
+  margin-top: 8px;
+}
+
+.current-controllers {
+  margin-top: 12px;
+}
+
+.current-controllers-label {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 4px;
+}
+
+.device-selection {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.slot-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.slot-device {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  color: var(--el-color-success);
+}
+
+.slot-times {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.slot-time {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--el-text-color-regular);
 }
 </style>

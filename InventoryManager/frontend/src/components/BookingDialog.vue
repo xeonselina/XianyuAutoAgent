@@ -109,28 +109,50 @@
       </el-form-item>
 
       <!-- 附件选择 -->
-      <el-form-item label="附件选择" prop="accessories">
-        <div class="accessories-section">
-          <div v-for="accessory in availableAccessories" :key="accessory.id" class="accessory-item">
-            <el-checkbox 
-              v-model="form.selectedAccessories" 
-              :label="accessory.id"
-              :disabled="!isAccessoryAvailable(accessory)"
+      <el-form-item label="附件选择" prop="selectedAccessoryId">
+        <div class="device-selection">
+          <el-select
+            v-model="form.selectedAccessoryId"
+            placeholder="选择附件或查找可用附件"
+            clearable
+            filterable
+            style="flex: 1"
+          >
+            <el-option
+              v-for="accessory in availableControllers"
+              :key="accessory.id"
+              :label="accessory.name"
+              :value="accessory.id"
             >
-              {{ accessory.name }}
-              <span v-if="!isAccessoryAvailable(accessory)" class="accessory-unavailable">
-                (不可用)
+              <span>{{ accessory.name }}</span>
+              <span style="float: right; color: var(--el-text-color-secondary); font-size: 13px">
+                {{ accessory.model }}
               </span>
-              <span v-else class="accessory-available">
-                (可用: {{ getAvailableAccessoryCount(accessory) }}个)
-              </span>
-            </el-checkbox>
+            </el-option>
+          </el-select>
+          <el-button
+            type="info"
+            @click="findAvailableAccessory"
+            :loading="searchingAccessory"
+            :disabled="!canSearchSlot"
+            style="margin-left: 8px"
+          >
+            查找附件
+          </el-button>
+        </div>
+        <div class="form-tip">选择具体附件或点击查找附件自动匹配可用附件</div>
+        
+        <!-- 查找到的附件信息 -->
+        <div v-if="availableAccessorySlot" class="slot-info" style="margin-top: 12px">
+          <div class="slot-device">
+            <el-icon><Monitor /></el-icon>
+            已找到可用附件: {{ availableAccessorySlot.accessory?.name || '未知附件' }}
           </div>
-          <div v-if="availableAccessories.length === 0" class="no-accessories">
-            暂无可用附件
+          <div class="slot-times">
+            <div>寄出时间: {{ formatDateTime(availableAccessorySlot.shipOutDate) }}</div>
+            <div>收回时间: {{ formatDateTime(availableAccessorySlot.shipInDate) }}</div>
           </div>
         </div>
-        <div class="form-tip">选择要一起租赁的附件设备（如手柄等）</div>
       </el-form-item>
 
       <!-- 可用档期显示 -->
@@ -168,14 +190,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { Monitor } from '@element-plus/icons-vue'
+import { Monitor, WarningFilled } from '@element-plus/icons-vue'
 import { useGanttStore, type AvailableSlot } from '../stores/gantt'
 import dayjs from 'dayjs'
 import VueDatePicker from '@vuepic/vue-datepicker'
 import '@vuepic/vue-datepicker/dist/main.css'
 import { toAPIFormat } from '@/utils/dateUtils'
+import axios from 'axios'
 
 const props = defineProps<{
   modelValue: boolean
@@ -193,6 +216,8 @@ const formRef = ref<FormInstance>()
 const searching = ref(false)
 const submitting = ref(false)
 const availableSlot = ref<AvailableSlot | null>(null)
+const searchingAccessory = ref(false)
+const availableAccessorySlot = ref<{ accessory: any; shipOutDate: Date; shipInDate: Date } | null>(null)
 
 // 表单数据
 const form = reactive({
@@ -203,7 +228,8 @@ const form = reactive({
   customerName: '',
   customerPhone: '',
   destination: '',
-  selectedAccessories: [] as number[]
+  selectedAccessoryId: null as number | null,
+  needController: false
 })
 
 // 计算属性
@@ -220,12 +246,92 @@ const availableDevices = computed(() => {
   return ganttStore.devices?.filter(device => !device.is_accessory) || []
 })
 
-const availableAccessories = computed(() => {
-  // 获取所有手柄类附件
-  return ganttStore.devices?.filter(device => 
-    device.is_accessory && device.model && device.model.includes('controller')
-  ) || []
+const availableControllers = ref<any[]>([])
+
+// 在组件加载时获取附件列表
+const loadAvailableControllers = async () => {
+  try {
+    const devicesResponse = await axios.get('/api/devices')
+    if (devicesResponse.data.success) {
+      const allDevices = devicesResponse.data.data
+      availableControllers.value = allDevices.filter((device: any) => 
+        device.is_accessory && device.model && device.model.includes('controller')
+      )
+    }
+  } catch (error) {
+    console.error('获取附件列表失败:', error)
+  }
+}
+
+// 可用手柄状态（异步计算）
+const controllerAvailabilityState = ref({
+  checked: false,
+  hasAvailable: false,
+  count: 0,
+  availableControllers: [] as any[]
 })
+
+const hasAvailableControllers = computed(() => {
+  if (!availableControllers.value.length) return false
+  
+  // 如果有查找到的档期信息，优先使用它的手柄信息
+  if (availableSlot.value && availableSlot.value.controllerCount !== undefined) {
+    return availableSlot.value.controllerCount > 0
+  }
+  
+  // 使用异步计算的结果
+  if (!form.startDate || !form.endDate) return availableControllers.value.length > 0
+  
+  return controllerAvailabilityState.value.hasAvailable
+})
+
+const availableControllersCount = computed(() => {
+  if (!availableControllers.value.length) return 0
+  
+  // 如果有查找到的档期信息，优先使用它的手柄信息
+  if (availableSlot.value && availableSlot.value.controllerCount !== undefined) {
+    return availableSlot.value.controllerCount
+  }
+  
+  if (!form.startDate || !form.endDate) return availableControllers.value.length
+  
+  // 使用异步计算的结果
+  return controllerAvailabilityState.value.count
+})
+
+// 异步检查手柄可用性
+const checkControllerAvailability = async () => {
+  if (!form.startDate || !form.endDate || !availableControllers.value.length) {
+    controllerAvailabilityState.value = {
+      checked: true,
+      hasAvailable: availableControllers.value.length > 0,
+      count: availableControllers.value.length,
+      availableControllers: availableControllers.value
+    }
+    return
+  }
+  
+  try {
+    // 批量检查所有手柄的可用性
+    const availabilityResults = await checkAccessoriesAvailability(availableControllers.value)
+    const availableControllersList = availableControllers.value.filter((_, index) => availabilityResults[index])
+    
+    controllerAvailabilityState.value = {
+      checked: true,
+      hasAvailable: availableControllersList.length > 0,
+      count: availableControllersList.length,
+      availableControllers: availableControllersList
+    }
+  } catch (error) {
+    console.error('检查手柄可用性失败:', error)
+    controllerAvailabilityState.value = {
+      checked: true,
+      hasAvailable: false,
+      count: 0,
+      availableControllers: []
+    }
+  }
+}
 
 // 表单验证规则
 const rules: FormRules = {
@@ -263,14 +369,24 @@ const handleStartDateChange = (date: Date | null) => {
   if (date && form.endDate && dayjs(form.endDate).isBefore(dayjs(date))) {
     form.endDate = null
   }
-  // 重置可用档期
+  // 重置可用档期和手柄状态
   availableSlot.value = null
+  controllerAvailabilityState.value.checked = false
+  // 异步检查手柄可用性
+  nextTick(() => {
+    checkControllerAvailability()
+  })
 }
 
 const handleEndDateChange = (date: Date | null) => {
   form.endDate = date
-  // 重置可用档期
+  // 重置可用档期和手柄状态
   availableSlot.value = null
+  controllerAvailabilityState.value.checked = false
+  // 异步检查手柄可用性
+  nextTick(() => {
+    checkControllerAvailability()
+  })
 }
 
 // 方法
@@ -305,6 +421,45 @@ const handleDestinationChange = (value: string) => {
   }
 }
 
+const findAvailableAccessory = async () => {
+  if (!canSearchSlot.value) {
+    ElMessage.warning('请先完善日期和物流信息')
+    return
+  }
+
+  searchingAccessory.value = true
+  try {
+    // 使用统一的find-slot接口查找手柄附件
+    const result = await ganttStore.findAvailableSlot(
+      formatDateToString(form.startDate),
+      formatDateToString(form.endDate),
+      form.logisticsDays,
+      '%controller%'  // 查找包含controller的设备型号
+    )
+
+    if (!result.device) {
+      throw new Error('在指定时间段内没有可用的手柄附件')
+    }
+
+    // 设置查找到的附件信息
+    availableAccessorySlot.value = {
+      accessory: result.device,
+      shipOutDate: result.shipOutDate,
+      shipInDate: result.shipInDate
+    }
+
+    form.selectedAccessoryId = result.device.id
+    
+    ElMessage.success(`找到可用附件: ${result.device.name}`)
+  } catch (error) {
+    console.error('查找附件失败:', error)
+    ElMessage.error((error as Error).message)
+    availableAccessorySlot.value = null
+  } finally {
+    searchingAccessory.value = false
+  }
+}
+
 const findAvailableSlot = async () => {
   if (!canSearchSlot.value) {
     ElMessage.warning('请先完善日期和物流信息')
@@ -326,7 +481,8 @@ const findAvailableSlot = async () => {
       result = await ganttStore.findAvailableSlot(
         formatDateToString(form.startDate),
         formatDateToString(form.endDate),
-        form.logisticsDays
+        form.logisticsDays,
+        'x200u'
       )
       
       // 验证返回的设备是否是指定设备
@@ -338,7 +494,8 @@ const findAvailableSlot = async () => {
       result = await ganttStore.findAvailableSlot(
         formatDateToString(form.startDate),
         formatDateToString(form.endDate),
-        form.logisticsDays
+        form.logisticsDays,
+        'x200u'
       )
       
       // 自动填入找到的设备
@@ -348,7 +505,9 @@ const findAvailableSlot = async () => {
     availableSlot.value = {
       device: result.device,
       shipOutDate: result.shipOutDate,
-      shipInDate: result.shipInDate
+      shipInDate: result.shipInDate,
+      availableControllers: result.availableControllers,
+      controllerCount: result.controllerCount
     }
     
     ElMessage.success(result.message)
@@ -385,6 +544,32 @@ const handleSubmit = async () => {
       const shipOutTime = toAPIFormat(startDate.subtract(form.logisticsDays, 'day').subtract(1, 'day').hour(9).minute(0).second(0))
       const shipInTime = toAPIFormat(endDate.add(form.logisticsDays, 'day').add(1, 'day').hour(18).minute(0).second(0))
 
+    // 如果选择了附件，添加到租赁配件列表
+    let selectedAccessories: number[] = []
+    if (form.selectedAccessoryId) {
+      selectedAccessories = [form.selectedAccessoryId]
+    } else if (form.needController) {
+      // 兼容旧的手柄逻辑，自动选择一个可用的手柄
+      let availableController = null
+      
+      // 如果有查找档期的结果，优先从其可用手柄中选择
+      if (availableSlot.value && availableSlot.value.availableControllers && availableSlot.value.availableControllers.length > 0) {
+        const controllerId = availableSlot.value.availableControllers[0]
+        availableController = availableControllers.value.find(c => c.id === controllerId)
+      } else {
+        // 否则使用异步检查的结果选择可用手柄
+        if (controllerAvailabilityState.value.availableControllers.length > 0) {
+          availableController = controllerAvailabilityState.value.availableControllers[0]
+        }
+      }
+      
+      if (availableController) {
+        selectedAccessories = [availableController.id]
+      } else {
+        ElMessage.warning('当前档期没有可用手柄，将不包含手柄')
+      }
+    }
+
     const rentalData = {
       device_id: deviceId!,
       start_date: formatDateToString(form.startDate),
@@ -394,7 +579,7 @@ const handleSubmit = async () => {
       destination: form.destination || '',
       ship_out_time: shipOutTime,
       ship_in_time: shipInTime,
-      accessories: form.selectedAccessories
+      accessories: selectedAccessories
     }
 
     await ganttStore.createRental(rentalData)
@@ -449,6 +634,30 @@ const forceSubmitRental = async () => {
     shipInTime = toAPIFormat(endDate.add(form.logisticsDays, 'day').hour(18).minute(0).second(0))
   }
 
+  // 如果选择了附件，添加到租赁配件列表
+  let selectedAccessories: number[] = []
+  if (form.selectedAccessoryId) {
+    selectedAccessories = [form.selectedAccessoryId]
+  } else if (form.needController) {
+    // 兼容旧的手柄逻辑，自动选择一个可用的手柄
+    let availableController = null
+    
+    // 如果有查找档期的结果，优先从其可用手柄中选择
+    if (availableSlot.value && availableSlot.value.availableControllers && availableSlot.value.availableControllers.length > 0) {
+      const controllerId = availableSlot.value.availableControllers[0]
+      availableController = availableControllers.value.find(c => c.id === controllerId)
+    } else {
+      // 否则使用异步检查的结果选择可用手柄
+      if (controllerAvailabilityState.value.availableControllers.length > 0) {
+        availableController = controllerAvailabilityState.value.availableControllers[0]
+      }
+    }
+    
+    if (availableController) {
+      selectedAccessories = [availableController.id]
+    }
+  }
+
   const rentalData = {
     device_id: deviceId,
     start_date: formatDateToString(form.startDate),
@@ -458,7 +667,7 @@ const forceSubmitRental = async () => {
     destination: form.destination || '',
     ship_out_time: shipOutTime,
     ship_in_time: shipInTime,
-    accessories: form.selectedAccessories,
+    accessories: selectedAccessories,
     force_create: true // 强制创建标志
   }
 
@@ -476,7 +685,9 @@ const handleClose = () => {
   // 重置表单
   formRef.value?.resetFields()
   availableSlot.value = null
+  availableAccessorySlot.value = null
   searching.value = false
+  searchingAccessory.value = false
   submitting.value = false
   
   // 重置表单数据
@@ -488,7 +699,8 @@ const handleClose = () => {
     customerName: '',
     customerPhone: '',
     destination: '',
-    selectedAccessories: []
+    selectedAccessoryId: null,
+    needController: false
   })
   
   emit('update:modelValue', false)
@@ -498,36 +710,74 @@ const formatDateTime = (date: Date) => {
   return dayjs(date).format('YYYY-MM-DD HH:mm')
 }
 
-// 检查附件是否可用
-const isAccessoryAvailable = (accessory: any) => {
+// 检查附件是否可用（新架构：需要通过API检查所有租赁记录）
+const isAccessoryAvailable = async (accessory: any) => {
   if (!form.startDate || !form.endDate) return true
   
-  // 检查该附件在指定时间段是否被租赁
-  const rentals = ganttStore.getRentalsForDevice(accessory.id)
-  const startDate = new Date(form.startDate)
-  const endDate = new Date(form.endDate)
-  
-  const hasConflict = rentals.some(rental => {
-    const rentalStart = new Date(rental.start_date)
-    const rentalEnd = new Date(rental.end_date)
-    return (
-      rental.status === 'active' &&
-      ((startDate >= rentalStart && startDate <= rentalEnd) ||
-       (endDate >= rentalStart && endDate <= rentalEnd) ||
-       (startDate <= rentalStart && endDate >= rentalEnd))
-    )
-  })
-  
-  return !hasConflict
+  try {
+    // 使用API检查设备可用性
+    const response = await axios.post('/api/rentals/check-conflict', {
+      device_id: accessory.id,
+      start_date: form.startDate,
+      end_date: form.endDate
+    })
+    
+    return response.data.success && !response.data.has_conflict
+  } catch (error) {
+    console.error('检查附件可用性失败:', error)
+    // 发生错误时保守处理，认为不可用
+    return false
+  }
 }
 
-// 获取可用附件数量
-const getAvailableAccessoryCount = (accessory: any) => {
-  if (!form.startDate || !form.endDate) return 1
+// 批量检查多个附件的可用性
+const checkAccessoriesAvailability = async (accessories: any[]) => {
+  if (!form.startDate || !form.endDate) return accessories.map(() => true)
   
-  // 简化逻辑：如果该附件可用就返回1，否则返回0
-  return isAccessoryAvailable(accessory) ? 1 : 0
+  try {
+    const checks = accessories.map(accessory => 
+      axios.post('/api/rentals/check-conflict', {
+        device_id: accessory.id,
+        start_date: form.startDate,
+        end_date: form.endDate
+      })
+    )
+    
+    const results = await Promise.all(checks)
+    return results.map((response: any) => 
+      response.data.success && !response.data.has_conflict
+    )
+  } catch (error) {
+    console.error('批量检查附件可用性失败:', error)
+    // 发生错误时保守处理，都认为不可用
+    return accessories.map(() => false)
+  }
 }
+
+// 监听对话框打开和日期变化，自动检查手柄可用性
+watch([() => props.modelValue, () => form.startDate, () => form.endDate], async ([visible, startDate, endDate]) => {
+  if (visible) {
+    // 对话框打开时，先加载附件列表
+    await loadAvailableControllers()
+    
+    if (startDate && endDate) {
+      // 对话框打开且有日期时，检查手柄可用性
+      nextTick(() => {
+        checkControllerAvailability()
+      })
+    } else {
+      // 对话框打开但没有日期时，重置状态
+      controllerAvailabilityState.value = {
+        checked: true,
+        hasAvailable: availableControllers.value.length > 0,
+        count: availableControllers.value.length,
+        availableControllers: availableControllers.value
+      }
+    }
+  }
+}, { immediate: true })
+
+// 注意：新架构中手柄可用性检查现在通过API异步进行
 </script>
 
 <style scoped>
@@ -570,36 +820,26 @@ const getAvailableAccessoryCount = (accessory: any) => {
   gap: 12px;
 }
 
-.accessories-section {
+.controller-section {
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 4px;
   padding: 12px;
   background-color: var(--el-fill-color-lighter);
 }
 
-.accessory-item {
-  margin-bottom: 8px;
-}
-
-.accessory-item:last-child {
-  margin-bottom: 0;
-}
-
-.accessory-unavailable {
-  color: var(--el-color-error);
-  font-size: 12px;
-}
-
-.accessory-available {
+.controller-available {
   color: var(--el-color-success);
   font-size: 12px;
+  margin-left: 8px;
 }
 
-.no-accessories {
-  text-align: center;
-  color: var(--el-text-color-secondary);
-  font-style: italic;
-  padding: 16px;
+.controller-unavailable {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--el-color-error);
+  font-size: 12px;
 }
 </style>
 

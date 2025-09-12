@@ -5,7 +5,7 @@
 from flask import Blueprint, request, jsonify, current_app
 from app.models.device import Device
 from app.models.rental import Rental
-from app.models.rental_accessory import RentalAccessory
+# RentalAccessory 模型已废弃，新架构中附件租赁直接作为Rental记录
 from app.services.rental_service import RentalService
 from app import db
 from datetime import datetime, date, timedelta
@@ -63,6 +63,18 @@ def get_rental(rental_id):
                 'error': '租赁记录不存在'
             }), 404
         
+        # 获取附件信息（通过child_rentals获取）
+        accessories_info = []
+        for child_rental in rental.child_rentals:
+            if child_rental.device:
+                accessories_info.append({
+                    'id': child_rental.device.id,
+                    'name': child_rental.device.name,
+                    'model': child_rental.device.model,
+                    'is_accessory': child_rental.device.is_accessory,
+                    'rental_id': child_rental.id
+                })
+
         rental_info = {
             'id': rental.id,
             'device_id': rental.device_id,
@@ -77,7 +89,8 @@ def get_rental(rental_id):
             'ship_out_tracking_no': rental.ship_out_tracking_no,
             'ship_in_tracking_no': rental.ship_in_tracking_no,
             'status': rental.status,
-            'created_at': rental.created_at.isoformat()
+            'created_at': rental.created_at.isoformat(),
+            'accessories': accessories_info
         }
         
         return jsonify({
@@ -204,12 +217,13 @@ def create_rental():
         else:
             current_app.logger.info("ship_in_time 为空或不存在")
         
-        # 创建租赁记录
-        current_app.logger.info(f"=== 创建租赁记录 ===")
+        # 创建主设备租赁记录
+        current_app.logger.info(f"=== 创建主设备租赁记录 ===")
         current_app.logger.info(f"准备保存的 ship_out_time: {ship_out_time} (类型: {type(ship_out_time)})")
         current_app.logger.info(f"准备保存的 ship_in_time: {ship_in_time} (类型: {type(ship_in_time)})")
         
-        rental = Rental(
+        # 主设备租赁记录（parent_rental_id 为 None）
+        main_rental = Rental(
             device_id=data['device_id'],
             start_date=start_date,
             end_date=end_date,
@@ -218,24 +232,26 @@ def create_rental():
             destination=data.get('destination', ''),
             status='pending',
             ship_out_time=ship_out_time,
-            ship_in_time=ship_in_time
+            ship_in_time=ship_in_time,
+            parent_rental_id=None  # 主租赁
         )
         
-        current_app.logger.info(f"租赁对象创建后 - ship_out_time: {rental.ship_out_time}")
-        current_app.logger.info(f"租赁对象创建后 - ship_in_time: {rental.ship_in_time}")
+        current_app.logger.info(f"主租赁对象创建后 - ship_out_time: {main_rental.ship_out_time}")
+        current_app.logger.info(f"主租赁对象创建后 - ship_in_time: {main_rental.ship_in_time}")
         
-        # 更新设备状态（只有在非强制创建时才更新）
+        # 更新主设备状态（只有在非强制创建时才更新）
         if not force_create:
             device.status = 'renting'
         
-        db.session.add(rental)
-        current_app.logger.info("租赁记录已添加到会话")
+        db.session.add(main_rental)
+        current_app.logger.info("主租赁记录已添加到会话")
         
-        # 处理附件
+        # 为附件创建独立的租赁记录
         accessories_data = data.get('accessories', [])
+        accessory_rentals = []
         accessories_added = []
         if accessories_data:
-            current_app.logger.info(f"处理附件: {accessories_data}")
+            current_app.logger.info(f"为附件创建租赁记录: {accessories_data}")
             for accessory_id in accessories_data:
                 # 验证附件存在且是附件类型
                 accessory_device = Device.query.get(accessory_id)
@@ -250,19 +266,44 @@ def create_rental():
                             current_app.logger.warning(f"附件{accessory_id}不可用: {availability['reason']}")
                             continue
                     
-                    # 创建附件关联
-                    rental_accessory = RentalAccessory(
-                        device_id=accessory_id
+                    # 为附件创建独立的租赁记录
+                    accessory_rental = Rental(
+                        device_id=accessory_id,
+                        start_date=start_date,
+                        end_date=end_date,
+                        customer_name=data['customer_name'],
+                        customer_phone=customer_phone,
+                        destination=data.get('destination', ''),
+                        status='pending',
+                        ship_out_time=ship_out_time,
+                        ship_in_time=ship_in_time,
+                        parent_rental_id=None  # 先设置为None，之后更新
                     )
-                    rental.accessories.append(rental_accessory)
+                    
+                    accessory_rentals.append(accessory_rental)
+                    db.session.add(accessory_rental)
+                    
+                    # 更新附件设备状态为租赁中
+                    if not force_create:
+                        accessory_device.status = 'renting'
+                        current_app.logger.info(f"附件设备 {accessory_device.name} 状态更新为 renting")
+                    
                     accessories_added.append(accessory_device.name)
-                    current_app.logger.info(f"添加附件: {accessory_device.name}")
+                    current_app.logger.info(f"为附件创建租赁记录: {accessory_device.name}")
+        
+        # 第一次提交以获取主租赁的ID
+        db.session.flush()  # 刷新但不提交，获取ID
+        
+        # 更新附件租赁的parent_rental_id
+        for accessory_rental in accessory_rentals:
+            accessory_rental.parent_rental_id = main_rental.id
+            current_app.logger.info(f"设置附件租赁 {accessory_rental.id} 的parent_rental_id为 {main_rental.id}")
         
         db.session.commit()
-        current_app.logger.info(f"数据库提交成功 - 租赁ID: {rental.id}, 附件: {accessories_added}")
+        current_app.logger.info(f"数据库提交成功 - 主租赁ID: {main_rental.id}, 附件租赁数量: {len(accessory_rentals)}, 附件: {accessories_added}")
         
         # 提交后再次检查数据库中的值
-        saved_rental = Rental.query.get(rental.id)
+        saved_rental = Rental.query.get(main_rental.id)
         current_app.logger.info(f"数据库保存后查询 - ship_out_time: {saved_rental.ship_out_time}")
         current_app.logger.info(f"数据库保存后查询 - ship_in_time: {saved_rental.ship_in_time}")
         
@@ -274,13 +315,14 @@ def create_rental():
             'success': True,
             'message': message,
             'data': {
-                'id': rental.id,
-                'device_id': rental.device_id,
-                'start_date': rental.start_date.isoformat(),
-                'end_date': rental.end_date.isoformat(),
-                'customer_name': rental.customer_name,
-                'status': rental.status,
-                'accessories': accessories_added
+                'id': main_rental.id,
+                'device_id': main_rental.device_id,
+                'start_date': main_rental.start_date.isoformat(),
+                'end_date': main_rental.end_date.isoformat(),
+                'customer_name': main_rental.customer_name,
+                'status': main_rental.status,
+                'accessories': accessories_added,
+                'accessory_rental_ids': [r.id for r in accessory_rentals]
             }
         })
         
@@ -343,7 +385,34 @@ def update_rental(rental_id):
             rental.end_date = end_date
         
         if 'status' in data:
-            rental.status = data['status']
+            old_status = rental.status
+            new_status = data['status']
+            rental.status = new_status
+            
+            # 处理状态变化时的设备状态更新
+            if old_status != new_status:
+                current_app.logger.info(f"租赁状态从 {old_status} 变更为 {new_status}")
+                
+                # 更新主设备状态
+                if rental.device:
+                    if new_status in ['completed', 'cancelled']:
+                        rental.device.status = 'idle'
+                        current_app.logger.info(f"主设备 {rental.device.name} 状态更新为 idle")
+                    elif new_status == 'active':
+                        rental.device.status = 'renting'
+                        current_app.logger.info(f"主设备 {rental.device.name} 状态更新为 renting")
+                
+                # 更新附件设备状态（新架构：通过child_rentals更新）
+                for child_rental in rental.child_rentals:
+                    if child_rental.device:
+                        # 同步更新附件租赁的状态
+                        child_rental.status = new_status
+                        if new_status in ['completed', 'cancelled']:
+                            child_rental.device.status = 'idle'
+                            current_app.logger.info(f"附件设备 {child_rental.device.name} 状态更新为 idle")
+                        elif new_status == 'active':
+                            child_rental.device.status = 'renting'
+                            current_app.logger.info(f"附件设备 {child_rental.device.name} 状态更新为 renting")
         
         if 'ship_out_time' in data:
             if data['ship_out_time']:
@@ -657,6 +726,85 @@ def web_update_rental(rental_id):
                         current_app.logger.warning(f"无法解析收回时间: {data['ship_in_time']}")
             else:
                 rental.ship_in_time = None
+        
+        # 处理附件更新（新架构：附件也是独立的租赁记录）
+        if 'accessories' in data:
+            current_app.logger.info(f"更新附件: {data['accessories']}")
+            
+            # 获取当前附件租赁记录
+            current_accessory_rentals = list(rental.child_rentals)
+            current_accessories = {r.device_id for r in current_accessory_rentals}
+            new_accessories = set(data['accessories'] if data['accessories'] else [])
+            
+            # 找出需要删除和添加的附件
+            to_remove = current_accessories - new_accessories
+            to_add = new_accessories - current_accessories
+            
+            current_app.logger.info(f"需要删除的附件: {to_remove}")
+            current_app.logger.info(f"需要添加的附件: {to_add}")
+            
+            # 删除不再需要的附件租赁记录
+            for accessory_id in to_remove:
+                accessory_rental_to_remove = next(
+                    (r for r in current_accessory_rentals if r.device_id == accessory_id), 
+                    None
+                )
+                if accessory_rental_to_remove:
+                    # 删除附件租赁记录
+                    db.session.delete(accessory_rental_to_remove)
+                    # 更新附件设备状态为空闲
+                    accessory_device = Device.query.get(accessory_id)
+                    if accessory_device:
+                        accessory_device.status = 'idle'
+                        current_app.logger.info(f"删除附件租赁记录，设备 {accessory_device.name} 状态更新为 idle")
+            
+            # 为新附件创建租赁记录
+            for accessory_id in to_add:
+                # 验证附件存在且是附件类型
+                accessory_device = Device.query.get(accessory_id)
+                if accessory_device and accessory_device.is_accessory:
+                    # 检查附件在该时间段是否可用
+                    if rental.ship_out_time and rental.ship_in_time:
+                        from app.services.inventory_service import InventoryService
+                        availability = InventoryService.check_device_availability(
+                            accessory_id, rental.ship_out_time, rental.ship_in_time,
+                            exclude_rental_id=rental.id
+                        )
+                        force_update = data.get('force_update', False)
+                        if not availability['available'] and not force_update:
+                            current_app.logger.warning(f"附件{accessory_id}不可用: {availability['reason']}")
+                            conflicts_detected.append({
+                                'type': 'accessory_conflict',
+                                'message': f'附件 {accessory_device.name} 档期冲突: {availability["reason"]}',
+                                'details': availability,
+                                'accessory_id': accessory_id,
+                                'accessory_name': accessory_device.name
+                            })
+                            continue
+                    
+                    # 为附件创建新的租赁记录
+                    accessory_rental = Rental(
+                        device_id=accessory_id,
+                        start_date=rental.start_date,
+                        end_date=rental.end_date,
+                        customer_name=rental.customer_name,
+                        customer_phone=rental.customer_phone,
+                        destination=rental.destination,
+                        status=rental.status,
+                        ship_out_time=rental.ship_out_time,
+                        ship_in_time=rental.ship_in_time,
+                        parent_rental_id=rental.id
+                    )
+                    db.session.add(accessory_rental)
+                    
+                    # 更新附件设备状态为租赁中
+                    if rental.status == 'active':
+                        accessory_device.status = 'renting'
+                        current_app.logger.info(f"新增附件租赁记录，设备 {accessory_device.name} 状态更新为 renting")
+                    
+                    current_app.logger.info(f"为附件创建新租赁记录: {accessory_device.name}")
+                else:
+                    current_app.logger.warning(f"附件设备 {accessory_id} 不存在或不是附件类型")
         
         db.session.commit()
         
