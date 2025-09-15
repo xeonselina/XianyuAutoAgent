@@ -40,7 +40,12 @@
         @mouseleave="handleRentalLeave"
       >
         <div class="rental-content">
-          <span class="rental-customer">{{ rental.customer_name }}</span>
+          <div class="rental-customer-line">
+            <span class="rental-customer">{{ rental.customer_name }}</span>
+            <el-icon v-if="hasAccessories(rental)" class="accessory-icon" title="包含附件">
+              <Tools />
+            </el-icon>
+          </div>
           <span class="rental-phone">{{ rental.customer_phone }}</span>
         </div>
       </div>
@@ -57,7 +62,12 @@
         @mouseleave="handleRentalLeave"
       >
         <div class="rental-content">
-          <span class="rental-customer">🚚 物流</span>
+          <div class="rental-customer-line">
+            <span class="rental-customer">🚚 物流</span>
+            <el-icon v-if="hasAccessories(rental)" class="accessory-icon" title="包含附件">
+              <Tools />
+            </el-icon>
+          </div>
           <span class="rental-phone">{{ rental.customer_name }}</span>
         </div>
       </div>
@@ -84,6 +94,7 @@ import {
   isToday
 } from '@/utils/dateUtils'
 import dayjs from 'dayjs'
+import { Tools } from '@element-plus/icons-vue'
 
 const RentalTooltip = defineAsyncComponent(() => import('./RentalTooltip.vue'))
 
@@ -111,6 +122,14 @@ let hideTimer: number | null = null
 // 更新设备状态
 const updateDeviceStatus = (newStatus: string) => {
   emit('update-device-status', props.device, newStatus)
+}
+
+// 检查租赁是否包含附件
+const hasAccessories = (rental: Rental): boolean => {
+  return (
+    (rental.accessories?.length ?? 0) > 0 ||
+    (rental.child_rentals?.length ?? 0) > 0
+  )
 }
 
 // 清除所有定时器
@@ -470,11 +489,34 @@ const getStatusText = (status: string) => {
   overflow: hidden;
 }
 
+.rental-customer-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+}
+
 .rental-customer {
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.accessory-icon {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.9);
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .rental-phone {

@@ -51,18 +51,20 @@
     <div class="filters">
       <el-row :gutter="16">
         <el-col :span="6">
-          <el-select 
-            v-model="selectedDeviceType" 
-            placeholder="设备类型" 
+          <el-select
+            v-model="selectedDeviceType"
+            placeholder="设备名称"
+            multiple
             clearable
+            collapse-tags
+            collapse-tags-tooltip
             @change="applyFilters"
           >
-            <el-option label="全部设备" value="" />
-            <el-option 
-              v-for="type in deviceTypes" 
-              :key="type" 
-              :label="type" 
-              :value="type" 
+            <el-option
+              v-for="type in deviceTypes"
+              :key="type"
+              :label="type"
+              :value="type"
             />
           </el-select>
         </el-col>
@@ -107,8 +109,21 @@
               <span v-if="getStatsForDate(date).available_count > 0" class="stat-available">
                 {{ getStatsForDate(date).available_count }} 闲
               </span>
-              <span v-if="getStatsForDate(date).ship_out_count > 0" class="stat-ship-out">
+              <span
+                v-if="getStatsForDate(date).ship_out_count > 0"
+                class="stat-ship-out clickable"
+                @click="filterByShipOutDate(date)"
+                :title="`点击筛选 ${formatDay(date)} 需要寄出的主设备`"
+              >
                 {{ getStatsForDate(date).ship_out_count }} 寄
+              </span>
+              <span
+                v-if="getStatsForDate(date).accessory_ship_out_count > 0"
+                class="stat-accessory-ship-out clickable"
+                @click="filterByAccessoryShipOutDate(date)"
+                :title="`点击筛选 ${formatDay(date)} 需要寄出的附件`"
+              >
+                {{ getStatsForDate(date).accessory_ship_out_count }} 附寄
               </span>
               <span v-if="getStatsForDate(date).controller_count > 0" class="stat-controller">
                 {{ getStatsForDate(date).controller_count }} 手柄
@@ -246,9 +261,9 @@ const showBookingDialog = ref(false)
 const showEditDialog = ref(false)
 const showAddDeviceDialog = ref(false)
 const selectedRental = ref<Rental | null>(null)
-const selectedDeviceType = ref('')
+const selectedDeviceType = ref<string[]>([])
 const selectedStatus = ref('')
-const dailyStats = ref<Record<string, {available_count: number, ship_out_count: number}>>({})
+const dailyStats = ref<Record<string, {available_count: number, ship_out_count: number, accessory_ship_out_count: number}>>({})
 
 // 添加设备表单
 const addDeviceFormRef = ref()
@@ -302,9 +317,11 @@ const filteredDevices = computed(() => {
   // 过滤掉附件设备（手柄）
   devices = devices.filter(device => !device.is_accessory)
   
-  if (selectedDeviceType.value) {
-    devices = devices.filter(device => 
-      device.name.includes(selectedDeviceType.value)
+  if (selectedDeviceType.value.length > 0) {
+    devices = devices.filter(device =>
+      selectedDeviceType.value.some(selectedType =>
+        device.name.includes(selectedType)
+      )
     )
   }
   
@@ -332,8 +349,74 @@ const applyFilters = () => {
 }
 
 const clearFilters = () => {
-  selectedDeviceType.value = ''
+  selectedDeviceType.value = []
   selectedStatus.value = ''
+}
+
+// 点击寄出数量筛选设备
+const filterByShipOutDate = (date: Date) => {
+  const dateStr = toSystemDateString(date)
+
+  // 找到在该日期需要寄出的设备名称
+  const devicesToShip = ganttStore.devices.filter(device => {
+    if (device.is_accessory) return false // 过滤附件设备
+
+    const rentals = ganttStore.getRentalsForDevice(device.id)
+    return rentals.some(rental => {
+      if (!rental.ship_out_time) return false
+      const shipOutDateStr = toSystemDateString(new Date(rental.ship_out_time))
+      return shipOutDateStr === dateStr
+    })
+  })
+
+  // 提取设备名称的类型（前缀）用于筛选
+  const deviceTypesToFilter = devicesToShip.map(device => {
+    return device.name.split(' ')[0] // 获取设备名称的第一部分作为类型
+  })
+
+  // 去重并设置筛选
+  const uniqueDeviceTypes = [...new Set(deviceTypesToFilter)]
+  selectedDeviceType.value = uniqueDeviceTypes
+
+  // 显示提示信息
+  if (uniqueDeviceTypes.length > 0) {
+    ElMessage.success(`已筛选出 ${formatDay(date)} 需要寄出的 ${devicesToShip.length} 台主设备`)
+  } else {
+    ElMessage.info(`${formatDay(date)} 没有需要寄出的主设备`)
+  }
+}
+
+// 点击附件寄出数量筛选附件设备
+const filterByAccessoryShipOutDate = (date: Date) => {
+  const dateStr = toSystemDateString(date)
+
+  // 找到在该日期需要寄出的附件设备名称
+  const accessoriesToShip = ganttStore.devices.filter(device => {
+    if (!device.is_accessory) return false // 只筛选附件设备
+
+    const rentals = ganttStore.getRentalsForDevice(device.id)
+    return rentals.some(rental => {
+      if (!rental.ship_out_time) return false
+      const shipOutDateStr = toSystemDateString(new Date(rental.ship_out_time))
+      return shipOutDateStr === dateStr
+    })
+  })
+
+  // 提取附件设备名称的类型（前缀）用于筛选
+  const deviceTypesToFilter = accessoriesToShip.map(device => {
+    return device.name.split(' ')[0] // 获取设备名称的第一部分作为类型
+  })
+
+  // 去重并设置筛选
+  const uniqueDeviceTypes = [...new Set(deviceTypesToFilter)]
+  selectedDeviceType.value = uniqueDeviceTypes
+
+  // 显示提示信息
+  if (uniqueDeviceTypes.length > 0) {
+    ElMessage.success(`已筛选出 ${formatDay(date)} 需要寄出的 ${accessoriesToShip.length} 个附件`)
+  } else {
+    ElMessage.info(`${formatDay(date)} 没有需要寄出的附件`)
+  }
 }
 
 const handleBookingSuccess = () => {
@@ -448,17 +531,19 @@ const loadDailyStats = async () => {
         return {
           date: dateStr,
           available_count: 0,
-          ship_out_count: 0
+          ship_out_count: 0,
+          accessory_ship_out_count: 0
         }
       })
     )
     
     // 将统计数据存储到响应式对象中
-    const statsMap: Record<string, {available_count: number, ship_out_count: number}> = {}
+    const statsMap: Record<string, {available_count: number, ship_out_count: number, accessory_ship_out_count: number}> = {}
     stats.forEach(stat => {
       statsMap[stat.date] = {
         available_count: stat.available_count,
-        ship_out_count: stat.ship_out_count
+        ship_out_count: stat.ship_out_count,
+        accessory_ship_out_count: stat.accessory_ship_out_count || 0
       }
     })
     dailyStats.value = statsMap
@@ -470,11 +555,11 @@ const loadDailyStats = async () => {
 // 获取指定日期的统计信息
 const getStatsForDate = (date: Date) => {
   const dateStr = toSystemDateString(date)
-  const stats = dailyStats.value[dateStr] || { available_count: 0, ship_out_count: 0 }
-  
+  const stats = dailyStats.value[dateStr] || { available_count: 0, ship_out_count: 0, accessory_ship_out_count: 0 }
+
   // 计算当日空闲手柄数量
   const controllerCount = getIdleControllerCountForDate(date)
-  
+
   return {
     ...stats,
     controller_count: controllerCount
@@ -649,6 +734,40 @@ onMounted(async () => {
   padding: 1px 4px;
   border-radius: 3px;
   border: 1px solid rgba(245, 108, 108, 0.3);
+}
+
+.stat-ship-out.clickable {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.stat-ship-out.clickable:hover {
+  background: rgba(245, 108, 108, 0.2);
+  border: 1px solid rgba(245, 108, 108, 0.5);
+  transform: scale(1.05);
+  box-shadow: 0 2px 4px rgba(245, 108, 108, 0.3);
+}
+
+.stat-accessory-ship-out {
+  font-size: 10px;
+  color: #e6a23c;
+  font-weight: 600;
+  background: rgba(230, 162, 60, 0.1);
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid rgba(230, 162, 60, 0.3);
+}
+
+.stat-accessory-ship-out.clickable {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.stat-accessory-ship-out.clickable:hover {
+  background: rgba(230, 162, 60, 0.2);
+  border: 1px solid rgba(230, 162, 60, 0.5);
+  transform: scale(1.05);
+  box-shadow: 0 2px 4px rgba(230, 162, 60, 0.3);
 }
 
 .stat-controller {
