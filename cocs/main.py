@@ -213,6 +213,7 @@ class GoofishAIBot:
                     'timestamp': message.get('timestamp', ''),
                     'type': 'received'
                 }
+                print('received message: ', message_data)
                 
                 await self.message_service.process_incoming_message(message_data)
                 
