@@ -68,6 +68,21 @@
             <span class="label">收回时间:</span>
             <span class="value">{{ formatDateTime(rental.ship_in_time) }}</span>
           </div>
+
+          <div class="info-row" v-if="hasAccessories">
+            <span class="label">包含附件:</span>
+            <div class="accessories-list">
+              <el-tag
+                v-for="accessory in accessories"
+                :key="accessory.id"
+                type="info"
+                size="small"
+                class="accessory-tag"
+              >
+                {{ accessory.name }}
+              </el-tag>
+            </div>
+          </div>
         </div>
         
         <div class="tooltip-footer">
@@ -107,7 +122,15 @@ const handleTooltipLeave = () => {
   emit('tooltip-leave')
 }
 
+// 计算附件信息
+const accessories = computed(() => {
+  if (!props.rental) return []
+  return props.rental.accessories || []
+})
 
+const hasAccessories = computed(() => {
+  return accessories.value.length > 0
+})
 
 // 格式化日期时间（数据库存储的就是本地时间，直接格式化）
 const formatDateTime = (dateTime: string) => {
@@ -217,5 +240,15 @@ const getStatusText = (status: string) => {
   font-size: 11px;
   color: var(--el-text-color-placeholder);
   font-style: italic;
+}
+
+.accessories-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.accessory-tag {
+  font-size: 11px;
 }
 </style>

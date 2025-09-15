@@ -202,17 +202,27 @@
             clearable
             filterable
             style="flex: 1"
+            :loading="loadingAccessories"
+            loading-text="正在加载附件..."
           >
             <el-option
               v-for="controller in availableControllers"
               :key="controller.id"
               :label="controller.name"
               :value="controller.id"
+              :disabled="controller.isAvailable === false"
             >
-              <span>{{ controller.name }}</span>
-              <span style="float: right; color: var(--el-text-color-secondary); font-size: 13px">
-                {{ controller.model }}
-              </span>
+              <div style="display: flex; justify-content: space-between; align-items: center; width: 100%">
+                <span>{{ controller.name }}</span>
+                <div style="display: flex; align-items: center; gap: 8px">
+                  <span style="color: var(--el-text-color-secondary); font-size: 13px">
+                    {{ controller.model }}
+                  </span>
+                  <el-tag v-if="controller.isAvailable === false" type="danger" size="small" effect="dark">
+                    档期不可用
+                  </el-tag>
+                </div>
+              </div>
             </el-option>
           </el-select>
           <el-button
@@ -364,11 +374,12 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { useGanttStore, type Rental } from '../stores/gantt'
+import { useGanttStore, type Rental, type Device } from '../stores/gantt'
 import { Loading, Warning, Document, Box, Delete, Search, WarningFilled } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import VueDatePicker from '@vuepic/vue-datepicker'
 import '@vuepic/vue-datepicker/dist/main.css'
+import axios from 'axios'
 
 const props = defineProps<{
   modelValue: boolean
@@ -426,17 +437,84 @@ const minSelectableDate = computed(() => {
   return parseDateOnly(props.rental.start_date)
 })
 
-// 获取所有手柄设备
-const availableControllers = computed(() => {
-  return ganttStore.devices?.filter(device => 
-    device.is_accessory && device.model && device.model.includes('controller')
-  ) || []
-})
+// 附件设备列表
+interface AccessoryWithStatus extends Device {
+  isAvailable?: boolean
+  conflictReason?: string
+}
+
+const availableControllers = ref<AccessoryWithStatus[]>([])
+const loadingAccessories = ref(false)
+
+// 使用find-slot接口查找可用附件并检查冲突
+const loadAvailableAccessories = async () => {
+  if (!props.rental) return
+
+  loadingAccessories.value = true
+  try {
+    // 获取所有设备，先筛选出附件设备
+    const response = await axios.get('/api/devices')
+
+    if (response.data.success) {
+      // 先获取所有附件设备
+      const allAccessories = response.data.data.filter((device: Device) =>
+        device.is_accessory && device.model
+      )
+
+      // 计算物流天数（主设备的startdate - shipouttime - 1）
+      let logisticsDays = 1 // 默认值
+      if (props.rental.start_date && props.rental.ship_out_time) {
+        const startDate = dayjs(props.rental.start_date)
+        const shipOutTime = dayjs(props.rental.ship_out_time)
+        logisticsDays = Math.max(1, startDate.diff(shipOutTime, 'day') - 1)
+      }
+
+      // 为每个附件检查可用性
+      const accessoriesWithStatus: AccessoryWithStatus[] = []
+      const currentAccessoryIds = form.accessories
+
+      for (const accessory of allAccessories) {
+        const accessoryWithStatus: AccessoryWithStatus = { ...accessory }
+
+        // 当前已选择的附件默认标记为可用
+        if (currentAccessoryIds.includes(accessory.id)) {
+          accessoryWithStatus.isAvailable = true
+        } else {
+          // 检查其他附件的档期冲突
+          try {
+            await ganttStore.findAvailableSlot(
+              props.rental.start_date,
+              dayjs(form.endDate).format('YYYY-MM-DD'),
+              logisticsDays,
+              accessory.model
+            )
+            accessoryWithStatus.isAvailable = true
+          } catch (error: any) {
+            accessoryWithStatus.isAvailable = false
+            accessoryWithStatus.conflictReason = error.message || '档期冲突'
+          }
+        }
+
+        accessoriesWithStatus.push(accessoryWithStatus)
+      }
+
+      availableControllers.value = accessoriesWithStatus
+    } else {
+      console.error('获取附件列表失败:', response.data.error)
+      ElMessage.error('获取附件列表失败')
+    }
+  } catch (error) {
+    console.error('获取附件列表失败:', error)
+    ElMessage.error('获取附件列表失败')
+  } finally {
+    loadingAccessories.value = false
+  }
+}
 
 
 // 当前已选择的手柄
 const currentControllers = computed(() => {
-  return availableControllers.value.filter(controller => 
+  return availableControllers.value.filter(controller =>
     form.accessories.includes(controller.id)
   )
 })
@@ -625,8 +703,12 @@ const loadLatestRentalData = async (rental: Rental) => {
       form.shipOutTime = parseDateTime(latestRental.ship_out_time || '')
       form.shipInTime = parseDateTime(latestRental.ship_in_time || '')
       
-      // 加载附件信息（从child_rentals中获取）
-      form.accessories = (latestRental as any).child_rentals?.map((childRental: any) => childRental.device_id) || []
+      // 加载附件信息（优先从accessories获取，兼容child_rentals）
+      const accessoriesFromAPI = (latestRental as any).accessories?.map((acc: any) => acc.id) || []
+      const accessoriesFromChildRentals = (latestRental as any).child_rentals?.map((childRental: any) => childRental.device_id) || []
+      form.accessories = accessoriesFromAPI.length > 0 ? accessoriesFromAPI : accessoriesFromChildRentals
+      // 如果有附件，设置下拉框选中状态（单选模式，只选择第一个）
+      form.selectedControllerId = form.accessories.length > 0 ? form.accessories[0] : null
       
       console.log('加载的寄出时间:', latestRental.ship_out_time, '-> Date:', form.shipOutTime)
       console.log('加载的收回时间:', latestRental.ship_in_time, '-> Date:', form.shipInTime)
@@ -673,8 +755,12 @@ const loadLatestRentalData = async (rental: Rental) => {
       form.shipOutTime = parseDateTime(rental.ship_out_time || '')
       form.shipInTime = parseDateTime(rental.ship_in_time || '')
       
-      // 加载附件信息（使用缓存数据，从child_rentals中获取）
-      form.accessories = (rental as any).child_rentals?.map((childRental: any) => childRental.device_id) || []
+      // 加载附件信息（使用缓存数据，支持 accessories 和 child_rentals 两种格式）
+      const accessoriesFromAPI = (rental as any).accessories?.map((acc: any) => acc.id) || []
+      const accessoriesFromChildRentals = (rental as any).child_rentals?.map((childRental: any) => childRental.device_id) || []
+      form.accessories = accessoriesFromAPI.length > 0 ? accessoriesFromAPI : accessoriesFromChildRentals
+      // 如果有附件，设置下拉框选中状态（单选模式，只选择第一个）
+      form.selectedControllerId = form.accessories.length > 0 ? form.accessories[0] : null
       
       latestDataError.value = '获取最新数据失败，使用缓存数据'
     }
@@ -690,8 +776,12 @@ const loadLatestRentalData = async (rental: Rental) => {
     form.shipOutTime = parseDateTime(rental.ship_out_time || '')
     form.shipInTime = parseDateTime(rental.ship_in_time || '')
     
-    // 加载附件信息（使用错误回退数据，从child_rentals中获取）
-    form.accessories = (rental as any).child_rentals?.map((childRental: any) => childRental.device_id) || []
+    // 加载附件信息（使用错误回退数据，支持 accessories 和 child_rentals 两种格式）
+    const accessoriesFromAPI = (rental as any).accessories?.map((acc: any) => acc.id) || []
+    const accessoriesFromChildRentals = (rental as any).child_rentals?.map((childRental: any) => childRental.device_id) || []
+    form.accessories = accessoriesFromAPI.length > 0 ? accessoriesFromAPI : accessoriesFromChildRentals
+    // 如果有附件，设置下拉框选中状态（单选模式，只选择第一个）
+    form.selectedControllerId = form.accessories.length > 0 ? form.accessories[0] : null
     
     latestDataError.value = '获取最新数据失败：' + (error as Error).message
   } finally {
@@ -705,6 +795,7 @@ watch([() => props.modelValue, () => props.rental], async ([visible, rental]) =>
   if (visible && rental) {
     await loadLatestRentalData(rental)
     await loadDevicesWithConflictCheck(rental)
+    await loadAvailableAccessories() // 加载附件列表
   }
 }, { immediate: true })
 
@@ -764,17 +855,15 @@ const isControllerAvailable = (controller: any) => {
 }
 
 
-// 添加手柄
-const addController = () => {
-  if (form.selectedControllerId && !form.accessories.includes(form.selectedControllerId)) {
-    form.accessories.push(form.selectedControllerId)
-    form.selectedControllerId = null
-  }
-}
+// 移除手柄（已不需要addController函数，通过watch监听器处理）
 
 // 移除手柄
 const removeController = (controllerId: number) => {
   form.accessories = form.accessories.filter(id => id !== controllerId)
+  // 如果移除的是当前选中的附件，清空下拉框选择
+  if (form.selectedControllerId === controllerId) {
+    form.selectedControllerId = null
+  }
 }
 
 // 查找可用附件
@@ -786,11 +875,20 @@ const findAvailableAccessory = async () => {
 
   searchingAccessory.value = true
   try {
+    // 计算物流时间：start_date - ship_out_time - 1
+    let shippingDays = 1 // 默认提前1天寄出
+    if (props.rental.ship_out_time) {
+      const startDate = new Date(props.rental.start_date)
+      const shipOutDate = new Date(props.rental.ship_out_time)
+      shippingDays = Math.ceil((startDate.getTime() - shipOutDate.getTime()) / (24 * 60 * 60 * 1000)) - 1
+      if (shippingDays < 1) shippingDays = 1 // 至少提前1天
+    }
+
     // 使用统一的find-slot接口查找手柄附件
     const result = await ganttStore.findAvailableSlot(
       props.rental.start_date,
       props.rental.end_date,
-      Math.ceil((new Date(props.rental.ship_out_time || '').getTime() - new Date(props.rental.start_date).getTime()) / (24 * 60 * 60 * 1000)) || 1,
+      shippingDays,  // 使用正确的物流天数
       '%controller%'  // 查找包含controller的设备型号
     )
 
@@ -798,17 +896,11 @@ const findAvailableAccessory = async () => {
       throw new Error('在指定时间段内没有可用的手柄附件')
     }
 
-    // 设置查找到的附件信息
-    availableAccessorySlot.value = {
-      accessory: result.device,
-      shipOutDate: result.shipOutDate,
-      shipInDate: result.shipInDate
-    }
-
-    // 自动选择找到的附件
+    // 自动选择找到的附件，在下拉框中显示选中状态
     form.selectedControllerId = result.device.id
-    
-    ElMessage.success(`找到可用附件: ${result.device.name}`)
+    // 通过 watch 监听器会自动更新 form.accessories
+
+    ElMessage.success(`找到可用附件: ${result.device.name}，已自动选择`)
   } catch (error) {
     console.error('查找附件失败:', error)
     ElMessage.error((error as Error).message)
@@ -828,10 +920,16 @@ const formatDateTime = (date: Date) => {
   })
 }
 
-// 监听选择的手柄ID变化，自动添加到附件列表
+// 监听选择的手柄ID变化，更新附件列表（支持单选模式）
 watch(() => form.selectedControllerId, (newId) => {
-  if (newId) {
-    addController()
+  if (newId !== null) {
+    // 单选模式：直接替换当前选择的附件
+    form.accessories = [newId]
+    // 清空附件查找结果显示
+    availableAccessorySlot.value = null
+  } else {
+    // 如果清空选择，则清空附件列表
+    form.accessories = []
   }
 })
 

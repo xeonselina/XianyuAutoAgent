@@ -109,6 +109,19 @@ def gantt_data():
         
         # 处理所有租赁记录
         for rental in rentals:
+            # 获取子租赁（附件）信息
+            child_rentals = Rental.query.filter_by(parent_rental_id=rental.id).all()
+            accessories_info = []
+
+            for child_rental in child_rentals:
+                if child_rental.device:
+                    accessories_info.append({
+                        'id': child_rental.device.id,
+                        'name': child_rental.device.name,
+                        'model': child_rental.device.model or '',
+                        'is_accessory': child_rental.device.is_accessory
+                    })
+
             rental_data = {
                 'id': rental.id,
                 'device_id': rental.device_id,
@@ -122,7 +135,8 @@ def gantt_data():
                 'ship_in_tracking_no': rental.ship_in_tracking_no,
                 'status': rental.status,
                 'ship_out_time': rental.ship_out_time.isoformat() if rental.ship_out_time else None,
-                'ship_in_time': rental.ship_in_time.isoformat() if rental.ship_in_time else None
+                'ship_in_time': rental.ship_in_time.isoformat() if rental.ship_in_time else None,
+                'accessories': accessories_info  # 新增附件信息
             }
             gantt_data['rentals'].append(rental_data)
         
@@ -285,7 +299,7 @@ def get_daily_stats():
         available_devices = InventoryService.get_available_devices(target_start, target_end)
         available_count = len(available_devices)
         
-        # 计算待寄出设备数量（x 寄）
+        # 计算待寄出设备数量，分别统计主设备和附件设备
         # 算法：有多少rental的shipouttime的日期部分是当天（使用系统时区）
         rentals_with_ship_out = Rental.query.filter(
             db.and_(
@@ -293,24 +307,32 @@ def get_daily_stats():
                 Rental.status != 'cancelled'
             )
         ).all()
-        
-        ship_out_count = 0
+
+        main_device_ship_out_count = 0  # 主设备寄出数量（x 寄）
+        accessory_ship_out_count = 0    # 附件寄出数量（x 附寄）
+
         for rental in rentals_with_ship_out:
             if rental.ship_out_time:
                 # 直接比较日期部分（假设数据库存储的是UTC时间）
                 rental_ship_date = rental.ship_out_time.date()
                 if rental_ship_date == target_date:
-                    ship_out_count += 1
-                    current_app.logger.debug(f"租赁{rental.id}在{target_date}寄出")
-        
-        current_app.logger.debug(f"日期{target_date}统计结果: 空闲={available_count}, 待寄出={ship_out_count}")
-        
+                    # 根据设备类型分别统计
+                    if rental.device and rental.device.is_accessory:
+                        accessory_ship_out_count += 1
+                        current_app.logger.debug(f"附件租赁{rental.id}在{target_date}寄出")
+                    else:
+                        main_device_ship_out_count += 1
+                        current_app.logger.debug(f"主设备租赁{rental.id}在{target_date}寄出")
+
+        current_app.logger.debug(f"日期{target_date}统计结果: 空闲={available_count}, 主设备寄出={main_device_ship_out_count}, 附件寄出={accessory_ship_out_count}")
+
         return create_success_response({
             'date': target_date.isoformat(),
             'available_count': available_count,
-            'ship_out_count': ship_out_count
+            'ship_out_count': main_device_ship_out_count,
+            'accessory_ship_out_count': accessory_ship_out_count
         })
-        
+
     except Exception as e:
         current_app.logger.error(f"获取每日统计失败: {e}")
         return create_error_response('获取统计失败', 500)

@@ -158,9 +158,9 @@ def create_rental():
                     'error': f'档期冲突: {availability_check["reason"]}'
                 }), 400
         
-        # 提取手机号
-        customer_phone = None
-        if data.get('destination'):
+        # 优先使用前端提交的手机号，如果没有则从destination中提取
+        customer_phone = data.get('customer_phone')
+        if not customer_phone and data.get('destination'):
             phone_match = re.search(r'1[3-9]\d{9}', data['destination'])
             if phone_match:
                 customer_phone = phone_match.group()
