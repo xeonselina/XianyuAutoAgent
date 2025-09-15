@@ -3,6 +3,7 @@ from playwright.async_api import Page, ElementHandle
 from loguru import logger
 import json
 import re
+import time
 
 
 class GoofishDOMParser:
@@ -11,66 +12,24 @@ class GoofishDOMParser:
         
         # 咸鱼页面常见的选择器模式
         self.selectors = {
+            # 消息列表容器
             'message_container': [
-                '.message-list',
-                '.chat-container',
-                '.conversation-list',
-                '.im-chat-content',
-                '[class*="message"]'
+                'ul.ant-list-items'
             ],
             'message_item': [
-                '.message-item',
-                '.chat-message',
-                '.message-bubble',
-                '[class*="message-item"]',
-                '[class*="chat-item"]'
-            ],
-            'message_text': [
-                '.message-text',
-                '.text-content',
-                '.message-content',
-                '.bubble-content',
-                '[class*="text"]'
-            ],
-            'message_time': [
-                '.message-time',
-                '.timestamp',
-                '.time',
-                '[class*="time"]'
+                'li.ant-list-item'
             ],
             'sender_name': [
-                '.sender-name',
-                '.user-name',
-                '.nickname',
-                '[class*="name"]'
+                'a[href*="personal?userId="]'
             ],
             'input_box': [
-                'textarea[placeholder*="输入"]',
-                'input[placeholder*="消息"]',
-                '.message-input textarea',
-                '.chat-input textarea',
-                '.input-box textarea',
-                '[class*="input"] textarea'
+                'textarea[placeholder*="请输入消息"]'
             ],
             'send_button': [
-                'button[title*="发送"]',
-                'button:has-text("发送")',
-                '.send-button',
-                '.message-send-btn',
-                'button[data-testid="send"]',
-                '[class*="send"]'
+                'button span'
             ],
-            'contact_list': [
-                '.contact-list',
-                '.chat-list',
-                '.conversation-list',
-                '[class*="contact"]'
-            ],
-            'contact_item': [
-                '.contact-item',
-                '.chat-list-item',
-                '.conversation-item',
-                '[class*="contact-item"]'
+            'unread_message': [
+                '.ant-scroll-number-only-unit.current'
             ]
         }
     
@@ -115,7 +74,7 @@ class GoofishDOMParser:
         
         # 检测消息项
         message_items = await self.find_elements_by_selectors(self.selectors['message_item'])
-        for item in message_items[:5]:  # 只检测前5个
+        for item in message_items:  # 只检测前5个
             item_info = await self._analyze_message_item(item)
             if item_info:
                 structure['message_items'].append(item_info)
@@ -137,43 +96,22 @@ class GoofishDOMParser:
     async def _analyze_message_item(self, element: ElementHandle) -> Optional[Dict]:
         """分析消息项结构"""
         try:
-            # 获取文本内容
-            text_element = None
-            for selector in self.selectors['message_text']:
-                try:
-                    text_element = await element.query_selector(selector)
-                    if text_element:
-                        break
-                except:
-                    continue
-            
-            if not text_element:
-                # 如果没找到特定的文本元素，直接获取元素文本
-                text_content = await element.inner_text()
-            else:
-                text_content = await text_element.inner_text()
+            # 直接获取元素文本内容
+            text_content = await element.inner_text()
             
             if not text_content or len(text_content.strip()) == 0:
                 return None
             
             # 判断消息方向（发送/接收）
+            style = await element.get_attribute('style') or ''
+            is_received = 'ltr' in style
+            is_sent = 'rtl' in style
+            
+            # 获取类名
             class_names = await element.get_attribute('class') or ''
-            is_received = any(keyword in class_names.lower() for keyword in ['received', 'incoming', 'left'])
-            is_sent = any(keyword in class_names.lower() for keyword in ['sent', 'outgoing', 'right'])
             
-            # 获取时间戳
-            time_element = None
-            for selector in self.selectors['message_time']:
-                try:
-                    time_element = await element.query_selector(selector)
-                    if time_element:
-                        break
-                except:
-                    continue
-            
+            # 获取时间戳（简化处理）
             timestamp = ""
-            if time_element:
-                timestamp = await time_element.inner_text()
             
             # 获取发送者信息
             sender_element = None
@@ -194,8 +132,7 @@ class GoofishDOMParser:
                 'timestamp': timestamp.strip(),
                 'sender': sender.strip(),
                 'is_received': is_received,
-                'is_sent': is_sent,
-                'class_names': class_names
+                'is_sent': is_sent
             }
             
         except Exception as e:
@@ -223,72 +160,36 @@ class GoofishDOMParser:
         except:
             return 'unknown'
     
-    async def get_optimized_selectors(self) -> Dict[str, str]:
-        """获取优化后的选择器"""
-        structure = await self.detect_message_structure()
-        
-        optimized_selectors = {}
-        
-        if structure['message_container']:
-            optimized_selectors['message_container'] = structure['message_container']
-        
-        if structure['message_items']:
-            # 使用最常见的消息项选择器
-            item_selectors = [item.get('class_names', '') for item in structure['message_items']]
-            common_classes = self._find_common_classes(item_selectors)
-            if common_classes:
-                optimized_selectors['message_item'] = f".{common_classes[0]}"
-        
-        if structure['input_box']:
-            optimized_selectors['input_box'] = structure['input_box']
-        
-        if structure['send_button']:
-            optimized_selectors['send_button'] = structure['send_button']
-        
-        return optimized_selectors
-    
-    def _find_common_classes(self, class_lists: List[str]) -> List[str]:
-        """找到最常见的CSS类名"""
-        all_classes = []
-        for class_list in class_lists:
-            if class_list:
-                classes = class_list.split()
-                all_classes.extend(classes)
-        
-        # 统计类名出现频率
-        class_count = {}
-        for cls in all_classes:
-            if cls and len(cls) > 2:  # 忽略太短的类名
-                class_count[cls] = class_count.get(cls, 0) + 1
-        
-        # 按频率排序
-        sorted_classes = sorted(class_count.items(), key=lambda x: x[1], reverse=True)
-        return [cls for cls, count in sorted_classes if count > 1]
-    
     async def extract_all_messages(self, limit: int = 50) -> List[Dict]:
         """提取所有消息"""
         messages = []
         
         try:
-            # 获取优化的选择器
-            selectors = await self.get_optimized_selectors()
+            # 直接使用检测到的消息结构
+            structure = await self.detect_message_structure()
             
-            # 获取消息项
-            message_selector = selectors.get('message_item')
-            if not message_selector:
-                # 使用默认选择器
-                message_elements = await self.find_elements_by_selectors(self.selectors['message_item'])
+            # 如果已有分析好的消息项，直接使用
+            if structure['message_items']:
+                # 限制消息数量
+                message_items = structure['message_items']
+                if len(message_items) > limit:
+                    message_items = message_items[-limit:]
+                
+                for item in message_items:
+                    if item and item.get('text'):
+                        messages.append(item)
             else:
-                message_elements = await self.page.query_selector_all(message_selector)
-            
-            # 限制消息数量
-            if len(message_elements) > limit:
-                message_elements = message_elements[-limit:]
-            
-            for element in message_elements:
-                message_info = await self._analyze_message_item(element)
-                if message_info and message_info['text']:
-                    messages.append(message_info)
+                # 如果没有预分析的消息项，使用默认选择器
+                message_elements = await self.find_elements_by_selectors(self.selectors['message_item'])
+                
+                # 限制消息数量
+                if len(message_elements) > limit:
+                    message_elements = message_elements[-limit:]
+                
+                for element in message_elements:
+                    message_info = await self._analyze_message_item(element)
+                    if message_info and message_info['text']:
+                        messages.append(message_info)
             
             logger.info(f"提取到 {len(messages)} 条消息")
             return messages
@@ -301,11 +202,9 @@ class GoofishDOMParser:
         """保存页面结构到文件"""
         try:
             structure = await self.detect_message_structure()
-            selectors = await self.get_optimized_selectors()
             
             data = {
                 'detected_structure': structure,
-                'optimized_selectors': selectors,
                 'timestamp': str(time.time())
             }
             

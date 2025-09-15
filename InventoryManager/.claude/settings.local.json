@@ -1,7 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(DATABASE_URL=mysql+pymysql://root:Xs527215!!!@192.168.50.132:33601/test_inventory_management python3 -c \"\nfrom app import create_app\nfrom app.models.rental import Rental\nfrom datetime import datetime\n\napp = create_app()\nwith app.app_context():\n    # 查询最新的一条租赁记录\n    rental = Rental.query.filter(\n        Rental.ship_out_time.isnot(None)\n    ).order_by(Rental.id.desc()).first()\n    \n    if rental:\n        print(f''租赁ID: {rental.id}'')\n        print(f''ship_out_time 数据库原始值: {repr(rental.ship_out_time)}'')\n        print(f''ship_in_time 数据库原始值: {repr(rental.ship_in_time)}'')\n        \n        if rental.ship_out_time:\n            print(f''ship_out_time isoformat: {rental.ship_out_time.isoformat()}'')\n        if rental.ship_in_time:\n            print(f''ship_in_time isoformat: {rental.ship_in_time.isoformat()}'')\n            \n        # 模拟API返回的格式\n        print(''=== API返回格式 ==='')\n        print(f''ship_out_time API格式: {rental.ship_out_time.isoformat() if rental.ship_out_time else None}'')\n        print(f''ship_in_time API格式: {rental.ship_in_time.isoformat() if rental.ship_in_time else None}'')\n    else:\n        print(''没有找到带ship_out_time的租赁记录'')\n\")"
+      "Read(/Users/jimmypan/git_repo/XianyuAutoAgent/cocs/**)"
     ],
     "deny": [],
     "ask": [],
