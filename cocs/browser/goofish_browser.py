@@ -7,6 +7,7 @@ from loguru import logger
 import time
 from pathlib import Path
 import hashlib
+from .dom_parser import GoofishDOMParser
 
 
 class GoofishBrowser:
@@ -17,7 +18,8 @@ class GoofishBrowser:
         self.page: Optional[Page] = None
         self.is_running = False
         self.message_callback: Optional[Callable] = None
-        
+        self.dom_parser: Optional[GoofishDOMParser] = None
+
         # 数据存储配置
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(exist_ok=True)
@@ -93,7 +95,10 @@ class GoofishBrowser:
             # 导航到咸鱼页面
             await self.page.goto('https://www.goofish.com', wait_until='domcontentloaded')
             logger.info("浏览器已启动，咸鱼页面已加载")
-            
+
+            # 初始化DOM解析器
+            self.dom_parser = GoofishDOMParser(self.page)
+
             self.is_running = True
             return True
             
@@ -105,13 +110,24 @@ class GoofishBrowser:
         """等待用户登录"""
         try:
             logger.info("等待用户登录...")
-            
-            # 等待登录完成的标志，比如用户头像或者聊天界面出现
-            await self.page.wait_for_selector('.message-list, .chat-container, .user-avatar', timeout=timeout)
-            
-            logger.info("检测到用户已登录")
-            return True
-            
+
+            if not self.dom_parser:
+                logger.error("DOM解析器未初始化")
+                return False
+
+            # 使用DOM解析器的message_container选择器来检测登录
+            message_container = await self.dom_parser.find_element_by_selectors(
+                self.dom_parser.selectors['message_container'],
+                timeout=timeout
+            )
+
+            if message_container:
+                logger.info("检测到用户已登录（找到消息容器）")
+                return True
+            else:
+                logger.error("登录检测超时：未找到消息容器")
+                return False
+
         except Exception as e:
             logger.error(f"等待登录超时或失败: {e}")
             return False
@@ -119,46 +135,26 @@ class GoofishBrowser:
     async def get_chat_messages(self) -> List[Dict]:
         """获取聊天消息"""
         try:
-            # 这里需要根据实际的咸鱼页面DOM结构来调整选择器
-            messages = []
-            
-            # 等待消息容器加载
-            await self.page.wait_for_selector('.message-list, .chat-list', timeout=5000)
-            
-            # 获取所有消息元素
-            message_elements = await self.page.query_selector_all('.message-item, .chat-message')
-            
-            for element in message_elements:
-                try:
-                    # 获取消息文本
-                    text_element = await element.query_selector('.message-text, .text-content')
-                    text = await text_element.inner_text() if text_element else ""
-                    
-                    # 获取发送者信息
-                    sender_element = await element.query_selector('.sender-name, .user-name')
-                    sender = await sender_element.inner_text() if sender_element else ""
-                    
-                    # 获取时间戳
-                    time_element = await element.query_selector('.message-time, .timestamp')
-                    timestamp = await time_element.inner_text() if time_element else ""
-                    
-                    # 判断是否是收到的消息（非自己发送）
-                    is_received = await element.evaluate('el => el.classList.contains("received") || el.classList.contains("incoming")')
-                    
-                    if text and is_received:
-                        messages.append({
-                            'text': text,
-                            'sender': sender,
-                            'timestamp': timestamp,
-                            'type': 'received'
-                        })
-                        
-                except Exception as e:
-                    logger.warning(f"解析消息元素失败: {e}")
-                    continue
-            
-            return messages
-            
+            if not self.dom_parser:
+                logger.error("DOM解析器未初始化")
+                return []
+
+            # 使用DOM解析器提取消息
+            messages = await self.dom_parser.extract_all_messages()
+
+            # 只返回接收到的消息
+            received_messages = []
+            for message in messages:
+                if message.get('is_received', False):
+                    received_messages.append({
+                        'text': message['text'],
+                        'sender': message['sender'],
+                        'timestamp': message['timestamp'],
+                        'type': 'received'
+                    })
+
+            return received_messages
+
         except Exception as e:
             logger.error(f"获取聊天消息失败: {e}")
             return []
@@ -166,37 +162,31 @@ class GoofishBrowser:
     async def send_message(self, message: str) -> bool:
         """发送消息"""
         try:
+            if not self.dom_parser:
+                logger.error("DOM解析器未初始化")
+                return False
+
             # 查找输入框
-            input_selector = 'textarea[placeholder*="输入"], input[placeholder*="消息"], .message-input textarea, .chat-input textarea'
-            input_element = await self.page.wait_for_selector(input_selector, timeout=5000)
-            
+            input_element = await self.dom_parser.find_element_by_selectors(
+                self.dom_parser.selectors['input_box'],
+                timeout=5000
+            )
+
             if not input_element:
                 logger.error("找不到消息输入框")
                 return False
-            
+
             # 清空输入框并输入消息
             await input_element.click()
             await input_element.fill('')
             await input_element.type(message)
-            
+
             # 查找并点击发送按钮
-            send_selectors = [
-                'button[title*="发送"]',
-                'button:has-text("发送")',
-                '.send-button',
-                '.message-send-btn',
-                'button[data-testid="send"]'
-            ]
-            
-            send_button = None
-            for selector in send_selectors:
-                try:
-                    send_button = await self.page.query_selector(selector)
-                    if send_button:
-                        break
-                except:
-                    continue
-            
+            send_button = await self.dom_parser.find_element_by_selectors(
+                self.dom_parser.selectors['send_button'],
+                timeout=2000
+            )
+
             if send_button:
                 await send_button.click()
                 logger.info(f"消息已发送: {message}")
@@ -206,7 +196,7 @@ class GoofishBrowser:
                 await input_element.press('Enter')
                 logger.info(f"消息已发送（回车键): {message}")
                 return True
-                
+
         except Exception as e:
             logger.error(f"发送消息失败: {e}")
             return False
