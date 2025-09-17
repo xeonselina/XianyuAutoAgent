@@ -35,13 +35,97 @@ class GoofishDOMParser:
     
     async def find_element_by_selectors(self, selectors: List[str], timeout: int = 5000) -> Optional[ElementHandle]:
         """通过多个选择器查找元素"""
-        for selector in selectors:
-            try:
-                element = await self.page.wait_for_selector(selector, timeout=timeout)
-                if element:
-                    return element
-            except:
-                continue
+        import asyncio
+
+        start_time = asyncio.get_event_loop().time()
+        end_time = start_time + timeout / 1000  # 转换为秒
+
+        while asyncio.get_event_loop().time() < end_time:
+            for selector in selectors:
+                try:
+                    logger.info(f"尝试查找选择器: {selector}")
+
+                    # 首先使用 JavaScript 检查元素是否存在
+                    element_exists = await self.page.evaluate(f"!!document.querySelector('{selector}')")
+                    logger.info(f"JavaScript检查结果: {selector} 存在={element_exists}")
+
+                    # 调试信息：检查当前页面URL和基本信息
+                    current_url = self.page.url
+                    page_title = await self.page.title()
+                    logger.info(f"当前页面: URL={current_url}, Title={page_title}")
+
+                    # 检查是否有iframe
+                    iframe_count = await self.page.evaluate("document.querySelectorAll('iframe').length")
+                    logger.info(f"页面中iframe数量: {iframe_count}")
+
+                    # 检查页面中是否有任何ant相关的元素
+                    ant_elements = await self.page.evaluate("document.querySelectorAll('[class*=\"ant\"]').length")
+                    logger.info(f"页面中ant-相关元素数量: {ant_elements}")
+
+                    # 检查iframe中是否有目标元素
+                    if iframe_count > 0:
+                        iframe_has_element = await self.page.evaluate(f"""
+                            (() => {{
+                                const iframes = document.querySelectorAll('iframe');
+                                for (let iframe of iframes) {{
+                                    try {{
+                                        const doc = iframe.contentDocument || iframe.contentWindow.document;
+                                        if (doc && doc.querySelector('{selector}')) {{
+                                            return true;
+                                        }}
+                                    }} catch (e) {{
+                                        // 跨域iframe无法访问
+                                    }}
+                                }}
+                                return false;
+                            }})()
+                        """)
+                        logger.info(f"iframe中是否有目标元素: {iframe_has_element}")
+
+                        if iframe_has_element:
+                            # 尝试切换到iframe并查找元素
+                            frames = self.page.frames
+                            for frame in frames:
+                                if frame.name != "":  # 不是主框架
+                                    try:
+                                        element = await frame.query_selector(selector)
+                                        if element:
+                                            logger.info(f"在iframe中找到元素: {selector}")
+                                            return element
+                                    except Exception as e:
+                                        logger.info(f"iframe查找失败: {e}")
+
+                    # 检查是否需要导航到聊天页面
+                    is_homepage = current_url == "https://www.goofish.com/"
+                    if is_homepage:
+                        logger.info("当前在首页，消息容器应该在聊天页面中")
+                        # 可以在这里添加导航到聊天页面的逻辑
+
+                    if element_exists:
+                        # 如果元素存在，尝试获取元素句柄
+                        try:
+                            element = await self.page.query_selector(selector)
+                            if element:
+                                logger.info(f"成功找到元素: {selector}")
+                                return element
+                        except Exception as e2:
+                            logger.warning(f"获取元素句柄失败: {e2}")
+
+                    # 备用方法：使用 wait_for_selector
+                    element = await self.page.wait_for_selector(selector, timeout=1000, state='attached')
+                    if element:
+                        logger.info(f"通过wait_for_selector找到元素: {selector}")
+                        return element
+
+                except Exception as e:
+                    logger.info(f"查找选择器 {selector} 时出错: {e}, 继续重试...")
+                    continue
+
+            # 等待一段时间后重试
+            logger.info("未找到任何元素，2秒后重试...")
+            await asyncio.sleep(2)
+
+        logger.error(f"超时：所有选择器都未找到元素: {selectors}")
         return None
     
     async def find_elements_by_selectors(self, selectors: List[str]) -> List[ElementHandle]:
