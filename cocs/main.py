@@ -253,13 +253,11 @@ class GoofishAIBot:
         """设置信号处理器"""
         def signal_handler(signum, frame):
             self.logger.info(f"收到信号 {signum}，准备停止...")
-            # 创建新的事件循环来运行stop()
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.stop())
-            loop.close()
-            sys.exit(0)
-        
+            # 设置停止标志，让正在运行的循环自然退出
+            self.is_running = False
+            if self.browser:
+                self.browser.is_running = False
+
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 
@@ -287,7 +285,10 @@ async def main():
     except Exception as e:
         logger.error(f"系统运行异常: {e}")
     finally:
-        await bot.stop()
+        try:
+            await bot.stop()
+        except Exception as e:
+            logger.error(f"停止系统时出错: {e}")
 
 
 if __name__ == "__main__":
