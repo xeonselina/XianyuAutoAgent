@@ -118,9 +118,10 @@
             </tr>
             <tr>
               <td style="vertical-align: top; padding: 15px;">
-                <div>闲鱼ID：光影租界</div>
-                <div>真实姓名：张孝姝</div>
-                <div>身份证号：500101198505270249</div>
+                <div>店铺名：光影租界</div>
+                <div>公司名：深圳市光影租赁有限公司</div>
+                <div>法人：张孝姝</div>
+                <div>组织机构代码：91440300MAEWWJ2G1A</div>
                 <div>联系方式：13510224947</div>
               </td>
               <td style="vertical-align: top; padding: 15px;">
@@ -143,32 +144,22 @@
               <th style="width: 10%;">数量</th>
               <th style="width: 25%;">附件说明</th>
             </tr>
+            <!-- 主设备 -->
             <tr>
-              <td>VIVO X200Ultra 16+512G</td>
+              <td>{{ rental.device?.device_model?.name}}</td>
               <td>{{ rental.device_name }}/{{ deviceSerialNumber }}</td>
               <td>1台</td>
-              <td>手机壳、镜头转接环</td>
+              <td>{{ getDefaultAccessories() }}</td>
             </tr>
-            <tr>
-              <td>增距镜</td>
-              <td>无</td>
-              <td>1支</td>
-              <td>镜头架、前后镜头盖</td>
-            </tr>
-            <tr>
-              <td>充电线、充电头</td>
-              <td>无</td>
-              <td>1套</td>
-              <td>无</td>
-            </tr>
-            <tr>
-              <td>（其他配件）</td>
-              <td>无</td>
-              <td>无</td>
-              <td>无</td>
+            <!-- 个性化附件 -->
+            <tr v-for="accessory in getPersonalizedAccessories()" :key="`personal-${accessory.id}`">
+              <td>{{ accessory.model }}</td>
+              <td>{{ accessory.name || '无' }}</td>
+              <td>1个</td>
+              <td>个性化附件</td>
             </tr>
           </table>
-          <p style="margin-top: 10px;"><strong>注明：</strong>设备总价值约为¥7500元。</p>
+          <p style="margin-top: 10px;"><strong>注明：</strong>设备总价值约为¥{{ getTotalValue().toFixed(0) }}元。</p>
         </div>
         
         <!-- 租赁期限 -->
@@ -301,13 +292,12 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { 
-  ArrowLeft, 
-  Printer, 
-  Camera, 
-  UploadFilled, 
-  Search, 
-  Document, 
+import {
+  ArrowLeft,
+  Printer,
+  Camera,
+  UploadFilled,
+  Document,
   Check,
   Loading
 } from '@element-plus/icons-vue'
@@ -339,10 +329,6 @@ const contractForm = ref({
   compensationRate: '60'
 })
 
-const formatDate = (dateString?: string) => {
-  if (!dateString) return '-'
-  return dayjs(dateString).format('YYYY-MM-DD')
-}
 
 // 计算收货日期（start_date - 1天）
 const getReceiptDate = (dateString?: string) => {
@@ -525,6 +511,53 @@ const handlePrint = () => {
     catch (error) { console.error('打印失败:', error) }
     finally { document.head.removeChild(printStyle) }
   }, 200)
+}
+
+
+// 获取默认附件列表
+const getDefaultAccessories = () => {
+  if (!rental.value?.device?.device_model?.default_accessories) {
+    return ""
+  }
+
+  const accessories = rental.value.device.device_model.default_accessories
+
+  // 如果是数组，转换为字符串
+  if (Array.isArray(accessories)) {
+    return accessories.join('、')
+  }
+
+  // 如果是字符串，直接返回
+  return accessories
+}
+
+// 获取个性化附件列表（从租赁记录的附件中获取）
+const getPersonalizedAccessories = () => {
+  if (!rental.value?.accessories) {
+    return []
+  }
+  return rental.value.accessories.filter((acc: any) => acc.is_accessory)
+}
+
+// 计算总价值
+const getTotalValue = () => {
+  let total = 0
+
+  // 主设备价值
+  if (rental.value?.device?.device_model?.device_value) {
+    total += parseFloat(String(rental.value.device.device_model.device_value))
+  }
+
+  // 个性化附件价值（从实际租赁的附件中获取）
+  const personalizedAccessories = getPersonalizedAccessories()
+  personalizedAccessories.forEach((acc: any) => {
+    // 暂时使用默认值，如果附件有价值信息的话
+    if (acc.value) {
+      total += parseFloat(String(acc.value))
+    }
+  })
+
+  return total
 }
 
 // 生命周期

@@ -18,7 +18,10 @@
       <div class="content-section">
         <!-- 页眉 -->
         <div class="header-section">
-          <h2><el-icon><Document /></el-icon> 出货单</h2>
+          <div class="header-content">
+            <img src="/src/assets/logo.jpg" alt="光影租界" class="logo" />
+            <h2><el-icon><Document /></el-icon> 出货单</h2>
+          </div>
         </div>
 
         <!-- 合并的客户信息卡片 -->
@@ -44,40 +47,28 @@
           <thead>
             <tr>
               <th style="width: 8%;">序号</th>
-              <th style="width: 30%;">品名</th>
+              <th style="width: 40%;">品名</th>
               <th style="width: 8%;">数量</th>
-              <th style="width: 10%;">资产编号</th>
-              <th style="width: 12%;">序列号</th>
+              <th style="width: 20%;">资产编号</th>
+              <th style="width: 24%;">序列号/附件说明</th>
             </tr>
           </thead>
           <tbody>
+            <!-- 主设备 -->
             <tr class="main-product">
               <td>1</td>
-              <td class="device-name">VIVO X200Ultra 16+512G</td>
-              <td>1</td>
+              <td class="device-name">{{ rental?.device?.device_model?.display_name || rental?.device_name }}</td>
+              <td>1台</td>
               <td>{{ rental?.device_name }}</td>
-              <td class="serial-number">{{ deviceInfo?.serial_number || '-' }}</td>
+              <td class="serial-number">{{ deviceInfo?.serial_number || rental?.device?.serial_number || '-' }}/{{ getDefaultAccessories() }}</td>
             </tr>
-            <tr>
-              <td>2</td>
-              <td>VIVO 90w 充电头+充电线</td>
-              <td>1</td>
-              <td>-</td>
-              <td>-</td>
-            </tr>
-            <tr>
-              <td>3</td>
-              <td>VIVO 2.35倍增距镜+镜头盖+增距镜脚架+手机壳</td>
-              <td>1</td>
-              <td>-</td>
-              <td>-</td>
-            </tr>
-            <tr>
-              <td>4</td>
-              <td>套装便携手提包</td>
-              <td>1</td>
-              <td>-</td>
-              <td>-</td>
+            <!-- 个性化附件 -->
+            <tr v-for="(accessory, index) in getPersonalizedAccessories()" :key="`personal-${accessory.id}`">
+              <td>{{ index + 2 }}</td>
+              <td>{{ accessory.model }}</td>
+              <td>1个</td>
+              <td>{{ accessory.name || '-' }}</td>
+              <td>个性化附件</td>
             </tr>
           </tbody>
         </table>
@@ -133,6 +124,22 @@
           </div>
           <div class="contact-text">
             小二微信：vacuumdust，13510224947
+          </div>
+        </div>
+
+        <!-- 底部二维码区域 -->
+        <div class="qr-codes-section">
+          <div class="qr-code-item">
+            <img src="/src/assets/镜头安装教程.png" alt="镜头安装教程" class="qr-code" />
+            <div class="qr-code-label">镜头安装教程</div>
+          </div>
+          <div class="qr-code-item">
+            <img src="/src/assets/拍摄调试教程.png" alt="拍摄调试教程" class="qr-code" />
+            <div class="qr-code-label">拍摄调试教程</div>
+          </div>
+          <div class="qr-code-item">
+            <img src="/src/assets/照片传输教程.png" alt="照片传输教程" class="qr-code" />
+            <div class="qr-code-label">照片传输教程</div>
           </div>
         </div>
       </div>
@@ -239,6 +246,31 @@ const handlePrint = () => {
   }, 200)
 }
 
+// 获取默认附件列表
+const getDefaultAccessories = () => {
+  if (!rental.value?.device?.device_model?.default_accessories) {
+    return ""
+  }
+
+  const accessories = rental.value.device.device_model.default_accessories
+
+  // 如果是数组，转换为字符串
+  if (Array.isArray(accessories)) {
+    return accessories.join('、')
+  }
+
+  // 如果是字符串，直接返回
+  return accessories
+}
+
+// 获取个性化附件列表（从租赁记录的子租赁中获取）
+const getPersonalizedAccessories = () => {
+  if (!rental.value?.accessories) {
+    return []
+  }
+  return rental.value.accessories.filter(acc => acc.is_accessory)
+}
+
 // 生命周期
 onMounted(async () => {
   const rentalId = route.params.id
@@ -292,6 +324,24 @@ onMounted(async () => {
   padding: 15px;
   text-align: center;
   margin: -20px -20px 20px -20px;
+  position: relative;
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.logo {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 50px;
+  width: auto;
+  filter: brightness(1.2) contrast(1.1);
 }
 
 .header-section h1 {
@@ -490,6 +540,42 @@ onMounted(async () => {
   min-width: 45px;
 }
 
+.qr-codes-section {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  margin-top: 20px;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.qr-code-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.qr-code {
+  width: 100px;
+  height: 100px;
+  object-fit: contain;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  padding: 5px;
+}
+
+.qr-code-label {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: bold;
+  color: #333;
+  line-height: 1.2;
+}
+
 /* 打印样式优化 */
 @media print {
   .page-header {
@@ -544,6 +630,27 @@ onMounted(async () => {
   
   .sf-express {
     font-size: 24px;
+  }
+
+  .logo {
+    height: 40px;
+    filter: brightness(1) contrast(1);
+  }
+
+  .qr-codes-section {
+    margin-top: 15px;
+    padding: 10px;
+  }
+
+  .qr-code {
+    width: 80px;
+    height: 80px;
+    padding: 3px;
+  }
+
+  .qr-code-label {
+    font-size: 10px;
+    margin-top: 5px;
   }
 }
 </style>

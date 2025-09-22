@@ -9,11 +9,39 @@ import {
 } from '@/utils/dateUtils'
 import dayjs from 'dayjs'
 
+export interface DeviceModel {
+  id: number
+  name: string
+  display_name: string
+  description?: string
+  is_active: boolean
+  default_accessories?: any[]
+  model_accessories?: ModelAccessory[]
+  device_value?: number
+  created_at: string
+  updated_at: string
+  accessories: ModelAccessory[]
+}
+
+export interface ModelAccessory {
+  id: number
+  model_id: number
+  accessory_name: string
+  accessory_description?: string
+  accessory_value?: number
+  is_required: boolean
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface Device {
   id: number
   name: string
   serial_number: string
   model: string
+  model_id?: number
+  device_model?: DeviceModel
   is_accessory: boolean
   status: 'idle' | 'pending_ship' | 'renting' | 'pending_return' | 'returned' | 'offline'
   created_at: string
@@ -24,6 +52,14 @@ export interface Rental {
   id: number
   device_id: number
   device_name: string
+  device?: {
+    id: number
+    name: string
+    serial_number: string
+    model: string
+    model_id?: number
+    device_model?: DeviceModel
+  }
   start_date: string
   end_date: string
   customer_name: string
@@ -36,7 +72,7 @@ export interface Rental {
   ship_in_time?: string
   parent_rental_id?: number
   child_rentals?: Rental[]
-  accessories?: { id: number; name: string; model: string; is_accessory: boolean }[]
+  accessories?: { id: number; name: string; model: string; is_accessory: boolean; value?: number }[]
 }
 
 export interface AvailableSlot {
@@ -186,7 +222,14 @@ export const useGanttStore = defineStore('gantt', () => {
         throw new Error(response.data.error || '更新租赁失败')
       }
     } catch (err: any) {
-      throw new Error(err.response?.data?.error || err.message || '更新租赁失败')
+      // 保持原始错误对象的结构，以便前端可以访问response属性
+      if (err.response) {
+        // 重新抛出axios错误，保持其结构
+        throw err
+      } else {
+        // 对于其他类型的错误，包装为Error
+        throw new Error(err.message || '更新租赁失败')
+      }
     }
   }
 

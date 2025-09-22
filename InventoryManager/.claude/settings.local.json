@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Read(/Users/jimmypan/git_repo/XianyuAutoAgent/cocs/**)"
+      "Read(/Users/jimmypan/git_repo/XianyuAutoAgent/cocs/**)",
+      "Bash(python -m flask db revision:*)",
+      "Bash(python3 -m flask db revision:*)",
+      "Bash(python3:*)",
+      "Bash(killall:*)",
+      "Bash(npx vue-tsc:*)",
+      "Bash(npm run build:*)"
     ],
     "deny": [],
     "ask": [],

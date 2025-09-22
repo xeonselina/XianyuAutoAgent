@@ -58,7 +58,6 @@
             :key="device.id"
             :label="`${device.name} (${device.serial_number || '无序列号'})`"
             :value="device.id"
-            :disabled="device.conflicted"
           >
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <span>{{ device.name }}</span>
@@ -194,13 +193,16 @@
       </el-form-item>
 
       <!-- 附件选择 -->
-      <el-form-item label="附件选择" prop="selectedAccessoryId">
+      <el-form-item label="附件选择" prop="accessories">
         <div class="device-selection">
           <el-select
-            v-model="form.selectedControllerId"
-            placeholder="选择附件或查找可用附件"
+            v-model="form.accessories"
+            placeholder="选择附件(可多选)"
             clearable
             filterable
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
             style="flex: 1"
             :loading="loadingAccessories"
             loading-text="正在加载附件..."
@@ -234,7 +236,7 @@
             查找附件
           </el-button>
         </div>
-        <div class="form-tip">选择具体附件或点击查找附件自动匹配可用附件</div>
+        <div class="form-tip">可选择多个附件或点击查找附件自动匹配可用附件</div>
         
         <!-- 查找到的附件信息 -->
         <div v-if="availableAccessorySlot" class="slot-info" style="margin-top: 12px">
@@ -252,6 +254,14 @@
               收回: {{ formatDateTime(availableAccessorySlot.shipInDate) }}
             </div>
           </div>
+          <el-button
+            type="primary"
+            size="small"
+            style="margin-top: 8px"
+            @click="addFoundAccessory"
+          >
+            添加此附件
+          </el-button>
         </div>
         
         <!-- 当前选择的附件显示 -->
@@ -422,7 +432,6 @@ const form = reactive({
   shipInTrackingNo: '',
   shipOutTime: null as Date | null,
   shipInTime: null as Date | null,
-  selectedControllerId: null as number | null,
   accessories: [] as number[]
 })
 
@@ -707,8 +716,6 @@ const loadLatestRentalData = async (rental: Rental) => {
       const accessoriesFromAPI = (latestRental as any).accessories?.map((acc: any) => acc.id) || []
       const accessoriesFromChildRentals = (latestRental as any).child_rentals?.map((childRental: any) => childRental.device_id) || []
       form.accessories = accessoriesFromAPI.length > 0 ? accessoriesFromAPI : accessoriesFromChildRentals
-      // 如果有附件，设置下拉框选中状态（单选模式，只选择第一个）
-      form.selectedControllerId = form.accessories.length > 0 ? form.accessories[0] : null
       
       console.log('加载的寄出时间:', latestRental.ship_out_time, '-> Date:', form.shipOutTime)
       console.log('加载的收回时间:', latestRental.ship_in_time, '-> Date:', form.shipInTime)
@@ -759,8 +766,6 @@ const loadLatestRentalData = async (rental: Rental) => {
       const accessoriesFromAPI = (rental as any).accessories?.map((acc: any) => acc.id) || []
       const accessoriesFromChildRentals = (rental as any).child_rentals?.map((childRental: any) => childRental.device_id) || []
       form.accessories = accessoriesFromAPI.length > 0 ? accessoriesFromAPI : accessoriesFromChildRentals
-      // 如果有附件，设置下拉框选中状态（单选模式，只选择第一个）
-      form.selectedControllerId = form.accessories.length > 0 ? form.accessories[0] : null
       
       latestDataError.value = '获取最新数据失败，使用缓存数据'
     }
@@ -780,8 +785,6 @@ const loadLatestRentalData = async (rental: Rental) => {
     const accessoriesFromAPI = (rental as any).accessories?.map((acc: any) => acc.id) || []
     const accessoriesFromChildRentals = (rental as any).child_rentals?.map((childRental: any) => childRental.device_id) || []
     form.accessories = accessoriesFromAPI.length > 0 ? accessoriesFromAPI : accessoriesFromChildRentals
-    // 如果有附件，设置下拉框选中状态（单选模式，只选择第一个）
-    form.selectedControllerId = form.accessories.length > 0 ? form.accessories[0] : null
     
     latestDataError.value = '获取最新数据失败：' + (error as Error).message
   } finally {
@@ -857,13 +860,9 @@ const isControllerAvailable = (controller: any) => {
 
 // 移除手柄（已不需要addController函数，通过watch监听器处理）
 
-// 移除手柄
+// 移除附件
 const removeController = (controllerId: number) => {
   form.accessories = form.accessories.filter(id => id !== controllerId)
-  // 如果移除的是当前选中的附件，清空下拉框选择
-  if (form.selectedControllerId === controllerId) {
-    form.selectedControllerId = null
-  }
 }
 
 // 查找可用附件
@@ -896,17 +895,34 @@ const findAvailableAccessory = async () => {
       throw new Error('在指定时间段内没有可用的手柄附件')
     }
 
-    // 自动选择找到的附件，在下拉框中显示选中状态
-    form.selectedControllerId = result.device.id
-    // 通过 watch 监听器会自动更新 form.accessories
+    // 显示找到的附件信息，等用户手动添加
+    availableAccessorySlot.value = {
+      accessory: result.device,
+      shipOutDate: result.shipOutDate,
+      shipInDate: result.shipInDate
+    }
 
-    ElMessage.success(`找到可用附件: ${result.device.name}，已自动选择`)
+    ElMessage.success(`找到可用附件: ${result.device.name}`)
   } catch (error) {
     console.error('查找附件失败:', error)
     ElMessage.error((error as Error).message)
     availableAccessorySlot.value = null
   } finally {
     searchingAccessory.value = false
+  }
+}
+
+// 添加找到的附件到选择列表
+const addFoundAccessory = () => {
+  if (availableAccessorySlot.value?.accessory) {
+    const accessoryId = availableAccessorySlot.value.accessory.id
+    if (!form.accessories.includes(accessoryId)) {
+      form.accessories.push(accessoryId)
+      ElMessage.success(`已添加附件: ${availableAccessorySlot.value.accessory.name}`)
+    } else {
+      ElMessage.warning('该附件已经添加过了')
+    }
+    availableAccessorySlot.value = null
   }
 }
 
@@ -921,34 +937,40 @@ const formatDateTime = (date: Date) => {
 }
 
 // 监听选择的手柄ID变化，更新附件列表（支持单选模式）
-watch(() => form.selectedControllerId, (newId) => {
-  if (newId !== null) {
-    // 单选模式：直接替换当前选择的附件
-    form.accessories = [newId]
-    // 清空附件查找结果显示
-    availableAccessorySlot.value = null
-  } else {
-    // 如果清空选择，则清空附件列表
-    form.accessories = []
-  }
-})
 
 // 设备变更处理函数
 const handleDeviceChange = async (deviceId: number) => {
   if (!props.rental || !deviceId) return
-  
+
   // 重新检查所选设备的冲突状态
   const hasConflict = await checkDeviceConflict(
-    deviceId, 
-    props.rental.start_date, 
-    props.rental.end_date, 
+    deviceId,
+    props.rental.start_date,
+    props.rental.end_date,
     props.rental.id
   )
-  
+
   if (hasConflict) {
-    ElMessage.warning('所选设备在当前时间段有冲突，请检查时间安排')
+    // 显示二次确认对话框
+    try {
+      await ElMessageBox.confirm(
+        '检测到设备档期冲突，选择此设备可能会影响其他租赁安排。\n\n是否仍要选择此设备？',
+        '档期冲突提醒',
+        {
+          type: 'warning',
+          confirmButtonText: '仍要选择',
+          cancelButtonText: '取消选择',
+          dangerouslyUseHTMLString: false
+        }
+      )
+      // 用户确认继续，不做任何操作，保持设备选择
+    } catch (error) {
+      // 用户取消选择，恢复原来的设备
+      form.deviceId = props.rental.device_id
+      return
+    }
   }
-  
+
   // 如果寄出时间或寄回时间发生变化，重新检查冲突
   if (form.shipOutTime || form.shipInTime) {
     await recheckDeviceConflicts()
@@ -996,10 +1018,10 @@ const handleSubmit = async () => {
   submitting.value = true
   try {
     // 将Date对象转换为字符串格式发送给后端，确保使用本地日期
-    const endDateString = form.endDate ? 
-      dayjs(form.endDate).format('YYYY-MM-DD') : 
+    const endDateString = form.endDate ?
+      dayjs(form.endDate).format('YYYY-MM-DD') :
       ''
-    
+
     const updateData = {
       device_id: form.deviceId,
       end_date: endDateString,
@@ -1011,13 +1033,59 @@ const handleSubmit = async () => {
       ship_in_time: form.shipInTime ? dayjs(form.shipInTime).format('YYYY-MM-DD HH:mm:ss') : '',
       accessories: form.accessories
     }
-    
+
     console.log('提交的end_date:', endDateString)
     console.log('原始Date对象:', form.endDate)
 
-    await ganttStore.updateRental(props.rental.id, updateData)
-    emit('success')
-    handleClose()
+    try {
+      await ganttStore.updateRental(props.rental.id, updateData)
+      emit('success')
+      handleClose()
+    } catch (error: any) {
+      // 检查是否是冲突错误（409状态码）
+      if (error.response?.status === 409 && error.response?.data?.requires_confirmation) {
+        // 显示冲突确认对话框
+        try {
+          const conflicts = error.response.data.conflicts || []
+          const conflictMessages = conflicts.map((c: any) => c.message).join('\n')
+
+          await ElMessageBox.confirm(
+            `检测到以下档期冲突：\n\n${conflictMessages}\n\n是否仍要继续保存修改？`,
+            '档期冲突确认',
+            {
+              type: 'warning',
+              confirmButtonText: '强制保存',
+              cancelButtonText: '取消',
+              dangerouslyUseHTMLString: false
+            }
+          )
+
+          // 用户确认，使用force_update强制更新
+          const forceUpdateData = {
+            ...updateData,
+            force_update: true
+          }
+
+          await ganttStore.updateRental(props.rental.id, forceUpdateData)
+
+          // 显示警告信息
+          ElMessage({
+            type: 'warning',
+            message: '已强制保存修改，请注意档期冲突',
+            duration: 5000
+          })
+
+          emit('success')
+          handleClose()
+        } catch (confirmError) {
+          // 用户取消确认，不做任何操作
+          return
+        }
+      } else {
+        // 其他错误直接显示
+        throw error
+      }
+    }
   } catch (error) {
     ElMessage.error('更新失败：' + (error as Error).message)
   } finally {
@@ -1217,7 +1285,6 @@ const handleClose = () => {
   form.shipInTrackingNo = ''
   form.shipOutTime = null
   form.shipInTime = null
-  form.selectedControllerId = null
   form.accessories = []
   
   // 清空快递查询结果

@@ -109,13 +109,16 @@
       </el-form-item>
 
       <!-- 附件选择 -->
-      <el-form-item label="附件选择" prop="selectedAccessoryId">
+      <el-form-item label="附件选择" prop="selectedAccessoryIds">
         <div class="device-selection">
           <el-select
-            v-model="form.selectedAccessoryId"
-            placeholder="选择附件或查找可用附件"
+            v-model="form.selectedAccessoryIds"
+            placeholder="选择附件(可多选)"
             clearable
             filterable
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
             style="flex: 1"
           >
             <el-option
@@ -140,8 +143,8 @@
             查找附件
           </el-button>
         </div>
-        <div class="form-tip">选择具体附件或点击查找附件自动匹配可用附件</div>
-        
+        <div class="form-tip">可选择多个附件或点击查找附件自动匹配可用附件</div>
+
         <!-- 查找到的附件信息 -->
         <div v-if="availableAccessorySlot" class="slot-info" style="margin-top: 12px">
           <div class="slot-device">
@@ -152,6 +155,14 @@
             <div>寄出时间: {{ formatDateTime(availableAccessorySlot.shipOutDate) }}</div>
             <div>收回时间: {{ formatDateTime(availableAccessorySlot.shipInDate) }}</div>
           </div>
+          <el-button
+            type="primary"
+            size="small"
+            style="margin-top: 8px"
+            @click="addFoundAccessory"
+          >
+            添加此附件
+          </el-button>
         </div>
       </el-form-item>
 
@@ -202,6 +213,7 @@ import axios from 'axios'
 
 const props = defineProps<{
   modelValue: boolean
+  selectedDeviceModel?: string
 }>()
 
 const emit = defineEmits<{
@@ -228,7 +240,7 @@ const form = reactive({
   customerName: '',
   customerPhone: '',
   destination: '',
-  selectedAccessoryId: null as number | null,
+  selectedAccessoryIds: [] as number[],
   needController: false
 })
 
@@ -448,7 +460,7 @@ const findAvailableAccessory = async () => {
       shipInDate: result.shipInDate
     }
 
-    form.selectedAccessoryId = result.device.id
+    // 不再自动设置，而是等用户点击添加按钮
     
     ElMessage.success(`找到可用附件: ${result.device.name}`)
   } catch (error) {
@@ -457,6 +469,20 @@ const findAvailableAccessory = async () => {
     availableAccessorySlot.value = null
   } finally {
     searchingAccessory.value = false
+  }
+}
+
+// 添加找到的附件到选择列表
+const addFoundAccessory = () => {
+  if (availableAccessorySlot.value?.accessory) {
+    const accessoryId = availableAccessorySlot.value.accessory.id
+    if (!form.selectedAccessoryIds.includes(accessoryId)) {
+      form.selectedAccessoryIds.push(accessoryId)
+      ElMessage.success(`已添加附件: ${availableAccessorySlot.value.accessory.name}`)
+    } else {
+      ElMessage.warning('该附件已经添加过了')
+    }
+    availableAccessorySlot.value = null
   }
 }
 
@@ -477,12 +503,13 @@ const findAvailableSlot = async () => {
         throw new Error('未找到选择的设备')
       }
       
-      // 暂时使用通用的查找方法，后续可能需要扩展API支持指定设备
+      // 使用选定设备的型号
+      const deviceModel = selectedDevice.device_model?.display_name || selectedDevice.model || props.selectedDeviceModel || 'x200u'
       result = await ganttStore.findAvailableSlot(
         formatDateToString(form.startDate),
         formatDateToString(form.endDate),
         form.logisticsDays,
-        'x200u'
+        deviceModel
       )
       
       // 验证返回的设备是否是指定设备
@@ -490,12 +517,13 @@ const findAvailableSlot = async () => {
         throw new Error(`指定设备 ${selectedDevice.name} 在该时间段不可用`)
       }
     } else {
-      // 未指定设备，自动查找可用设备
+      // 未指定设备，使用甘特图选中的型号自动查找可用设备
+      const deviceModel = props.selectedDeviceModel || 'x200u'
       result = await ganttStore.findAvailableSlot(
         formatDateToString(form.startDate),
         formatDateToString(form.endDate),
         form.logisticsDays,
-        'x200u'
+        deviceModel
       )
       
       // 自动填入找到的设备
@@ -539,19 +567,28 @@ const handleSubmit = async () => {
 
   submitting.value = true
   try {
-      const startDate = dayjs(form.startDate!)
-      const endDate = dayjs(form.endDate!)
-      const shipOutTime = toAPIFormat(startDate.subtract(form.logisticsDays, 'day').subtract(1, 'day').hour(9).minute(0).second(0))
-      const shipInTime = toAPIFormat(endDate.add(form.logisticsDays, 'day').add(1, 'day').hour(18).minute(0).second(0))
+    // 首先检查重复租赁
+    const duplicateCheck = await checkDuplicateRental()
+    if (duplicateCheck.hasDuplicate) {
+      const shouldContinue = await handleDuplicateConfirmation(duplicateCheck.duplicates)
+      if (!shouldContinue) {
+        return
+      }
+    }
+
+    const startDate = dayjs(form.startDate!)
+    const endDate = dayjs(form.endDate!)
+    const shipOutTime = toAPIFormat(startDate.subtract(form.logisticsDays, 'day').subtract(1, 'day').hour(9).minute(0).second(0))
+    const shipInTime = toAPIFormat(endDate.add(form.logisticsDays, 'day').add(1, 'day').hour(18).minute(0).second(0))
 
     // 如果选择了附件，添加到租赁配件列表
     let selectedAccessories: number[] = []
-    if (form.selectedAccessoryId) {
-      selectedAccessories = [form.selectedAccessoryId]
+    if (form.selectedAccessoryIds.length > 0) {
+      selectedAccessories = [...form.selectedAccessoryIds]
     } else if (form.needController) {
       // 兼容旧的手柄逻辑，自动选择一个可用的手柄
       let availableController = null
-      
+
       // 如果有查找档期的结果，优先从其可用手柄中选择
       if (availableSlot.value && availableSlot.value.availableControllers && availableSlot.value.availableControllers.length > 0) {
         const controllerId = availableSlot.value.availableControllers[0]
@@ -562,7 +599,7 @@ const handleSubmit = async () => {
           availableController = controllerAvailabilityState.value.availableControllers[0]
         }
       }
-      
+
       if (availableController) {
         selectedAccessories = [availableController.id]
       } else {
@@ -597,6 +634,63 @@ const handleSubmit = async () => {
   }
 }
 
+// 检查重复租赁
+const checkDuplicateRental = async () => {
+  try {
+    const response = await axios.post('/api/rentals/check-duplicate', {
+      customer_name: form.customerName,
+      destination: form.destination
+    })
+
+    if (response.data.success) {
+      return {
+        hasDuplicate: response.data.has_duplicate,
+        duplicates: response.data.duplicates || []
+      }
+    } else {
+      console.error('检查重复租赁失败:', response.data.error)
+      return { hasDuplicate: false, duplicates: [] }
+    }
+  } catch (error) {
+    console.error('检查重复租赁失败:', error)
+    return { hasDuplicate: false, duplicates: [] }
+  }
+}
+
+// 处理重复租赁确认
+const handleDuplicateConfirmation = async (duplicates: any[]) => {
+  try {
+    // 构建重复信息显示
+    let duplicateInfo = '检测到可能重复的租赁记录：\n\n'
+
+    duplicates.forEach((duplicate, index) => {
+      duplicateInfo += `${index + 1}. 设备：${duplicate.device_name}\n`
+      duplicateInfo += `   客户：${duplicate.customer_name}\n`
+      duplicateInfo += `   地址：${duplicate.destination}\n`
+      duplicateInfo += `   时间：${duplicate.start_date} 至 ${duplicate.end_date}\n`
+      duplicateInfo += `   状态：${duplicate.status}\n`
+      duplicateInfo += `   重复原因：${duplicate.duplicate_reasons.join(', ')}\n\n`
+    })
+
+    duplicateInfo += '是否仍要继续创建新的租赁记录？'
+
+    await ElMessageBox.confirm(
+      duplicateInfo,
+      '重复租赁提醒',
+      {
+        type: 'warning',
+        confirmButtonText: '继续创建',
+        cancelButtonText: '取消',
+        dangerouslyUseHTMLString: false
+      }
+    )
+
+    return true // 用户确认继续
+  } catch {
+    return false // 用户取消
+  }
+}
+
 const handleConflictConfirmation = async (conflictMessage: string) => {
   try {
     await ElMessageBox.confirm(
@@ -608,7 +702,7 @@ const handleConflictConfirmation = async (conflictMessage: string) => {
         cancelButtonText: '取消'
       }
     )
-    
+
     // 用户确认后，强制提交
     await forceSubmitRental()
   } catch {
@@ -636,8 +730,8 @@ const forceSubmitRental = async () => {
 
   // 如果选择了附件，添加到租赁配件列表
   let selectedAccessories: number[] = []
-  if (form.selectedAccessoryId) {
-    selectedAccessories = [form.selectedAccessoryId]
+  if (form.selectedAccessoryIds.length > 0) {
+    selectedAccessories = [...form.selectedAccessoryIds]
   } else if (form.needController) {
     // 兼容旧的手柄逻辑，自动选择一个可用的手柄
     let availableController = null
@@ -699,7 +793,7 @@ const handleClose = () => {
     customerName: '',
     customerPhone: '',
     destination: '',
-    selectedAccessoryId: null,
+    selectedAccessoryIds: [],
     needController: false
   })
   
