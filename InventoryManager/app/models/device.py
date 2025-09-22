@@ -18,6 +18,7 @@ class Device(db.Model):
     name = db.Column(db.String(100), nullable=False, comment='设备名称')
     serial_number = db.Column(db.String(100), unique=True, comment='设备序列号')
     model = db.Column(db.String(50), nullable=False, default='x200u', comment='设备型号')
+    model_id = db.Column(db.Integer, db.ForeignKey('device_models.id'), nullable=True, comment='设备型号ID')
     is_accessory = db.Column(db.Boolean, default=False, comment='是否为附件')
     
     # 状态信息
@@ -46,6 +47,8 @@ class Device(db.Model):
             'name': self.name,
             'serial_number': self.serial_number,
             'model': self.model,
+            'model_id': self.model_id,
+            'device_model': self.device_model.to_dict() if self.device_model else None,
             'is_accessory': self.is_accessory,
             'status': self.status,
             'created_at': self.created_at.isoformat(),

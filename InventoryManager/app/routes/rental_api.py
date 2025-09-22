@@ -63,22 +63,50 @@ def get_rental(rental_id):
                 'error': '租赁记录不存在'
             }), 404
         
-        # 获取附件信息（通过child_rentals获取）
-        accessories_info = []
-        for child_rental in rental.child_rentals:
-            if child_rental.device:
-                accessories_info.append({
-                    'id': child_rental.device.id,
-                    'name': child_rental.device.name,
-                    'model': child_rental.device.model,
-                    'is_accessory': child_rental.device.is_accessory,
-                    'rental_id': child_rental.id
-                })
+        # 获取设备信息（包含实际租赁的附件）
+        device_info = None
+        if rental.device:
+            # 获取实际租赁的附件设备
+            rented_accessories = []
+            for child_rental in rental.child_rentals:
+                if child_rental.device:
+                    rented_accessories.append({
+                        'id': child_rental.device.id,
+                        'name': child_rental.device.name,
+                        'model': child_rental.device.model,
+                        'is_accessory': child_rental.device.is_accessory,
+                        'rental_id': child_rental.id
+                    })
+
+            device_model_info = None
+            if rental.device.device_model:
+                # 返回设备型号基本信息和默认附件
+                device_model_info = {
+                    'id': rental.device.device_model.id,
+                    'name': rental.device.device_model.name,
+                    'display_name': rental.device.device_model.display_name,
+                    'description': rental.device.device_model.description,
+                    'device_value': rental.device.device_model.device_value,
+                    'default_accessories': rental.device.device_model.get_default_accessories_list(),
+                    'model_accessories': [acc.to_dict() for acc in rental.device.device_model.accessories.filter_by(is_active=True)]
+                }
+
+            device_info = {
+                'id': rental.device.id,
+                'name': rental.device.name,
+                'serial_number': rental.device.serial_number,
+                'model': rental.device.model,
+                'model_id': rental.device.model_id,
+                'device_model': device_model_info,
+                'accessories': rented_accessories  # 实际租赁的附件
+            }
 
         rental_info = {
             'id': rental.id,
             'device_id': rental.device_id,
             'device_name': rental.device.name if rental.device else 'Unknown',
+            'device': device_info,
+            'accessories': rented_accessories,  # 顶级附件字段，用于编辑弹框兼容性
             'start_date': rental.start_date.isoformat(),
             'end_date': rental.end_date.isoformat(),
             'ship_out_time': rental.ship_out_time.isoformat() if rental.ship_out_time else None,
@@ -89,8 +117,7 @@ def get_rental(rental_id):
             'ship_out_tracking_no': rental.ship_out_tracking_no,
             'ship_in_tracking_no': rental.ship_in_tracking_no,
             'status': rental.status,
-            'created_at': rental.created_at.isoformat(),
-            'accessories': accessories_info
+            'created_at': rental.created_at.isoformat()
         }
         
         return jsonify({
@@ -500,18 +527,18 @@ def check_rental_conflict():
                 'success': False,
                 'error': '请求数据不能为空'
             }), 400
-            
+
         device_id = data.get('device_id')
         start_date = data.get('start_date')
         end_date = data.get('end_date')
         exclude_rental_id = data.get('exclude_rental_id')
-        
+
         if not all([device_id, start_date, end_date]):
             return jsonify({
                 'success': False,
                 'error': '缺少必要参数'
             }), 400
-        
+
         # 解析日期并转换为datetime（使用寄出寄回的默认时间）
         try:
             start_date_obj = datetime.strptime(start_date, '%Y-%m-%d')
@@ -524,25 +551,111 @@ def check_rental_conflict():
                 'success': False,
                 'error': '日期格式错误'
             }), 400
-        
+
         # 使用现有的库存服务检查可用性
         from app.services.inventory_service import InventoryService
         availability_result = InventoryService.check_device_availability(
             device_id, ship_out_time, ship_in_time, exclude_rental_id
         )
-        
+
         return jsonify({
             'success': True,
             'has_conflict': not availability_result['available'],
             'reason': availability_result.get('reason', ''),
             'conflict_details': availability_result.get('conflicting_rentals', [])
         })
-        
+
     except Exception as e:
         current_app.logger.error(f"检查租赁冲突失败: {e}")
         return jsonify({
             'success': False,
             'error': '检查冲突失败'
+        }), 500
+
+
+@bp.route('/api/rentals/check-duplicate', methods=['POST'])
+def check_duplicate_rental():
+    """检查重复租赁（相同客户名称或地址）"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': '请求数据不能为空'
+            }), 400
+
+        customer_name = data.get('customer_name', '').strip()
+        destination = data.get('destination', '').strip()
+        exclude_rental_id = data.get('exclude_rental_id')
+
+        if not customer_name and not destination:
+            return jsonify({
+                'success': True,
+                'has_duplicate': False,
+                'duplicates': []
+            })
+
+        # 查找重复的租赁记录
+        query = Rental.query.filter(Rental.status.in_(['pending', 'active']))
+
+        # 排除当前编辑的租赁记录
+        if exclude_rental_id:
+            query = query.filter(Rental.id != exclude_rental_id)
+
+        # 构建查询条件：客户名称完全相同或地址完全相同
+        filters = []
+
+        if customer_name:
+            filters.append(Rental.customer_name == customer_name)
+
+        if destination:
+            filters.append(Rental.destination == destination)
+
+        if not filters:
+            return jsonify({
+                'success': True,
+                'has_duplicate': False,
+                'duplicates': []
+            })
+
+        # 使用OR条件查找匹配的租赁记录
+        from sqlalchemy import or_
+        duplicate_rentals = query.filter(or_(*filters)).order_by(Rental.created_at.desc()).limit(5).all()
+
+        duplicates = []
+        for rental in duplicate_rentals:
+            # 确定重复原因
+            duplicate_reasons = []
+            if customer_name and rental.customer_name == customer_name:
+                duplicate_reasons.append('客户名称相同')
+
+            if destination and rental.destination == destination:
+                duplicate_reasons.append('收件地址相同')
+
+            if duplicate_reasons:
+                duplicates.append({
+                    'id': rental.id,
+                    'device_name': rental.device.name if rental.device else 'Unknown',
+                    'customer_name': rental.customer_name,
+                    'destination': rental.destination,
+                    'start_date': rental.start_date.isoformat(),
+                    'end_date': rental.end_date.isoformat(),
+                    'status': rental.status,
+                    'created_at': rental.created_at.isoformat(),
+                    'duplicate_reasons': duplicate_reasons
+                })
+
+        return jsonify({
+            'success': True,
+            'has_duplicate': len(duplicates) > 0,
+            'duplicates': duplicates
+        })
+
+    except Exception as e:
+        current_app.logger.error(f"检查重复租赁失败: {e}")
+        return jsonify({
+            'success': False,
+            'error': '检查重复租赁失败'
         }), 500
 
 

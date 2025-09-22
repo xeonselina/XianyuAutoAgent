@@ -82,6 +82,8 @@ def gantt_data():
                 'name': device.name,
                 'serial_number': device.serial_number,
                 'model': getattr(device, 'model', 'x200u'),  # 默认值防止旧数据报错
+                'model_id': device.model_id,
+                'device_model': device.device_model.to_dict() if device.device_model else None,
                 'is_accessory': getattr(device, 'is_accessory', False),  # 默认值防止旧数据报错
                 'status': device.status,
                 'rentals': []
@@ -279,7 +281,8 @@ def get_daily_stats():
     try:
         # 获取查询参数
         date_str = request.args.get('date')
-        
+        device_model = request.args.get('device_model')  # 新增设备型号筛选参数
+
         if date_str:
             try:
                 target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
@@ -287,18 +290,33 @@ def get_daily_stats():
                 return create_error_response('日期格式错误，请使用YYYY-MM-DD格式')
         else:
             target_date = date.today()
-        
+
         # 计算指定日期空闲设备数量（不在任何租赁的shipouttime到shipintime时间范围内）
         from app.services.inventory_service import InventoryService
-        
+
         # 将目标日期转换为时间段（当天00:00到23:59）
         target_start = datetime.combine(target_date, datetime.min.time())
         target_end = datetime.combine(target_date, datetime.max.time())
-        
+
         # 查询在目标日期这一天不被任何租赁物流时间占用的设备
         available_devices = InventoryService.get_available_devices(target_start, target_end)
+
+        # 如果指定了设备型号，筛选对应型号的设备
+        if device_model:
+            # 从设备模型显示名称获取可用设备
+            from app.models.device_model import DeviceModel
+            model_obj = DeviceModel.query.filter_by(display_name=device_model).first()
+            if model_obj:
+                # 筛选指定型号的可用设备
+                available_devices = [dev for dev in available_devices if dev.model_id == model_obj.id]
+                current_app.logger.debug(f"筛选型号{device_model}(id={model_obj.id})后的可用设备数量: {len(available_devices)}")
+            else:
+                # 如果找不到对应的设备型号，返回空结果
+                available_devices = []
+                current_app.logger.debug(f"未找到设备型号{device_model}")
+
         available_count = len(available_devices)
-        
+
         # 计算待寄出设备数量，分别统计主设备和附件设备
         # 算法：有多少rental的shipouttime的日期部分是当天（使用系统时区）
         rentals_with_ship_out = Rental.query.filter(
@@ -318,13 +336,25 @@ def get_daily_stats():
                 if rental_ship_date == target_date:
                     # 根据设备类型分别统计
                     if rental.device and rental.device.is_accessory:
+                        # 对于附件设备，需要检查其主设备的型号是否匹配
+                        if device_model and rental.parent_rental_id:
+                            # 获取父租赁（主设备租赁）
+                            parent_rental = Rental.query.get(rental.parent_rental_id)
+                            if parent_rental and parent_rental.device:
+                                # 检查主设备的型号是否匹配
+                                if parent_rental.device.device_model and parent_rental.device.device_model.display_name != device_model:
+                                    continue  # 跳过不匹配的主设备型号的附件
                         accessory_ship_out_count += 1
                         current_app.logger.debug(f"附件租赁{rental.id}在{target_date}寄出")
                     else:
+                        # 对于主设备，直接检查设备型号
+                        if device_model and rental.device:
+                            if rental.device.device_model and rental.device.device_model.display_name != device_model:
+                                continue  # 跳过不匹配的设备型号
                         main_device_ship_out_count += 1
                         current_app.logger.debug(f"主设备租赁{rental.id}在{target_date}寄出")
 
-        current_app.logger.debug(f"日期{target_date}统计结果: 空闲={available_count}, 主设备寄出={main_device_ship_out_count}, 附件寄出={accessory_ship_out_count}")
+        current_app.logger.debug(f"日期{target_date}统计结果(型号筛选:{device_model}): 空闲={available_count}, 主设备寄出={main_device_ship_out_count}, 附件寄出={accessory_ship_out_count}")
 
         return create_success_response({
             'date': target_date.isoformat(),

@@ -109,6 +109,7 @@ def create_device():
             name=data['name'],
             serial_number=data['serial_number'],
             model=data.get('model', 'x200u'),
+            model_id=data.get('model_id'),
             is_accessory=data.get('is_accessory', False),
             status='idle'
         )
@@ -124,6 +125,7 @@ def create_device():
                 'name': device.name,
                 'serial_number': device.serial_number,
                 'model': device.model,
+                'model_id': device.model_id,
                 'is_accessory': device.is_accessory,
                 'status': device.status
             }

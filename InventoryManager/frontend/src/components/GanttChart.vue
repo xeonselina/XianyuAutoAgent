@@ -50,12 +50,28 @@
     <!-- 过滤器 -->
     <div class="filters">
       <el-row :gutter="16">
-        <el-col :span="6">
+        <el-col :span="4">
+          <el-select
+            v-model="selectedDeviceModel"
+            placeholder="设备型号"
+            clearable
+            @change="applyFilters"
+          >
+            <el-option
+              v-for="model in availableDeviceModels"
+              :key="model"
+              :label="model"
+              :value="model"
+            />
+          </el-select>
+        </el-col>
+
+        <el-col :span="4">
           <el-select
             v-model="selectedDeviceType"
             placeholder="设备名称"
-            multiple
             clearable
+            multiple
             collapse-tags
             collapse-tags-tooltip
             @change="applyFilters"
@@ -68,11 +84,11 @@
             />
           </el-select>
         </el-col>
-        
-        <el-col :span="6">
-          <el-select 
-            v-model="selectedStatus" 
-            placeholder="设备状态" 
+
+        <el-col :span="4">
+          <el-select
+            v-model="selectedStatus"
+            placeholder="设备状态"
             clearable
             @change="applyFilters"
           >
@@ -85,8 +101,8 @@
             <el-option label="离线" value="offline" />
           </el-select>
         </el-col>
-        
-        <el-col :span="6">
+
+        <el-col :span="4">
           <el-button @click="clearFilters">清除过滤</el-button>
         </el-col>
       </el-row>
@@ -148,8 +164,9 @@
     </div>
 
     <!-- 预定对话框 -->
-    <BookingDialog 
+    <BookingDialog
       v-model="showBookingDialog"
+      :selected-device-model="selectedDeviceModel"
       @success="handleBookingSuccess"
     />
 
@@ -191,14 +208,40 @@
           />
         </el-form-item>
         
-        <el-form-item label="型号" prop="model">
-          <el-select 
-            v-model="addDeviceForm.model" 
+        <el-form-item label="型号" prop="model_id">
+          <el-select
+            v-model="addDeviceForm.model_id"
             placeholder="请选择型号"
             style="width: 100%"
+            @change="onModelChange"
           >
-            <el-option label="x200u" value="x200u" />
-            <el-option label="x200u 手柄" value="x200u_controller" />
+            <el-option
+              v-for="model in deviceModels"
+              :key="model.id"
+              :label="model.display_name"
+              :value="model.id"
+            />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item
+          v-if="selectedModelAccessories.length > 0"
+          label="附件类型"
+          prop="accessory_type"
+        >
+          <el-select
+            v-model="addDeviceForm.accessory_type"
+            placeholder="选择附件类型（可选）"
+            style="width: 100%"
+            clearable
+            @change="onAccessoryTypeChange"
+          >
+            <el-option
+              v-for="accessory in selectedModelAccessories"
+              :key="accessory.id"
+              :label="accessory.accessory_name"
+              :value="accessory.accessory_name"
+            />
           </el-select>
         </el-form-item>
         
@@ -238,7 +281,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { useGanttStore, type Device, type Rental } from '@/stores/gantt'
+import { useGanttStore, type Device, type Rental, type DeviceModel, type ModelAccessory } from '@/stores/gantt'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import axios from 'axios'
@@ -261,6 +304,7 @@ const showBookingDialog = ref(false)
 const showEditDialog = ref(false)
 const showAddDeviceDialog = ref(false)
 const selectedRental = ref<Rental | null>(null)
+const selectedDeviceModel = ref<string>('')
 const selectedDeviceType = ref<string[]>([])
 const selectedStatus = ref('')
 const dailyStats = ref<Record<string, {available_count: number, ship_out_count: number, accessory_ship_out_count: number}>>({})
@@ -268,10 +312,14 @@ const dailyStats = ref<Record<string, {available_count: number, ship_out_count: 
 // 添加设备表单
 const addDeviceFormRef = ref()
 const addingDevice = ref(false)
+const deviceModels = ref<DeviceModel[]>([])
+const selectedModelAccessories = ref<ModelAccessory[]>([])
 const addDeviceForm = ref({
   name: '',
   serial_number: '',
-  model: 'x200u',
+  model: '',
+  model_id: null,
+  accessory_type: '',
   is_accessory: false,
   description: ''
 })
@@ -285,7 +333,7 @@ const addDeviceRules = {
     { required: true, message: '请输入序列号', trigger: 'blur' },
     { min: 1, max: 50, message: '序列号长度在 1 到 50 个字符', trigger: 'blur' }
   ],
-  model: [
+  model_id: [
     { required: true, message: '请选择型号', trigger: 'change' }
   ],
   description: [
@@ -301,6 +349,20 @@ const dateArray = computed(() => {
   )
 })
 
+// 计算设备型号列表用于筛选
+const availableDeviceModels = computed(() => {
+  const models = new Set<string>()
+  ganttStore.devices.forEach(device => {
+    // 优先使用 device_model.display_name，如果没有则使用旧的 model 字段
+    if (device.device_model?.display_name) {
+      models.add(device.device_model.display_name)
+    } else if (device.model && device.model.trim()) {
+      models.add(device.model)
+    }
+  })
+  return Array.from(models).sort()
+})
+
 const deviceTypes = computed(() => {
   const types = new Set<string>()
   ganttStore.devices.forEach(device => {
@@ -313,24 +375,33 @@ const deviceTypes = computed(() => {
 
 const filteredDevices = computed(() => {
   let devices = ganttStore.devices
-  
+
   // 过滤掉附件设备（手柄）
   devices = devices.filter(device => !device.is_accessory)
-  
+
+  // 按设备型号筛选
+  if (selectedDeviceModel.value) {
+    devices = devices.filter(device => {
+      // 优先匹配 device_model.display_name，如果没有则匹配旧的 model 字段
+      const deviceModelName = device.device_model?.display_name || device.model
+      return deviceModelName === selectedDeviceModel.value
+    })
+  }
+
+  // 按设备名称筛选
   if (selectedDeviceType.value.length > 0) {
     devices = devices.filter(device =>
-      selectedDeviceType.value.some(selectedType =>
-        device.name.includes(selectedType)
-      )
+      selectedDeviceType.value.some(type => device.name.includes(type))
     )
   }
-  
+
+  // 按设备状态筛选
   if (selectedStatus.value) {
-    devices = devices.filter(device => 
+    devices = devices.filter(device =>
       device.status === selectedStatus.value
     )
   }
-  
+
   return devices
 })
 
@@ -349,6 +420,7 @@ const applyFilters = () => {
 }
 
 const clearFilters = () => {
+  selectedDeviceModel.value = ''
   selectedDeviceType.value = []
   selectedStatus.value = ''
 }
@@ -374,9 +446,11 @@ const filterByShipOutDate = (date: Date) => {
     return device.name.split(' ')[0] // 获取设备名称的第一部分作为类型
   })
 
-  // 去重并设置筛选
-  const uniqueDeviceTypes = [...new Set(deviceTypesToFilter)]
-  selectedDeviceType.value = uniqueDeviceTypes
+  // 去重并设置筛选 - 多选模式选择所有相关类型
+  const uniqueDeviceTypes: string[] = [...new Set(deviceTypesToFilter)]
+  if (uniqueDeviceTypes.length > 0) {
+    selectedDeviceType.value = uniqueDeviceTypes
+  }
 
   // 显示提示信息
   if (uniqueDeviceTypes.length > 0) {
@@ -407,9 +481,11 @@ const filterByAccessoryShipOutDate = (date: Date) => {
     return device.name.split(' ')[0] // 获取设备名称的第一部分作为类型
   })
 
-  // 去重并设置筛选
-  const uniqueDeviceTypes = [...new Set(deviceTypesToFilter)]
-  selectedDeviceType.value = uniqueDeviceTypes
+  // 去重并设置筛选 - 多选模式选择所有相关类型
+  const uniqueDeviceTypes: string[] = [...new Set(deviceTypesToFilter)]
+  if (uniqueDeviceTypes.length > 0) {
+    selectedDeviceType.value = uniqueDeviceTypes
+  }
 
   // 显示提示信息
   if (uniqueDeviceTypes.length > 0) {
@@ -435,15 +511,57 @@ const handleEditSuccess = () => {
   selectedRental.value = null
 }
 
+// 加载设备型号
+const loadDeviceModels = async () => {
+  try {
+    const response = await axios.get('/api/device-models')
+    if (response.data.success) {
+      deviceModels.value = response.data.data
+    }
+  } catch (error) {
+    console.error('加载设备型号失败:', error)
+    ElMessage.error('加载设备型号失败')
+  }
+}
+
+// 型号选择变化处理
+const onModelChange = (modelId: number) => {
+  const selectedModel = deviceModels.value.find(model => model.id === modelId)
+  if (selectedModel) {
+    addDeviceForm.value.model = selectedModel.name
+    selectedModelAccessories.value = selectedModel.accessories || []
+    // 清空附件类型选择
+    addDeviceForm.value.accessory_type = ''
+    addDeviceForm.value.is_accessory = false
+  }
+}
+
+// 附件类型选择变化处理
+const onAccessoryTypeChange = (accessoryType: string) => {
+  if (accessoryType) {
+    addDeviceForm.value.is_accessory = true
+    // 根据附件类型自动设置设备名称
+    const selectedModel = deviceModels.value.find(model => model.id === addDeviceForm.value.model_id)
+    if (selectedModel && !addDeviceForm.value.name) {
+      addDeviceForm.value.name = accessoryType
+    }
+  } else {
+    addDeviceForm.value.is_accessory = false
+  }
+}
+
 // 添加设备相关处理函数
 const resetAddDeviceForm = () => {
   addDeviceForm.value = {
     name: '',
     serial_number: '',
-    model: 'x200u',
+    model: '',
+    model_id: null,
+    accessory_type: '',
     is_accessory: false,
     description: ''
   }
+  selectedModelAccessories.value = []
   if (addDeviceFormRef.value) {
     addDeviceFormRef.value.resetFields()
   }
@@ -518,10 +636,15 @@ const loadDailyStats = async () => {
     const stats = await Promise.all(
       dateArray.value.map(async (date) => {
         const dateStr = toSystemDateString(date)
-        const response = await axios.get('/api/gantt/daily-stats', {
-          params: { date: dateStr }
-        })
-        
+        const params: any = { date: dateStr }
+
+        // 如果选择了设备型号，添加到参数中
+        if (selectedDeviceModel.value) {
+          params.device_model = selectedDeviceModel.value
+        }
+
+        const response = await axios.get('/api/gantt/daily-stats', { params })
+
         if (response.data.success) {
           return {
             date: dateStr,
@@ -536,7 +659,7 @@ const loadDailyStats = async () => {
         }
       })
     )
-    
+
     // 将统计数据存储到响应式对象中
     const statsMap: Record<string, {available_count: number, ship_out_count: number, accessory_ship_out_count: number}> = {}
     stats.forEach(stat => {
@@ -604,10 +727,25 @@ watch([() => ganttStore.devices, () => ganttStore.rentals], () => {
   loadDailyStats()
 }, { deep: true })
 
+// 监听设备型号列表变化，默认选择第一个型号
+watch(availableDeviceModels, (newModels) => {
+  if (newModels.length > 0 && !selectedDeviceModel.value) {
+    selectedDeviceModel.value = newModels[0]
+  }
+}, { immediate: true })
+
+// 监听设备型号筛选变化，重新加载统计数据
+watch(selectedDeviceModel, () => {
+  loadDailyStats()
+})
+
 // 生命周期
 onMounted(async () => {
-  await ganttStore.loadData()
-  await loadDailyStats()
+  await Promise.all([
+    ganttStore.loadData(),
+    loadDailyStats(),
+    loadDeviceModels()
+  ])
 })
 </script>
 
