@@ -192,6 +192,22 @@
         <div class="form-tip">设备收回时间的具体时间</div>
       </el-form-item>
 
+      <el-form-item label="租赁状态" prop="status">
+        <el-select
+          v-model="form.status"
+          placeholder="选择租赁状态"
+          style="width: 100%"
+          @change="handleStatusChange"
+        >
+          <el-option label="未发货" value="not_shipped" />
+          <el-option label="已发货" value="shipped" />
+          <el-option label="已收回" value="returned" />
+          <el-option label="已完成" value="completed" />
+          <el-option label="已取消" value="cancelled" />
+        </el-select>
+        <div class="form-tip">修改状态会同步更新附件状态</div>
+      </el-form-item>
+
       <!-- 附件选择 -->
       <el-form-item label="附件选择" prop="accessories">
         <div class="device-selection">
@@ -432,6 +448,7 @@ const form = reactive({
   shipInTrackingNo: '',
   shipOutTime: null as Date | null,
   shipInTime: null as Date | null,
+  status: '',
   accessories: [] as number[]
 })
 
@@ -596,6 +613,22 @@ const handleShipInTimeChange = (value: Date | null) => {
   form.shipInTime = value
 }
 
+const handleStatusChange = (newStatus: string) => {
+  // 状态变化时自动设置相应的时间戳
+  const now = new Date()
+
+  if (newStatus === 'shipped' && !form.shipOutTime) {
+    form.shipOutTime = now
+    ElMessage.info('已自动设置发货时间为当前时间')
+  } else if (newStatus === 'returned' && !form.shipInTime) {
+    form.shipInTime = now
+    ElMessage.info('已自动设置收回时间为当前时间')
+  } else if (newStatus === 'completed' && !form.shipInTime) {
+    form.shipInTime = now
+    ElMessage.info('已自动设置完成时间为当前时间')
+  }
+}
+
 // 转换数据库时间字符串为本地 Date 对象（数据库存储的就是东八区时间）
 const parseDateTime = (dateTimeString: string): Date | null => {
   if (!dateTimeString) return null
@@ -708,6 +741,7 @@ const loadLatestRentalData = async (rental: Rental) => {
       form.destination = latestRental.destination || ''
       form.shipOutTrackingNo = latestRental.ship_out_tracking_no || ''
       form.shipInTrackingNo = latestRental.ship_in_tracking_no || ''
+      form.status = latestRental.status || 'not_shipped'
       // 转换数据库时间字符串为 Date 对象，用于 VueDatePicker
       form.shipOutTime = parseDateTime(latestRental.ship_out_time || '')
       form.shipInTime = parseDateTime(latestRental.ship_in_time || '')
@@ -758,6 +792,7 @@ const loadLatestRentalData = async (rental: Rental) => {
       form.destination = rental.destination || ''
       form.shipOutTrackingNo = rental.ship_out_tracking_no || ''
       form.shipInTrackingNo = rental.ship_in_tracking_no || ''
+      form.status = rental.status || 'not_shipped'
       // 转换数据库时间字符串为 Date 对象
       form.shipOutTime = parseDateTime(rental.ship_out_time || '')
       form.shipInTime = parseDateTime(rental.ship_in_time || '')
@@ -777,6 +812,7 @@ const loadLatestRentalData = async (rental: Rental) => {
     form.destination = rental.destination || ''
     form.shipOutTrackingNo = rental.ship_out_tracking_no || ''
     form.shipInTrackingNo = rental.ship_in_tracking_no || ''
+    form.status = rental.status || 'not_shipped'
     // 转换数据库时间字符串为 Date 对象
     form.shipOutTime = parseDateTime(rental.ship_out_time || '')
     form.shipInTime = parseDateTime(rental.ship_in_time || '')
@@ -1031,6 +1067,7 @@ const handleSubmit = async () => {
       ship_in_tracking_no: form.shipInTrackingNo,
       ship_out_time: form.shipOutTime ? dayjs(form.shipOutTime).format('YYYY-MM-DD HH:mm:ss') : '',
       ship_in_time: form.shipInTime ? dayjs(form.shipInTime).format('YYYY-MM-DD HH:mm:ss') : '',
+      status: form.status,
       accessories: form.accessories
     }
 
@@ -1285,6 +1322,7 @@ const handleClose = () => {
   form.shipInTrackingNo = ''
   form.shipOutTime = null
   form.shipInTime = null
+  form.status = ''
   form.accessories = []
   
   // 清空快递查询结果

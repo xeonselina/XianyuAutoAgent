@@ -48,66 +48,17 @@ class DeviceStatusService:
     
     @staticmethod
     def _calculate_device_status(device, current_date):
-        """计算设备在当前日期的状态"""
+        """计算设备在当前日期的状态 - 简化版只返回在线或离线"""
         try:
-            # 获取设备的所有租赁记录
-            rentals = device.rentals.filter(
-                Rental.status.in_(['pending', 'active', 'completed'])
-            ).order_by(Rental.start_date).all()
-            
-            if not rentals:
-                return 'idle'  # 没有租赁记录，状态为空闲
-            
-            # 查找当前日期相关的租赁记录
-            current_rental = None
-            next_rental = None
-            
-            for rental in rentals:
-                # 检查是否是当前租赁
-                if rental.start_date <= current_date <= rental.end_date:
-                    current_rental = rental
-                    break
-                
-                # 检查是否是下一个租赁
-                if rental.start_date > current_date:
-                    next_rental = rental
-                    break
-            
-            # 规则1: 如果设备状态是空闲，且有下一单租赁，则改为待寄出
-            if device.status == 'idle' and next_rental:
-                # 检查是否到了寄出时间（租赁开始前1-2天）
-                ship_out_date = next_rental.start_date - timedelta(days=1)
-                if current_date >= ship_out_date:
-                    return 'pending_ship'
-            
-            # 规则2: 如果设备状态是待寄出，且在租赁时间范围内，则改为租赁中
-            if device.status == 'pending_ship' and current_rental:
-                return 'renting'
-            
-            # 规则3: 如果设备处于租赁中，且到了租赁结束时间，则改为待寄回
-            if device.status == 'renting' and current_rental:
-                if current_date >= current_rental.end_date:
-                    return 'pending_return'
-            
-            # 规则4: 如果设备状态是待寄回，且超过了寄回时间，则改为已寄回
-            if device.status == 'pending_return':
-                # 检查是否有寄回时间记录
-                if current_rental and current_rental.ship_in_time:
-                    ship_in_date = current_rental.ship_in_time.date()
-                    if current_date > ship_in_date:
-                        return 'returned'
-                else:
-                    # 没有寄回时间记录，按默认逻辑处理
-                    if current_rental and current_date > current_rental.end_date + timedelta(days=2):
-                        return 'returned'
-            
-            # 规则5: 如果设备状态是已寄回，且没有下一单租赁，则改为空闲
-            if device.status == 'returned' and not next_rental:
-                return 'idle'
-            
-            # 如果没有触发任何规则，保持当前状态
-            return device.status
-            
+            # 简化版：设备默认在线，只有显式设置才会离线
+            # 这里可以根据业务需求添加判断逻辑，比如：
+            # - 设备长时间无租赁可设为离线
+            # - 设备故障时设为离线
+            # - 设备维修时设为离线
+
+            # 目前保持当前状态
+            return device.status if device.status in ['online', 'offline'] else 'online'
+
         except Exception as e:
             logger.error(f"计算设备 {device.id} 状态时出错: {e}")
             return device.status  # 出错时保持当前状态

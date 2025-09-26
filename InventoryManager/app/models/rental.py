@@ -34,8 +34,8 @@ class Rental(db.Model):
     
     # 状态信息
     status = db.Column(
-        db.Enum('pending', 'active', 'completed', 'cancelled', 'overdue', name='rental_status'),
-        default='pending',
+        db.Enum('not_shipped', 'shipped', 'returned', 'completed', 'cancelled', name='rental_status'),
+        default='not_shipped',
         comment='租赁状态'
     )
     
@@ -86,37 +86,48 @@ class Rental(db.Model):
     
     def is_overdue(self):
         """检查是否逾期"""
-        if self.status == 'active' and self.end_date:
+        if self.status == 'shipped' and self.end_date:
             return date.today() > self.end_date
         return False
     
     def is_active(self):
         """检查是否处于活动状态"""
-        if self.status != 'active':
+        if self.status != 'shipped':
             return False
-        
+
         today = date.today()
         return self.start_date <= today <= self.end_date
     
     def can_cancel(self):
         """检查是否可以取消"""
-        return self.status in ['pending', 'active'] and not self.is_overdue()
+        return self.status in ['not_shipped', 'shipped'] and not self.is_overdue()
     
     def can_extend(self):
         """检查是否可以延期"""
-        return self.status == 'active' and not self.is_overdue()
+        return self.status == 'shipped' and not self.is_overdue()
     
-    def approve(self):
-        """审批租赁申请"""
-        if self.status == 'pending':
-            self.status = 'active'
+    def ship(self):
+        """发货租赁申请"""
+        if self.status == 'not_shipped':
+            self.status = 'shipped'
+            self.ship_out_time = datetime.utcnow()
             return True
         return False
     
+    def return_item(self):
+        """设备已收回"""
+        if self.status == 'shipped':
+            self.status = 'returned'
+            self.ship_in_time = datetime.utcnow()
+            return True
+        return False
+
     def complete(self):
         """完成租赁"""
-        if self.status == 'active':
+        if self.status in ['shipped', 'returned']:
             self.status = 'completed'
+            if not self.ship_in_time:
+                self.ship_in_time = datetime.utcnow()
             return True
         return False
     
@@ -158,18 +169,18 @@ class Rental(db.Model):
     @classmethod
     def get_active_rentals(cls, date_range=None, include_accessories=False):
         """获取活动租赁记录
-        
+
         Args:
             date_range: 时间范围
             include_accessories: 是否包括附件租赁记录（默认只返回主租赁）
         """
         if include_accessories:
-            query = cls.query.filter(cls.status == 'active')
+            query = cls.query.filter(cls.status == 'shipped')
         else:
             # 只返回主租赁记录（用于甘特图显示）
             query = cls.query.filter(
                 db.and_(
-                    cls.status == 'active',
+                    cls.status == 'shipped',
                     cls.parent_rental_id.is_(None)
                 )
             )
@@ -201,7 +212,7 @@ class Rental(db.Model):
         today = date.today()
         return cls.query.filter(
             db.and_(
-                cls.status == 'active',
+                cls.status == 'shipped',
                 cls.end_date < today
             )
         ).all()
@@ -234,13 +245,17 @@ class Rental(db.Model):
             )
         
         total_rentals = query.count()
-        active_rentals = query.filter(cls.status == 'active').count()
+        shipped_rentals = query.filter(cls.status == 'shipped').count()
+        not_shipped_rentals = query.filter(cls.status == 'not_shipped').count()
+        returned_rentals = query.filter(cls.status == 'returned').count()
         completed_rentals = query.filter(cls.status == 'completed').count()
         cancelled_rentals = query.filter(cls.status == 'cancelled').count()
-        
+
         return {
             'total_rentals': total_rentals,
-            'active_rentals': active_rentals,
+            'shipped_rentals': shipped_rentals,
+            'not_shipped_rentals': not_shipped_rentals,
+            'returned_rentals': returned_rentals,
             'completed_rentals': completed_rentals,
             'cancelled_rentals': cancelled_rentals,
             'period': {

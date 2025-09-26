@@ -1,9 +1,6 @@
 from typing import Dict, List, Optional
 from playwright.async_api import Page, ElementHandle
 from loguru import logger
-import json
-import re
-import time
 
 
 class GoofishDOMParser:
@@ -57,6 +54,14 @@ class GoofishDOMParser:
                 'button[class*="send"]',              # 包含send的按钮
                 'button[aria-label*="发送"]',         # 带发送标签的按钮
                 'button'                              # 通用按钮（在输入框附近）
+            ],
+
+            # 消息项目
+            'message_item': [
+                '.message-item',                      # 消息项目
+                '.chat-message',                      # 聊天消息
+                '[class*="message"]',                 # 包含message的类
+                '[class*="chat"]'                     # 包含chat的类
             ]
         }
     
@@ -214,12 +219,22 @@ class GoofishDOMParser:
         contacts_with_new_messages = []
 
         try:
+            # 检查页面状态
+            if self.page.is_closed():
+                logger.error("❌ 页面已关闭，无法获取联系人")
+                return []
+
             # 获取所有联系人项目
             contact_items = await self.page.query_selector_all('.conversation-item--JReyg97P')
             logger.info(f"📋 找到{len(contact_items)}个联系人项目")
 
             for i, contact_item in enumerate(contact_items):
                 try:
+                    # 检查页面是否还有效
+                    if self.page.is_closed():
+                        logger.error("❌ 页面在处理联系人时被关闭")
+                        break
+
                     # 检查是否有新消息徽章
                     badge = await contact_item.query_selector('.ant-badge')
                     if not badge:
@@ -248,6 +263,11 @@ class GoofishDOMParser:
                             '🧧' not in div_text):
                             contact_name = div_text.strip()
                             break
+
+                    # 跳过特殊的系统联系人
+                    if contact_name in ['消息通知', '消息助手', '系统通知', '系统消息', '通知消息']:
+                        logger.debug(f"⏭️ 跳过系统联系人: {contact_name}")
+                        continue
 
                     # 获取最后消息预览
                     last_message = ""
@@ -288,11 +308,25 @@ class GoofishDOMParser:
         logger.info(f"🎯 选择联系人: {contact_name}")
 
         try:
+            # 检查页面状态
+            if self.page.is_closed():
+                logger.error("❌ 页面已关闭，无法选择联系人")
+                return False
+
             # 获取所有联系人项目
             contact_items = await self.page.query_selector_all('.conversation-item--JReyg97P')
 
+            if not contact_items:
+                logger.warning("❌ 未找到任何联系人项目")
+                return False
+
             for i, contact_item in enumerate(contact_items):
                 try:
+                    # 检查页面和元素是否还有效
+                    if self.page.is_closed():
+                        logger.error("❌ 页面在处理过程中被关闭")
+                        return False
+
                     # 获取联系人名称
                     item_text = await contact_item.inner_text()
 
@@ -302,12 +336,17 @@ class GoofishDOMParser:
                         await contact_item.click()
                         logger.info(f"✅ 成功选择联系人: {contact_name}")
 
-                        # 等待聊天界面加载
-                        await self.page.wait_for_timeout(1000)
+                        # 等待聊天界面加载，但要检查页面是否还有效
+                        if not self.page.is_closed():
+                            await self.page.wait_for_timeout(1500)
                         return True
 
                 except Exception as e:
                     logger.warning(f"检查联系人{i+1}时出错: {e}")
+                    # 如果是页面关闭错误，直接返回
+                    if "closed" in str(e).lower():
+                        logger.error("❌ 页面已关闭，停止处理")
+                        return False
                     continue
 
             logger.warning(f"❌ 未找到联系人: {contact_name}")
@@ -337,8 +376,64 @@ class GoofishDOMParser:
             return element_info
         except:
             return 'unknown'
+
+    async def _get_current_contact_name(self) -> str:
+        """获取当前聊天的联系人名称"""
+        try:
+            # 尝试从页面中找到当前聊天联系人的名称
+            # 通常在聊天头部或者标题栏中
+            contact_name = await self.page.evaluate("""
+                () => {
+                    // 尝试多种可能的联系人名称位置
+                    const selectors = [
+                        // 聊天头部标题
+                        '.chat-header .contact-name',
+                        '.chat-title',
+                        '[class*="chat-header"] [class*="name"]',
+                        '[class*="conversation-header"] [class*="name"]',
+                        // 通用标题选择器
+                        'h1', 'h2', 'h3',
+                        // 可能的联系人名称容器
+                        '[class*="contact"][class*="name"]',
+                        '[class*="user"][class*="name"]'
+                    ];
+
+                    for (const selector of selectors) {
+                        const elements = document.querySelectorAll(selector);
+                        for (const element of elements) {
+                            const text = element.textContent && element.textContent.trim();
+                            if (text &&
+                                text.length > 0 &&
+                                text.length < 50 &&
+                                !text.includes('请输入') &&
+                                !text.includes('发送') &&
+                                !text.includes('分钟前') &&
+                                !text.includes('小时前') &&
+                                !text.includes('天前') &&
+                                !text.match(/^\\d+$/)) {  // 不是纯数字
+                                return text;
+                            }
+                        }
+                    }
+
+                    // 如果上述方法都没找到，尝试从页面URL或其他位置推断
+                    // 这里可以根据具体的咸鱼页面结构来调整
+                    return '未知联系人';
+                }
+            """)
+
+            if contact_name and contact_name != '未知联系人':
+                logger.debug(f"✅ 成功获取当前联系人名称: {contact_name}")
+                return contact_name
+            else:
+                logger.warning("⚠️ 无法确定当前联系人名称，使用默认值")
+                return '未知联系人'
+
+        except Exception as e:
+            logger.error(f"❌ 获取当前联系人名称失败: {e}")
+            return '未知联系人'
     
-    async def get_chat_messages(self, limit: int = 50) -> List[Dict]:
+    async def get_chat_messages(self, limit: int = 50, contact_name: str = None) -> List[Dict]:
         """提取所有消息"""
         messages = []
 
@@ -348,42 +443,82 @@ class GoofishDOMParser:
             # 首先检查页面状态
             await self._debug_page_state()
 
-            # 直接使用检测到的消息结构
-            logger.info("📋 检测消息结构...")
-            structure = await self.detect_message_structure()
+            # 获取当前聊天联系人名称
+            if contact_name:
+                current_contact_name = contact_name
+                logger.info(f"📋 使用传入的联系人名称: {current_contact_name}")
+            else:
+                current_contact_name = await self._get_current_contact_name()
+                logger.info(f"📋 从页面获取的联系人名称: {current_contact_name}")
 
-            # 如果已有分析好的消息项，直接使用
-            if structure['message_items']:
-                logger.info(f"✅ 使用预分析的消息项，数量: {len(structure['message_items'])}")
+            # 使用JavaScript直接提取消息
+            logger.info("📋 使用JavaScript提取消息...")
+            messages_data = await self.page.evaluate(f"""
+                (contactName) => {{
+                    const messages = [];
+
+                    // 尝试多种可能的消息容器选择器
+                    const messageContainers = [
+                        '.message-item',
+                        '.chat-message',
+                        '[class*="message"]',
+                        '[class*="chat"]'
+                    ];
+
+                    let messageElements = [];
+                    for (const selector of messageContainers) {{
+                        const elements = document.querySelectorAll(selector);
+                        if (elements.length > 0) {{
+                            messageElements = Array.from(elements);
+                            break;
+                        }}
+                    }}
+
+                    // 如果没找到具体的消息元素，尝试找包含文本的div
+                    if (messageElements.length === 0) {{
+                        const allDivs = document.querySelectorAll('div');
+                        messageElements = Array.from(allDivs).filter(div => {{
+                            const text = div.textContent && div.textContent.trim();
+                            return text && text.length > 2 && text.length < 1000;
+                        }});
+                    }}
+
+                    messageElements.forEach((element, index) => {{
+                        const text = element.textContent && element.textContent.trim();
+                        if (text && text.length > 0) {{
+                            // 简单判断是接收还是发送的消息
+                            const className = element.className || '';
+                            const isReceived = className.includes('received') ||
+                                             className.includes('incoming') ||
+                                             !className.includes('sent') && !className.includes('outgoing');
+
+                            messages.push({{
+                                text: text,
+                                timestamp: new Date().toISOString(),
+                                sender: isReceived ? contactName : 'self',
+                                is_received: isReceived,
+                                is_sent: !isReceived,
+                                type: isReceived ? 'received' : 'sent'
+                            }});
+                        }}
+                    }});
+
+                    return messages;
+                }}
+            """, current_contact_name)
+
+            if messages_data:
                 # 限制消息数量
-                message_items = structure['message_items']
-                if len(message_items) > limit:
-                    message_items = message_items[-limit:]
+                if len(messages_data) > limit:
+                    messages_data = messages_data[-limit:]
                     logger.info(f"📊 限制消息数量为最新的 {limit} 条")
 
-                for i, item in enumerate(message_items):
-                    if item and item.get('text'):
-                        messages.append(item)
-                        logger.debug(f"📝 [{i+1}] 添加消息: {item.get('text', '')[:30]}...")
+                for msg in messages_data:
+                    if msg.get('text'):
+                        messages.append(msg)
+                        logger.debug(f"📝 添加消息: {msg.get('text', '')[:30]}...")
             else:
-                logger.info("🔍 未找到预分析消息项，使用默认选择器查找...")
-                # 如果没有预分析的消息项，使用默认选择器
-                message_elements = await self.find_elements_by_selectors(self.selectors['message_item'])
-                logger.info(f"📊 通过选择器找到 {len(message_elements)} 个消息元素")
-
-                # 限制消息数量
-                if len(message_elements) > limit:
-                    message_elements = message_elements[-limit:]
-                    logger.info(f"📊 限制元素数量为最新的 {limit} 个")
-
-                for i, element in enumerate(message_elements):
-                    logger.debug(f"🔍 [{i+1}/{len(message_elements)}] 分析消息元素...")
-                    message_info = await self._analyze_message_item(element)
-                    if message_info and message_info['text']:
-                        messages.append(message_info)
-                        logger.debug(f"✅ 提取消息: {message_info.get('text', '')[:30]}...")
-                    else:
-                        logger.debug(f"⚠️ 消息元素无有效内容")
+                logger.warning("🔍 未能提取到任何消息")
 
             logger.info(f"✅ 成功提取到 {len(messages)} 条消息")
 

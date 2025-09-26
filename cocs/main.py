@@ -258,8 +258,32 @@ class GoofishAIBot:
             if self.browser:
                 self.browser.is_running = False
 
+            # 主动取消所有任务
+            for task in self.tasks:
+                if not task.done():
+                    task.cancel()
+                    self.logger.debug(f"取消任务: {task}")
+
+            # 创建一个新的任务来处理异步清理
+            if hasattr(asyncio, '_get_running_loop') and asyncio._get_running_loop():
+                # 如果有运行中的事件循环，创建清理任务
+                asyncio.create_task(self._async_cleanup())
+
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
+
+    async def _async_cleanup(self):
+        """异步清理资源"""
+        try:
+            self.logger.info("执行异步资源清理...")
+            await self.stop()
+            self.logger.info("异步资源清理完成")
+        except Exception as e:
+            self.logger.error(f"异步清理资源时出错: {e}")
+        finally:
+            # 强制退出
+            import os
+            os._exit(0)
 
 
 async def main():
@@ -281,14 +305,33 @@ async def main():
     try:
         await bot.start()
     except KeyboardInterrupt:
-        logger.info("收到中断信号")
+        logger.info("收到键盘中断信号")
+    except asyncio.CancelledError:
+        logger.info("任务被取消")
     except Exception as e:
         logger.error(f"系统运行异常: {e}")
     finally:
         try:
+            # 确保所有任务被取消
+            pending_tasks = [task for task in asyncio.all_tasks() if not task.done()]
+            if pending_tasks:
+                logger.info(f"取消 {len(pending_tasks)} 个待处理任务...")
+                for task in pending_tasks:
+                    task.cancel()
+
+                # 等待所有任务完成取消
+                await asyncio.gather(*pending_tasks, return_exceptions=True)
+
             await bot.stop()
+            logger.info("程序正常退出")
         except Exception as e:
             logger.error(f"停止系统时出错: {e}")
+        finally:
+            # 最终确保退出
+            import os
+            import sys
+            logger.info("强制退出程序")
+            os._exit(0)
 
 
 if __name__ == "__main__":

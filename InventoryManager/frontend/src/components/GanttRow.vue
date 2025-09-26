@@ -11,11 +11,7 @@
             style="width: 80px;"
             @change="updateDeviceStatus"
           >
-            <el-option label="空闲" value="idle" />
-            <el-option label="待寄出" value="pending_ship" />
-            <el-option label="租赁中" value="renting" />
-            <el-option label="待收回" value="pending_return" />
-            <el-option label="已归还" value="returned" />
+            <el-option label="在线" value="online" />
             <el-option label="离线" value="offline" />
           </el-select>
         </div>
@@ -41,7 +37,12 @@
       >
         <div class="rental-content">
           <div class="rental-customer-line">
-            <span class="rental-customer">{{ rental.customer_name }}</span>
+            <span class="rental-customer">
+              <span v-if="rental.status === 'shipped'" class="status-icon shipped-icon">🚀</span>
+              <span v-else-if="rental.status === 'returned'" class="status-icon returned-icon">✅</span>
+              <span v-else-if="rental.status === 'not_shipped'" class="status-icon">🚚</span>
+              {{ rental.customer_name }}
+            </span>
             <el-icon v-if="hasAccessories(rental)" class="accessory-icon" title="包含附件">
               <Tools />
             </el-icon>
@@ -305,10 +306,10 @@ const generateRandomColor = (rentalId: number) => {
 
 const getRentalColor = (status: string) => {
   const colorMap: Record<string, string> = {
-    'pending': '#e6a23c',      // 待确认 - 橙色
-    'confirmed': '#409eff',    // 已确认 - 蓝色  
+    'not_shipped': '#e6a23c',  // 未发货 - 橙色
     'shipped': '#67c23a',      // 已发货 - 绿色
-    'returned': '#909399',     // 已归还 - 灰色
+    'returned': '#409eff',     // 已收回 - 蓝色
+    'completed': '#909399',    // 已完成 - 灰色
     'cancelled': '#f56c6c',    // 已取消 - 红色
     'default': '#409eff'       // 默认 - 蓝色
   }
@@ -327,11 +328,7 @@ const getRentalOpacity = (rental: Rental) => {
 
 const getStatusType = (status: string) => {
   const typeMap: Record<string, string> = {
-    'idle': 'success',
-    'pending_ship': 'warning',
-    'renting': 'primary',
-    'pending_return': 'info',
-    'returned': 'success',
+    'online': 'success',
     'offline': 'danger'
   }
   return typeMap[status] || 'info'
@@ -339,11 +336,7 @@ const getStatusType = (status: string) => {
 
 const getStatusText = (status: string) => {
   const textMap: Record<string, string> = {
-    'idle': '空闲',
-    'pending_ship': '待寄出',
-    'renting': '租赁中',
-    'pending_return': '待收回',
-    'returned': '已归还',
+    'online': '在线',
     'offline': '离线'
   }
   return textMap[status] || status
@@ -373,29 +366,9 @@ const getStatusText = (status: string) => {
   height: 100%;
 }
 
-.device-cell.device-status-idle {
+.device-cell.device-status-online {
   background-color: #f6ffed;
   border-left: 4px solid #52c41a;
-}
-
-.device-cell.device-status-pending_ship {
-  background-color: #fff2f0;
-  border-left: 4px solid #ff4d4f;
-}
-
-.device-cell.device-status-renting {
-  background-color: #e6f7ff;
-  border-left: 4px solid #1890ff;
-}
-
-.device-cell.device-status-pending_return {
-  background-color: #fffbe6;
-  border-left: 4px solid #faad14;
-}
-
-.device-cell.device-status-returned {
-  background-color: #fff7e6;
-  border-left: 4px solid #d46b08;
 }
 
 .device-cell.device-status-offline {
@@ -525,5 +498,20 @@ const getStatusText = (status: string) => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.status-icon {
+  margin-right: 4px;
+  font-size: 12px;
+}
+
+.shipped-icon {
+  color: #52c41a;
+  filter: drop-shadow(0 0 2px rgba(82, 196, 26, 0.3));
+}
+
+.returned-icon {
+  color: #52c41a;
+  filter: drop-shadow(0 0 2px rgba(82, 196, 26, 0.3));
 }
 </style>

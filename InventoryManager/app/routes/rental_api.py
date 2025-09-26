@@ -257,7 +257,7 @@ def create_rental():
             customer_name=data['customer_name'],
             customer_phone=customer_phone,
             destination=data.get('destination', ''),
-            status='pending',
+            status='not_shipped',
             ship_out_time=ship_out_time,
             ship_in_time=ship_in_time,
             parent_rental_id=None  # 主租赁
@@ -266,9 +266,7 @@ def create_rental():
         current_app.logger.info(f"主租赁对象创建后 - ship_out_time: {main_rental.ship_out_time}")
         current_app.logger.info(f"主租赁对象创建后 - ship_in_time: {main_rental.ship_in_time}")
         
-        # 更新主设备状态（只有在非强制创建时才更新）
-        if not force_create:
-            device.status = 'renting'
+        # 设备状态不需要根据租赁状态变化，只保持在线/离线状态
         
         db.session.add(main_rental)
         current_app.logger.info("主租赁记录已添加到会话")
@@ -301,7 +299,7 @@ def create_rental():
                         customer_name=data['customer_name'],
                         customer_phone=customer_phone,
                         destination=data.get('destination', ''),
-                        status='pending',
+                        status='not_shipped',
                         ship_out_time=ship_out_time,
                         ship_in_time=ship_in_time,
                         parent_rental_id=None  # 先设置为None，之后更新
@@ -310,10 +308,7 @@ def create_rental():
                     accessory_rentals.append(accessory_rental)
                     db.session.add(accessory_rental)
                     
-                    # 更新附件设备状态为租赁中
-                    if not force_create:
-                        accessory_device.status = 'renting'
-                        current_app.logger.info(f"附件设备 {accessory_device.name} 状态更新为 renting")
+                    # 附件设备状态不需要根据租赁状态变化，只保持在线/离线状态
                     
                     accessories_added.append(accessory_device.name)
                     current_app.logger.info(f"为附件创建租赁记录: {accessory_device.name}")
@@ -416,30 +411,25 @@ def update_rental(rental_id):
             new_status = data['status']
             rental.status = new_status
             
-            # 处理状态变化时的设备状态更新
+            # 处理状态变化时的逻辑
             if old_status != new_status:
                 current_app.logger.info(f"租赁状态从 {old_status} 变更为 {new_status}")
-                
-                # 更新主设备状态
-                if rental.device:
-                    if new_status in ['completed', 'cancelled']:
-                        rental.device.status = 'idle'
-                        current_app.logger.info(f"主设备 {rental.device.name} 状态更新为 idle")
-                    elif new_status == 'active':
-                        rental.device.status = 'renting'
-                        current_app.logger.info(f"主设备 {rental.device.name} 状态更新为 renting")
-                
-                # 更新附件设备状态（新架构：通过child_rentals更新）
+
+                # 如果状态变为已发货，设置发货时间
+                if new_status == 'shipped' and not rental.ship_out_time:
+                    rental.ship_out_time = datetime.utcnow()
+
+                # 如果状态变为已完成，设置收回时间
+                if new_status == 'completed' and not rental.ship_in_time:
+                    rental.ship_in_time = datetime.utcnow()
+
+                # 同步更新子租赁（附件）的状态
                 for child_rental in rental.child_rentals:
-                    if child_rental.device:
-                        # 同步更新附件租赁的状态
-                        child_rental.status = new_status
-                        if new_status in ['completed', 'cancelled']:
-                            child_rental.device.status = 'idle'
-                            current_app.logger.info(f"附件设备 {child_rental.device.name} 状态更新为 idle")
-                        elif new_status == 'active':
-                            child_rental.device.status = 'renting'
-                            current_app.logger.info(f"附件设备 {child_rental.device.name} 状态更新为 renting")
+                    child_rental.status = new_status
+                    if new_status == 'shipped' and not child_rental.ship_out_time:
+                        child_rental.ship_out_time = datetime.utcnow()
+                    if new_status == 'completed' and not child_rental.ship_in_time:
+                        child_rental.ship_in_time = datetime.utcnow()
         
         if 'ship_out_time' in data:
             if data['ship_out_time']:
@@ -490,15 +480,13 @@ def delete_rental(rental_id):
             }), 404
         
         # 检查租赁状态
-        if rental.status in ['active', 'completed']:
+        if rental.status in ['shipped', 'returned', 'completed']:
             return jsonify({
                 'success': False,
-                'error': '无法删除进行中或已完成的租赁记录'
+                'error': '无法删除已发货、已收回或已完成的租赁记录'
             }), 400
-        
-        # 恢复设备状态
-        if rental.device:
-            rental.device.status = 'idle'
+
+        # 设备状态不需要恢复，只保持在线/离线状态
         
         db.session.delete(rental)
         db.session.commit()
@@ -596,7 +584,7 @@ def check_duplicate_rental():
             })
 
         # 查找重复的租赁记录
-        query = Rental.query.filter(Rental.status.in_(['pending', 'active']))
+        query = Rental.query.filter(Rental.status.in_(['not_shipped', 'shipped', 'returned']))
 
         # 排除当前编辑的租赁记录
         if exclude_rental_id:
@@ -669,6 +657,97 @@ def web_get_rental(rental_id):
 def web_delete_rental(rental_id):
     """Web界面删除租赁记录（别名）"""
     return delete_rental(rental_id)
+
+
+@bp.route('/api/rentals/<rental_id>/status', methods=['PUT'])
+def update_rental_status(rental_id):
+    """更新租赁状态（包括子租赁同步）"""
+    try:
+        rental = Rental.query.get(rental_id)
+        if not rental:
+            return jsonify({
+                'success': False,
+                'error': '租赁记录不存在'
+            }), 404
+
+        data = request.get_json()
+        new_status = data.get('status')
+
+        if not new_status:
+            return jsonify({
+                'success': False,
+                'error': '缺少状态参数'
+            }), 400
+
+        # 验证状态值
+        valid_statuses = ['not_shipped', 'shipped', 'returned', 'completed', 'cancelled']
+        if new_status not in valid_statuses:
+            return jsonify({
+                'success': False,
+                'error': f'无效的状态，支持的状态: {", ".join(valid_statuses)}'
+            }), 400
+
+        old_status = rental.status
+
+        # 更新主租赁状态
+        rental.status = new_status
+
+        # 根据状态变化设置时间戳
+        if new_status == 'shipped' and not rental.ship_out_time:
+            rental.ship_out_time = datetime.utcnow()
+
+        if new_status == 'returned' and not rental.ship_in_time:
+            rental.ship_in_time = datetime.utcnow()
+
+        if new_status == 'completed' and not rental.ship_in_time:
+            rental.ship_in_time = datetime.utcnow()
+
+        # 同步更新所有子租赁（附件）的状态
+        child_rentals_updated = []
+        for child_rental in rental.child_rentals:
+            child_rental.status = new_status
+
+            # 同步设置子租赁的时间戳
+            if new_status == 'shipped' and not child_rental.ship_out_time:
+                child_rental.ship_out_time = datetime.utcnow()
+
+            if new_status == 'returned' and not child_rental.ship_in_time:
+                child_rental.ship_in_time = datetime.utcnow()
+
+            if new_status == 'completed' and not child_rental.ship_in_time:
+                child_rental.ship_in_time = datetime.utcnow()
+
+            if child_rental.device:
+                child_rentals_updated.append({
+                    'id': child_rental.id,
+                    'device_name': child_rental.device.name,
+                    'device_id': child_rental.device_id
+                })
+
+        db.session.commit()
+
+        current_app.logger.info(f"租赁状态更新: {rental.id} 从 {old_status} 变更为 {new_status}, 同步更新了 {len(child_rentals_updated)} 个子租赁")
+
+        return jsonify({
+            'success': True,
+            'message': f'租赁状态已更新为 {new_status}',
+            'data': {
+                'id': rental.id,
+                'old_status': old_status,
+                'new_status': new_status,
+                'updated_child_rentals': child_rentals_updated,
+                'ship_out_time': rental.ship_out_time.isoformat() if rental.ship_out_time else None,
+                'ship_in_time': rental.ship_in_time.isoformat() if rental.ship_in_time else None
+            }
+        })
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"更新租赁状态失败: {e}")
+        return jsonify({
+            'success': False,
+            'error': '更新租赁状态失败'
+        }), 500
 
 
 @bp.route('/web/rentals/<rental_id>', methods=['PUT'])
@@ -774,15 +853,8 @@ def web_update_rental(rental_id):
         
         # 更新字段
         if 'device_id' in data:
-            # 恢复原设备状态
-            if rental.device:
-                rental.device.status = 'idle'
-            
-            # 更新设备ID并设置新设备状态
+            # 更新设备ID（设备状态不需要根据租赁状态变化）
             rental.device_id = data['device_id']
-            new_device = Device.query.get(data['device_id'])
-            if new_device and rental.status == 'active':
-                new_device.status = 'renting'
         
         if 'customer_name' in data:
             rental.customer_name = data['customer_name']
@@ -865,11 +937,8 @@ def web_update_rental(rental_id):
                 if accessory_rental_to_remove:
                     # 删除附件租赁记录
                     db.session.delete(accessory_rental_to_remove)
-                    # 更新附件设备状态为空闲
-                    accessory_device = Device.query.get(accessory_id)
-                    if accessory_device:
-                        accessory_device.status = 'idle'
-                        current_app.logger.info(f"删除附件租赁记录，设备 {accessory_device.name} 状态更新为 idle")
+                    # 设备状态不需要恢复，只保持在线/离线状态
+                    current_app.logger.info(f"删除附件租赁记录: {accessory_id}")
             
             # 为新附件创建租赁记录
             for accessory_id in to_add:
@@ -909,12 +978,8 @@ def web_update_rental(rental_id):
                         parent_rental_id=rental.id
                     )
                     db.session.add(accessory_rental)
-                    
-                    # 更新附件设备状态为租赁中
-                    if rental.status == 'active':
-                        accessory_device.status = 'renting'
-                        current_app.logger.info(f"新增附件租赁记录，设备 {accessory_device.name} 状态更新为 renting")
-                    
+
+                    # 设备状态不需要根据租赁状态变化，只保持在线/离线状态
                     current_app.logger.info(f"为附件创建新租赁记录: {accessory_device.name}")
                 else:
                     current_app.logger.warning(f"附件设备 {accessory_id} 不存在或不是附件类型")
