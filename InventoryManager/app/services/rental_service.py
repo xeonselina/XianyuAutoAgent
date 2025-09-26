@@ -43,11 +43,11 @@ class RentalService:
                     'error': 'DEVICE_NOT_FOUND'
                 }
             
-            # 检查设备是否可用
-            if device.status != 'available':
+            # 检查设备是否可用 (在线才能租赁)
+            if device.status != 'online':
                 return {
                     'success': False,
-                    'message': f'设备当前状态为: {device.status}',
+                    'message': f'设备当前状态为离线，无法租赁',
                     'error': 'DEVICE_NOT_AVAILABLE'
                 }
             
@@ -76,7 +76,7 @@ class RentalService:
                 customer_phone=customer_phone,
                 ship_out_time=ship_out_time,
                 ship_in_time=ship_in_time,
-                status='pending'
+                status='not_shipped'
             )
             
             db.session.add(rental)
@@ -130,9 +130,7 @@ class RentalService:
             # 取消租赁
             rental.status = 'cancelled'
             
-            # 如果设备状态为已租，恢复为可用
-            if rental.device.status == 'rented':
-                rental.device.status = 'available'
+            # 设备状态不需要更改，因为现在只有在线/离线两种状态
             
             db.session.commit()
             

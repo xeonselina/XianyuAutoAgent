@@ -23,8 +23,8 @@ class Device(db.Model):
     
     # 状态信息
     status = db.Column(
-        db.Enum('idle', 'pending_ship', 'renting', 'pending_return', 'returned', 'offline', name='device_status'),
-        default='idle',
+        db.Enum('online', 'offline', name='device_status'),
+        default='online',
         comment='设备状态'
     )
     
@@ -63,7 +63,7 @@ class Device(db.Model):
             db.and_(
                 Rental.start_date <= today,
                 Rental.end_date >= today,
-                Rental.status == 'active'
+                Rental.status == 'shipped'
             )
         ).first()
     

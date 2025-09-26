@@ -93,11 +93,7 @@
             @change="applyFilters"
           >
             <el-option label="全部状态" value="" />
-            <el-option label="空闲" value="idle" />
-            <el-option label="待寄出" value="pending_ship" />
-            <el-option label="租赁中" value="renting" />
-            <el-option label="待收回" value="pending_return" />
-            <el-option label="已归还" value="returned" />
+            <el-option label="在线" value="online" />
             <el-option label="离线" value="offline" />
           </el-select>
         </el-col>
