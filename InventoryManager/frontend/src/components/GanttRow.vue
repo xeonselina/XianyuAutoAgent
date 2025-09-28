@@ -40,7 +40,7 @@
             <span class="rental-customer">
               <span v-if="rental.status === 'shipped'" class="status-icon shipped-icon">🚀</span>
               <span v-else-if="rental.status === 'returned'" class="status-icon returned-icon">✅</span>
-              <span v-else-if="rental.status === 'not_shipped'" class="status-icon">🚚</span>
+              <span v-else-if="rental.status === 'not_shipped'" class="status-icon">📦</span>
               {{ rental.customer_name }}
             </span>
             <el-icon v-if="hasAccessories(rental)" class="accessory-icon" title="包含附件">
@@ -64,7 +64,17 @@
       >
         <div class="rental-content">
           <div class="rental-customer-line">
-            <span class="rental-customer">🚚 物流</span>
+            <span class="rental-customer">
+              <span v-if="rental.status === 'shipped'" class="status-icon shipped-icon">🚀</span>
+              <span v-else-if="rental.status === 'returned'" class="status-icon returned-icon">✅</span>
+              <span v-else-if="rental.status === 'not_shipped'" class="status-icon">📦</span>
+              <span v-if="rental.status === 'not_shipped'">待发货</span>
+              <span v-else-if="rental.status === 'shipped'">运输中</span>
+              <span v-else-if="rental.status === 'returned'">已收回</span>
+              <span v-else-if="rental.status === 'completed'">已完成</span>
+              <span v-else-if="rental.status === 'cancelled'">已取消</span>
+              <span v-else>物流</span>
+            </span>
             <el-icon v-if="hasAccessories(rental)" class="accessory-icon" title="包含附件">
               <Tools />
             </el-icon>
@@ -86,11 +96,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, defineAsyncComponent, onUnmounted } from 'vue'
+import { ref, defineAsyncComponent, onUnmounted } from 'vue'
 import type { Device, Rental } from '../stores/gantt'
 import {
   toDateString,
-  isSameDay,
   parseDate,
   isToday
 } from '@/utils/dateUtils'
@@ -193,40 +202,83 @@ const handleTooltipLeave = () => {
   hoveredRental.value = null
 }
 
-// 组件卸载时清理定时器
+// 组件卸载时清理定时器和缓存
 onUnmounted(() => {
   clearAllTimers()
+  rentalDateCache.clear()
+  shipTimeCache.clear()
 })
 
 // 计算属性
+// 缓存租赁数据计算结果
+const rentalDateCache = new Map<string, Rental[]>()
+const shipTimeCache = new Map<string, Rental[]>()
 
 const getRentalsForDate = (date: Date) => {
   const dateStr = dayjs(date).format('YYYY-MM-DD')
-  return props.rentals.filter(rental => {
+  // 添加status到缓存key中，确保状态变化时缓存失效
+  const statusHash = props.rentals.map(r => `${r.id}:${r.status}`).join('|')
+  const cacheKey = `${dateStr}_${props.rentals.length}_${statusHash}`
+
+  if (rentalDateCache.has(cacheKey)) {
+    return rentalDateCache.get(cacheKey)!
+  }
+
+  const result = props.rentals.filter(rental => {
     const startDate = parseDate(rental.start_date)
     const endDate = parseDate(rental.end_date)
     const currentDate = parseDate(dateStr)
-    
-    return (currentDate.isAfter(startDate) || currentDate.isSame(startDate, 'day')) && 
+
+    return (currentDate.isAfter(startDate) || currentDate.isSame(startDate, 'day')) &&
            (currentDate.isBefore(endDate) || currentDate.isSame(endDate, 'day'))
   })
+
+  // 限制缓存大小
+  if (rentalDateCache.size > 50) {
+    const firstKey = rentalDateCache.keys().next().value
+    if (firstKey) {
+      rentalDateCache.delete(firstKey)
+    }
+  }
+
+  rentalDateCache.set(cacheKey, result)
+  return result
 }
 
 const getShipTimeRentalsForDate = (date: Date) => {
   const dateStr = dayjs(date).format('YYYY-MM-DD')
-  return props.rentals.filter(rental => {
+  // 添加status和ship时间到缓存key中，确保状态变化时缓存失效
+  const statusAndTimeHash = props.rentals.map(r => `${r.id}:${r.status}:${r.ship_out_time || ''}:${r.ship_in_time || ''}`).join('|')
+  const cacheKey = `ship_${dateStr}_${props.rentals.length}_${statusAndTimeHash}`
+
+  if (shipTimeCache.has(cacheKey)) {
+    return shipTimeCache.get(cacheKey)!
+  }
+
+  const result = props.rentals.filter(rental => {
     // 检查是否有ship_out_time和ship_in_time
     if (!rental.ship_out_time || !rental.ship_in_time) {
       return false
     }
-    
+
     // 简单的日期字符串比较，不进行时区转换
-    const shipOutDate = toDateString(rental.ship_out_time)
-    const shipInDate = toDateString(rental.ship_in_time)
+    const shipOutDate = toDateString(rental.ship_out_time!)
+    const shipInDate = toDateString(rental.ship_in_time!)
     const currentDate = dateStr
-    
+
     return (currentDate >= shipOutDate) && (currentDate <= shipInDate)
   })
+
+  // 限制缓存大小
+  if (shipTimeCache.size > 50) {
+    const firstKey = shipTimeCache.keys().next().value
+    if (firstKey) {
+      shipTimeCache.delete(firstKey)
+    }
+  }
+
+  shipTimeCache.set(cacheKey, result)
+  return result
 }
 
 const getRentalStyle = (rental: Rental, date: Date) => {
@@ -241,8 +293,8 @@ const getRentalStyle = (rental: Rental, date: Date) => {
   // 如果是租赁的第一天
   if (currentDate.isSame(startDate, 'day')) {
     const totalDays = endDate.diff(startDate, 'day') + 1
-    const currentDateIndex = props.dates.findIndex(d => isSameDay(d, currentDate.toDate()))
-    width = `${Math.min(totalDays * 100, (props.dates.length - currentDateIndex) * 100)}%`
+    // 移除宽度限制，让rental条目能够显示完整的时间范围
+    width = `${totalDays * 100}%`
   }
   
   return {
@@ -268,9 +320,8 @@ const getShipTimeStyle = (rental: Rental, date: Date) => {
     const shipOutDate = parseDate(shipOutDateStr)
     const shipInDate = parseDate(shipInDateStr)
     const totalDays = shipInDate.diff(shipOutDate, 'day') + 1
-    const currentDateIndex = props.dates.findIndex(d => toDateString(d) === currentDateStr)
-    const remainingDays = props.dates.length - currentDateIndex
-    width = `${Math.min(totalDays * 100, remainingDays * 100)}%`
+    // 移除宽度限制，让物流时间段能够显示完整的时间范围
+    width = `${totalDays * 100}%`
   }
   
   return {
@@ -326,21 +377,6 @@ const getRentalOpacity = (rental: Rental) => {
   return '0.5'
 }
 
-const getStatusType = (status: string) => {
-  const typeMap: Record<string, string> = {
-    'online': 'success',
-    'offline': 'danger'
-  }
-  return typeMap[status] || 'info'
-}
-
-const getStatusText = (status: string) => {
-  const textMap: Record<string, string> = {
-    'online': '在线',
-    'offline': '离线'
-  }
-  return textMap[status] || status
-}
 </script>
 
 <style scoped>

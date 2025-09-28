@@ -9,7 +9,7 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     BookingDialog: typeof import('./src/components/BookingDialog.vue')['default']
-    EditRentalDialog: typeof import('./src/components/EditRentalDialog.vue')['default']
+    EditRentalDialogNew: typeof import('./src/components/rental/EditRentalDialogNew.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElButtonGroup: typeof import('element-plus/es')['ElButtonGroup']
@@ -36,6 +36,10 @@ declare module 'vue' {
     IconSupport: typeof import('./src/components/icons/IconSupport.vue')['default']
     IconTooling: typeof import('./src/components/icons/IconTooling.vue')['default']
     ImagePreviewDialog: typeof import('./src/components/ImagePreviewDialog.vue')['default']
+    RentalAccessorySelector: typeof import('./src/components/rental/RentalAccessorySelector.vue')['default']
+    RentalActionButtons: typeof import('./src/components/rental/RentalActionButtons.vue')['default']
+    RentalBasicForm: typeof import('./src/components/rental/RentalBasicForm.vue')['default']
+    RentalShippingForm: typeof import('./src/components/rental/RentalShippingForm.vue')['default']
     RentalTooltip: typeof import('./src/components/RentalTooltip.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']

@@ -176,6 +176,7 @@ def find_rental_slot():
         
         logistics_days = int(data['logistics_days'])
         model = data['model']
+        is_accessory = data.get('is_accessory', False)
         
         # 验证日期范围（允许相同日期，因为这是租赁时间）
         validation_error = validate_date_range(start_date, end_date, allow_same_date=True)
@@ -187,14 +188,10 @@ def find_rental_slot():
         ship_in_date = end_date + timedelta(days=1 + logistics_days)
         current_app.logger.info(f"find_rental_slot: start_date: {start_date}, end_date: {end_date}, logistics_days: {logistics_days}, ship_out_date: {ship_out_date}, ship_in_date: {ship_in_date}, model: {model}")
         
-        # 检查寄出时间不能早于今天
-        if ship_out_date < date.today():
-            return create_error_response(f'寄出时间不能早于今天。当前计算的寄出时间是：{ship_out_date}，请调整租赁时间或物流时间。')
-        
-        current_app.logger.info(f"日期检查通过，开始查找可用档期")
+        current_app.logger.info(f"开始查找可用档期")
         
         # 查找指定型号的可用档期
-        available_slot = find_available_time_slot(ship_out_date, ship_in_date, model)
+        available_slot = find_available_time_slot(ship_out_date, ship_in_date, model, is_accessory)
         
         if available_slot:
             # 获取第一个可用设备的详细信息
@@ -226,7 +223,7 @@ def find_rental_slot():
         return create_error_response('查找档期失败', 500)
 
 
-def find_available_time_slot(ship_out_date, ship_in_date, model_filter):
+def find_available_time_slot(ship_out_date, ship_in_date, model_filter, is_accessory=False):
     """
     查找指定型号设备的可用档期
 
@@ -251,88 +248,34 @@ def find_available_time_slot(ship_out_date, ship_in_date, model_filter):
             ship_in_hour="12:00:00"
         )
 
-        # 通过数据库关系查找设备，而不是使用LIKE搜索
-        devices = []
-        device_model = None
+        # 直接通过 model_id 查找设备
+        model_id = int(model_filter)  # model_filter 应该是 model_id
+        devices = Device.query.filter(
+            Device.model_id == model_id,
+            Device.is_accessory == is_accessory
+        ).all()
 
-        # 先尝试通过设备型号名称查找
-        device_model = DeviceModel.query.filter_by(name=model_filter).first()
-        if not device_model:
-            # 如果没找到，再尝试通过display_name查找
-            device_model = DeviceModel.query.filter_by(display_name=model_filter).first()
+        device_type = "附件" if is_accessory else "主设备"
+        current_app.logger.info(f"查找{device_type} model_id={model_id}, 找到 {len(devices)} 台设备")
 
-        if device_model:
-            # 通过关系查找该型号的所有设备（非附件）
-            devices = Device.query.filter(
-                Device.model_id == device_model.id,
-                Device.is_accessory == False
-            ).all()
-            current_app.logger.info(f"通过型号ID {device_model.id} 查找到 {len(devices)} 台主设备")
-        else:
-            # 如果在device_models表中没找到，fallback到原来的方式（兼容性）
-            if '%' in model_filter:
-                devices = Device.query.filter(
-                    Device.model.like(model_filter),
-                    Device.is_accessory == False
-                ).all()
-            else:
-                devices = Device.query.filter(
-                    Device.model == model_filter,
-                    Device.is_accessory == False
-                ).all()
-            current_app.logger.info(f"Fallback查找型号 {model_filter} 的设备，找到 {len(devices)} 台设备")
-
+        # 检查设备可用性
         available_devices = []
-        available_accessories = []
-
-        # 检查每个主设备的可用性
         for device in devices:
-            current_app.logger.info(f"检查设备 {device.id}({device.name}) 的可用性")
             availability = InventoryService.check_device_availability(
                 device.id, ship_out_time, ship_in_time
             )
-            current_app.logger.info(f"设备 {device.id} 可用性检查结果: {availability}")
             if availability['available']:
                 available_devices.append(device.id)
 
-        # 如果找到了设备型号，还要查找相关的可用附件
-        if device_model and available_devices:
-            # 通过ModelAccessory表查找该型号的附件
-            model_accessories = ModelAccessory.query.filter_by(
-                model_id=device_model.id,
-                is_active=True
-            ).all()
-
-            for model_accessory in model_accessories:
-                # 查找与附件名称匹配的实际设备
-                accessory_devices = Device.query.filter(
-                    Device.name.like(f"%{model_accessory.accessory_name}%"),
-                    Device.is_accessory == True
-                ).all()
-
-                # 检查每个附件设备的可用性
-                for accessory_device in accessory_devices:
-                    availability = InventoryService.check_device_availability(
-                        accessory_device.id, ship_out_time, ship_in_time
-                    )
-                    if availability['available']:
-                        available_accessories.append({
-                            'device_id': accessory_device.id,
-                            'accessory_id': model_accessory.id,
-                            'accessory_name': model_accessory.accessory_name,
-                            'device_name': accessory_device.name,
-                            'is_required': model_accessory.is_required
-                        })
-                        break  # 找到一个可用的就够了
-
+        # 返回结果
         if available_devices:
             result = {
                 'available_devices': available_devices,
                 'total_available': len(available_devices),
-                'available_accessories': available_accessories,
-                'device_model': device_model.to_dict() if device_model else None
+                'available_accessories': [],
+                'device_model': None
             }
-            current_app.logger.info(f"找到可用档期: {len(available_devices)}台主设备, {len(available_accessories)}个附件")
+            current_app.logger.info(f"找到可用档期: {len(available_devices)}台{device_type}")
             return result
         else:
             return None

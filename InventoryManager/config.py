@@ -6,15 +6,30 @@ import os
 from datetime import timedelta
 
 
+# 智能选择数据库连接：如果在Docker容器中，使用DATABASE_URL，否则使用DATABASE_URL_HOST
+def _get_database_uri():
+    # 检查是否在Docker容器中（通过检查/.dockerenv文件）
+    is_docker = os.path.exists('/.dockerenv')
+
+    if is_docker:
+        # 在Docker容器中，使用DATABASE_URL (host.docker.internal)
+        return os.environ.get('DATABASE_URL') or \
+            'mysql+pymysql://root:password@host.docker.internal/inventory_management'
+    else:
+        # 在本地环境中，优先使用DATABASE_URL_HOST (localhost)
+        return os.environ.get('DATABASE_URL_HOST') or \
+            os.environ.get('DATABASE_URL') or \
+            'mysql+pymysql://root:password@localhost/inventory_management'
+
+
 class Config:
     """基础配置类"""
-    
+
     # 基础配置
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
-    
+
     # 数据库配置
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
-        'mysql+pymysql://root:password@localhost/inventory_management'
+    SQLALCHEMY_DATABASE_URI = _get_database_uri()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {
         'pool_size': 10,
