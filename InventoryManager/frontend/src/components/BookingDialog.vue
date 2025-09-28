@@ -441,12 +441,29 @@ const findAvailableAccessory = async () => {
 
   searchingAccessory.value = true
   try {
-    // 使用统一的find-slot接口查找手柄附件
+    // 先获取所有附件设备，找到手柄类型的附件
+    const devicesResponse = await axios.get('/api/devices')
+    if (!devicesResponse.data.success) {
+      throw new Error('获取设备列表失败')
+    }
+
+    // 查找手柄附件（包含controller字样的附件）
+    const controllerAccessories = devicesResponse.data.data.filter((device: any) =>
+      device.is_accessory && device.model && device.model.toLowerCase().includes('controller')
+    )
+
+    if (controllerAccessories.length === 0) {
+      throw new Error('没有找到手柄附件设备')
+    }
+
+    // 使用第一个找到的手柄附件的model_id进行查找
+    const firstController = controllerAccessories[0]
     const result = await ganttStore.findAvailableSlot(
       formatDateToString(form.startDate),
       formatDateToString(form.endDate),
       form.logisticsDays,
-      '%controller%'  // 查找包含controller的设备型号
+      firstController.model_id || 0,
+      true  // is_accessory = true
     )
 
     if (!result.device) {
@@ -503,13 +520,14 @@ const findAvailableSlot = async () => {
         throw new Error('未找到选择的设备')
       }
       
-      // 使用选定设备的型号
-      const deviceModel = selectedDevice.device_model?.display_name || selectedDevice.model || props.selectedDeviceModel || 'x200u'
+      // 使用选定设备的model_id
+      const modelId = selectedDevice.model_id || selectedDevice.device_model?.id || 0
       result = await ganttStore.findAvailableSlot(
         formatDateToString(form.startDate),
         formatDateToString(form.endDate),
         form.logisticsDays,
-        deviceModel
+        modelId,
+        false  // is_accessory = false
       )
       
       // 验证返回的设备是否是指定设备
@@ -518,12 +536,25 @@ const findAvailableSlot = async () => {
       }
     } else {
       // 未指定设备，使用甘特图选中的型号自动查找可用设备
-      const deviceModel = props.selectedDeviceModel || 'x200u'
+      const deviceModelName = props.selectedDeviceModel || 'x200u'
+
+      // 根据型号名称找到对应的设备，获取其model_id
+      let modelId = 0
+      const matchingDevice = availableDevices.value.find(device => {
+        const deviceModelDisplayName = device.device_model?.display_name || device.model
+        return deviceModelDisplayName === deviceModelName
+      })
+
+      if (matchingDevice) {
+        modelId = matchingDevice.model_id || matchingDevice.device_model?.id || 0
+      }
+
       result = await ganttStore.findAvailableSlot(
         formatDateToString(form.startDate),
         formatDateToString(form.endDate),
         form.logisticsDays,
-        deviceModel
+        modelId,
+        false  // is_accessory = false
       )
       
       // 自动填入找到的设备
@@ -804,25 +835,6 @@ const formatDateTime = (date: Date) => {
   return dayjs(date).format('YYYY-MM-DD HH:mm')
 }
 
-// 检查附件是否可用（新架构：需要通过API检查所有租赁记录）
-const isAccessoryAvailable = async (accessory: any) => {
-  if (!form.startDate || !form.endDate) return true
-  
-  try {
-    // 使用API检查设备可用性
-    const response = await axios.post('/api/rentals/check-conflict', {
-      device_id: accessory.id,
-      start_date: form.startDate,
-      end_date: form.endDate
-    })
-    
-    return response.data.success && !response.data.has_conflict
-  } catch (error) {
-    console.error('检查附件可用性失败:', error)
-    // 发生错误时保守处理，认为不可用
-    return false
-  }
-}
 
 // 批量检查多个附件的可用性
 const checkAccessoriesAvailability = async (accessories: any[]) => {

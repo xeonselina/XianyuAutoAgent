@@ -144,17 +144,27 @@
           </div>
         </div>
 
-        <div class="gantt-body">
-          <GanttRow
-            v-for="device in filteredDevices"
-            :key="device.id"
-            :device="device"
-            :rentals="ganttStore.getRentalsForDevice(device.id)"
-            :dates="dateArray"
-            @edit-rental="handleEditRental"
-            @delete-rental="handleDeleteRental"
-            @update-device-status="handleUpdateDeviceStatus"
-          />
+        <div class="gantt-body" ref="ganttBodyRef">
+          <div
+            class="virtual-container"
+            :style="{ height: `${totalHeight}px` }"
+          >
+            <div
+              class="visible-items"
+              :style="{ transform: `translateY(${offsetY}px)` }"
+            >
+              <GanttRow
+                v-for="device in visibleDevices"
+                :key="device.id"
+                :device="device"
+                :rentals="ganttStore.getRentalsForDevice(device.id)"
+                :dates="dateArray"
+                @edit-rental="handleEditRental"
+                @delete-rental="handleDeleteRental"
+                @update-device-status="handleUpdateDeviceStatus"
+              />
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -167,7 +177,7 @@
     />
 
     <!-- 编辑租赁对话框 -->
-    <EditRentalDialog
+    <EditRentalDialogNew
       v-model="showEditDialog"
       :rental="selectedRental"
       @success="handleEditSuccess"
@@ -276,14 +286,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick, onUnmounted } from 'vue'
 import { useGanttStore, type Device, type Rental, type DeviceModel, type ModelAccessory } from '@/stores/gantt'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import axios from 'axios'
 import GanttRow from './GanttRow.vue'
 import BookingDialog from './BookingDialog.vue'
-import EditRentalDialog from './EditRentalDialog.vue'
+import { EditRentalDialogNew } from './rental'
 import {
   toSystemDateString,
   isToday,
@@ -304,6 +314,14 @@ const selectedDeviceModel = ref<string>('')
 const selectedDeviceType = ref<string[]>([])
 const selectedStatus = ref('')
 const dailyStats = ref<Record<string, {available_count: number, ship_out_count: number, accessory_ship_out_count: number}>>({})
+
+// 虚拟滚动相关
+const ganttBodyRef = ref<HTMLElement>()
+const itemHeight = 60  // 每行高度
+const visibleCount = ref(10)  // 可见行数
+const scrollTop = ref(0)
+const startIndex = ref(0)
+const endIndex = ref(0)
 
 // 添加设备表单
 const addDeviceFormRef = ref()
@@ -340,8 +358,8 @@ const addDeviceRules = {
 // 计算属性
 const dateArray = computed(() => {
   return generateDateRange(
-    dayjs(ganttStore.currentDate).subtract(15, 'day'),
-    dayjs(ganttStore.currentDate).add(15, 'day')
+    dayjs(ganttStore.currentDate).subtract(5, 'day'),
+    dayjs(ganttStore.currentDate).add(10, 'day')
   )
 })
 
@@ -401,6 +419,17 @@ const filteredDevices = computed(() => {
   return devices
 })
 
+// 虚拟滚动计算属性
+const totalHeight = computed(() => filteredDevices.value.length * itemHeight)
+
+const visibleDevices = computed(() => {
+  const start = startIndex.value
+  const end = Math.min(endIndex.value, filteredDevices.value.length)
+  return filteredDevices.value.slice(start, end)
+})
+
+const offsetY = computed(() => startIndex.value * itemHeight)
+
 // 方法
 const formatDay = (date: Date) => {
   return formatDisplayDate(date, 'M.D')
@@ -419,6 +448,34 @@ const clearFilters = () => {
   selectedDeviceModel.value = ''
   selectedDeviceType.value = []
   selectedStatus.value = ''
+}
+
+// 虚拟滚动相关方法
+const updateVisibleRange = () => {
+  if (!ganttBodyRef.value) return
+
+  const containerHeight = ganttBodyRef.value.clientHeight
+  visibleCount.value = Math.ceil(containerHeight / itemHeight) + 2 // 额外渲染2行缓冲
+
+  startIndex.value = Math.floor(scrollTop.value / itemHeight)
+  endIndex.value = Math.min(
+    startIndex.value + visibleCount.value,
+    filteredDevices.value.length
+  )
+}
+
+const handleScroll = (event: Event) => {
+  const target = event.target as HTMLElement
+  scrollTop.value = target.scrollTop
+  updateVisibleRange()
+}
+
+const initVirtualScroll = async () => {
+  await nextTick()
+  if (ganttBodyRef.value) {
+    ganttBodyRef.value.addEventListener('scroll', handleScroll)
+    updateVisibleRange()
+  }
 }
 
 // 点击寄出数量筛选设备
@@ -491,9 +548,19 @@ const filterByAccessoryShipOutDate = (date: Date) => {
   }
 }
 
-const handleBookingSuccess = () => {
+const handleBookingSuccess = async () => {
   ElMessage.success('预定成功！')
   showBookingDialog.value = false
+
+  // 重新加载数据以反映最新变化
+  await ganttStore.loadData()
+
+  // 清除缓存以确保统计数据更新
+  statsCache.clear()
+  await loadDailyStats()
+
+  // 强制触发组件重新渲染，清除GanttRow中的缓存
+  await nextTick()
 }
 
 const handleEditRental = (rental: Rental) => {
@@ -501,10 +568,20 @@ const handleEditRental = (rental: Rental) => {
   showEditDialog.value = true
 }
 
-const handleEditSuccess = () => {
+const handleEditSuccess = async () => {
   ElMessage.success('更新成功！')
   showEditDialog.value = false
   selectedRental.value = null
+
+  // 重新加载数据以反映最新变化
+  await ganttStore.loadData()
+
+  // 清除缓存以确保统计数据更新
+  statsCache.clear()
+  await loadDailyStats()
+
+  // 强制触发组件重新渲染，清除GanttRow中的缓存
+  await nextTick()
 }
 
 // 加载设备型号
@@ -604,6 +681,13 @@ const handleDeleteRental = async (rental: Rental) => {
     
     await ganttStore.deleteRental(rental.id)
     ElMessage.success('删除成功！')
+
+    // 重新加载数据以反映最新变化
+    await ganttStore.loadData()
+
+    // 清除缓存以确保统计数据更新
+    statsCache.clear()
+    await loadDailyStats()
   } catch (error) {
     if (error !== 'cancel') {
       ElMessage.error('删除失败：' + (error as Error).message)
@@ -615,6 +699,9 @@ const handleUpdateDeviceStatus = async (device: Device, newStatus: string) => {
   try {
     await ganttStore.updateDeviceStatus(device.id, newStatus)
     ElMessage.success('设备状态更新成功！')
+
+    // 重新加载数据以反映最新变化
+    await ganttStore.loadData()
   } catch (error) {
     ElMessage.error('状态更新失败：' + (error as Error).message)
     // 如果更新失败，恢复原状态
@@ -626,49 +713,80 @@ const handleUpdateDeviceStatus = async (device: Device, newStatus: string) => {
   }
 }
 
-// 获取每日统计信息
+// 统计数据缓存
+const statsCache = new Map<string, any>()
+let loadStatsTimer: number | null = null
+
+// 获取每日统计信息（带缓存和防抖）
 const loadDailyStats = async () => {
-  try {
-    const stats = await Promise.all(
-      dateArray.value.map(async (date) => {
-        const dateStr = toSystemDateString(date)
-        const params: any = { date: dateStr }
+  // 防抖处理
+  if (loadStatsTimer) {
+    clearTimeout(loadStatsTimer)
+  }
 
-        // 如果选择了设备型号，添加到参数中
-        if (selectedDeviceModel.value) {
-          params.device_model = selectedDeviceModel.value
-        }
+  loadStatsTimer = setTimeout(async () => {
+    try {
+      const cacheKey = `${selectedDeviceModel.value || 'all'}_${dateArray.value[0]?.getTime() || 0}_${dateArray.value[dateArray.value.length - 1]?.getTime() || 0}`
 
-        const response = await axios.get('/api/gantt/daily-stats', { params })
+      // 检查缓存
+      if (statsCache.has(cacheKey)) {
+        dailyStats.value = statsCache.get(cacheKey)
+        return
+      }
 
-        if (response.data.success) {
+      const stats = await Promise.all(
+        dateArray.value.map(async (date) => {
+          const dateStr = toSystemDateString(date)
+          const params: any = { date: dateStr }
+
+          // 如果选择了设备型号，添加到参数中
+          if (selectedDeviceModel.value) {
+            params.device_model = selectedDeviceModel.value
+          }
+
+          const response = await axios.get('/api/gantt/daily-stats', { params })
+
+          if (response.data.success) {
+            return {
+              date: dateStr,
+              ...response.data.data
+            }
+          }
           return {
             date: dateStr,
-            ...response.data.data
+            available_count: 0,
+            ship_out_count: 0,
+            accessory_ship_out_count: 0
           }
-        }
-        return {
-          date: dateStr,
-          available_count: 0,
-          ship_out_count: 0,
-          accessory_ship_out_count: 0
+        })
+      )
+
+      // 将统计数据存储到响应式对象中
+      const statsMap: Record<string, {available_count: number, ship_out_count: number, accessory_ship_out_count: number}> = {}
+      stats.forEach(stat => {
+        statsMap[stat.date] = {
+          available_count: stat.available_count,
+          ship_out_count: stat.ship_out_count,
+          accessory_ship_out_count: stat.accessory_ship_out_count || 0
         }
       })
-    )
 
-    // 将统计数据存储到响应式对象中
-    const statsMap: Record<string, {available_count: number, ship_out_count: number, accessory_ship_out_count: number}> = {}
-    stats.forEach(stat => {
-      statsMap[stat.date] = {
-        available_count: stat.available_count,
-        ship_out_count: stat.ship_out_count,
-        accessory_ship_out_count: stat.accessory_ship_out_count || 0
+      // 缓存结果
+      statsCache.set(cacheKey, statsMap)
+
+      // 限制缓存大小
+      if (statsCache.size > 10) {
+        const firstKey = statsCache.keys().next().value
+        if (firstKey) {
+          statsCache.delete(firstKey)
+        }
       }
-    })
-    dailyStats.value = statsMap
-  } catch (error) {
-    console.error('加载每日统计失败:', error)
-  }
+
+      dailyStats.value = statsMap
+    } catch (error) {
+      console.error('加载每日统计失败:', error)
+    }
+  }, 300) // 300ms 防抖
 }
 
 // 获取指定日期的统计信息
@@ -735,6 +853,11 @@ watch(selectedDeviceModel, () => {
   loadDailyStats()
 })
 
+// 监听设备数据变化，重新计算虚拟滚动
+watch(filteredDevices, () => {
+  updateVisibleRange()
+}, { deep: true })
+
 // 生命周期
 onMounted(async () => {
   await Promise.all([
@@ -742,6 +865,21 @@ onMounted(async () => {
     loadDailyStats(),
     loadDeviceModels()
   ])
+
+  // 初始化虚拟滚动
+  await initVirtualScroll()
+})
+
+onUnmounted(() => {
+  if (ganttBodyRef.value) {
+    ganttBodyRef.value.removeEventListener('scroll', handleScroll)
+  }
+  // 清理定时器
+  if (loadStatsTimer) {
+    clearTimeout(loadStatsTimer)
+  }
+  // 清理缓存
+  statsCache.clear()
 })
 </script>
 
@@ -929,7 +1067,19 @@ onMounted(async () => {
   min-height: 400px;
   width: 100%;
   flex: 1;
-  overflow: visible;
+  overflow-y: auto;
+  overflow-x: auto;
+  position: relative;
+}
+
+.virtual-container {
+  position: relative;
+  width: 100%;
+}
+
+.visible-items {
+  position: relative;
+  width: 100%;
 }
 
 /* 确保甘特图行使用正确的布局 */

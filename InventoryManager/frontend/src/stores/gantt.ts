@@ -160,13 +160,14 @@ export const useGanttStore = defineStore('gantt', () => {
     loadData()
   }
 
-  const findAvailableSlot = async (startDate: string, endDate: string, logisticsDays: number, model: string) => {
+  const findAvailableSlot = async (startDate: string, endDate: string, logisticsDays: number, model: string | number, isAccessory: boolean = false) => {
     try {
       const response = await axios.post('/api/rentals/find-slot', {
         start_date: startDate,
         end_date: endDate,
         logistics_days: logisticsDays,
-        model: model
+        model: model,
+        is_accessory: isAccessory
       })
 
       if (response.data.success) {
@@ -176,6 +177,7 @@ export const useGanttStore = defineStore('gantt', () => {
           shipOutDate: new Date(data.ship_out_date),
           shipInDate: new Date(data.ship_in_date),
           availableControllers: data.available_controllers || [],
+          availableDevices: data.available_devices || [],
           controllerCount: data.controller_count || 0,
           message: response.data.message || '找到可用档期'
         }

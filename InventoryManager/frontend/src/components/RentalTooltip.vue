@@ -142,10 +142,10 @@ const formatDateTime = (dateTime: string) => {
 // 获取状态类型
 const getStatusType = (status: string) => {
   const typeMap: Record<string, string> = {
-    'pending': 'warning',
-    'confirmed': 'primary',
+    'not_shipped': 'warning',
     'shipped': 'success',
     'returned': 'info',
+    'completed': 'primary',
     'cancelled': 'danger'
   }
   return typeMap[status] || 'info'
@@ -154,10 +154,10 @@ const getStatusType = (status: string) => {
 // 获取状态文本
 const getStatusText = (status: string) => {
   const textMap: Record<string, string> = {
-    'pending': '待确认',
-    'confirmed': '已确认',
+    'not_shipped': '未发货',
     'shipped': '已发货',
-    'returned': '已归还',
+    'returned': '已收回',
+    'completed': '已完成',
     'cancelled': '已取消'
   }
   return textMap[status] || status
