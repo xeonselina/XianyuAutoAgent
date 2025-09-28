@@ -45,7 +45,7 @@ class InventoryService:
                 conflicting_rentals = Rental.query.filter(
                     db.and_(
                         Rental.device_id == device.id,
-                        Rental.status.in_(['pending', 'active', 'completed']),  # 不包括取消的租赁
+                        Rental.status.in_(['not_shipped', 'shipped', 'returned']),  # 不包括取消和已完成的租赁
                         Rental.ship_out_time.isnot(None),  # 必须有寄出时间
                         Rental.ship_in_time.isnot(None),   # 必须有收回时间
                         # 检查时间段重叠：租赁的物流时间段与查询时间段重叠
@@ -148,7 +148,7 @@ class InventoryService:
             # 检查设备的所有租赁记录（包括主设备和附件设备）
             device_filters = [
                 Rental.device_id == device_id,
-                Rental.status.in_(['pending', 'confirmed', 'shipped', 'returned']),  # 排除已取消的
+                Rental.status.in_(['not_shipped', 'shipped', 'returned']),  # 排除已取消和已完成的
                 Rental.ship_out_time.isnot(None),  # 必须有寄出时间
                 Rental.ship_in_time.isnot(None),   # 必须有收回时间
                 # 时间段重叠检测：寄出时间和收回时间有交叉

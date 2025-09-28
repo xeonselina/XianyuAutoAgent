@@ -5,10 +5,10 @@
         <div class="device-name">{{ device.name }}</div>
         <div class="device-details">
           <span class="device-sn">{{ device.serial_number }}</span>
-          <el-select 
-            :model-value="device.status" 
-            size="small" 
-            style="width: 80px;"
+          <el-select
+            :model-value="device.status"
+            size="small"
+            style="width: 100px;"
             @change="updateDeviceStatus"
           >
             <el-option label="在线" value="online" />
@@ -372,8 +372,18 @@ const getStatusText = (status: string) => {
 }
 
 .device-cell.device-status-offline {
-  background-color: #fafafa;
+  background-color: #fff1f0;
+  border-left: 4px solid #ff4d4f;
+}
+
+.device-cell.device-status-returned {
+  background-color: #f4f4f5;
   border-left: 4px solid #8c8c8c;
+}
+
+.device-cell.device-status-offline {
+  background-color: #fff2f0;
+  border-left: 4px solid #ff4d4f;
 }
 
 .device-info {
