@@ -6,8 +6,8 @@
 import os
 from datetime import datetime
 
-# 必须在导入app之前设置
-os.environ['DATABASE_URL'] = 'mysql+pymysql://root:123456@localhost:3306/testdb'
+# 必须在导入app之前设置，现在从.env文件读取
+# os.environ['DATABASE_URL'] = 'mysql+pymysql://root:123456@localhost:3306/testdb'
 
 from app import create_app, db
 from app.models.device import Device
@@ -44,12 +44,14 @@ def export_devices():
             quote_value(device.id),
             quote_value(device.name),
             quote_value(device.serial_number),
+            quote_value(device.model),
+            quote_value(device.is_accessory),
             quote_value(device.status),
             quote_value(device.created_at),
             quote_value(device.updated_at)
         ]
-        
-        sql = f"INSERT INTO devices (id, name, serial_number, status, created_at, updated_at) VALUES ({', '.join(values)});"
+
+        sql = f"INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES ({', '.join(values)});"
         sql_statements.append(sql)
     
     return sql_statements
@@ -78,11 +80,12 @@ def export_rentals():
             quote_value(rental.ship_out_tracking_no),
             quote_value(rental.ship_in_tracking_no),
             quote_value(rental.status),
+            quote_value(rental.parent_rental_id),
             quote_value(rental.created_at),
             quote_value(rental.updated_at)
         ]
-        
-        sql = f"INSERT INTO rentals (id, device_id, start_date, end_date, ship_out_time, ship_in_time, customer_name, customer_phone, destination, ship_out_tracking_no, ship_in_tracking_no, status, created_at, updated_at) VALUES ({', '.join(values)});"
+
+        sql = f"INSERT INTO rentals (id, device_id, start_date, end_date, ship_out_time, ship_in_time, customer_name, customer_phone, destination, ship_out_tracking_no, ship_in_tracking_no, status, parent_rental_id, created_at, updated_at) VALUES ({', '.join(values)});"
         sql_statements.append(sql)
     
     return sql_statements

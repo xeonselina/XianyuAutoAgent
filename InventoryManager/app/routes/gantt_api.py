@@ -202,14 +202,22 @@ def find_rental_slot():
             if available_slot['available_devices']:
                 from app.models.device import Device
                 first_device = Device.query.get(available_slot['available_devices'][0])
-            
+
+            # 构建响应消息
+            message_parts = [f'找到 {available_slot["total_available"]} 台 {model} 型号的可用设备']
+            if available_slot.get('available_accessories'):
+                accessory_count = len(available_slot['available_accessories'])
+                message_parts.append(f'{accessory_count} 个相关附件')
+
             return create_success_response({
                 'ship_out_date': ship_out_date.isoformat(),
                 'ship_in_date': ship_in_date.isoformat(),
                 'available_devices': available_slot['available_devices'],
                 'total_available': available_slot['total_available'],
+                'available_accessories': available_slot.get('available_accessories', []),
+                'device_model': available_slot.get('device_model'),
                 'device': first_device.to_dict() if first_device else None
-            }, message=f'找到 {available_slot["total_available"]} 台 {model} 型号的可用设备')
+            }, message='，'.join(message_parts))
         else:
             return create_error_response(f'在指定时间段内没有可用的 {model} 型号设备档期')
             
@@ -221,38 +229,63 @@ def find_rental_slot():
 def find_available_time_slot(ship_out_date, ship_in_date, model_filter):
     """
     查找指定型号设备的可用档期
-    
+
     Args:
         ship_out_date: 寄出日期
-        ship_in_date: 收回日期  
-        model_filter: 设备型号过滤条件，如 'x200u', '%controller%' 等
-    
+        ship_in_date: 收回日期
+        model_filter: 设备型号过滤条件，支持型号名称或display_name
+
     Returns:
-        dict: 包含可用设备信息的字典，如果没有可用设备返回None
+        dict: 包含可用设备信息和相关附件的字典，如果没有可用设备返回None
     """
     try:
         from app.services.inventory_service import InventoryService
         from app.utils.date_utils import convert_dates_to_datetime
-        
+        from app.models.device_model import DeviceModel, ModelAccessory
+
         # 转换时间用于查询
         ship_out_time, ship_in_time = convert_dates_to_datetime(
-            ship_out_date, 
-            ship_in_date, 
+            ship_out_date,
+            ship_in_date,
             ship_out_hour="19:00:00",
             ship_in_hour="12:00:00"
         )
-        
-        # 构建查询条件
-        if '%' in model_filter:
-            devices = Device.query.filter(Device.model.like(model_filter)).all()
+
+        # 通过数据库关系查找设备，而不是使用LIKE搜索
+        devices = []
+        device_model = None
+
+        # 先尝试通过设备型号名称查找
+        device_model = DeviceModel.query.filter_by(name=model_filter).first()
+        if not device_model:
+            # 如果没找到，再尝试通过display_name查找
+            device_model = DeviceModel.query.filter_by(display_name=model_filter).first()
+
+        if device_model:
+            # 通过关系查找该型号的所有设备（非附件）
+            devices = Device.query.filter(
+                Device.model_id == device_model.id,
+                Device.is_accessory == False
+            ).all()
+            current_app.logger.info(f"通过型号ID {device_model.id} 查找到 {len(devices)} 台主设备")
         else:
-            devices = Device.query.filter(Device.model == model_filter).all()
-        
-        current_app.logger.info(f"查找型号 {model_filter} 的设备，找到 {len(devices)} 台设备")
-        
+            # 如果在device_models表中没找到，fallback到原来的方式（兼容性）
+            if '%' in model_filter:
+                devices = Device.query.filter(
+                    Device.model.like(model_filter),
+                    Device.is_accessory == False
+                ).all()
+            else:
+                devices = Device.query.filter(
+                    Device.model == model_filter,
+                    Device.is_accessory == False
+                ).all()
+            current_app.logger.info(f"Fallback查找型号 {model_filter} 的设备，找到 {len(devices)} 台设备")
+
         available_devices = []
-        
-        # 检查每个设备的可用性
+        available_accessories = []
+
+        # 检查每个主设备的可用性
         for device in devices:
             current_app.logger.info(f"检查设备 {device.id}({device.name}) 的可用性")
             availability = InventoryService.check_device_availability(
@@ -261,15 +294,49 @@ def find_available_time_slot(ship_out_date, ship_in_date, model_filter):
             current_app.logger.info(f"设备 {device.id} 可用性检查结果: {availability}")
             if availability['available']:
                 available_devices.append(device.id)
-        
+
+        # 如果找到了设备型号，还要查找相关的可用附件
+        if device_model and available_devices:
+            # 通过ModelAccessory表查找该型号的附件
+            model_accessories = ModelAccessory.query.filter_by(
+                model_id=device_model.id,
+                is_active=True
+            ).all()
+
+            for model_accessory in model_accessories:
+                # 查找与附件名称匹配的实际设备
+                accessory_devices = Device.query.filter(
+                    Device.name.like(f"%{model_accessory.accessory_name}%"),
+                    Device.is_accessory == True
+                ).all()
+
+                # 检查每个附件设备的可用性
+                for accessory_device in accessory_devices:
+                    availability = InventoryService.check_device_availability(
+                        accessory_device.id, ship_out_time, ship_in_time
+                    )
+                    if availability['available']:
+                        available_accessories.append({
+                            'device_id': accessory_device.id,
+                            'accessory_id': model_accessory.id,
+                            'accessory_name': model_accessory.accessory_name,
+                            'device_name': accessory_device.name,
+                            'is_required': model_accessory.is_required
+                        })
+                        break  # 找到一个可用的就够了
+
         if available_devices:
-            return {
+            result = {
                 'available_devices': available_devices,
-                'total_available': len(available_devices)
+                'total_available': len(available_devices),
+                'available_accessories': available_accessories,
+                'device_model': device_model.to_dict() if device_model else None
             }
+            current_app.logger.info(f"找到可用档期: {len(available_devices)}台主设备, {len(available_accessories)}个附件")
+            return result
         else:
             return None
-            
+
     except Exception as e:
         current_app.logger.error(f"查找可用档期失败: {e}")
         return None

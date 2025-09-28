@@ -40,7 +40,7 @@ def update_device_status(device_id):
             }), 400
         
         new_status = data['status']
-        valid_statuses = ['idle', 'pending_ship', 'renting', 'pending_return', 'returned', 'offline']
+        valid_statuses = ['online', 'offline']
         
         if new_status not in valid_statuses:
             return jsonify({
@@ -466,8 +466,7 @@ def get_statistics():
     try:
         # 设备统计
         total_devices = Device.query.count()
-        idle_devices = Device.query.filter_by(status='idle').count()
-        renting_devices = Device.query.filter_by(status='renting').count()
+        online_devices = Device.query.filter_by(status='online').count()
         offline_devices = Device.query.filter_by(status='offline').count()
         
         # 租赁统计
@@ -477,16 +476,15 @@ def get_statistics():
         completed_rentals = Rental.query.filter_by(status='completed').count()
         overdue_rentals = Rental.query.filter_by(status='overdue').count()
         
-        # 计算设备利用率
-        utilization_rate = (renting_devices / total_devices * 100) if total_devices > 0 else 0
+        # 计算设备在线率
+        online_rate = (online_devices / total_devices * 100) if total_devices > 0 else 0
         
         stats = {
             'devices': {
                 'total': total_devices,
-                'idle': idle_devices,
-                'renting': renting_devices,
+                'online': online_devices,
                 'offline': offline_devices,
-                'utilization_rate': round(utilization_rate, 2)
+                'online_rate': round(online_rate, 2)
             },
             'rentals': {
                 'total': total_rentals,

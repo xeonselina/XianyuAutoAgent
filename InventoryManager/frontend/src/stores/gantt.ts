@@ -43,7 +43,7 @@ export interface Device {
   model_id?: number
   device_model?: DeviceModel
   is_accessory: boolean
-  status: 'idle' | 'pending_ship' | 'renting' | 'pending_return' | 'returned' | 'offline'
+  status: 'online' | 'offline'
   created_at: string
   updated_at: string
 }
@@ -108,8 +108,8 @@ export const useGanttStore = defineStore('gantt', () => {
   })
 
   const availableDevices = computed(() => {
-    return devices.value.filter(device => 
-      device.status === 'idle' && !device.is_accessory
+    return devices.value.filter(device =>
+      device.status === 'online' && !device.is_accessory
     )
   })
 
@@ -298,7 +298,7 @@ export const useGanttStore = defineStore('gantt', () => {
         serial_number: deviceData.serial_number,
         model: deviceData.model,
         is_accessory: deviceData.is_accessory,
-        status: 'idle'
+        status: 'online'
       })
       
       if (response.data.success) {

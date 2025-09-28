@@ -2,7 +2,24 @@
 # ARG指令必须在FROM之前定义（BuildKit要求）
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
+
+# 代理配置参数
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG no_proxy
+
 FROM python:3.11-slim
+
+# 设置代理环境变量
+ENV HTTP_PROXY=$HTTP_PROXY
+ENV HTTPS_PROXY=$HTTPS_PROXY
+ENV NO_PROXY=$NO_PROXY
+ENV http_proxy=$http_proxy
+ENV https_proxy=$https_proxy
+ENV no_proxy=$no_proxy
 
 # 设置工作目录
 WORKDIR /app
