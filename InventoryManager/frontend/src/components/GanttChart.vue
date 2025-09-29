@@ -51,6 +51,20 @@
     <div class="filters">
       <el-row :gutter="16">
         <el-col :span="4">
+          <el-input
+            v-model="searchKeyword"
+            placeholder="搜索租赁人名/地址"
+            clearable
+            @input="onSearchInput"
+            @clear="clearSearch"
+          >
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+          </el-input>
+        </el-col>
+
+        <el-col :span="4">
           <el-select
             v-model="selectedDeviceModel"
             placeholder="设备型号"
@@ -289,7 +303,7 @@
 import { ref, computed, onMounted, watch, nextTick, onUnmounted } from 'vue'
 import { useGanttStore, type Device, type Rental, type DeviceModel, type ModelAccessory } from '@/stores/gantt'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
+import { Plus, Refresh, ArrowLeft, ArrowRight, Search } from '@element-plus/icons-vue'
 import axios from 'axios'
 import GanttRow from './GanttRow.vue'
 import BookingDialog from './BookingDialog.vue'
@@ -310,6 +324,7 @@ const showBookingDialog = ref(false)
 const showEditDialog = ref(false)
 const showAddDeviceDialog = ref(false)
 const selectedRental = ref<Rental | null>(null)
+const searchKeyword = ref<string>('')
 const selectedDeviceModel = ref<string>('')
 const selectedDeviceType = ref<string[]>([])
 const selectedStatus = ref('')
@@ -393,6 +408,21 @@ const filteredDevices = computed(() => {
   // 过滤掉附件设备（手柄）
   devices = devices.filter(device => !device.is_accessory)
 
+  // 按搜索关键词筛选（基于租赁数据）
+  if (searchKeyword.value.trim()) {
+    const keyword = searchKeyword.value.toLowerCase().trim()
+    devices = devices.filter(device => {
+      // 获取该设备的所有租赁记录
+      const rentals = ganttStore.getRentalsForDevice(device.id)
+      // 检查是否有租赁记录的客户名或地址包含关键词
+      return rentals.some(rental => {
+        const customerName = rental.customer_name?.toLowerCase() || ''
+        const destination = rental.destination?.toLowerCase() || ''
+        return customerName.includes(keyword) || destination.includes(keyword)
+      })
+    })
+  }
+
   // 按设备型号筛选
   if (selectedDeviceModel.value) {
     devices = devices.filter(device => {
@@ -445,9 +475,31 @@ const applyFilters = () => {
 }
 
 const clearFilters = () => {
+  searchKeyword.value = ''
   selectedDeviceModel.value = ''
   selectedDeviceType.value = []
   selectedStatus.value = ''
+}
+
+// 搜索相关方法
+let searchTimer: number | null = null
+
+const onSearchInput = (value: string) => {
+  // 防抖处理，避免频繁搜索
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+  }
+
+  searchTimer = setTimeout(() => {
+    searchKeyword.value = value
+  }, 300) // 300ms 防抖
+}
+
+const clearSearch = () => {
+  searchKeyword.value = ''
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+  }
 }
 
 // 虚拟滚动相关方法
@@ -878,6 +930,9 @@ onUnmounted(() => {
   if (loadStatsTimer) {
     clearTimeout(loadStatsTimer)
   }
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+  }
   // 清理缓存
   statsCache.clear()
 })
@@ -1055,7 +1110,7 @@ onUnmounted(() => {
 .gantt-scroll-container {
   width: 100%;
   overflow-x: auto;
-  overflow-y: auto;
+  overflow-y: hidden;
   max-height: calc(100vh - 200px);
   position: relative;
   height: 100%;
@@ -1068,7 +1123,7 @@ onUnmounted(() => {
   width: 100%;
   flex: 1;
   overflow-y: auto;
-  overflow-x: auto;
+  overflow-x: hidden;
   position: relative;
 }
 

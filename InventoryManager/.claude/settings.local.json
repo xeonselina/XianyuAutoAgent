@@ -8,7 +8,8 @@
       "Bash(killall:*)",
       "Bash(npx vue-tsc:*)",
       "Bash(npm run build:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": [],
