@@ -44,7 +44,7 @@ class Rental(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, comment='更新时间')
     
     # 租赁关联（主租赁ID，用于关联主设备和附件设备的租赁记录）
-    parent_rental_id = db.Column(db.Integer, db.ForeignKey('rentals.id'), nullable=True, comment='父租赁记录ID（用于关联主设备和附件）')
+    parent_rental_id = db.Column(db.Integer, db.ForeignKey('rentals.id', ondelete='CASCADE'), nullable=True, comment='父租赁记录ID（用于关联主设备和附件）')
     
     # 关系
     audit_logs = db.relationship('AuditLog', backref='rental', lazy='dynamic')

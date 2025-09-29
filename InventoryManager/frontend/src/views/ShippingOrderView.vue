@@ -188,8 +188,8 @@ const customerMessage = computed(() => {
 })
 
 const deposit = computed(() => {
-  if (!rental.value?.device_name) return 5000
-  const deviceName = rental.value.device_name.toLowerCase()
+  if (!rental.value?.device?.name) return 5000
+  const deviceName = rental.value.device.name.toLowerCase()
   if (deviceName.includes('iphone') || deviceName.includes('华为') || deviceName.includes('huawei')) {
     return 8000
   }

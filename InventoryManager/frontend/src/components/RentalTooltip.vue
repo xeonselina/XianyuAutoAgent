@@ -17,7 +17,7 @@
         @mouseleave="handleTooltipLeave"
       >
         <div class="tooltip-header">
-          <h4>{{ rental.device_name }}</h4>
+          <h4>{{ rental.device?.name }}</h4>
           <el-tag :type="getStatusType(rental.status)" size="small">
             {{ getStatusText(rental.status) }}
           </el-tag>

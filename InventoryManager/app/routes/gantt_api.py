@@ -163,7 +163,7 @@ def find_rental_slot():
         data = request.get_json()
         
         # 验证必填字段
-        required_fields = ['start_date', 'end_date', 'logistics_days', 'model']
+        required_fields = ['start_date', 'end_date', 'logistics_days', 'model','is_accessory']
         for field in required_fields:
             if not data.get(field):
                 return create_error_response(f'缺少必填字段: {field}'), 400
@@ -189,9 +189,10 @@ def find_rental_slot():
         current_app.logger.info(f"find_rental_slot: start_date: {start_date}, end_date: {end_date}, logistics_days: {logistics_days}, ship_out_date: {ship_out_date}, ship_in_date: {ship_in_date}, model: {model}")
         
         current_app.logger.info(f"开始查找可用档期")
-        
+        print(f"find available slot parameters: {ship_out_date}, {ship_in_date}, {model}, {is_accessory}")
         # 查找指定型号的可用档期
         available_slot = find_available_time_slot(ship_out_date, ship_in_date, model, is_accessory)
+        print(f"available_slot: {available_slot}")
         
         if available_slot:
             # 获取第一个可用设备的详细信息
@@ -207,6 +208,7 @@ def find_rental_slot():
                 message_parts.append(f'{accessory_count} 个相关附件')
 
             return create_success_response({
+                'is_accessory': is_accessory,
                 'ship_out_date': ship_out_date.isoformat(),
                 'ship_in_date': ship_in_date.isoformat(),
                 'available_devices': available_slot['available_devices'],
@@ -264,9 +266,9 @@ def find_available_time_slot(ship_out_date, ship_in_date, model_filter, is_acces
             availability = InventoryService.check_device_availability(
                 device.id, ship_out_time, ship_in_time
             )
+            print(f"find available slot availability: {availability}")
             if availability['available']:
                 available_devices.append(device.id)
-
         # 返回结果
         if available_devices:
             result = {
