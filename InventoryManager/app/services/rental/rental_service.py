@@ -213,14 +213,24 @@ class RentalService:
             if not rental:
                 return False
 
-            # 删除子租赁记录（附件）
-            for child_rental in rental.child_rentals:
-                db.session.delete(child_rental)
+            # 如果是主租赁记录，删除所有子租赁记录（附件）
+            if rental.is_main_rental():
+                current_app.logger.info(f"删除主租赁记录 {rental_id} 及其所有子租赁记录")
+                # 先删除子租赁记录（附件）
+                child_rentals = list(rental.child_rentals)  # 转换为列表避免修改时的迭代问题
+                for child_rental in child_rentals:
+                    current_app.logger.info(f"删除子租赁记录: {child_rental.id}")
+                    db.session.delete(child_rental)
 
-            # 删除主租赁记录
-            db.session.delete(rental)
+                # 删除主租赁记录
+                db.session.delete(rental)
+            else:
+                # 如果是子租赁记录（附件），只删除该记录
+                current_app.logger.info(f"删除子租赁记录（附件）: {rental_id}")
+                db.session.delete(rental)
+
             db.session.commit()
-
+            current_app.logger.info(f"成功删除租赁记录: {rental_id}")
             return True
 
         except Exception as e:
