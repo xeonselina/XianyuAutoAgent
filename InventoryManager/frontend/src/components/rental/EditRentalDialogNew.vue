@@ -80,6 +80,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { useRouter } from 'vue-router'
 import { useGanttStore } from '@/stores/gantt'
 import type { Device, Rental } from '@/stores/gantt'
 import axios from 'axios'
@@ -111,8 +112,9 @@ const emit = defineEmits<{
   'success': []
 }>()
 
-// Store
+// Store and Router
 const ganttStore = useGanttStore()
+const router = useRouter()
 
 // Refs
 const formRef = ref<FormInstance>()
@@ -375,13 +377,19 @@ const handleAccessoryChange = async (accessoryIds: number[]) => {
 }
 
 const openContract = () => {
-  // 打开合同
-  console.log('Open contract')
+  if (props.rental) {
+    // 跳转到合同页面
+    const url = router.resolve({ path: `/contract/${props.rental.id}` })
+    window.open(url.href, '_blank')
+  }
 }
 
 const openShippingOrder = () => {
-  // 打开发货单
-  console.log('Open shipping order')
+  if (props.rental) {
+    // 跳转到发货单页面
+    const url = router.resolve({ path: `/shipping/${props.rental.id}` })
+    window.open(url.href, '_blank')
+  }
 }
 
 // 加载所有设备（不预先检查冲突）
@@ -441,7 +449,7 @@ const checkDeviceConflict = async (deviceId: number, startDate: string, endDate:
       exclude_rental_id: excludeRentalId
     })
 
-    return response.data.has_conflict || false
+    return response.data.data.has_conflicts || false
   } catch (error) {
     console.error('检查设备冲突失败:', error)
     return false
