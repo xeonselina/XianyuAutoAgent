@@ -145,7 +145,7 @@ class RentalHandlers:
             if not success:
                 return create_error_response('租赁记录不存在'), 404
 
-            return create_success_response(None, '租赁记录删除成功'), 200
+            return create_success_response(None, message='租赁记录删除成功'), 200
 
         except Exception as e:
             current_app.logger.error(f"删除租赁记录失败: {e}")

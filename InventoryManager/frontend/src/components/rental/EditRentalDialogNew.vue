@@ -13,6 +13,7 @@
       :submitting="submitting"
       @open-contract="openContract"
       @open-shipping-order="openShippingOrder"
+      @delete="handleDelete"
       @close="handleClose"
       @submit="handleSubmit"
     />
@@ -175,6 +176,34 @@ const rules: FormRules = {
 // 方法
 const handleClose = () => {
   dialogVisible.value = false
+}
+
+const handleDelete = async () => {
+  if (!props.rental) return
+
+  try {
+    await ElMessageBox.confirm(
+      '确定要删除这条租赁记录吗？此操作不可撤销。',
+      '删除确认',
+      {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+
+    submitting.value = true
+    await ganttStore.deleteRental(props.rental.id)
+    ElMessage.success('租赁记录删除成功')
+    emit('success')
+    handleClose()
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败：' + (error.message || '未知错误'))
+    }
+  } finally {
+    submitting.value = false
+  }
 }
 
 const handleSubmit = async () => {

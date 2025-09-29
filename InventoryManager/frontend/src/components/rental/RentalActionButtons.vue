@@ -20,6 +20,15 @@
         <el-icon><Box /></el-icon>
         发货单
       </el-button>
+      <el-button
+        type="danger"
+        size="small"
+        @click="handleDelete"
+        :disabled="!rental || submitting"
+      >
+        <el-icon><Delete /></el-icon>
+        删除租赁
+      </el-button>
     </div>
 
     <!-- 状态提示 -->
@@ -37,7 +46,7 @@
 </template>
 
 <script setup lang="ts">
-import { Document, Box, Loading, Warning } from '@element-plus/icons-vue'
+import { Document, Box, Loading, Warning, Delete } from '@element-plus/icons-vue'
 import type { Rental } from '@/stores/gantt'
 
 interface Props {
@@ -52,6 +61,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   'open-contract': []
   'open-shipping-order': []
+  'delete': []
   'close': []
   'submit': []
 }>()
@@ -70,6 +80,10 @@ const handleClose = () => {
 
 const handleSubmit = () => {
   emit('submit')
+}
+
+const handleDelete = () => {
+  emit('delete')
 }
 </script>
 
