@@ -80,7 +80,7 @@ class RentalHandlers:
                 return create_error_response('缺少请求数据'), 400
 
             # 验证必填字段
-            required_fields = ['device_id', 'customer_name', 'customer_phone', 'start_date', 'end_date']
+            required_fields = ['device_id', 'customer_name', 'start_date', 'end_date']
             for field in required_fields:
                 if not data.get(field):
                     return create_error_response(f'缺少必填字段: {field}'), 400
@@ -94,7 +94,7 @@ class RentalHandlers:
                 'accessory_rentals': [r.to_dict() for r in accessory_rentals]
             }
 
-            return create_success_response(response_data, '租赁记录创建成功'), 201
+            return create_success_response(response_data, message='租赁记录创建成功'), 201
 
         except ValueError as e:
             return create_error_response(str(e)), 400
@@ -238,28 +238,38 @@ class RentalHandlers:
             if 'ship_out_time' in data:
                 if data['ship_out_time']:
                     try:
-                        rental.ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d %H:%M:%S')
-                        current_app.logger.info(f"寄出时间解析成功: {data['ship_out_time']} -> {rental.ship_out_time}")
+                        # 先尝试 ISO 格式
+                        rental.ship_out_time = datetime.fromisoformat(data['ship_out_time'].replace('T', ' '))
+                        current_app.logger.info(f"寄出时间解析成功(ISO格式): {data['ship_out_time']} -> {rental.ship_out_time}")
                     except ValueError:
                         try:
-                            rental.ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d')
-                            current_app.logger.info(f"寄出时间解析成功(日期格式): {data['ship_out_time']} -> {rental.ship_out_time}")
+                            rental.ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d %H:%M:%S')
+                            current_app.logger.info(f"寄出时间解析成功: {data['ship_out_time']} -> {rental.ship_out_time}")
                         except ValueError:
-                            current_app.logger.warning(f"无法解析寄出时间: {data['ship_out_time']}")
+                            try:
+                                rental.ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d')
+                                current_app.logger.info(f"寄出时间解析成功(日期格式): {data['ship_out_time']} -> {rental.ship_out_time}")
+                            except ValueError:
+                                current_app.logger.warning(f"无法解析寄出时间: {data['ship_out_time']}")
                 else:
                     rental.ship_out_time = None
 
             if 'ship_in_time' in data:
                 if data['ship_in_time']:
                     try:
-                        rental.ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d %H:%M:%S')
-                        current_app.logger.info(f"收回时间解析成功: {data['ship_in_time']} -> {rental.ship_in_time}")
+                        # 先尝试 ISO 格式
+                        rental.ship_in_time = datetime.fromisoformat(data['ship_in_time'].replace('T', ' '))
+                        current_app.logger.info(f"收回时间解析成功(ISO格式): {data['ship_in_time']} -> {rental.ship_in_time}")
                     except ValueError:
                         try:
-                            rental.ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d')
-                            current_app.logger.info(f"收回时间解析成功(日期格式): {data['ship_in_time']} -> {rental.ship_in_time}")
+                            rental.ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d %H:%M:%S')
+                            current_app.logger.info(f"收回时间解析成功: {data['ship_in_time']} -> {rental.ship_in_time}")
                         except ValueError:
-                            current_app.logger.warning(f"无法解析收回时间: {data['ship_in_time']}")
+                            try:
+                                rental.ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d')
+                                current_app.logger.info(f"收回时间解析成功(日期格式): {data['ship_in_time']} -> {rental.ship_in_time}")
+                            except ValueError:
+                                current_app.logger.warning(f"无法解析收回时间: {data['ship_in_time']}")
                 else:
                     rental.ship_in_time = None
 

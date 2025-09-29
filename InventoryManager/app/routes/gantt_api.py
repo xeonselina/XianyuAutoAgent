@@ -39,7 +39,7 @@ def gantt_data():
             try:
                 start_date, end_date = parse_date_strings(start_date_str, end_date_str)
             except ValueError as e:
-                return create_error_response(str(e))
+                return create_error_response(str(e)), 400
         
         # 获取所有非附件设备（甘特图不显示附件）
         devices = Device.query.filter(Device.is_accessory.is_(False)).all()
@@ -166,13 +166,13 @@ def find_rental_slot():
         required_fields = ['start_date', 'end_date', 'logistics_days', 'model']
         for field in required_fields:
             if not data.get(field):
-                return create_error_response(f'缺少必填字段: {field}')
+                return create_error_response(f'缺少必填字段: {field}'), 400
         
         # 解析日期
         try:
             start_date, end_date = parse_date_strings(data['start_date'], data['end_date'])
         except ValueError as e:
-            return create_error_response(str(e))
+            return create_error_response(str(e)), 400
         
         logistics_days = int(data['logistics_days'])
         model = data['model']
@@ -181,7 +181,7 @@ def find_rental_slot():
         # 验证日期范围（允许相同日期，因为这是租赁时间）
         validation_error = validate_date_range(start_date, end_date, allow_same_date=True)
         if validation_error:
-            return create_error_response(validation_error)
+            return create_error_response(validation_error), 400
         
         # 计算寄出时间和收回时间
         ship_out_date = start_date - timedelta(days=1 + logistics_days)
@@ -214,13 +214,13 @@ def find_rental_slot():
                 'available_accessories': available_slot.get('available_accessories', []),
                 'device_model': available_slot.get('device_model'),
                 'device': first_device.to_dict() if first_device else None
-            }, message='，'.join(message_parts))
+            }, message='，'.join(message_parts)), 200
         else:
-            return create_error_response(f'在指定时间段内没有可用的 {model} 型号设备档期')
+            return create_error_response(f'在指定时间段内没有可用的 {model} 型号设备档期'), 404
             
     except Exception as e:
         current_app.logger.error(f"查找租赁档期失败: {e}")
-        return create_error_response('查找档期失败', 500)
+        return create_error_response('查找档期失败'), 500
 
 
 def find_available_time_slot(ship_out_date, ship_in_date, model_filter, is_accessory=False):
@@ -297,7 +297,7 @@ def get_daily_stats():
             try:
                 target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
             except ValueError:
-                return create_error_response('日期格式错误，请使用YYYY-MM-DD格式')
+                return create_error_response('日期格式错误，请使用YYYY-MM-DD格式'), 400
         else:
             target_date = date.today()
 
@@ -371,8 +371,8 @@ def get_daily_stats():
             'available_count': available_count,
             'ship_out_count': main_device_ship_out_count,
             'accessory_ship_out_count': accessory_ship_out_count
-        })
+        }), 200
 
     except Exception as e:
         current_app.logger.error(f"获取每日统计失败: {e}")
-        return create_error_response('获取统计失败', 500)
+        return create_error_response('获取统计失败'), 500

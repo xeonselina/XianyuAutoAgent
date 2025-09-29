@@ -53,7 +53,7 @@ class RentalService:
             
             
             # 验证日期
-            if start_date >= end_date:
+            if start_date > end_date:
                 return {
                     'success': False,
                     'message': '开始日期必须早于结束日期',
