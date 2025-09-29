@@ -100,10 +100,20 @@ class RentalService:
             ship_in_time = None
 
             if data.get('ship_out_time'):
-                ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d %H:%M:%S')
+                try:
+                    # 尝试 ISO 格式
+                    ship_out_time = datetime.fromisoformat(data['ship_out_time'].replace('T', ' '))
+                except ValueError:
+                    # 回退到原格式
+                    ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d %H:%M:%S')
 
             if data.get('ship_in_time'):
-                ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d %H:%M:%S')
+                try:
+                    # 尝试 ISO 格式
+                    ship_in_time = datetime.fromisoformat(data['ship_in_time'].replace('T', ' '))
+                except ValueError:
+                    # 回退到原格式
+                    ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d %H:%M:%S')
 
             # 创建主租赁记录
             main_rental = Rental(

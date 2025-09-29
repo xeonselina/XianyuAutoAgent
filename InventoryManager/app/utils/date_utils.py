@@ -41,7 +41,7 @@ def validate_date_range(start_date: date, end_date: date, allow_same_date: bool 
     Returns:
         Optional[str]: 错误信息，如果验证通过则返回None
     """
-    if not allow_same_date and start_date >= end_date:
+    if not allow_same_date and start_date > end_date:
         return '开始日期必须早于结束日期'
     
     return None
@@ -67,31 +67,31 @@ def convert_dates_to_datetime(start_date: date, end_date: date,
     return ship_out_time, ship_in_time
 
 
-def create_error_response(error_msg: str, status_code: int = 400) -> Tuple[dict, int]:
+def create_error_response(error_msg: str, status_code: int = 400) -> dict:
     """
     创建标准错误响应
-    
+
     Args:
         error_msg: 错误信息
         status_code: HTTP状态码
-        
+
     Returns:
-        Tuple[dict, int]: (错误响应, 状态码)
+        dict: 错误响应
     """
-    return jsonify({
+    return {
         'success': False,
         'error': error_msg
-    }), status_code
+    }
 
 
 def create_success_response(data: dict, **kwargs) -> dict:
     """
     创建标准成功响应
-    
+
     Args:
         data: 响应数据
         **kwargs: 其他响应字段
-        
+
     Returns:
         dict: 成功响应
     """
@@ -101,4 +101,4 @@ def create_success_response(data: dict, **kwargs) -> dict:
         'timestamp': datetime.utcnow().isoformat()
     }
     response.update(kwargs)
-    return jsonify(response)
+    return response
