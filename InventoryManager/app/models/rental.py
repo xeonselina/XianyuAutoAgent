@@ -56,6 +56,22 @@ class Rental(db.Model):
     
     def to_dict(self):
         """转换为字典"""
+        # 获取设备信息和附件信息
+        device_dict = self.device.to_dict() if self.device else None
+        child_rentals_list = [rental.to_dict() for rental in self.child_rentals] if self.child_rentals else []
+
+        # 构建附件列表，兼容前端期望的数据结构
+        accessories = []
+        for child_rental in self.child_rentals:
+            if child_rental.device:
+                accessories.append({
+                    'id': child_rental.device.id,
+                    'name': child_rental.device.name,
+                    'model': child_rental.device.device_model.name if child_rental.device.device_model else child_rental.device.model,
+                    'is_accessory': child_rental.device.is_accessory,
+                    'value': child_rental.device.device_model.device_value if child_rental.device.device_model else None
+                })
+
         return {
             'id': self.id,
             'device_id': self.device_id,
@@ -73,9 +89,11 @@ class Rental(db.Model):
             'updated_at': self.updated_at.isoformat(),
             'duration_days': self.get_duration_days(),
             'is_overdue': self.is_overdue(),
-            'device_info': self.device.to_dict() if self.device else None,
+            'device': device_dict,
+            'device_info': device_dict,  # 保留向后兼容
+            'accessories': accessories,
             'parent_rental_id': self.parent_rental_id,
-            'child_rentals': [rental.to_dict() for rental in self.child_rentals] if self.child_rentals else []
+            'child_rentals': child_rentals_list
         }
     
     def get_duration_days(self):

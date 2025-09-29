@@ -57,15 +57,15 @@
             <!-- 主设备 -->
             <tr class="main-product">
               <td>1</td>
-              <td class="device-name">{{ rental?.device?.device_model?.display_name || rental?.device_name }}</td>
+              <td class="device-name">{{ rental?.device?.device_model?.name || rental?.device?.name }}</td>
               <td>1台</td>
-              <td>{{ rental?.device_name }}</td>
-              <td class="serial-number">{{ deviceInfo?.serial_number || rental?.device?.serial_number || '-' }}/{{ getDefaultAccessories() }}</td>
+              <td>{{ rental?.device?.name }}</td>
+              <td class="serial-number">{{ rental?.device?.serial_number || '-' }}/{{ getDefaultAccessories() }}</td>
             </tr>
             <!-- 个性化附件 -->
             <tr v-for="(accessory, index) in getPersonalizedAccessories()" :key="`personal-${accessory.id}`">
               <td>{{ index + 2 }}</td>
-              <td>{{ accessory.model }}</td>
+              <td>{{ accessory.model || accessory.name }}</td>
               <td>1个</td>
               <td>{{ accessory.name || '-' }}</td>
               <td>个性化附件</td>
@@ -173,7 +173,6 @@ const ganttStore = useGanttStore()
 
 // 响应式状态
 const rental = ref<Rental | null>(null)
-const deviceInfo = ref<any>(null)
 
 // 计算属性
 const rentalDays = computed(() => {

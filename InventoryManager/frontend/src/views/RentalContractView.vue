@@ -101,7 +101,7 @@
       <div class="contract-content">
         <!-- 合同标题 -->
         <div class="contract-header">
-          <div class="contract-title">设备租赁合同（{{ rental.device_name }}）</div>
+          <div class="contract-title">设备租赁合同（{{ rental.device?.device_model?.name || rental.device?.name }}）</div>
         </div>
         
         <!-- 合同前言 -->
@@ -146,14 +146,14 @@
             </tr>
             <!-- 主设备 -->
             <tr>
-              <td>{{ rental.device?.device_model?.name}}</td>
-              <td>{{ rental.device_name }}/{{ deviceSerialNumber }}</td>
+              <td>{{ rental.device?.device_model?.name || rental.device?.name }}</td>
+              <td>{{ rental.device?.name }}/{{ rental.device?.serial_number || deviceSerialNumber }}</td>
               <td>1台</td>
               <td>{{ getDefaultAccessories() }}</td>
             </tr>
             <!-- 个性化附件 -->
             <tr v-for="accessory in getPersonalizedAccessories()" :key="`personal-${accessory.id}`">
-              <td>{{ accessory.model }}</td>
+              <td>{{ accessory.model || accessory.name }}</td>
               <td>{{ accessory.name || '无' }}</td>
               <td>1个</td>
               <td>个性化附件</td>
