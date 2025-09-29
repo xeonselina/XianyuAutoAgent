@@ -51,7 +51,6 @@ export interface Device {
 export interface Rental {
   id: number
   device_id: number
-  device_name: string
   device?: {
     id: number
     name: string
