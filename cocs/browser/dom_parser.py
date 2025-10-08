@@ -27,6 +27,17 @@ class GoofishDOMParser:
                 '.conversation-item--JReyg97P'        # 单个联系人项目
             ],
 
+            # 活跃/当前打开的联系人项目
+            'active_contact_item': [
+                '.conversation-item--JReyg97P[class*="active"]',
+                '.conversation-item--JReyg97P[class*="selected"]'
+            ],
+
+            # 带有新消息徽章的联系人项目
+            'contact_item_with_badge': [
+                '.conversation-item--JReyg97P:has(.ant-badge-count-sm)'
+            ],
+
             # 联系人名称（在联系人项目内部）
             'contact_name': [
                 '.conversation-item--JReyg97P div:nth-child(1) div:nth-child(2) div:nth-child(2)',  # 联系人名称位置
@@ -35,11 +46,18 @@ class GoofishDOMParser:
 
             # 新消息标记
             'new_message_indicators': [
-                '.ant-badge',                         # Ant Design徽章
-                '.ant-badge-count',                   # 徽章计数
-                '.ant-badge-count-sm',                # 小尺寸徽章计数
-                'sup.ant-scroll-number',              # 滚动数字
-                'span.ant-badge.css-1js74qn'          # 具体的徽章类
+                '.ant-badge-count-sm'
+            ],
+
+            # 徽章计数元素
+            'badge_count': [
+                '.ant-badge-count',
+                'sup.ant-scroll-number'
+            ],
+
+            # 需要排除的徽章包装器（父元素有此class的徽章不计入新消息）
+            'badge_exclude_wrapper': [
+                'span.ant-badge.ant-badge-not-a-wrapper.css-1u3we3n'
             ],
 
             # 消息输入框
@@ -213,7 +231,14 @@ class GoofishDOMParser:
             return False
 
     async def get_contacts_with_new_messages(self) -> List[Dict]:
-        """获取有新消息的联系人列表"""
+        """获取有新消息的联系人列表
+
+        新消息只会出现在两种情况：
+        1. 当前打开的联系人 (活跃聊天窗口) - 可能有新消息但没有徽章
+        2. 未打开但有新消息标记 (badge) 的联系人
+
+        只查找这两种情况，不遍历所有联系人
+        """
         logger.info("🔍 获取有新消息的联系人...")
 
         contacts_with_new_messages = []
@@ -224,28 +249,87 @@ class GoofishDOMParser:
                 logger.error("❌ 页面已关闭，无法获取联系人")
                 return []
 
-            # 获取所有联系人项目
-            contact_items = await self.page.query_selector_all('.conversation-item--JReyg97P')
-            logger.info(f"📋 找到{len(contact_items)}个联系人项目")
+            # 方法1: 找到当前打开的联系人 (使用配置的选择器)
+            active_selector = ', '.join(self.selectors['active_contact_item'])
+            active_contact = await self.page.query_selector(active_selector)
+            if active_contact:
+                try:
+                    # 获取联系人名称
+                    name_divs = await active_contact.query_selector_all('div')
+                    contact_name = "未知联系人"
 
-            for i, contact_item in enumerate(contact_items):
+                    for div in name_divs:
+                        div_text = await div.inner_text()
+                        if (div_text and
+                            len(div_text.strip()) > 1 and
+                            not div_text.strip().isdigit() and
+                            '分钟前' not in div_text and
+                            '小时前' not in div_text and
+                            '天前' not in div_text and
+                            '🧧' not in div_text):
+                            contact_name = div_text.strip()
+                            break
+
+                    if contact_name not in ['消息通知', '消息助手', '系统通知', '系统消息', '通知消息', '未知联系人']:
+                        logger.info(f"📱 当前打开的联系人: {contact_name}")
+                        contacts_with_new_messages.append({
+                            'name': contact_name,
+                            'badge_count': '0',
+                            'last_message': '',
+                            'has_new_message': True,
+                            'is_active': True
+                        })
+                except Exception as e:
+                    logger.warning(f"解析当前打开的联系人时出错: {e}")
+
+            # 方法2: 只查找带有徽章的联系人项目 (使用配置的选择器)
+            # 这样避免遍历所有联系人，只处理有新消息的
+            badge_selector = ', '.join(self.selectors['contact_item_with_badge'])
+            contact_items_with_badge = await self.page.query_selector_all(badge_selector)
+            logger.info(f"📋 找到{len(contact_items_with_badge)}个带有新消息标记的联系人")
+
+            for i, contact_item in enumerate(contact_items_with_badge):
                 try:
                     # 检查页面是否还有效
                     if self.page.is_closed():
                         logger.error("❌ 页面在处理联系人时被关闭")
                         break
 
-                    # 检查是否有新消息徽章
-                    badge = await contact_item.query_selector('.ant-badge')
-                    if not badge:
-                        continue
+                    # 检查徽章是否应该被排除（父元素有排除的class）
+                    badge_count_selector = ', '.join(self.selectors['badge_count'])
+                    badge_count_element = await contact_item.query_selector(badge_count_selector)
 
-                    # 获取徽章数字
-                    badge_count_element = await contact_item.query_selector('.ant-badge-count, sup.ant-scroll-number')
-                    badge_count = "1"  # 默认值
                     if badge_count_element:
+                        # 检查徽章的父元素是否包含排除的class
+                        should_exclude = await badge_count_element.evaluate("""
+                            (element) => {
+                                const excludeClasses = ['ant-badge-not-a-wrapper'];
+                                let parent = element.parentElement;
+                                while (parent) {
+                                    const classList = Array.from(parent.classList || []);
+                                    for (const excludeClass of excludeClasses) {
+                                        if (classList.some(cls => cls.includes(excludeClass))) {
+                                            return true;
+                                        }
+                                    }
+                                    parent = parent.parentElement;
+                                    // 只检查3层父元素
+                                    if (parent && parent.classList && parent.classList.contains('conversation-item--JReyg97P')) {
+                                        break;
+                                    }
+                                }
+                                return false;
+                            }
+                        """)
+
+                        if should_exclude:
+                            logger.debug(f"⏭️ 跳过徽章（父元素包含排除的class）")
+                            continue
+
                         badge_text = await badge_count_element.inner_text()
                         badge_count = badge_text.strip() if badge_text else "1"
+                    else:
+                        badge_count = "1"  # 默认值
 
                     # 获取联系人名称（查找包含名称的div）
                     name_divs = await contact_item.query_selector_all('div')
@@ -269,6 +353,11 @@ class GoofishDOMParser:
                         logger.debug(f"⏭️ 跳过系统联系人: {contact_name}")
                         continue
 
+                    # 检查是否已经添加过（可能是当前打开的联系人）
+                    if any(c['name'] == contact_name for c in contacts_with_new_messages):
+                        logger.debug(f"⏭️ 跳过已添加的联系人: {contact_name}")
+                        continue
+
                     # 获取最后消息预览
                     last_message = ""
                     text_divs = await contact_item.query_selector_all('div')
@@ -286,7 +375,8 @@ class GoofishDOMParser:
                         'name': contact_name,
                         'badge_count': badge_count,
                         'last_message': last_message,
-                        'has_new_message': True
+                        'has_new_message': True,
+                        'is_active': False
                     }
 
                     contacts_with_new_messages.append(contact_info)

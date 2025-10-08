@@ -165,7 +165,7 @@ def find_rental_slot():
         # 验证必填字段
         required_fields = ['start_date', 'end_date', 'logistics_days', 'model','is_accessory']
         for field in required_fields:
-            if not data.get(field):
+            if field not in data:
                 return create_error_response(f'缺少必填字段: {field}'), 400
         
         # 解析日期
@@ -250,15 +250,27 @@ def find_available_time_slot(ship_out_date, ship_in_date, model_filter, is_acces
             ship_in_hour="12:00:00"
         )
 
-        # 直接通过 model_id 查找设备
-        model_id = int(model_filter)  # model_filter 应该是 model_id
-        devices = Device.query.filter(
-            Device.model_id == model_id,
-            Device.is_accessory == is_accessory
-        ).all()
-
+        # 根据 model_filter 查找设备
         device_type = "附件" if is_accessory else "主设备"
-        current_app.logger.info(f"查找{device_type} model_id={model_id}, 找到 {len(devices)} 台设备")
+
+        if model_filter and str(model_filter).strip():
+            # 如果指定了型号，按 model_id 查找
+            try:
+                model_id = int(model_filter)
+                devices = Device.query.filter(
+                    Device.model_id == model_id,
+                    Device.is_accessory == is_accessory
+                ).all()
+                current_app.logger.info(f"查找{device_type} model_id={model_id}, 找到 {len(devices)} 台设备")
+            except ValueError:
+                current_app.logger.error(f"无效的 model_id: {model_filter}")
+                return None
+        else:
+            # 如果没有指定型号，查找所有该类型的设备
+            devices = Device.query.filter(
+                Device.is_accessory == is_accessory
+            ).all()
+            current_app.logger.info(f"查找所有{device_type}, 找到 {len(devices)} 台设备")
 
         # 检查设备可用性
         available_devices = []

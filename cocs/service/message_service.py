@@ -51,15 +51,13 @@ class MessageService:
             """接收新消息"""
             try:
                 message = await self.process_incoming_message(message_data)
-                
+
                 if message:
-                    # 异步处理消息，但不使用BackgroundTasks以确保串行处理
-                    await self._handle_message_async(message)
-                    
+                    # process_incoming_message已经自动触发AI处理，无需再次调用
                     return {"status": "success", "message_id": message.id}
                 else:
                     return {"status": "error", "message": "Failed to process message"}
-                    
+
             except Exception as e:
                 logger.error(f"接收消息失败: {e}")
                 return {"status": "error", "message": str(e)}
@@ -111,11 +109,12 @@ class MessageService:
         try:
             # 生成消息ID
             message_id = str(uuid.uuid4())
-            
+
             # 生成聊天ID（基于联系人）
             contact_name = message_data.get('sender', 'unknown')
             chat_id = f"chat_{contact_name}_{datetime.now().strftime('%Y%m%d')}"
-            
+            logger.info(f"收到消息: {message_data}，消息ID: {message_id}，chat_id: {chat_id}，处理中...")
+
             # 创建消息对象
             message = Message(
                 id=message_id,
@@ -125,17 +124,21 @@ class MessageService:
                 chat_id=chat_id,
                 message_type="received"
             )
-            
+
             # 保存消息
             self.messages[message_id] = message
-            
+
             # 更新聊天会话
             await self._update_chat_session(chat_id, contact_name)
-            
+
             logger.info(f"收到新消息: {message.text} (来自: {message.sender})")
-            
+
+            # 自动触发AI处理（异步非阻塞）
+            # 使用asyncio.create_task确保不会阻塞消息接收
+            asyncio.create_task(self._handle_message_async(message))
+
             return message
-            
+
         except Exception as e:
             logger.error(f"处理传入消息失败: {e}")
             return None

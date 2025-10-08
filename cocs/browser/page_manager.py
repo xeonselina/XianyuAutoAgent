@@ -9,8 +9,11 @@ from .dom_parser import GoofishDOMParser
 class PageManager:
     """页面管理器 - 负责浏览器页面的生命周期管理"""
 
-    def __init__(self, headless: bool = False):
+    def __init__(self, headless: bool = False, viewport_width: int = 1000, viewport_height: int = 800, user_agent: str = None):
         self.headless = headless
+        self.viewport_width = viewport_width
+        self.viewport_height = viewport_height
+        self.user_agent = user_agent or "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         self.browser: Optional[Browser] = None
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
@@ -31,8 +34,8 @@ class PageManager:
             )
 
             self.context = await self.browser.new_context(
-                viewport={'width': 1920, 'height': 1080},
-                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                viewport={'width': self.viewport_width, 'height': self.viewport_height},
+                user_agent=self.user_agent
             )
 
             self.page = await self.context.new_page()
@@ -532,7 +535,7 @@ class PageManager:
             # 关闭页面
             if self.page and not self.page.is_closed():
                 try:
-                    await asyncio.wait_for(self.page.close(), timeout=5.0)
+                    await asyncio.wait_for(self.page.close(), timeout=3.0)
                     logger.debug("页面已关闭")
                 except asyncio.TimeoutError:
                     logger.warning("关闭页面超时，继续关闭浏览器")
@@ -542,7 +545,7 @@ class PageManager:
             # 关闭上下文
             if self.context:
                 try:
-                    await asyncio.wait_for(self.context.close(), timeout=5.0)
+                    await asyncio.wait_for(self.context.close(), timeout=3.0)
                     logger.debug("浏览器上下文已关闭")
                 except asyncio.TimeoutError:
                     logger.warning("关闭浏览器上下文超时，继续关闭浏览器")
@@ -552,10 +555,23 @@ class PageManager:
             # 关闭浏览器
             if self.browser:
                 try:
-                    await asyncio.wait_for(self.browser.close(), timeout=10.0)
+                    await asyncio.wait_for(self.browser.close(), timeout=5.0)
                     logger.debug("浏览器已关闭")
                 except asyncio.TimeoutError:
-                    logger.warning("关闭浏览器超时，强制退出")
+                    logger.warning("关闭浏览器超时，尝试强制终止进程")
+                    # 尝试获取浏览器进程并强制终止
+                    try:
+                        import signal
+                        import psutil
+                        # Playwright的浏览器进程可能需要强制终止
+                        current_process = psutil.Process()
+                        children = current_process.children(recursive=True)
+                        for child in children:
+                            if 'chromium' in child.name().lower() or 'chrome' in child.name().lower():
+                                logger.warning(f"强制终止浏览器进程: PID={child.pid}")
+                                child.send_signal(signal.SIGKILL)
+                    except Exception as kill_error:
+                        logger.warning(f"强制终止浏览器进程失败: {kill_error}")
                 except Exception as e:
                     logger.warning(f"关闭浏览器失败: {e}")
 

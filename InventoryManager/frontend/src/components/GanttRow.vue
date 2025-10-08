@@ -216,8 +216,8 @@ const shipTimeCache = new Map<string, Rental[]>()
 
 const getRentalsForDate = (date: Date) => {
   const dateStr = dayjs(date).format('YYYY-MM-DD')
-  // 添加status到缓存key中，确保状态变化时缓存失效
-  const statusHash = props.rentals.map(r => `${r.id}:${r.status}`).join('|')
+  // 添加status和日期到缓存key中，确保状态或日期变化时缓存失效
+  const statusHash = props.rentals.map(r => `${r.id}:${r.status}:${r.start_date}:${r.end_date}`).join('|')
   const cacheKey = `${dateStr}_${props.rentals.length}_${statusHash}`
 
   if (rentalDateCache.has(cacheKey)) {
@@ -247,8 +247,8 @@ const getRentalsForDate = (date: Date) => {
 
 const getShipTimeRentalsForDate = (date: Date) => {
   const dateStr = dayjs(date).format('YYYY-MM-DD')
-  // 添加status和ship时间到缓存key中，确保状态变化时缓存失效
-  const statusAndTimeHash = props.rentals.map(r => `${r.id}:${r.status}:${r.ship_out_time || ''}:${r.ship_in_time || ''}`).join('|')
+  // 添加status、日期和ship时间到缓存key中，确保任何相关字段变化时缓存失效
+  const statusAndTimeHash = props.rentals.map(r => `${r.id}:${r.status}:${r.start_date}:${r.end_date}:${r.ship_out_time || ''}:${r.ship_in_time || ''}`).join('|')
   const cacheKey = `ship_${dateStr}_${props.rentals.length}_${statusAndTimeHash}`
 
   if (shipTimeCache.has(cacheKey)) {

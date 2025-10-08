@@ -4,15 +4,16 @@
 """
 
 from datetime import datetime
-from typing import Dict, Any, Tuple
-from flask import request, jsonify, current_app
+from flask import request, current_app
 from app.services.rental.rental_service import RentalService
-from app.utils.date_utils import (
-    parse_date_strings,
-    validate_date_range,
-    convert_dates_to_datetime,
-    create_error_response,
-    create_success_response
+from app.utils.response import (
+    ApiResponse,
+    success,
+    error,
+    created,
+    not_found,
+    bad_request,
+    server_error
 )
 
 
@@ -20,7 +21,7 @@ class RentalHandlers:
     """租赁请求处理器类"""
 
     @staticmethod
-    def handle_get_rentals() -> Tuple[Dict[str, Any], int]:
+    def handle_get_rentals() -> ApiResponse:
         """处理获取租赁记录列表请求"""
         try:
             # 获取查询参数
@@ -45,45 +46,39 @@ class RentalHandlers:
                 phone=phone
             )
 
-            return {
-                'success': True,
-                'data': result
-            }, 200
+            return success(data=result)
 
         except Exception as e:
             current_app.logger.error(f"获取租赁记录失败: {e}")
-            return create_error_response('获取租赁记录失败'), 500
+            return server_error('获取租赁记录失败')
 
     @staticmethod
-    def handle_get_rental(rental_id: str) -> Tuple[Dict[str, Any], int]:
+    def handle_get_rental(rental_id: str) -> ApiResponse:
         """处理获取单个租赁记录请求"""
         try:
             rental = RentalService.get_rental_by_id(rental_id)
             if not rental:
-                return create_error_response('租赁记录不存在'), 404
+                return not_found('租赁记录不存在')
 
-            return {
-                'success': True,
-                'data': rental.to_dict()
-            }, 200
+            return success(data=rental.to_dict())
 
         except Exception as e:
             current_app.logger.error(f"获取租赁记录失败: {e}")
-            return create_error_response('获取租赁记录失败'), 500
+            return server_error('获取租赁记录失败')
 
     @staticmethod
-    def handle_create_rental() -> Tuple[Dict[str, Any], int]:
+    def handle_create_rental() -> ApiResponse:
         """处理创建租赁记录请求"""
         try:
             data = request.get_json()
             if not data:
-                return create_error_response('缺少请求数据'), 400
+                return bad_request('缺少请求数据')
 
             # 验证必填字段
             required_fields = ['device_id', 'customer_name', 'start_date', 'end_date']
             for field in required_fields:
                 if not data.get(field):
-                    return create_error_response(f'缺少必填字段: {field}'), 400
+                    return bad_request(f'缺少必填字段: {field}')
 
             # 创建租赁记录
             main_rental, accessory_rentals = RentalService.create_rental_with_accessories(data)
@@ -94,76 +89,75 @@ class RentalHandlers:
                 'accessory_rentals': [r.to_dict() for r in accessory_rentals]
             }
 
-            return create_success_response(response_data, message='租赁记录创建成功'), 201
+            return created(data=response_data, message='租赁记录创建成功')
 
         except ValueError as e:
-            return create_error_response(str(e)), 400
+            return bad_request(str(e))
         except Exception as e:
             current_app.logger.error(f"创建租赁记录失败: {e}")
-            return create_error_response('创建租赁记录失败'), 500
+            return server_error('创建租赁记录失败')
 
     @staticmethod
-    def handle_update_rental_status(rental_id: str) -> Tuple[Dict[str, Any], int]:
+    def handle_update_rental_status(rental_id: str) -> ApiResponse:
         """处理更新租赁状态请求"""
         try:
             data = request.get_json()
             if not data or 'status' not in data:
-                return create_error_response('缺少状态数据'), 400
+                return bad_request('缺少状态数据')
 
             new_status = data['status']
 
             # 验证状态值
             valid_statuses = ['not_shipped', 'shipped', 'returned', 'completed', 'cancelled']
             if new_status not in valid_statuses:
-                return create_error_response(f'无效的状态值: {new_status}'), 400
+                return bad_request(f'无效的状态值: {new_status}')
 
             # 更新状态
             rental = RentalService.update_rental_status(rental_id, new_status)
 
-            return {
-                'success': True,
-                'message': '状态更新成功',
-                'data': {
+            return success(
+                message='状态更新成功',
+                data={
                     'id': rental.id,
                     'status': rental.status,
                     'ship_out_time': rental.ship_out_time.isoformat() if rental.ship_out_time else None,
                     'ship_in_time': rental.ship_in_time.isoformat() if rental.ship_in_time else None
                 }
-            }, 200
+            )
 
         except ValueError as e:
-            return create_error_response(str(e)), 404
+            return not_found(str(e))
         except Exception as e:
             current_app.logger.error(f"更新租赁状态失败: {e}")
-            return create_error_response('更新状态失败'), 500
+            return server_error('更新状态失败')
 
     @staticmethod
-    def handle_delete_rental(rental_id: str) -> Tuple[Dict[str, Any], int]:
+    def handle_delete_rental(rental_id: str) -> ApiResponse:
         """处理删除租赁记录请求"""
         try:
-            success = RentalService.delete_rental(rental_id)
-            if not success:
-                return create_error_response('租赁记录不存在'), 404
+            delete_success = RentalService.delete_rental(rental_id)
+            if not delete_success:
+                return not_found('租赁记录不存在')
 
-            return create_success_response(None, message='租赁记录删除成功'), 200
+            return success(message='租赁记录删除成功')
 
         except Exception as e:
             current_app.logger.error(f"删除租赁记录失败: {e}")
-            return create_error_response('删除租赁记录失败'), 500
+            return server_error('删除租赁记录失败')
 
     @staticmethod
-    def handle_check_rental_conflict() -> Tuple[Dict[str, Any], int]:
+    def handle_check_rental_conflict() -> ApiResponse:
         """处理检查租赁冲突请求"""
         try:
             data = request.get_json()
             if not data:
-                return create_error_response('缺少请求数据'), 400
+                return bad_request('缺少请求数据')
 
             # 验证必填字段
             required_fields = ['device_id', 'ship_out_time', 'ship_in_time']
             for field in required_fields:
                 if field not in data:
-                    return create_error_response(f'缺少必填字段: {field}'), 400
+                    return bad_request(f'缺少必填字段: {field}')
 
             # 解析时间
             ship_out_time = datetime.fromisoformat(data['ship_out_time'])
@@ -183,29 +177,26 @@ class RentalHandlers:
                 exclude_rental_id=data.get('exclude_rental_id')
             )
 
-            return {
-                'success': True,
-                'data': {
-                    'has_conflicts': len(conflicts) > 0,
-                    'conflicts': conflicts
-                }
-            }, 200
+            return success(data={
+                'has_conflicts': len(conflicts) > 0,
+                'conflicts': conflicts
+            })
 
         except Exception as e:
             current_app.logger.error(f"检查租赁冲突失败: {e}")
-            return create_error_response('检查冲突失败'), 500
+            return server_error('检查冲突失败')
 
     @staticmethod
-    def handle_web_update_rental(rental_id: str) -> Tuple[Dict[str, Any], int]:
+    def handle_web_update_rental(rental_id: str) -> ApiResponse:
         """处理Web界面更新租赁记录请求"""
         try:
             rental = RentalService.get_rental_by_id(rental_id)
             if not rental:
-                return create_error_response('租赁记录不存在'), 404
+                return not_found('租赁记录不存在')
 
             data = request.get_json()
             if not data:
-                return create_error_response('缺少更新数据'), 400
+                return bad_request('缺少更新数据')
 
             current_app.logger.info(f"更新租赁记录: {data}")
 
@@ -225,7 +216,7 @@ class RentalHandlers:
             if 'end_date' in data:
                 end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date()
                 if end_date < rental.start_date:
-                    return create_error_response('结束日期不能早于开始日期'), 400
+                    return bad_request('结束日期不能早于开始日期')
                 rental.end_date = end_date
 
             if 'ship_out_tracking_no' in data:
@@ -290,10 +281,9 @@ class RentalHandlers:
                 current_app.logger.info(f"数据库事务已提交")
 
             # 构建响应数据
-            result_data = {
-                'success': True,
-                'message': '租赁记录更新成功',
-                'data': {
+            return success(
+                message='租赁记录更新成功',
+                data={
                     'id': rental.id,
                     'device_id': rental.device_id,
                     'device_name': rental.device.name if rental.device else 'Unknown',
@@ -307,36 +297,35 @@ class RentalHandlers:
                     'ship_in_time': rental.ship_in_time.isoformat() if rental.ship_in_time else None,
                     'status': rental.status
                 }
-            }
-
-            return result_data, 200
+            )
 
         except Exception as e:
             from app import db
             db.session.rollback()
             current_app.logger.error(f"更新租赁记录失败: {e}")
-            return create_error_response('更新租赁记录失败'), 500
+            return server_error('更新租赁记录失败')
 
     @staticmethod
-    def handle_check_duplicate_rental() -> Tuple[Dict[str, Any], int]:
+    def handle_check_duplicate_rental() -> ApiResponse:
         """处理检查重复租赁请求"""
         try:
             from app.models.rental import Rental
 
             data = request.get_json()
             if not data:
-                return create_error_response('请求数据不能为空'), 400
+                return bad_request('请求数据不能为空')
 
             customer_name = data.get('customer_name', '').strip()
             destination = data.get('destination', '').strip()
             exclude_rental_id = data.get('exclude_rental_id')
+            start_date_str = data.get('start_date')
+            end_date_str = data.get('end_date')
 
             if not customer_name and not destination:
-                return {
-                    'success': True,
+                return success(data={
                     'has_duplicate': False,
                     'duplicates': []
-                }, 200
+                })
 
             # 查找重复的租赁记录
             query = Rental.query.filter(Rental.status.in_(['not_shipped', 'shipped', 'returned']))
@@ -358,9 +347,30 @@ class RentalHandlers:
 
             duplicates = query.order_by(Rental.created_at.desc()).limit(10).all()
 
-            # 构建返回数据
+            # 解析日期用于冲突检查
+            current_start_date = None
+            current_end_date = None
+            if start_date_str and end_date_str:
+                try:
+                    current_start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+                    current_end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+                except ValueError:
+                    pass
+
+            # 构建返回数据，并检查档期冲突
             duplicate_data = []
             for rental in duplicates:
+                has_date_conflict = False
+
+                # 如果提供了日期，检查档期是否冲突
+                if current_start_date and current_end_date:
+                    # 档期冲突判断：两个时间段有重叠
+                    # 重叠条件：start1 <= end2 AND end1 >= start2
+                    has_date_conflict = (
+                        current_start_date <= rental.end_date and
+                        current_end_date >= rental.start_date
+                    )
+
                 duplicate_data.append({
                     'id': rental.id,
                     'customer_name': rental.customer_name,
@@ -370,15 +380,15 @@ class RentalHandlers:
                     'start_date': rental.start_date.isoformat(),
                     'end_date': rental.end_date.isoformat(),
                     'status': rental.status,
-                    'created_at': rental.created_at.isoformat()
+                    'created_at': rental.created_at.isoformat(),
+                    'has_date_conflict': has_date_conflict
                 })
 
-            return {
-                'success': True,
+            return success(data={
                 'has_duplicate': len(duplicates) > 0,
                 'duplicates': duplicate_data
-            }, 200
+            })
 
         except Exception as e:
             current_app.logger.error(f"检查重复租赁失败: {e}")
-            return create_error_response('检查重复租赁失败'), 500
+            return server_error('检查重复租赁失败')

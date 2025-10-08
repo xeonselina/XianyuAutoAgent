@@ -189,6 +189,18 @@ BROWSER_LOGIN_TIMEOUT=600000  # 10分钟
 2. 实现 `notify_human_required` 方法
 3. 在初始化时添加到通知管理器
 
+## 文档
+
+### 核心文档
+- **[功能规格说明](./FUNCTIONAL_SPEC.md)** - 详细的功能需求、业务流程和用户场景
+- **[技术架构规格说明](./TECHNICAL_SPEC.md)** - 技术架构、模块设计和实现细节
+- **[函数调用流程图](./COCS_Function_Call_Flow.md)** - 系统函数调用关系和数据流
+
+### 技术文档
+- **[消息去重机制](./FUNCTIONAL_SPEC.md#44-消息去重详细机制)** - 消息去重的设计和实现
+- **[串行处理说明](./browser/README_serial_processing.md)** - 串行消息处理机制
+- **[选择器更新](./SELECTOR_UPDATE_SUMMARY.md)** - DOM选择器更新记录
+
 ## 许可证
 
 MIT License
