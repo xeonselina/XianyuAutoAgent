@@ -61,42 +61,55 @@ class DataPersistence:
 
     def generate_message_hash(self, message: Dict) -> str:
         """生成消息的唯一哈希标识"""
-        # 使用消息内容、时间戳、发送者生成唯一标识
-        content = f"{message.get('text', '')}{message.get('timestamp', '')}{message.get('sender', '')}"
+        # 只使用消息内容和发送者生成唯一标识，不使用timestamp
+        # 因为timestamp在每次提取时都会变化（dom_parser中使用new Date()生成）
+        content = f"{message.get('text', '')}{message.get('sender', '')}"
         return hashlib.md5(content.encode('utf-8')).hexdigest()
 
     def find_new_message_for_contact(self, contact_name: str, messages: list) -> Dict:
-        """为特定联系人找到新消息"""
+        """
+        为特定联系人找到新消息
+
+        简化逻辑：
+        1. 只处理有新消息标记的联系人
+        2. 直接获取该联系人最新的接收消息
+        3. 对比哈希值，如果不同则为新消息
+        """
         try:
             if not messages:
+                logger.debug(f"联系人 {contact_name} 没有消息")
                 return None
 
-            # 获取该联系人最后处理的消息哈希
-            last_message_hash = self.last_processed_messages.get(contact_name, "")
-
-            # 从最新消息开始检查
-            for message in reversed(messages):
-                message_hash = self.generate_message_hash(message)
-
-                # 如果找到了之前处理过的消息，说明后面的都是新消息
-                if message_hash == last_message_hash:
-                    break
-
-                # 这是一条新消息
-                if message.get('type') == 'received':  # 只处理收到的消息
-                    logger.debug(f"找到联系人 {contact_name} 的新消息: {message.get('text', '')[:30]}")
-                    return message
-
-            # 如果没有找到之前的消息标记，可能是首次处理该联系人
-            # 只处理最新的一条收到的消息
+            # 获取最新的接收消息（从后往前找第一条接收消息）
+            latest_received_message = None
             for message in reversed(messages):
                 if message.get('type') == 'received':
-                    if not last_message_hash:  # 首次处理
-                        logger.debug(f"首次处理联系人 {contact_name}，获取最新消息: {message.get('text', '')[:30]}")
-                        return message
+                    latest_received_message = message
                     break
 
-            return None
+            if not latest_received_message:
+                logger.debug(f"联系人 {contact_name} 没有接收消息")
+                return None
+
+            # 获取该联系人上次处理的消息哈希
+            last_message_hash = self.last_processed_messages.get(contact_name, "")
+
+            # 计算当前最新消息的哈希
+            current_message_hash = self.generate_message_hash(latest_received_message)
+
+            # 对比哈希值
+            if current_message_hash == last_message_hash:
+                # 哈希相同，说明已经处理过
+                logger.debug(f"联系人 {contact_name} 的最新消息已处理过，跳过")
+                return None
+
+            # 哈希不同，这是新消息
+            if not last_message_hash:
+                logger.debug(f"首次处理联系人 {contact_name}，消息: {latest_received_message.get('text', '')[:30]}")
+            else:
+                logger.debug(f"找到联系人 {contact_name} 的新消息: {latest_received_message.get('text', '')[:30]}")
+
+            return latest_received_message
 
         except Exception as e:
             logger.error(f"查找联系人 {contact_name} 新消息时出错: {e}")

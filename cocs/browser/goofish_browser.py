@@ -8,11 +8,16 @@ from .message_monitor import MessageMonitor
 class GoofishBrowser:
     """咸鱼浏览器主类 - 整合各个模块提供统一API"""
 
-    def __init__(self, headless: bool = False, data_dir: str = "./goofish_data"):
+    def __init__(self, headless: bool = False, data_dir: str = "./goofish_data", viewport_width: int = 1000, viewport_height: int = 800, user_agent: str = None):
         self.headless = headless
 
         # 初始化各个模块
-        self.page_manager = PageManager(headless=headless)
+        self.page_manager = PageManager(
+            headless=headless,
+            viewport_width=viewport_width,
+            viewport_height=viewport_height,
+            user_agent=user_agent
+        )
         self.data_persistence = DataPersistence(data_dir=data_dir)
         self.message_monitor = MessageMonitor(self.page_manager, self.data_persistence)
 

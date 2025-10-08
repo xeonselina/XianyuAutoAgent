@@ -10,7 +10,6 @@ declare module 'vue' {
   export interface GlobalComponents {
     BookingDialog: typeof import('./src/components/BookingDialog.vue')['default']
     EditRentalDialogNew: typeof import('./src/components/rental/EditRentalDialogNew.vue')['default']
-    ElAlert: typeof import('element-plus/es')['ElAlert']
     ElButton: typeof import('element-plus/es')['ElButton']
     ElButtonGroup: typeof import('element-plus/es')['ElButtonGroup']
     ElCard: typeof import('element-plus/es')['ElCard']

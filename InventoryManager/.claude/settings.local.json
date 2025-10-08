@@ -9,7 +9,12 @@
       "Bash(npx vue-tsc:*)",
       "Bash(npm run build:*)",
       "Bash(tree:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(cat:*)",
+      "Bash(docker:*)",
+      "Bash(colima template:*)",
+      "Read(//Users/jimmypan/.colima/default/**)",
+      "Bash(colima restart:*)"
     ],
     "deny": [],
     "ask": [],

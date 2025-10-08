@@ -73,9 +73,14 @@ class GoofishAIBot:
     async def _init_browser(self):
         """初始化浏览器"""
         self.logger.info("初始化浏览器...")
-        
-        self.browser = GoofishBrowser(headless=self.settings.browser.headless)
-        
+
+        self.browser = GoofishBrowser(
+            headless=self.settings.browser.headless,
+            viewport_width=self.settings.browser.viewport_width,
+            viewport_height=self.settings.browser.viewport_height,
+            user_agent=self.settings.browser.user_agent
+        )
+
         # 启动浏览器
         success = await self.browser.start()
         if not success:
@@ -253,24 +258,45 @@ class GoofishAIBot:
         """设置信号处理器"""
         def signal_handler(signum, frame):
             self.logger.info(f"收到信号 {signum}，准备停止...")
+
             # 设置停止标志，让正在运行的循环自然退出
             self.is_running = False
             if self.browser:
                 self.browser.is_running = False
 
-            # 主动取消所有任务
+            # 取消所有任务
             for task in self.tasks:
                 if not task.done():
                     task.cancel()
                     self.logger.debug(f"取消任务: {task}")
 
-            # 创建一个新的任务来处理异步清理
-            if hasattr(asyncio, '_get_running_loop') and asyncio._get_running_loop():
-                # 如果有运行中的事件循环，创建清理任务
-                asyncio.create_task(self._async_cleanup())
+            # 创建一个清理任务，带超时
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # 不要直接停止循环，而是调度一个清理任务
+                    asyncio.create_task(self._cleanup_with_timeout())
+                    self.logger.info("已调度清理任务")
+            except Exception as e:
+                self.logger.error(f"调度清理任务失败: {e}")
 
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
+
+    async def _cleanup_with_timeout(self):
+        """带超时的清理任务"""
+        try:
+            self.logger.info("开始执行清理任务（10秒超时）...")
+            await asyncio.wait_for(self.stop(), timeout=10.0)
+            self.logger.info("清理任务完成")
+        except asyncio.TimeoutError:
+            self.logger.warning("清理任务超时，强制退出")
+        except Exception as e:
+            self.logger.error(f"清理任务失败: {e}")
+        finally:
+            # 无论如何都要退出
+            import os
+            os._exit(0)
 
     async def _async_cleanup(self):
         """异步清理资源"""

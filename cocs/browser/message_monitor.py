@@ -86,7 +86,11 @@ class MessageMonitor:
                     except Exception as recovery_error:
                         logger.error(f"❌ 页面重新初始化失败: {recovery_error}")
 
-                await asyncio.sleep(5)
+                # 分段睡眠以便更快响应中断
+                for _ in range(5):
+                    if not self.is_running:
+                        break
+                    await asyncio.sleep(1.0)
 
         # 监控结束统计
         total_time = time.time() - monitor_start_time
@@ -121,11 +125,19 @@ class MessageMonitor:
                             self.page_manager.dom_parser = GoofishDOMParser(self.page_manager.page)
                         else:
                             logger.error("❌ 页面已关闭，无法重新初始化")
-                            await asyncio.sleep(poll_interval * 3)  # 延长等待时间
+                            # 分段睡眠以便更快响应中断
+                            for _ in range(int(poll_interval * 3)):
+                                if not self.is_running:
+                                    return None
+                                await asyncio.sleep(1.0)
                             continue
                     except Exception as init_error:
                         logger.error(f"❌ 重新初始化失败: {init_error}")
-                        await asyncio.sleep(poll_interval * 3)
+                        # 分段睡眠以便更快响应中断
+                        for _ in range(int(poll_interval * 3)):
+                            if not self.is_running:
+                                return None
+                            await asyncio.sleep(1.0)
                         continue
 
                     # 重试获取联系人
@@ -133,16 +145,25 @@ class MessageMonitor:
                         contacts_with_indicators = await self.check_for_new_message_indicators()
                     except Exception as retry_error:
                         logger.error(f"❌ 重试获取联系人失败: {retry_error}")
-                        await asyncio.sleep(poll_interval * 2)
+                        # 分段睡眠以便更快响应中断
+                        for _ in range(int(poll_interval * 2)):
+                            if not self.is_running:
+                                return None
+                            await asyncio.sleep(1.0)
                         continue
 
                 if not contacts_with_indicators:
                     # 没有新消息标记，等待后继续
                     logger.debug(f"⏳ 未发现新消息标记，等待{poll_interval}秒后继续...")
-                    await asyncio.sleep(poll_interval)
+                    # 分段睡眠以便更快响应中断
+                    for _ in range(int(poll_interval)):
+                        if not self.is_running:
+                            return None
+                        await asyncio.sleep(1.0)
                     continue
 
                 logger.info(f"🎉 发现 {len(contacts_with_indicators)} 个有新消息标记的联系人")
+                logger.info(f"🔍 有新消息标记的联系人: {contacts_with_indicators}")
 
                 # 2. 遍历有新消息标记的联系人，检查具体的新消息
                 for i, contact in enumerate(contacts_with_indicators):
@@ -186,7 +207,11 @@ class MessageMonitor:
                 # 所有有标记的联系人都检查完了，但没找到真正的新消息
                 logger.debug(f"⚠️ 检查完所有有标记的联系人，但未找到真正新消息，可能是误报")
                 logger.debug(f"⏳ 等待{poll_interval}秒后继续...")
-                await asyncio.sleep(poll_interval)
+                # 分段睡眠以便更快响应中断
+                for _ in range(int(poll_interval)):
+                    if not self.is_running:
+                        return None
+                    await asyncio.sleep(1.0)
 
             except KeyboardInterrupt:
                 logger.info("⛔ 接收到中断信号，停止等待新消息")
@@ -204,7 +229,11 @@ class MessageMonitor:
                 # 错误后延长等待时间
                 error_wait_time = poll_interval * 2
                 logger.warning(f"⏳ 出错后等待{error_wait_time}秒后重试...")
-                await asyncio.sleep(error_wait_time)
+                # 分段睡眠以便更快响应中断
+                for _ in range(int(error_wait_time)):
+                    if not self.is_running:
+                        return None
+                    await asyncio.sleep(1.0)
 
         logger.debug("🔚 等待新消息循环结束")
         return None
@@ -251,7 +280,7 @@ class MessageMonitor:
                     'last_message': contact.get('last_message', ''),
                     'has_new_message_indicator': contact.get('has_new_message', False)
                 })
-                logger.debug(f"联系人 {contact['name']} 有新消息标记")
+                logger.info(f"联系人 {contact['name']} 有新消息标记")
 
             return formatted_contacts
 

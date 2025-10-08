@@ -8,3 +8,4 @@ python-dotenv==1.0.0
 asyncio-mqtt==0.16.1
 loguru==0.7.2
 httpx==0.25.2
+psutil==5.9.8

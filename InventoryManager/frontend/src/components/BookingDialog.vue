@@ -13,6 +13,7 @@
       label-width="120px"
       @submit.prevent="handleSubmit"
     >
+      <!-- 日期选择 -->
       <el-form-item label="开始日期" prop="startDate">
         <VueDatePicker
           :model-value="form.startDate"
@@ -53,6 +54,7 @@
         <div class="form-tip">寄出和收回所需的物流时间，0天表示当天取送</div>
       </el-form-item>
 
+      <!-- 设备选择 -->
       <el-form-item label="选择设备" prop="selectedDeviceId">
         <div class="device-selection">
           <el-select
@@ -60,13 +62,38 @@
             placeholder="请选择设备"
             style="flex: 1"
             clearable
+            filterable
+            @focus="handleDeviceFocus"
           >
             <el-option
-              v-for="device in availableDevices"
+              v-for="device in deviceManagement.devices.value"
               :key="device.id"
               :label="device.name"
               :value="device.id"
-            />
+            >
+              <div class="device-option">
+                <span>{{ device.name }}</span>
+                <div class="device-status">
+                  <span class="device-model">{{ device.model }}</span>
+                  <el-tag
+                    v-if="availability.deviceAvailability.value.checked && availability.isDeviceAvailable(device.id)"
+                    type="success"
+                    size="small"
+                    effect="dark"
+                  >
+                    可用
+                  </el-tag>
+                  <el-tag
+                    v-else-if="availability.deviceAvailability.value.checked"
+                    type="danger"
+                    size="small"
+                    effect="dark"
+                  >
+                    档期不可用
+                  </el-tag>
+                </div>
+              </div>
+            </el-option>
           </el-select>
           <el-button
             type="info"
@@ -81,6 +108,7 @@
         <div class="form-tip">选择具体设备或点击查找档期自动匹配可用设备</div>
       </el-form-item>
 
+      <!-- 客户信息 -->
       <el-form-item label="闲鱼ID" prop="customerName">
         <el-input
           v-model="form.customerName"
@@ -102,8 +130,7 @@
           v-model="form.destination"
           type="textarea"
           :rows="3"
-          placeholder="请填写详细的收件地址、收件人姓名等信息(可选)"
-          @input="handleDestinationChange"
+          placeholder="请输入收件人信息（姓名、电话、地址）"
         />
         <div class="form-tip">可选填写，系统会自动从收件信息中提取手机号码</div>
       </el-form-item>
@@ -120,17 +147,36 @@
             collapse-tags
             collapse-tags-tooltip
             style="flex: 1"
+            @focus="handleAccessoryFocus"
           >
             <el-option
-              v-for="accessory in availableControllers"
+              v-for="accessory in deviceManagement.accessories.value"
               :key="accessory.id"
               :label="accessory.name"
               :value="accessory.id"
             >
-              <span>{{ accessory.name }}</span>
-              <span style="float: right; color: var(--el-text-color-secondary); font-size: 13px">
-                {{ accessory.model }}
-              </span>
+              <div class="device-option">
+                <span>{{ accessory.name }}</span>
+                <div class="device-status">
+                  <span class="device-model">{{ accessory.model }}</span>
+                  <el-tag
+                    v-if="availability.accessoryAvailability.value.checked && availability.isAccessoryAvailable(accessory.id)"
+                    type="success"
+                    size="small"
+                    effect="dark"
+                  >
+                    可用
+                  </el-tag>
+                  <el-tag
+                    v-else-if="availability.accessoryAvailability.value.checked"
+                    type="danger"
+                    size="small"
+                    effect="dark"
+                  >
+                    档期不可用
+                  </el-tag>
+                </div>
+              </div>
             </el-option>
           </el-select>
           <el-button
@@ -158,31 +204,25 @@
           <el-button
             type="primary"
             size="small"
-            style="margin-top: 8px"
             @click="addFoundAccessory"
+            style="margin-top: 8px"
           >
             添加此附件
           </el-button>
         </div>
       </el-form-item>
 
-      <!-- 可用档期显示 -->
-      <el-form-item v-if="availableSlot" label="可用档期">
-        <el-alert type="success" :closable="false">
-          <template #title>
-            <div class="slot-info">
-              <div class="slot-device">
-                <el-icon><Monitor /></el-icon>
-                找到可用设备：{{ availableSlot.device.name }}
-              </div>
-              <div class="slot-times">
-                <div>寄出时间：{{ formatDateTime(availableSlot.shipOutDate) }}</div>
-                <div>收回时间：{{ formatDateTime(availableSlot.shipInDate) }}</div>
-              </div>
-            </div>
-          </template>
-        </el-alert>
-      </el-form-item>
+      <!-- 查找到的档期信息 -->
+      <div v-if="availableSlot" class="slot-info">
+        <div class="slot-device">
+          <el-icon><Monitor /></el-icon>
+          已找到可用设备: {{ availableSlot.device?.name || '未知设备' }}
+        </div>
+        <div class="slot-times">
+          <div>寄出时间: {{ formatDateTime(availableSlot.shipOutDate) }}</div>
+          <div>收回时间: {{ formatDateTime(availableSlot.shipInDate) }}</div>
+        </div>
+      </div>
     </el-form>
 
     <template #footer>
@@ -201,38 +241,48 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, nextTick } from 'vue'
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { Monitor, WarningFilled } from '@element-plus/icons-vue'
-import { useGanttStore, type AvailableSlot } from '../stores/gantt'
-import dayjs from 'dayjs'
+import { ref, computed, watch, nextTick } from 'vue'
+import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
+import { Monitor } from '@element-plus/icons-vue'
 import VueDatePicker from '@vuepic/vue-datepicker'
 import '@vuepic/vue-datepicker/dist/main.css'
-import { toAPIFormat } from '@/utils/dateUtils'
+import dayjs from 'dayjs'
 import axios from 'axios'
 
-const props = defineProps<{
-  modelValue: boolean
-  selectedDeviceModel?: string
-}>()
+// 导入组合式函数
+import { useGanttStore } from '@/stores/gantt'
+import { useDeviceManagement } from '@/composables/useDeviceManagement'
+import { useAvailabilityCheck } from '@/composables/useAvailabilityCheck'
+import { useConflictDetection } from '@/composables/useConflictDetection'
+import { getCreateRentalRules } from '@/composables/useRentalFormValidation'
 
+// Props & Emits
+interface Props {
+  modelValue: boolean
+  selectedDeviceModel?: string // 当前甘特图选择的设备型号 display_name
+}
+
+const props = defineProps<Props>()
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   'success': []
 }>()
 
+// Store & Composables
 const ganttStore = useGanttStore()
+const deviceManagement = useDeviceManagement()
+const availability = useAvailabilityCheck()
+const conflictDetection = useConflictDetection()
 
-// 响应式状态
+// Refs
 const formRef = ref<FormInstance>()
-const searching = ref(false)
-const submitting = ref(false)
-const availableSlot = ref<AvailableSlot | null>(null)
-const searchingAccessory = ref(false)
-const availableAccessorySlot = ref<{ accessory: any; shipOutDate: Date; shipInDate: Date } | null>(null)
+const dialogVisible = computed({
+  get: () => props.modelValue,
+  set: (value) => emit('update:modelValue', value)
+})
 
-// 表单数据
-const form = reactive({
+// Form State
+const form = ref({
   startDate: null as Date | null,
   endDate: null as Date | null,
   logisticsDays: 1,
@@ -240,168 +290,25 @@ const form = reactive({
   customerName: '',
   customerPhone: '',
   destination: '',
-  selectedAccessoryIds: [] as number[],
-  needController: false
+  selectedAccessoryIds: [] as number[]
 })
 
-// 计算属性
-const dialogVisible = computed({
-  get: () => props.modelValue,
-  set: (value) => emit('update:modelValue', value)
-})
+// UI State
+const submitting = ref(false)
+const searching = ref(false)
+const searchingAccessory = ref(false)
+const availableSlot = ref<any>(null)
+const availableAccessorySlot = ref<any>(null)
 
+// Form Rules
+const rules = getCreateRentalRules()
+
+// Computed
 const canSearchSlot = computed(() => {
-  return form.startDate && form.endDate && form.logisticsDays > 0
+  return form.value.startDate && form.value.endDate && form.value.logisticsDays >= 0
 })
 
-const availableDevices = computed(() => {
-  return ganttStore.devices?.filter(device => !device.is_accessory) || []
-})
-
-const availableControllers = ref<any[]>([])
-
-// 在组件加载时获取附件列表
-const loadAvailableControllers = async () => {
-  try {
-    const devicesResponse = await axios.get('/api/devices')
-    if (devicesResponse.data.success) {
-      const allDevices = devicesResponse.data.data
-      availableControllers.value = allDevices.filter((device: any) => 
-        device.is_accessory && device.model && device.model.includes('controller')
-      )
-    }
-  } catch (error) {
-    console.error('获取附件列表失败:', error)
-  }
-}
-
-// 可用手柄状态（异步计算）
-const controllerAvailabilityState = ref({
-  checked: false,
-  hasAvailable: false,
-  count: 0,
-  availableControllers: [] as any[]
-})
-
-const hasAvailableControllers = computed(() => {
-  if (!availableControllers.value.length) return false
-  
-  // 如果有查找到的档期信息，优先使用它的手柄信息
-  if (availableSlot.value && availableSlot.value.controllerCount !== undefined) {
-    return availableSlot.value.controllerCount > 0
-  }
-  
-  // 使用异步计算的结果
-  if (!form.startDate || !form.endDate) return availableControllers.value.length > 0
-  
-  return controllerAvailabilityState.value.hasAvailable
-})
-
-const availableControllersCount = computed(() => {
-  if (!availableControllers.value.length) return 0
-  
-  // 如果有查找到的档期信息，优先使用它的手柄信息
-  if (availableSlot.value && availableSlot.value.controllerCount !== undefined) {
-    return availableSlot.value.controllerCount
-  }
-  
-  if (!form.startDate || !form.endDate) return availableControllers.value.length
-  
-  // 使用异步计算的结果
-  return controllerAvailabilityState.value.count
-})
-
-// 异步检查手柄可用性
-const checkControllerAvailability = async () => {
-  if (!form.startDate || !form.endDate || !availableControllers.value.length) {
-    controllerAvailabilityState.value = {
-      checked: true,
-      hasAvailable: availableControllers.value.length > 0,
-      count: availableControllers.value.length,
-      availableControllers: availableControllers.value
-    }
-    return
-  }
-  
-  try {
-    // 批量检查所有手柄的可用性
-    const availabilityResults = await checkAccessoriesAvailability(availableControllers.value)
-    const availableControllersList = availableControllers.value.filter((_, index) => availabilityResults[index])
-    
-    controllerAvailabilityState.value = {
-      checked: true,
-      hasAvailable: availableControllersList.length > 0,
-      count: availableControllersList.length,
-      availableControllers: availableControllersList
-    }
-  } catch (error) {
-    console.error('检查手柄可用性失败:', error)
-    controllerAvailabilityState.value = {
-      checked: true,
-      hasAvailable: false,
-      count: 0,
-      availableControllers: []
-    }
-  }
-}
-
-// 表单验证规则
-const rules: FormRules = {
-  startDate: [
-    { required: true, message: '请选择开始日期', trigger: 'change' }
-  ],
-  endDate: [
-    { required: true, message: '请选择结束日期', trigger: 'change' }
-  ],
-  logisticsDays: [
-    { required: true, message: '请输入物流天数', trigger: 'change' }
-  ],
-  customerName: [
-    { required: true, message: '请输入闲鱼ID', trigger: 'blur' }
-  ],
-  customerPhone: [
-    { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的手机号码', trigger: 'blur' }
-  ],
-  destination: [
-    // 收件信息改为非必填
-  ]
-}
-
-// 监听日期变化已移到处理函数中
-
-// 日期处理函数
-const formatDateToString = (date: Date | null): string => {
-  if (!date) return ''
-  return dayjs(date).format('YYYY-MM-DD')
-}
-
-const handleStartDateChange = (date: Date | null) => {
-  form.startDate = date
-  // 如果结束日期早于开始日期，清空结束日期
-  if (date && form.endDate && dayjs(form.endDate).isBefore(dayjs(date))) {
-    form.endDate = null
-  }
-  // 重置可用档期和手柄状态
-  availableSlot.value = null
-  controllerAvailabilityState.value.checked = false
-  // 异步检查手柄可用性
-  nextTick(() => {
-    checkControllerAvailability()
-  })
-}
-
-const handleEndDateChange = (date: Date | null) => {
-  form.endDate = date
-  // 重置可用档期和手柄状态
-  availableSlot.value = null
-  controllerAvailabilityState.value.checked = false
-  // 异步检查手柄可用性
-  nextTick(() => {
-    checkControllerAvailability()
-  })
-}
-
-// 方法
+// Date Methods
 const disabledDate = (date: Date) => {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -411,75 +318,166 @@ const disabledDate = (date: Date) => {
 const disabledEndDate = (date: Date) => {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  
-  if (!form.startDate) {
-    return date < today
+  if (date < today) return true
+  if (form.value.startDate) {
+    return dayjs(date).isBefore(dayjs(form.value.startDate), 'day')
   }
-  
-  const startDate = new Date(form.startDate)
-  startDate.setHours(0, 0, 0, 0)
-  
-  return date < startDate || date < today
+  return false
 }
 
-const handleDestinationChange = (value: string) => {
-  // 自动提取手机号码
-  if (value && value.trim()) {
-    const phoneMatch = value.match(/1[3-9]\d{9}/)
-    if (phoneMatch && !form.customerPhone) {
-      form.customerPhone = phoneMatch[0]
-      ElMessage.success(`已自动提取手机号: ${phoneMatch[0]}`)
+const formatDateTime = (date: Date) => {
+  return dayjs(date).format('YYYY-MM-DD HH:mm')
+}
+
+// Date Change Handlers
+const handleStartDateChange = (date: Date | null) => {
+  form.value.startDate = date
+  if (date && form.value.endDate && dayjs(form.value.endDate).isBefore(dayjs(date))) {
+    form.value.endDate = null
+  }
+
+  availableSlot.value = null
+  availability.resetAll()
+
+  if (date && form.value.endDate) {
+    nextTick(() => {
+      checkAvailabilities()
+    })
+  }
+}
+
+const handleEndDateChange = (date: Date | null) => {
+  form.value.endDate = date
+  availableSlot.value = null
+  availability.resetAll()
+
+  if (date && form.value.startDate) {
+    nextTick(() => {
+      checkAvailabilities()
+    })
+  }
+}
+
+// Availability Check
+const checkAvailabilities = async () => {
+  if (!form.value.startDate || !form.value.endDate) return
+
+  const params = {
+    startDate: dayjs(form.value.startDate).format('YYYY-MM-DD'),
+    endDate: dayjs(form.value.endDate).format('YYYY-MM-DD'),
+    logisticsDays: form.value.logisticsDays
+  }
+
+  await Promise.all([
+    availability.checkDevicesAvailability(deviceManagement.devices.value, params),
+    availability.checkAccessoriesAvailability(deviceManagement.accessories.value, params)
+  ])
+}
+
+// Device Focus Handler
+const handleDeviceFocus = async () => {
+  if (!form.value.startDate || !form.value.endDate) {
+    ElMessage.warning('请先选择日期后查看设备可用性')
+    return
+  }
+
+  if (!availability.deviceAvailability.value.checked) {
+    await checkAvailabilities()
+  }
+}
+
+// Accessory Focus Handler
+const handleAccessoryFocus = async () => {
+  if (!form.value.startDate || !form.value.endDate) {
+    ElMessage.warning('请先选择日期后查看附件可用性')
+    return
+  }
+
+  if (!availability.accessoryAvailability.value.checked) {
+    await checkAvailabilities()
+  }
+}
+
+// Find Available Slot
+const findAvailableSlot = async () => {
+  if (!canSearchSlot.value) {
+    ElMessage.warning('请先完善日期和物流信息')
+    return
+  }
+
+  // 获取当前选择的设备型号的 model_id
+  let modelId = ''
+  if (props.selectedDeviceModel) {
+    const selectedModel = deviceManagement.deviceModels.value.find(
+      (m: any) => m.display_name === props.selectedDeviceModel
+    )
+    if (selectedModel) {
+      modelId = selectedModel.id.toString()
     }
   }
+
+  if (!modelId) {
+    ElMessage.warning('请先在甘特图中选择设备型号筛选')
+    return
+  }
+
+  searching.value = true
+  try {
+    const result = await ganttStore.findAvailableSlot(
+      dayjs(form.value.startDate).format('YYYY-MM-DD'),
+      dayjs(form.value.endDate).format('YYYY-MM-DD'),
+      form.value.logisticsDays,
+      modelId, // 使用当前甘特图选择的型号
+      false
+    )
+
+    if (result.device) {
+      availableSlot.value = result
+      form.value.selectedDeviceId = result.device.id
+      ElMessage.success(`找到可用设备: ${result.device.name}`)
+    } else {
+      throw new Error('在指定时间段内没有可用设备')
+    }
+  } catch (error) {
+    console.error('查找档期失败:', error)
+    ElMessage.error((error as Error).message)
+    availableSlot.value = null
+  } finally {
+    searching.value = false
+  }
 }
 
+// Find Available Accessory
 const findAvailableAccessory = async () => {
   if (!canSearchSlot.value) {
     ElMessage.warning('请先完善日期和物流信息')
     return
   }
 
+  // 查找所有可用附件（暂时不限制附件型号）
+  // TODO: 后续可以根据主设备型号的关联附件来筛选
+  const accessoryModelId = ''
+
   searchingAccessory.value = true
   try {
-    // 先获取所有附件设备，找到手柄类型的附件
-    const devicesResponse = await axios.get('/api/devices')
-    if (!devicesResponse.data.success) {
-      throw new Error('获取设备列表失败')
-    }
-
-    // 查找手柄附件（包含controller字样的附件）
-    const controllerAccessories = devicesResponse.data.data.filter((device: any) =>
-      device.is_accessory && device.model && device.model.toLowerCase().includes('controller')
-    )
-
-    if (controllerAccessories.length === 0) {
-      throw new Error('没有找到手柄附件设备')
-    }
-
-    // 使用第一个找到的手柄附件的model_id进行查找
-    const firstController = controllerAccessories[0]
     const result = await ganttStore.findAvailableSlot(
-      formatDateToString(form.startDate),
-      formatDateToString(form.endDate),
-      form.logisticsDays,
-      firstController.model_id || 0,
-      true  // is_accessory = true
+      dayjs(form.value.startDate).format('YYYY-MM-DD'),
+      dayjs(form.value.endDate).format('YYYY-MM-DD'),
+      form.value.logisticsDays,
+      accessoryModelId, // 查找所有附件
+      true
     )
 
-    if (!result.device) {
-      throw new Error('在指定时间段内没有可用的手柄附件')
+    if (result.device) {
+      availableAccessorySlot.value = {
+        accessory: result.device,
+        shipOutDate: result.shipOutDate,
+        shipInDate: result.shipInDate
+      }
+      ElMessage.success(`找到可用附件: ${result.device.name}`)
+    } else {
+      throw new Error('在指定时间段内没有可用的附件')
     }
-
-    // 设置查找到的附件信息
-    availableAccessorySlot.value = {
-      accessory: result.device,
-      shipOutDate: result.shipOutDate,
-      shipInDate: result.shipInDate
-    }
-
-    // 不再自动设置，而是等用户点击添加按钮
-    
-    ElMessage.success(`找到可用附件: ${result.device.name}`)
   } catch (error) {
     console.error('查找附件失败:', error)
     ElMessage.error((error as Error).message)
@@ -489,12 +487,12 @@ const findAvailableAccessory = async () => {
   }
 }
 
-// 添加找到的附件到选择列表
+// Add Found Accessory
 const addFoundAccessory = () => {
   if (availableAccessorySlot.value?.accessory) {
     const accessoryId = availableAccessorySlot.value.accessory.id
-    if (!form.selectedAccessoryIds.includes(accessoryId)) {
-      form.selectedAccessoryIds.push(accessoryId)
+    if (!form.value.selectedAccessoryIds.includes(accessoryId)) {
+      form.value.selectedAccessoryIds.push(accessoryId)
       ElMessage.success(`已添加附件: ${availableAccessorySlot.value.accessory.name}`)
     } else {
       ElMessage.warning('该附件已经添加过了')
@@ -503,81 +501,7 @@ const addFoundAccessory = () => {
   }
 }
 
-const findAvailableSlot = async () => {
-  if (!canSearchSlot.value) {
-    ElMessage.warning('请先完善日期和物流信息')
-    return
-  }
-
-  searching.value = true
-  try {
-    let result
-    
-    if (form.selectedDeviceId) {
-      // 如果指定了设备，检查该设备的档期
-      const selectedDevice = availableDevices.value.find(d => d.id === form.selectedDeviceId)
-      if (!selectedDevice) {
-        throw new Error('未找到选择的设备')
-      }
-      
-      // 使用选定设备的model_id
-      const modelId = selectedDevice.model_id || selectedDevice.device_model?.id || 0
-      result = await ganttStore.findAvailableSlot(
-        formatDateToString(form.startDate),
-        formatDateToString(form.endDate),
-        form.logisticsDays,
-        modelId,
-        false  // is_accessory = false
-      )
-      
-      // 验证返回的设备是否是指定设备
-      if (result.device.id !== form.selectedDeviceId) {
-        throw new Error(`指定设备 ${selectedDevice.name} 在该时间段不可用`)
-      }
-    } else {
-      // 未指定设备，使用甘特图选中的型号自动查找可用设备
-      const deviceModelName = props.selectedDeviceModel || 'x200u'
-
-      // 根据型号名称找到对应的设备，获取其model_id
-      let modelId = 0
-      const matchingDevice = availableDevices.value.find(device => {
-        const deviceModelDisplayName = device.device_model?.display_name || device.model
-        return deviceModelDisplayName === deviceModelName
-      })
-
-      if (matchingDevice) {
-        modelId = matchingDevice.model_id || matchingDevice.device_model?.id || 0
-      }
-
-      result = await ganttStore.findAvailableSlot(
-        formatDateToString(form.startDate),
-        formatDateToString(form.endDate),
-        form.logisticsDays,
-        modelId,
-        false  // is_accessory = false
-      )
-      
-      // 自动填入找到的设备
-      form.selectedDeviceId = result.device.id
-    }
-    
-    availableSlot.value = {
-      device: result.device,
-      shipOutDate: result.shipOutDate,
-      shipInDate: result.shipInDate,
-      availableControllers: result.availableControllers,
-      controllerCount: result.controllerCount
-    }
-    
-    ElMessage.success(result.message)
-  } catch (error) {
-    ElMessage.error((error as Error).message)
-    availableSlot.value = null
-  } finally {
-    searching.value = false
-  }
-}
-
+// Submit Handler
 const handleSubmit = async () => {
   try {
     await formRef.value?.validate()
@@ -585,238 +509,80 @@ const handleSubmit = async () => {
     return
   }
 
-  // 如果没有查找档期，尝试直接提交但要检查冲突
-  let deviceId = form.selectedDeviceId
-  if (!availableSlot.value && !deviceId) {
-    ElMessage.warning('请选择设备或查找可用档期')
-    return
-  }
+  // 检查重复租赁
+  const duplicateCheck = await conflictDetection.checkDuplicateRental({
+    customerName: form.value.customerName,
+    destination: form.value.destination
+  })
 
-  if (!deviceId && availableSlot.value) {
-    deviceId = availableSlot.value.device.id
+  if (duplicateCheck.hasDuplicate) {
+    try {
+      let duplicateInfo = '检测到可能重复的租赁记录：\n\n'
+      duplicateCheck.duplicates.forEach((duplicate: any, index: number) => {
+        duplicateInfo += `${index + 1}. 设备：${duplicate.device_name}\n`
+        duplicateInfo += `   客户：${duplicate.customer_name}\n`
+        duplicateInfo += `   地址：${duplicate.destination}\n`
+        duplicateInfo += `   时间：${duplicate.start_date} 至 ${duplicate.end_date}\n`
+        duplicateInfo += `   状态：${duplicate.status}\n\n`
+      })
+      duplicateInfo += '是否仍要继续创建新的租赁记录？'
+
+      await ElMessageBox.confirm(
+        duplicateInfo,
+        '重复租赁提醒',
+        {
+          type: 'warning',
+          confirmButtonText: '继续创建',
+          cancelButtonText: '取消'
+        }
+      )
+    } catch {
+      return
+    }
   }
 
   submitting.value = true
   try {
-    // 首先检查重复租赁
-    const duplicateCheck = await checkDuplicateRental()
-    if (duplicateCheck.hasDuplicate) {
-      const shouldContinue = await handleDuplicateConfirmation(duplicateCheck.duplicates)
-      if (!shouldContinue) {
-        return
-      }
+    const deviceId = form.value.selectedDeviceId || availableSlot.value?.device.id
+    if (!deviceId) {
+      ElMessage.error('请选择设备')
+      return
     }
 
-    const startDate = dayjs(form.startDate!)
-    const endDate = dayjs(form.endDate!)
-    const shipOutTime = toAPIFormat(startDate.subtract(form.logisticsDays, 'day').subtract(1, 'day').hour(9).minute(0).second(0))
-    const shipInTime = toAPIFormat(endDate.add(form.logisticsDays, 'day').add(1, 'day').hour(18).minute(0).second(0))
-
-    // 如果选择了附件，添加到租赁配件列表
-    let selectedAccessories: number[] = []
-    if (form.selectedAccessoryIds.length > 0) {
-      selectedAccessories = [...form.selectedAccessoryIds]
-    } else if (form.needController) {
-      // 兼容旧的手柄逻辑，自动选择一个可用的手柄
-      let availableController = null
-
-      // 如果有查找档期的结果，优先从其可用手柄中选择
-      if (availableSlot.value && availableSlot.value.availableControllers && availableSlot.value.availableControllers.length > 0) {
-        const controllerId = availableSlot.value.availableControllers[0]
-        availableController = availableControllers.value.find(c => c.id === controllerId)
-      } else {
-        // 否则使用异步检查的结果选择可用手柄
-        if (controllerAvailabilityState.value.availableControllers.length > 0) {
-          availableController = controllerAvailabilityState.value.availableControllers[0]
-        }
-      }
-
-      if (availableController) {
-        selectedAccessories = [availableController.id]
-      } else {
-        ElMessage.warning('当前档期没有可用手柄，将不包含手柄')
-      }
-    }
+    const shipOutTime = availableSlot.value
+      ? availableSlot.value.shipOutDate
+      : dayjs(form.value.startDate).subtract(form.value.logisticsDays, 'day').toDate()
+    const shipInTime = availableSlot.value
+      ? availableSlot.value.shipInDate
+      : dayjs(form.value.endDate).add(form.value.logisticsDays, 'day').toDate()
 
     const rentalData = {
-      device_id: deviceId!,
-      start_date: formatDateToString(form.startDate),
-      end_date: formatDateToString(form.endDate),
-      customer_name: form.customerName,
-      customer_phone: form.customerPhone || '',
-      destination: form.destination || '',
-      ship_out_time: shipOutTime,
-      ship_in_time: shipInTime,
-      accessories: selectedAccessories
+      device_id: deviceId,
+      start_date: dayjs(form.value.startDate).format('YYYY-MM-DD'),
+      end_date: dayjs(form.value.endDate).format('YYYY-MM-DD'),
+      customer_name: form.value.customerName,
+      customer_phone: form.value.customerPhone,
+      destination: form.value.destination,
+      ship_out_time: dayjs(shipOutTime).format('YYYY-MM-DD HH:mm:ss'),
+      ship_in_time: dayjs(shipInTime).format('YYYY-MM-DD HH:mm:ss'),
+      accessories: form.value.selectedAccessoryIds
     }
 
     await ganttStore.createRental(rentalData)
+    ElMessage.success('租赁记录创建成功')
     emit('success')
     handleClose()
   } catch (error: any) {
-    // 检查是否是档期冲突错误
-    if (error.message && (error.message.includes('冲突') || error.message.includes('档期冲突'))) {
-      await handleConflictConfirmation(error.message)
-    } else {
-      ElMessage.error('创建失败：' + error.message)
-    }
+    ElMessage.error('创建失败：' + (error.message || '未知错误'))
   } finally {
     submitting.value = false
   }
 }
 
-// 检查重复租赁
-const checkDuplicateRental = async () => {
-  try {
-    const response = await axios.post('/api/rentals/check-duplicate', {
-      customer_name: form.customerName,
-      destination: form.destination
-    })
-
-    if (response.data.success) {
-      return {
-        hasDuplicate: response.data.has_duplicate,
-        duplicates: response.data.duplicates || []
-      }
-    } else {
-      console.error('检查重复租赁失败:', response.data.error)
-      return { hasDuplicate: false, duplicates: [] }
-    }
-  } catch (error) {
-    console.error('检查重复租赁失败:', error)
-    return { hasDuplicate: false, duplicates: [] }
-  }
-}
-
-// 处理重复租赁确认
-const handleDuplicateConfirmation = async (duplicates: any[]) => {
-  try {
-    // 构建重复信息显示
-    let duplicateInfo = '检测到可能重复的租赁记录：\n\n'
-
-    duplicates.forEach((duplicate, index) => {
-      duplicateInfo += `${index + 1}. 设备：${duplicate.device_name}\n`
-      duplicateInfo += `   客户：${duplicate.customer_name}\n`
-      duplicateInfo += `   地址：${duplicate.destination}\n`
-      duplicateInfo += `   时间：${duplicate.start_date} 至 ${duplicate.end_date}\n`
-      duplicateInfo += `   状态：${duplicate.status}\n`
-      duplicateInfo += `   重复原因：${duplicate.duplicate_reasons.join(', ')}\n\n`
-    })
-
-    duplicateInfo += '是否仍要继续创建新的租赁记录？'
-
-    await ElMessageBox.confirm(
-      duplicateInfo,
-      '重复租赁提醒',
-      {
-        type: 'warning',
-        confirmButtonText: '继续创建',
-        cancelButtonText: '取消',
-        dangerouslyUseHTMLString: false
-      }
-    )
-
-    return true // 用户确认继续
-  } catch {
-    return false // 用户取消
-  }
-}
-
-const handleConflictConfirmation = async (conflictMessage: string) => {
-  try {
-    await ElMessageBox.confirm(
-      `检测到档期冲突：${conflictMessage}\n\n是否仍要提交预定？`,
-      '档期冲突确认',
-      {
-        type: 'warning',
-        confirmButtonText: '确认提交',
-        cancelButtonText: '取消'
-      }
-    )
-
-    // 用户确认后，强制提交
-    await forceSubmitRental()
-  } catch {
-    // 用户取消，不做任何操作
-    ElMessage.info('已取消预定')
-  }
-}
-
-const forceSubmitRental = async () => {
-  const deviceId = form.selectedDeviceId || availableSlot.value?.device.id
-  if (!deviceId) return
-
-  // Calculate ship times based on logistics days if not from available slot
-  let shipOutTime, shipInTime
-  if (availableSlot.value) {
-    shipOutTime = toAPIFormat(availableSlot.value.shipOutDate)
-    shipInTime = toAPIFormat(availableSlot.value.shipInDate)
-  } else {
-    // Calculate based on logistics days - 寄出时间需要提前1天保证用户在开始前收到
-    const startDate = dayjs(form.startDate!)
-    const endDate = dayjs(form.endDate!)
-    shipOutTime = toAPIFormat(startDate.subtract(form.logisticsDays, 'day').subtract(1, 'day').hour(9).minute(0).second(0))
-    shipInTime = toAPIFormat(endDate.add(form.logisticsDays, 'day').hour(18).minute(0).second(0))
-  }
-
-  // 如果选择了附件，添加到租赁配件列表
-  let selectedAccessories: number[] = []
-  if (form.selectedAccessoryIds.length > 0) {
-    selectedAccessories = [...form.selectedAccessoryIds]
-  } else if (form.needController) {
-    // 兼容旧的手柄逻辑，自动选择一个可用的手柄
-    let availableController = null
-    
-    // 如果有查找档期的结果，优先从其可用手柄中选择
-    if (availableSlot.value && availableSlot.value.availableControllers && availableSlot.value.availableControllers.length > 0) {
-      const controllerId = availableSlot.value.availableControllers[0]
-      availableController = availableControllers.value.find(c => c.id === controllerId)
-    } else {
-      // 否则使用异步检查的结果选择可用手柄
-      if (controllerAvailabilityState.value.availableControllers.length > 0) {
-        availableController = controllerAvailabilityState.value.availableControllers[0]
-      }
-    }
-    
-    if (availableController) {
-      selectedAccessories = [availableController.id]
-    }
-  }
-
-  const rentalData = {
-    device_id: deviceId,
-    start_date: formatDateToString(form.startDate),
-    end_date: formatDateToString(form.endDate),
-    customer_name: form.customerName,
-    customer_phone: form.customerPhone || '',
-    destination: form.destination || '',
-    ship_out_time: shipOutTime,
-    ship_in_time: shipInTime,
-    accessories: selectedAccessories,
-    force_create: true // 强制创建标志
-  }
-
-  try {
-    await ganttStore.createRental(rentalData)
-    emit('success')
-    handleClose()
-    ElMessage.success('预定已成功提交')
-  } catch (error: any) {
-    ElMessage.error('强制创建失败：' + error.message)
-  }
-}
-
+// Close Handler
 const handleClose = () => {
-  // 重置表单
   formRef.value?.resetFields()
-  availableSlot.value = null
-  availableAccessorySlot.value = null
-  searching.value = false
-  searchingAccessory.value = false
-  submitting.value = false
-  
-  // 重置表单数据
-  Object.assign(form, {
+  form.value = {
     startDate: null,
     endDate: null,
     logisticsDays: 1,
@@ -824,79 +590,62 @@ const handleClose = () => {
     customerName: '',
     customerPhone: '',
     destination: '',
-    selectedAccessoryIds: [],
-    needController: false
-  })
-  
+    selectedAccessoryIds: []
+  }
+  availableSlot.value = null
+  availableAccessorySlot.value = null
+  availability.resetAll()
   emit('update:modelValue', false)
 }
 
-const formatDateTime = (date: Date) => {
-  return dayjs(date).format('YYYY-MM-DD HH:mm')
-}
-
-
-// 批量检查多个附件的可用性
-const checkAccessoriesAvailability = async (accessories: any[]) => {
-  if (!form.startDate || !form.endDate) return accessories.map(() => true)
-  
-  try {
-    const checks = accessories.map(accessory => 
-      axios.post('/api/rentals/check-conflict', {
-        device_id: accessory.id,
-        start_date: form.startDate,
-        end_date: form.endDate
-      })
-    )
-    
-    const results = await Promise.all(checks)
-    return results.map((response: any) => 
-      response.data.success && !response.data.has_conflict
-    )
-  } catch (error) {
-    console.error('批量检查附件可用性失败:', error)
-    // 发生错误时保守处理，都认为不可用
-    return accessories.map(() => false)
-  }
-}
-
-// 监听对话框打开和日期变化，自动检查手柄可用性
-watch([() => props.modelValue, () => form.startDate, () => form.endDate], async ([visible, startDate, endDate]) => {
+// Watch Dialog Open
+watch(() => props.modelValue, async (visible) => {
   if (visible) {
-    // 对话框打开时，先加载附件列表
-    await loadAvailableControllers()
-    
-    if (startDate && endDate) {
-      // 对话框打开且有日期时，检查手柄可用性
-      nextTick(() => {
-        checkControllerAvailability()
-      })
-    } else {
-      // 对话框打开但没有日期时，重置状态
-      controllerAvailabilityState.value = {
-        checked: true,
-        hasAvailable: availableControllers.value.length > 0,
-        count: availableControllers.value.length,
-        availableControllers: availableControllers.value
-      }
-    }
+    await Promise.all([
+      deviceManagement.loadDevices(),
+      deviceManagement.loadAccessories(),
+      deviceManagement.loadDeviceModels()
+    ])
   }
 }, { immediate: true })
-
-// 注意：新架构中手柄可用性检查现在通过API异步进行
 </script>
 
 <style scoped>
+.device-selection {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.device-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.device-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.device-model {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
 .form-tip {
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: var(--el-text-color-placeholder);
   margin-top: 4px;
 }
 
 .slot-info {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  padding: 12px;
+  background: var(--el-color-success-light-9);
+  border-radius: 4px;
+  margin-top: 12px;
 }
 
 .slot-device {
@@ -905,47 +654,15 @@ watch([() => props.modelValue, () => form.startDate, () => form.endDate], async 
   gap: 8px;
   font-weight: 600;
   color: var(--el-color-success);
+  margin-bottom: 8px;
 }
 
 .slot-times {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
   font-size: 14px;
-}
-
-.device-selection {
-  display: flex;
-  align-items: center;
-  width: 100%;
+  color: var(--el-text-color-regular);
 }
 
 .dialog-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-}
-
-.controller-section {
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 4px;
-  padding: 12px;
-  background-color: var(--el-fill-color-lighter);
-}
-
-.controller-available {
-  color: var(--el-color-success);
-  font-size: 12px;
-  margin-left: 8px;
-}
-
-.controller-unavailable {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 8px;
-  color: var(--el-color-error);
-  font-size: 12px;
+  text-align: right;
 }
 </style>
-

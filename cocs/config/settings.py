@@ -10,8 +10,8 @@ load_dotenv()
 class BrowserConfig(BaseModel):
     """浏览器配置"""
     headless: bool = False
-    viewport_width: int = 1920
-    viewport_height: int = 1080
+    viewport_width: int = 1000
+    viewport_height: int = 800
     user_agent: str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     login_timeout: int = 300000  # 5分钟
 

@@ -29,8 +29,8 @@
       <RentalBasicForm
         :form="form"
         :rental="rental"
-        :available-devices="availableDevices"
-        :loading-devices="loadingDevices"
+        :available-devices="deviceManagement.devices.value"
+        :loading-devices="deviceManagement.loading.value"
         :min-selectable-date="minSelectableDate"
         @device-change="handleDeviceChange"
         @end-date-change="handleEndDateChange"
@@ -53,8 +53,8 @@
       <RentalAccessorySelector
         :form="form"
         :rental="rental"
-        :available-controllers="availableControllers"
-        :loading-accessories="loadingAccessories"
+        :available-controllers="deviceManagement.accessories.value"
+        :loading-accessories="deviceManagement.loading.value"
         :searching-accessory="searchingAccessory"
         @find-accessory="findAvailableAccessory"
         @remove-accessory="removeController"
@@ -79,32 +79,29 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { ref, computed, watch } from 'vue'
+import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
 import { useRouter } from 'vue-router'
-import { useGanttStore } from '@/stores/gantt'
-import type { Device, Rental } from '@/stores/gantt'
-import axios from 'axios'
 import dayjs from 'dayjs'
 
-// 导入子组件
+// Store & Composables
+import { useGanttStore } from '@/stores/gantt'
+import type { Rental } from '@/stores/gantt'
+import { useDeviceManagement } from '@/composables/useDeviceManagement'
+import { useAvailabilityCheck } from '@/composables/useAvailabilityCheck'
+import { useConflictDetection } from '@/composables/useConflictDetection'
+import { getEditRentalRules } from '@/composables/useRentalFormValidation'
+
+// Components
 import RentalActionButtons from './RentalActionButtons.vue'
 import RentalBasicForm from './RentalBasicForm.vue'
 import RentalShippingForm from './RentalShippingForm.vue'
 import RentalAccessorySelector from './RentalAccessorySelector.vue'
 
+// Props & Emits
 interface Props {
   modelValue: boolean
   rental: Rental | null
-}
-
-interface AccessoryWithStatus extends Device {
-  isAvailable?: boolean
-  conflictReason?: string
-}
-
-interface DeviceWithConflictStatus extends Device {
-  conflicted?: boolean
 }
 
 const props = defineProps<Props>()
@@ -113,9 +110,14 @@ const emit = defineEmits<{
   'success': []
 }>()
 
-// Store and Router
+// Store & Router
 const ganttStore = useGanttStore()
 const router = useRouter()
+
+// Composables
+const deviceManagement = useDeviceManagement()
+const availability = useAvailabilityCheck()
+const conflictDetection = useConflictDetection()
 
 // Refs
 const formRef = ref<FormInstance>()
@@ -124,7 +126,7 @@ const dialogVisible = computed({
   set: (value) => emit('update:modelValue', value)
 })
 
-// 表单数据
+// Form State
 const form = ref({
   deviceId: 0,
   endDate: null as Date | null,
@@ -138,42 +140,26 @@ const form = ref({
   accessories: [] as number[]
 })
 
-// 状态管理
+// UI State
 const submitting = ref(false)
 const loadingLatestData = ref(false)
 const latestDataError = ref<string | null>(null)
-const loadingDevices = ref(false)
-const loadingAccessories = ref(false)
 const searchingAccessory = ref(false)
 const queryingShipOut = ref(false)
 const queryingShipIn = ref(false)
-const deviceConflictChecked = ref(false) // 标记是否已检查设备冲突
-const accessoryConflictChecked = ref(false) // 标记是否已检查附件冲突
+const deviceConflictChecked = ref(false)
+const accessoryConflictChecked = ref(false)
 
-// 数据
-const availableDevices = ref<DeviceWithConflictStatus[]>([])
-const availableControllers = ref<AccessoryWithStatus[]>([])
+// Form Rules
+const rules = getEditRentalRules()
 
-// 计算属性
+// Computed
 const minSelectableDate = computed(() => {
   if (!props.rental) return null
   return new Date(props.rental.start_date)
 })
 
-// 表单验证规则
-const rules: FormRules = {
-  deviceId: [
-    { required: true, message: '请选择设备', trigger: 'change' }
-  ],
-  endDate: [
-    { required: true, message: '请选择结束日期', trigger: 'change' }
-  ],
-  customerPhone: [
-    { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的手机号码', trigger: 'blur' }
-  ]
-}
-
-// 方法
+// Handlers
 const handleClose = () => {
   dialogVisible.value = false
 }
@@ -188,7 +174,7 @@ const handleDelete = async () => {
       {
         confirmButtonText: '确定删除',
         cancelButtonText: '取消',
-        type: 'warning',
+        type: 'warning'
       }
     )
 
@@ -211,7 +197,6 @@ const handleSubmit = async () => {
     await formRef.value?.validate()
     submitting.value = true
 
-    // 构建更新数据
     const updateData = {
       device_id: form.value.deviceId,
       end_date: dayjs(form.value.endDate).format('YYYY-MM-DD'),
@@ -219,8 +204,12 @@ const handleSubmit = async () => {
       destination: form.value.destination,
       ship_out_tracking_no: form.value.shipOutTrackingNo,
       ship_in_tracking_no: form.value.shipInTrackingNo,
-      ship_out_time: form.value.shipOutTime ? dayjs(form.value.shipOutTime).format('YYYY-MM-DD HH:mm:ss') : null,
-      ship_in_time: form.value.shipInTime ? dayjs(form.value.shipInTime).format('YYYY-MM-DD HH:mm:ss') : null,
+      ship_out_time: form.value.shipOutTime
+        ? dayjs(form.value.shipOutTime).format('YYYY-MM-DD HH:mm:ss')
+        : null,
+      ship_in_time: form.value.shipInTime
+        ? dayjs(form.value.shipInTime).format('YYYY-MM-DD HH:mm:ss')
+        : null,
       status: form.value.status,
       accessories: form.value.accessories
     }
@@ -237,91 +226,78 @@ const handleSubmit = async () => {
 }
 
 const handleEndDateChange = (date: Date) => {
-  // 结束日期变更逻辑
   console.log('End date changed:', date)
 }
 
 const handleDeviceSelectorFocus = async () => {
-  // 只在首次点击时检查设备冲突
-  if (!deviceConflictChecked.value) {
-    await checkDevicesConflictOnDemand()
+  if (!deviceConflictChecked.value && props.rental) {
+    await checkDevicesConflict()
     deviceConflictChecked.value = true
   }
 }
 
 const handleDeviceChange = async (deviceId: number) => {
-  // 设备变更时检查新设备的冲突状态
-  console.log('Device change detected:', deviceId)
-  if (props.rental) {
-    const selectedDevice = availableDevices.value.find(device => device.id === deviceId)
-    if (selectedDevice) {
-      try {
-        // 使用租赁的实际寄出和收回时间进行冲突检查
-        const shipOutTime = props.rental.ship_out_time || props.rental.start_date
-        const shipInTime = props.rental.ship_in_time || props.rental.end_date
+  if (!props.rental) return
 
-        const hasConflict = await checkDeviceConflict(
-          deviceId,
-          shipOutTime,
-          shipInTime,
-          props.rental.id
-        )
+  const selectedDevice = deviceManagement.devices.value.find(d => d.id === deviceId)
+  if (!selectedDevice) return
 
-        if (hasConflict) {
-          ElMessageBox.confirm(
-            `设备 "${selectedDevice.name}" 在该时间段有冲突，确定要选择吗？`,
-            '设备冲突警告',
-            {
-              confirmButtonText: '确定选择',
-              cancelButtonText: '取消',
-              type: 'warning',
-            }
-          ).catch(() => {
-            // 用户取消，恢复原设备
-            if (props.rental) {
-              form.value.deviceId = props.rental.device_id
-            }
-          })
+  try {
+    const shipOutTime = props.rental.ship_out_time || props.rental.start_date
+    const shipInTime = props.rental.ship_in_time || props.rental.end_date
+
+    const hasConflict = await conflictDetection.checkDeviceConflict({
+      deviceId,
+      startDate: shipOutTime,
+      endDate: shipInTime,
+      excludeRentalId: props.rental.id
+    })
+
+    if (hasConflict) {
+      ElMessageBox.confirm(
+        `设备 "${selectedDevice.name}" 在该时间段有冲突，确定要选择吗？`,
+        '设备冲突警告',
+        {
+          confirmButtonText: '确定选择',
+          cancelButtonText: '取消',
+          type: 'warning'
         }
-      } catch (error) {
-        console.error('检查设备冲突失败:', error)
-      }
+      ).catch(() => {
+        if (props.rental) {
+          form.value.deviceId = props.rental.device_id
+        }
+      })
     }
+  } catch (error) {
+    console.error('检查设备冲突失败:', error)
   }
 }
 
 const handleShipOutTimeChange = (time: Date) => {
-  // 寄出时间变更逻辑
   console.log('Ship out time changed:', time)
 }
 
 const handleShipInTimeChange = (time: Date) => {
-  // 收回时间变更逻辑
   console.log('Ship in time changed:', time)
 }
 
 const handleStatusChange = (status: string) => {
-  // 状态变更逻辑
   console.log('Status changed:', status)
 }
 
 const queryShipOutTracking = () => {
-  // 查询寄出物流
   console.log('Query ship out tracking')
 }
 
 const queryShipInTracking = () => {
-  // 查询寄回物流
   console.log('Query ship in tracking')
 }
 
 const findAvailableAccessory = async () => {
-  // 使用一次 find-slot 请求检查手柄档期
   if (!props.rental) return
 
   searchingAccessory.value = true
   try {
-    // 计算物流天数
     let logisticsDays = 1
     if (props.rental.start_date && props.rental.ship_out_time) {
       const startDate = new Date(props.rental.start_date)
@@ -330,7 +306,6 @@ const findAvailableAccessory = async () => {
       logisticsDays = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)) - 1)
     }
 
-    // 使用 X200U 型号 (ID: 1) 查找可用的手柄附件
     const slotResponse = await ganttStore.findAvailableSlot(
       props.rental.start_date,
       props.rental.end_date,
@@ -339,17 +314,12 @@ const findAvailableAccessory = async () => {
       true // is_accessory
     )
 
-    // 更新所有手柄的状态
-    availableControllers.value.forEach(accessory => {
+    // 更新所有附件的可用性状态
+    const availableDeviceIds = slotResponse.availableDevices || []
+    deviceManagement.accessories.value.forEach(accessory => {
       if (accessory.model && accessory.model.includes('手柄')) {
-        // API 返回的可用设备ID在 available_devices 数组中
-        if (slotResponse.availableDevices && slotResponse.availableDevices.includes(accessory.id)) {
-          accessory.isAvailable = true
-          accessory.conflictReason = undefined
-        } else {
-          accessory.isAvailable = false
-          accessory.conflictReason = '档期冲突'
-        }
+        accessory.isAvailable = availableDeviceIds.includes(accessory.id)
+        accessory.conflictReason = accessory.isAvailable ? undefined : '档期冲突'
       }
     })
 
@@ -367,47 +337,35 @@ const removeController = (controllerId: number) => {
 }
 
 const handleAccessorySelectorFocus = async () => {
-  // 只在首次点击时检查附件冲突
   if (!accessoryConflictChecked.value) {
-    await findAvailableAccessory() // 复用查找手柄的逻辑
+    await findAvailableAccessory()
     accessoryConflictChecked.value = true
   }
 }
 
 const handleAccessoryChange = async (accessoryIds: number[]) => {
-  // 当用户选择/取消选择附件时，检查新选择的附件的档期冲突
   const newAccessoryIds = accessoryIds.filter(id => !form.value.accessories.includes(id))
 
   for (const accessoryId of newAccessoryIds) {
-    const accessory = availableControllers.value.find(a => a.id === accessoryId)
-    if (accessory) {
-      // 如果还没检查过冲突，先检查
-      if (!accessoryConflictChecked.value) {
-        await checkAccessoryConflict(accessory)
-      }
-
-      // 如果有冲突，警告用户
-      if (accessory.isAvailable === false) {
-        ElMessageBox.confirm(
-          `附件 "${accessory.name}" 在该时间段有冲突，确定要选择吗？`,
-          '附件冲突警告',
-          {
-            confirmButtonText: '确定选择',
-            cancelButtonText: '取消',
-            type: 'warning',
-          }
-        ).catch(() => {
-          // 用户取消，从选择中移除该附件
-          form.value.accessories = form.value.accessories.filter(id => id !== accessoryId)
-        })
-      }
+    const accessory = deviceManagement.accessories.value.find(a => a.id === accessoryId)
+    if (accessory && accessory.isAvailable === false) {
+      ElMessageBox.confirm(
+        `附件 "${accessory.name}" 在该时间段有冲突，确定要选择吗？`,
+        '附件冲突警告',
+        {
+          confirmButtonText: '确定选择',
+          cancelButtonText: '取消',
+          type: 'warning'
+        }
+      ).catch(() => {
+        form.value.accessories = form.value.accessories.filter(id => id !== accessoryId)
+      })
     }
   }
 }
 
 const openContract = () => {
   if (props.rental) {
-    // 跳转到合同页面
     const url = router.resolve({ path: `/contract/${props.rental.id}` })
     window.open(url.href, '_blank')
   }
@@ -415,201 +373,29 @@ const openContract = () => {
 
 const openShippingOrder = () => {
   if (props.rental) {
-    // 跳转到发货单页面
     const url = router.resolve({ path: `/shipping/${props.rental.id}` })
     window.open(url.href, '_blank')
   }
 }
 
-// 加载所有设备（不预先检查冲突）
-const loadAvailableDevices = async () => {
-  loadingDevices.value = true
-  try {
-    // 直接使用 ganttStore 中的设备数据，过滤出非附件设备
-    availableDevices.value = ganttStore.devices.filter(device => !device.is_accessory)
-  } catch (error) {
-    console.error('加载设备列表失败:', error)
-    ElMessage.error('加载设备列表失败')
-  } finally {
-    loadingDevices.value = false
-  }
-}
-
-// 懒加载设备冲突检查（只在用户展开设备选择器时调用）
-const checkDevicesConflictOnDemand = async () => {
+// Check devices conflict
+const checkDevicesConflict = async () => {
   if (!props.rental) return
 
-  loadingDevices.value = true
-  try {
-    // 使用租赁的实际寄出和收回时间进行冲突检查
-    const shipOutTime = props.rental.ship_out_time || props.rental.start_date
-    const shipInTime = props.rental.ship_in_time || props.rental.end_date
+  const shipOutTime = props.rental.ship_out_time || props.rental.start_date
+  const shipInTime = props.rental.ship_in_time || props.rental.end_date
 
-    const conflictCheckPromises = availableDevices.value.map(async (device) => {
-      // 检查当前设备是否与其他租赁有时间冲突
-      const hasConflict = await checkDeviceConflict(
-        device.id,
-        shipOutTime,
-        shipInTime,
-        props.rental!.id // 排除当前租赁
-      )
-
-      return {
-        ...device,
-        conflicted: hasConflict
-      }
-    })
-
-    availableDevices.value = await Promise.all(conflictCheckPromises)
-  } catch (error) {
-    console.error('检查设备冲突失败:', error)
-  } finally {
-    loadingDevices.value = false
-  }
-}
-
-// 检查设备时间冲突
-const checkDeviceConflict = async (deviceId: number, startDate: string, endDate: string, excludeRentalId?: number) => {
-  try {
-    const response = await axios.post('/api/rentals/check-conflict', {
-      device_id: deviceId,
-      ship_out_time: startDate,
-      ship_in_time: endDate,
-      exclude_rental_id: excludeRentalId
-    })
-
-    return response.data.data.has_conflicts || false
-  } catch (error) {
-    console.error('检查设备冲突失败:', error)
-    return false
-  }
-}
-
-// 缓存设备型号数据
-let deviceModelsCache: any[] | null = null
-
-// 获取设备型号列表（带缓存）
-const getDeviceModels = async () => {
-  if (!deviceModelsCache) {
-    try {
-      const response = await axios.get('/api/device-models')
-      if (response.data.success) {
-        deviceModelsCache = response.data.data
-      }
-    } catch (error) {
-      console.error('获取设备型号列表失败:', error)
+  await availability.checkDevicesAvailability(
+    deviceManagement.devices.value,
+    {
+      startDate: shipOutTime,
+      endDate: shipInTime,
+      excludeRentalId: props.rental.id
     }
-  }
-  return deviceModelsCache || []
+  )
 }
 
-// 根据 model 名称查找对应的 model_id
-const findModelIdByName = async (modelName: string): Promise<number | null> => {
-  const models = await getDeviceModels()
-  const matchingModel = models.find((model: any) => {
-    return model.accessories?.some((acc: any) => {
-      const accName = acc.accessory_name.toLowerCase().replace(/\s+/g, '')
-      const deviceModel = modelName.toLowerCase().replace(/\s+/g, '')
-      // 检查是否匹配，支持模糊匹配
-      return accName === deviceModel ||
-             deviceModel.includes(accName) ||
-             accName.includes(deviceModel.replace('专用', ''))
-    })
-  })
-  return matchingModel ? matchingModel.id : null
-}
-
-// 加载附件列表（不检查档期冲突）
-const loadAvailableAccessories = async () => {
-  if (!props.rental) return
-
-  loadingAccessories.value = true
-  try {
-    // 获取所有设备，先筛选出附件设备
-    const response = await axios.get('/api/devices')
-
-    if (response.data.success) {
-      // 先获取所有附件设备，不检查档期
-      const allAccessories = response.data.data.filter((device: Device) =>
-        device.is_accessory && device.model
-      )
-
-      // 为每个附件添加基础状态（不调用 API 检查冲突）
-      const accessoriesWithStatus: AccessoryWithStatus[] = allAccessories.map((accessory: Device) => ({
-        ...accessory,
-        isAvailable: true,
-        conflictReason: undefined
-      }))
-
-      availableControllers.value = accessoriesWithStatus
-    } else {
-      console.error('获取附件列表失败:', response.data.error)
-      ElMessage.error('获取附件列表失败')
-    }
-  } catch (error) {
-    console.error('获取附件列表失败:', error)
-    ElMessage.error('获取附件列表失败')
-  } finally {
-    loadingAccessories.value = false
-  }
-}
-
-// 按需检查特定附件的档期冲突
-const checkAccessoryConflict = async (accessory: AccessoryWithStatus) => {
-  if (!props.rental) return
-
-  try {
-    // 获取设备的 model_id
-    let modelId = accessory.device_model?.id || accessory.model_id
-
-    // 如果没有 model_id，根据 model 名称查找
-    if (!modelId && accessory.model) {
-      const foundModelId = await findModelIdByName(accessory.model)
-      if (foundModelId) {
-        modelId = foundModelId
-      }
-    }
-
-    // 如果找到了 model_id，检查档期冲突
-    if (modelId) {
-      // 计算物流天数
-      let logisticsDays = 1
-      if (props.rental.start_date && props.rental.ship_out_time) {
-        const startDate = new Date(props.rental.start_date)
-        const shipOutTime = new Date(props.rental.ship_out_time)
-        const diffTime = startDate.getTime() - shipOutTime.getTime()
-        logisticsDays = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)) - 1)
-      }
-
-      const slotResponse = await ganttStore.findAvailableSlot(
-        props.rental.start_date,
-        props.rental.end_date,
-        logisticsDays,
-        modelId,
-        true // is_accessory
-      )
-
-      // 更新附件状态
-      if (slotResponse.device) {
-        accessory.isAvailable = true
-        accessory.conflictReason = undefined
-      } else {
-        accessory.isAvailable = false
-        accessory.conflictReason = '档期冲突'
-      }
-    } else {
-      // 没有找到 model_id
-      accessory.isAvailable = true
-      accessory.conflictReason = '无法检查档期'
-    }
-  } catch (error) {
-    console.error('检查附件档期失败:', error)
-    accessory.isAvailable = false
-    accessory.conflictReason = '检查档期失败'
-  }
-}
-
-// 获取最新的租赁数据
+// Load latest rental data
 const loadLatestRentalData = async () => {
   if (!props.rental) return null
 
@@ -617,29 +403,22 @@ const loadLatestRentalData = async () => {
   latestDataError.value = null
 
   try {
-    const response = await axios.get(`/api/rentals/${props.rental.id}`)
-    if (response.data.success) {
-      return response.data.data
-    } else {
-      throw new Error(response.data.error || '获取租赁数据失败')
-    }
+    return await ganttStore.getRentalById(props.rental.id)
   } catch (error: any) {
     console.error('获取最新租赁数据失败:', error)
     latestDataError.value = error.message || '获取最新数据失败'
-    return props.rental // fallback to cached data
+    return props.rental
   } finally {
     loadingLatestData.value = false
   }
 }
 
-// 初始化表单数据
+// Initialize form
 const initForm = async () => {
   if (props.rental) {
-    // 重置冲突检查标志
     deviceConflictChecked.value = false
     accessoryConflictChecked.value = false
 
-    // 获取最新数据
     const latestRental = await loadLatestRentalData()
     const rentalData = latestRental || props.rental
 
@@ -653,35 +432,41 @@ const initForm = async () => {
       shipOutTime: rentalData.ship_out_time ? new Date(rentalData.ship_out_time) : null,
       shipInTime: rentalData.ship_in_time ? new Date(rentalData.ship_in_time) : null,
       status: rentalData.status || 'not_shipped',
-      accessories: (rentalData.child_rentals || []).map((child: any) => child.device_id).filter(Boolean)
+      accessories: (rentalData.child_rentals || [])
+        .map((child: any) => child.device_id)
+        .filter(Boolean)
     }
 
-    // 使用最新数据加载可用附件
     if (latestRental) {
-      // 更新 props.rental 的引用以便其他函数使用最新数据
       Object.assign(props.rental, latestRental)
     }
 
-    // 加载设备列表和附件列表
     await Promise.all([
-      loadAvailableDevices(),
-      loadAvailableAccessories()
+      deviceManagement.loadDevices(),
+      deviceManagement.loadAccessories()
     ])
   }
 }
 
-// 监听器
-watch(() => props.rental, () => {
-  if (props.rental) {
-    initForm()
-  }
-}, { immediate: true })
+// Watchers
+watch(
+  () => props.rental,
+  () => {
+    if (props.rental) {
+      initForm()
+    }
+  },
+  { immediate: true }
+)
 
-watch(() => props.modelValue, (newValue) => {
-  if (newValue && props.rental) {
-    initForm()
+watch(
+  () => props.modelValue,
+  (newValue) => {
+    if (newValue && props.rental) {
+      initForm()
+    }
   }
-})
+)
 </script>
 
 <style scoped>
