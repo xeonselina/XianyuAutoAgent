@@ -88,7 +88,7 @@ if (!$SkipDatabase -and !$FrontendOnly) {
             $dockerStatus = docker info 2>$null
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "启动 Docker MySQL 容器..."
-                docker-compose up -d db
+                docker-compose up -d mysql
 
                 if ($LASTEXITCODE -eq 0) {
                     Write-Host "Docker MySQL 启动成功" -ForegroundColor Green
