@@ -247,7 +247,7 @@ if (!$SkipMigration) {
                 $envContent | Set-Content ".env"
 
                 Write-Host "启动 Docker MySQL 容器..."
-                docker-compose up -d db
+                docker-compose up -d mysql
                 Write-Host "等待 MySQL 容器启动完成..." -ForegroundColor Yellow
                 Start-Sleep 15  # 等待MySQL启动
 
