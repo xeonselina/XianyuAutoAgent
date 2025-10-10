@@ -104,8 +104,16 @@ class MessageService:
                 logger.error(f"发送AI回复失败: {e}")
                 return {"status": "error", "message": str(e)}
     
-    async def process_incoming_message(self, message_data: dict) -> Optional[Message]:
-        """处理传入的消息"""
+    async def process_incoming_message(self, message_data: dict, wait_for_completion: bool = False) -> Optional[Message]:
+        """处理传入的消息
+
+        Args:
+            message_data: 消息数据
+            wait_for_completion: 是否等待AI处理完成再返回
+
+        Returns:
+            Message对象，如果wait_for_completion=True则确保AI已处理完成
+        """
         try:
             # 生成消息ID
             message_id = str(uuid.uuid4())
@@ -133,9 +141,15 @@ class MessageService:
 
             logger.info(f"收到新消息: {message.text} (来自: {message.sender})")
 
-            # 自动触发AI处理（异步非阻塞）
-            # 使用asyncio.create_task确保不会阻塞消息接收
-            asyncio.create_task(self._handle_message_async(message))
+            if wait_for_completion:
+                # 串行模式: 等待AI处理完成后再返回
+                logger.info(f"[串行模式] 等待AI处理完成: {message.text[:50]}...")
+                await self._handle_message_async(message)
+                logger.info(f"[串行模式] AI处理完成: 已处理={message.processed}, 需要人工={message.require_human}")
+            else:
+                # 异步模式: 不等待，立即返回
+                # 使用asyncio.create_task确保不会阻塞消息接收
+                asyncio.create_task(self._handle_message_async(message))
 
             return message
 
