@@ -235,14 +235,14 @@ if (!$SkipMigration) {
             Write-Host "配置 Docker MySQL..." -ForegroundColor Cyan
             # 检查docker是否可用
             if (Get-Command docker -ErrorAction SilentlyContinue) {
-                # 更新.env文件使用Docker MySQL
-                # Windows本地环境连接Docker MySQL需要使用DATABASE_URL_HOST（优先级最高）
+                # 更新.env文件使用Docker MySQL（匹配docker-compose.yml配置）
+                # Docker MySQL: root密码=rootpassword, 数据库名=inventory_db
                 Write-Host "更新 .env 文件中的数据库配置..."
                 $envContent = Get-Content ".env" | ForEach-Object {
                     if ($_ -match "^DATABASE_URL_HOST=") {
-                        "DATABASE_URL_HOST=mysql+pymysql://root:123456@localhost:3306/testdb"
-                    } elseif ($_ -match "^DATABASE_URL=" -or $_ -match "^#\s*DATABASE_URL=") {
-                        $_  # 保持DATABASE_URL不变
+                        "DATABASE_URL_HOST=mysql+pymysql://root:rootpassword@localhost:3306/inventory_db"
+                    } elseif ($_ -match "^DATABASE_URL=") {
+                        "DATABASE_URL=mysql+pymysql://root:rootpassword@localhost:3306/inventory_db"
                     } else {
                         $_
                     }
@@ -254,7 +254,7 @@ if (!$SkipMigration) {
                     foreach ($line in $envContent) {
                         if (-not $added -and $line -match "^DATABASE_URL=") {
                             $newContent += "# Windows本地环境连接Docker MySQL（优先使用）"
-                            $newContent += "DATABASE_URL_HOST=mysql+pymysql://root:123456@localhost:3306/testdb"
+                            $newContent += "DATABASE_URL_HOST=mysql+pymysql://root:rootpassword@localhost:3306/inventory_db"
                             $newContent += ""
                             $added = $true
                         }
@@ -296,6 +296,25 @@ print('数据库连接成功')
                 if ($testConnection) {
                     Write-Host "Docker MySQL 配置成功！" -ForegroundColor Green
                     $dbConnected = $true
+
+                    # 询问是否运行数据库初始化
+                    Write-Host "`n数据库连接成功！" -ForegroundColor Green
+                    $runInitDb = Read-Host "是否运行数据库初始化脚本 (init_db.py)? 这将删除现有数据并导入示例数据 (y/n)"
+                    if ($runInitDb -eq "y" -or $runInitDb -eq "Y") {
+                        Write-Host "运行数据库初始化..." -ForegroundColor Cyan
+                        try {
+                            & ".\venv\Scripts\python.exe" init_db.py
+                            if ($LASTEXITCODE -eq 0) {
+                                Write-Host "数据库初始化成功！" -ForegroundColor Green
+                            } else {
+                                Write-Warning "数据库初始化失败，请检查错误信息"
+                            }
+                        } catch {
+                            Write-Warning "运行 init_db.py 时出错: $_"
+                        }
+                    } else {
+                        Write-Host "跳过数据库初始化" -ForegroundColor Yellow
+                    }
                 } else {
                     Write-Warning "Docker MySQL 启动可能有问题，请检查容器状态"
                     Write-Host "可以运行: docker-compose logs db" -ForegroundColor Yellow
