@@ -1,4 +1,4 @@
-# InventoryManager Windows 项目配置脚本
+﻿# InventoryManager Windows 项目配置脚本
 # 在项目根目录中运行此脚本来配置开发环境
 
 param(
@@ -236,13 +236,31 @@ if (!$SkipMigration) {
             # 检查docker是否可用
             if (Get-Command docker -ErrorAction SilentlyContinue) {
                 # 更新.env文件使用Docker MySQL
+                # Windows本地环境连接Docker MySQL需要使用DATABASE_URL_HOST（优先级最高）
                 Write-Host "更新 .env 文件中的数据库配置..."
                 $envContent = Get-Content ".env" | ForEach-Object {
-                    if ($_ -match "^DATABASE_URL=" -or $_ -match "^#\s*DATABASE_URL=") {
-                        "DATABASE_URL=mysql+pymysql://root:123456@localhost:3306/testdb"
+                    if ($_ -match "^DATABASE_URL_HOST=") {
+                        "DATABASE_URL_HOST=mysql+pymysql://root:123456@localhost:3306/testdb"
+                    } elseif ($_ -match "^DATABASE_URL=" -or $_ -match "^#\s*DATABASE_URL=") {
+                        $_  # 保持DATABASE_URL不变
                     } else {
                         $_
                     }
+                }
+                # 如果没有DATABASE_URL_HOST，在第一个DATABASE_URL前面添加
+                if (-not ($envContent -match "^DATABASE_URL_HOST=")) {
+                    $newContent = @()
+                    $added = $false
+                    foreach ($line in $envContent) {
+                        if (-not $added -and $line -match "^DATABASE_URL=") {
+                            $newContent += "# Windows本地环境连接Docker MySQL（优先使用）"
+                            $newContent += "DATABASE_URL_HOST=mysql+pymysql://root:123456@localhost:3306/testdb"
+                            $newContent += ""
+                            $added = $true
+                        }
+                        $newContent += $line
+                    }
+                    $envContent = $newContent
                 }
                 $envContent | Set-Content ".env"
 

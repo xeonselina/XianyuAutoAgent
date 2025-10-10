@@ -14,7 +14,10 @@
       "Bash(docker:*)",
       "Bash(colima template:*)",
       "Read(//Users/jimmypan/.colima/default/**)",
-      "Bash(colima restart:*)"
+      "Bash(colima restart:*)",
+      "Bash(powershell:*)",
+      "Bash(python:*)",
+      "Bash(findstr:*)"
     ],
     "deny": [],
     "ask": [],
