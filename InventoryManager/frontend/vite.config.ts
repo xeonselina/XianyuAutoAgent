@@ -28,16 +28,16 @@ export default defineConfig({
     }
   },
   server: {
-    port: 3000,
+    port: 5173,
     proxy: {
       // 代理 API 请求到 Flask 后端
       '/api': {
-        target: 'http://localhost:5002',
+        target: 'http://localhost:5001',
         changeOrigin: true,
         rewrite: (path) => path
       },
       '/web': {
-        target: 'http://localhost:5002',
+        target: 'http://localhost:5001',
         changeOrigin: true,
         rewrite: (path) => path
       }
