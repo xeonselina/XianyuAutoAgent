@@ -1,4 +1,4 @@
-# InventoryManager Windows 项目启动脚本
+﻿# InventoryManager Windows 项目启动脚本
 # 启动数据库、后端服务和前端应用
 
 param(
