@@ -39,7 +39,7 @@ class DifyAIService:
                 # 解析响应
                 ai_result = self._parse_dify_response(dify_response)
                 
-                logger.info(f"AI处理完成 - 回复: {ai_result['response'][:50]}... 置信度: {ai_result['confidence_score']}")
+                logger.info(f"AI处理完成 - 回复: {ai_result['response'][:250]}... 置信度: {ai_result['confidence_score']}")
                 
                 return ai_result
             else:

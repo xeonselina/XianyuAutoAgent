@@ -207,9 +207,9 @@ class GoofishAIBot:
     async def _monitor_messages(self):
         """监控消息"""
         self.logger.info("开始监控咸鱼消息...")
-        
+
         async def message_callback(message):
-            """新消息回调"""
+            """新消息回调 - 串行处理模式"""
             try:
                 # 发送消息到消息服务
                 message_data = {
@@ -218,13 +218,28 @@ class GoofishAIBot:
                     'timestamp': message.get('timestamp', ''),
                     'type': 'received'
                 }
-                print('received message: ', message_data)
-                
-                await self.message_service.process_incoming_message(message_data)
-                
+                self.logger.info(f'[串行处理] 收到新消息: {message_data}')
+
+                # 等待消息处理完成（包括AI处理和回复）再继续监听下一条
+                processed_message = await self.message_service.process_incoming_message(
+                    message_data,
+                    wait_for_completion=True
+                )
+
+                if processed_message:
+                    self.logger.info(
+                        f"[串行处理] 消息处理完成 - "
+                        f"已回复: {processed_message.processed}, "
+                        f"需要人工: {processed_message.require_human}"
+                    )
+                else:
+                    self.logger.error("[串行处理] 消息处理失败")
+
             except Exception as e:
                 self.logger.error(f"处理新消息失败: {e}")
-        
+                import traceback
+                self.logger.error(f"错误堆栈: {traceback.format_exc()}")
+
         # 开始监控
         await self.browser.monitor_new_messages(message_callback)
     
