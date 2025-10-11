@@ -1,58 +1,78 @@
+INSERT INTO inventory_management.device_models (name,display_name,description,is_active,created_at,updated_at,default_accessories,device_value) VALUES
+	 ('VIVO X200U 16+512','X200U','默认设备型号',1,'2025-09-20 14:06:03','2025-09-20 14:06:03','专用手机壳 x1
+vivo 原装增距镜 x1
+镜头转接环 x1
+vivo90w 充电头，充电线 x1',7000.00),
+	 ('dji mini5pro 畅飞套','mini5pro','默认设备型号',1,'2025-09-20 14:06:03','2025-09-20 14:06:03','RC2 带屏遥控 x1
+原装 nd 滤镜一套 x1
+标准续航电池 x3
+备用桨叶 x6
+256g tf卡 x1
+读卡器 x1
+充电器充电线+充电管家 x1
+收纳保护罩 x1
+单肩包 x1',7000.00);
+
+INSERT INTO inventory_management.model_accessories (model_id,accessory_name,accessory_description,is_required,is_active,created_at,updated_at,accessory_value) VALUES
+	 (1,'x200u手柄','X200U专用手柄',0,1,'2025-09-20 14:06:03','2025-09-20 14:06:03',400.00),
+	 (1,'手机支架','shouji zhijia',0,1,'2025-09-20 14:06:03','2025-09-20 14:06:03',100.00);
+
+
 -- 设备数据
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (1, '2001', '10AF02JU', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 07:07:57');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (2, '2002', '10AF02K0', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 00:43:08');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (3, '2003', '10AF03GQ', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 16:00:55');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (4, '2004', '10AF040C', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-26 15:51:11');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (5, '2005', '10AF02LD', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-22 15:30:56');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (6, '2006', '10AF02ZB', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 16:00:55');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (7, '2007', '10AF03M7', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 16:00:55');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (8, '2008', '10AF04Y6', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 02:26:37');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (9, '2009', '10AF04PL', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-26 16:01:13');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (10, '2010', '10A002ZB', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 16:00:55');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (11, '2011', '10A0035K', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 16:00:55');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (12, '2012', '10A00206', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-26 16:01:13');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (13, '2013', '10A002ZB', 'VIVO X200U 16+512', FALSE, 'offline', '2025-08-26 11:44:07', '2025-10-09 13:22:08');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (14, '2014', '10A0046N', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 00:44:01');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (15, '2015', '10A0049M', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 16:00:55');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (16, '2016', '10A00439', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 11:46:59');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (17, '2017', '10A002K0', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-25 21:11:06');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (18, '2018', '10A00375', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 07:06:31');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (19, '2019', '10A004E9', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 16:00:55');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (20, '2020', '10A002JU', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-26 16:01:13');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (21, '2021', '10A0049M', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-26 16:00:10');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (22, '2022', '10A002NC', 'VIVO X200U 16+512', FALSE, 'offline', '2025-08-26 11:44:07', '2025-10-09 06:30:40');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (23, '2023', '10A004NB', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-26 03:53:03');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (24, '2024', '10A004E9', 'VIVO X200U 16+512', FALSE, 'offline', '2025-08-26 11:44:07', '2025-10-09 06:30:44');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (25, '2025', '10A003DR', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 11:32:58');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (26, '2026', '10A002E9', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 16:00:56');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (27, '2027', '2027', 'VIVO X200U 16+512', FALSE, 'offline', '2025-08-26 11:44:07', '2025-10-10 04:16:43');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (28, '2028', '2028', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 01:45:11');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (29, '2029', '2029', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-24 16:00:34');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (30, '2030', '2030', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 16:00:56');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (31, '2031', '2031', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-22 01:33:48');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (32, '2032', '2032', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-26 04:04:34');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (33, '2033', '2033', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-26 16:00:10');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (34, '2034', '2034', 'VIVO X200U 16+512', FALSE, 'online', '2025-08-26 11:44:07', '2025-09-25 21:11:06');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (35, 'sb01', 'sb01', 'x200u 专用手柄', TRUE, 'online', '2025-09-14 10:19:38', '2025-09-21 14:04:58');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (36, 'sb02', 'sb02', 'x200u 专用手柄', TRUE, 'online', '2025-09-14 10:19:38', '2025-09-21 14:04:58');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (37, 'sb03', 'sb03', 'x200u 专用手柄', TRUE, 'online', '2025-09-14 10:19:38', '2025-09-21 14:04:58');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (38, 'sb04', 'sb04', 'x200u 专用手柄', TRUE, 'online', '2025-09-14 10:19:38', '2025-09-20 16:00:56');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (39, 'sb05', 'sb05', 'x200u 专用手柄', TRUE, 'online', '2025-09-14 10:19:38', '2025-09-20 16:00:56');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (40, 'sb06', 'sb06', 'x200u 专用手柄', TRUE, 'online', '2025-09-14 10:19:38', '2025-09-14 10:19:38');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (41, 'sb07', 'sb07', 'x200u 专用手柄', TRUE, 'online', '2025-09-14 10:19:38', '2025-09-14 10:19:38');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (42, 'sb08', 'sb08', 'x200u 专用手柄', TRUE, 'online', '2025-09-14 10:19:38', '2025-09-25 21:11:06');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (43, 'sb09', 'sb09', 'x200u 专用手柄', TRUE, 'online', '2025-09-14 10:19:38', '2025-09-27 16:00:56');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (44, '2035', '12345', 'VIVO X200U 16+512', FALSE, 'online', '2025-09-16 08:23:50', '2025-09-27 15:02:26');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (45, '2036', '123', 'VIVO X200U 16+512', FALSE, 'online', '2025-09-19 06:06:10', '2025-09-26 03:59:00');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (46, '手机支架1', 'zj1', '手机支架', TRUE, 'online', '2025-09-20 14:12:33', '2025-09-20 14:12:33');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (47, '手机支架2', 'zj2', '手机支架', TRUE, 'online', '2025-09-20 14:12:50', '2025-09-20 14:12:50');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (48, '手机支架3', 'zj3', '手机支架', TRUE, 'online', '2025-09-20 14:13:06', '2025-09-20 14:13:06');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (49, '手机支架4', 'zj4', '手机支架', TRUE, 'online', '2025-09-20 14:13:18', '2025-09-20 14:13:18');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (50, '手机支架5', 'zj5', '手机支架', TRUE, 'online', '2025-09-20 14:13:28', '2025-09-20 14:13:28');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (51, '手机支架6', 'zj6', '手机支架', TRUE, 'online', '2025-09-20 14:13:38', '2025-09-20 14:13:38');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (52, '手机支架7', 'zj7', '手机支架', TRUE, 'online', '2025-09-20 14:13:54', '2025-09-20 14:13:54');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (53, 'M001', 'DJI-MINI5PRO-001', 'mini5pro', FALSE, 'online', '2025-09-21 14:05:07', '2025-09-22 01:11:08');
-INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES (54, '2037', '123456', 'VIVO X200U 16+512', FALSE, 'online', '2025-09-22 09:03:09', '2025-09-25 10:20:43');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (1, '2001', '10AF02JU', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 07:07:57');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (2, '2002', '10AF02K0', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 00:43:08');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (3, '2003', '10AF03GQ', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 16:00:55');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (4, '2004', '10AF040C', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-26 15:51:11');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (5, '2005', '10AF02LD', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-22 15:30:56');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (6, '2006', '10AF02ZB', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 16:00:55');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (7, '2007', '10AF03M7', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 16:00:55');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (8, '2008', '10AF04Y6', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 02:26:37');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (9, '2009', '10AF04PL', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-26 16:01:13');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (10, '2010', '10A002ZB', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 16:00:55');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (11, '2011', '10A0035K', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 16:00:55');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (12, '2012', '10A00206', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-26 16:01:13');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (13, '2013', '10A002ZB', 'VIVO X200U 16+512', 1, FALSE, 'offline', '2025-08-26 11:44:07', '2025-10-09 13:22:08');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (14, '2014', '10A0046N', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 00:44:01');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (15, '2015', '10A0049M', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 16:00:55');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (16, '2016', '10A00439', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 11:46:59');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (17, '2017', '10A002K0', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-25 21:11:06');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (18, '2018', '10A00375', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 07:06:31');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (19, '2019', '10A004E9', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 16:00:55');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (20, '2020', '10A002JU', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-26 16:01:13');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (21, '2021', '10A0049M', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-26 16:00:10');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (22, '2022', '10A002NC', 'VIVO X200U 16+512', 1, FALSE, 'offline', '2025-08-26 11:44:07', '2025-10-09 06:30:40');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (23, '2023', '10A004NB', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-26 03:53:03');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (24, '2024', '10A004E9', 'VIVO X200U 16+512', 1, FALSE, 'offline', '2025-08-26 11:44:07', '2025-10-09 06:30:44');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (25, '2025', '10A003DR', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 11:32:58');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (26, '2026', '10A002E9', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 16:00:56');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (27, '2027', '2027', 'VIVO X200U 16+512', 1, FALSE, 'offline', '2025-08-26 11:44:07', '2025-10-10 04:16:43');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (28, '2028', '2028', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 01:45:11');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (29, '2029', '2029', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-24 16:00:34');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (30, '2030', '2030', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-27 16:00:56');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (31, '2031', '2031', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-22 01:33:48');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (32, '2032', '2032', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-26 04:04:34');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (33, '2033', '2033', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-26 16:00:10');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (34, '2034', '2034', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-08-26 11:44:07', '2025-09-25 21:11:06');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (35, 'sb01', 'sb01', 'x200u 专用手柄',1, TRUE, 'online', '2025-09-14 10:19:38', '2025-09-21 14:04:58');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (36, 'sb02', 'sb02', 'x200u 专用手柄',1, TRUE, 'online', '2025-09-14 10:19:38', '2025-09-21 14:04:58');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (37, 'sb03', 'sb03', 'x200u 专用手柄',1, TRUE, 'online', '2025-09-14 10:19:38', '2025-09-21 14:04:58');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (38, 'sb04', 'sb04', 'x200u 专用手柄',1, TRUE, 'online', '2025-09-14 10:19:38', '2025-09-20 16:00:56');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (39, 'sb05', 'sb05', 'x200u 专用手柄',1, TRUE, 'online', '2025-09-14 10:19:38', '2025-09-20 16:00:56');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (40, 'sb06', 'sb06', 'x200u 专用手柄',1, TRUE, 'online', '2025-09-14 10:19:38', '2025-09-14 10:19:38');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (41, 'sb07', 'sb07', 'x200u 专用手柄',1, TRUE, 'online', '2025-09-14 10:19:38', '2025-09-14 10:19:38');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (42, 'sb08', 'sb08', 'x200u 专用手柄',1, TRUE, 'online', '2025-09-14 10:19:38', '2025-09-25 21:11:06');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (43, 'sb09', 'sb09', 'x200u 专用手柄',1, TRUE, 'online', '2025-09-14 10:19:38', '2025-09-27 16:00:56');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (44, '2035', '12345', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-09-16 08:23:50', '2025-09-27 15:02:26');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (45, '2036', '123', 'VIVO X200U 16+512', 1, FALSE, 'online', '2025-09-19 06:06:10', '2025-09-26 03:59:00');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (46, '手机支架1', 'zj1', '手机支架',2, TRUE, 'online', '2025-09-20 14:12:33', '2025-09-20 14:12:33');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (47, '手机支架2', 'zj2', '手机支架',2, TRUE, 'online', '2025-09-20 14:12:50', '2025-09-20 14:12:50');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (48, '手机支架3', 'zj3', '手机支架',2, TRUE, 'online', '2025-09-20 14:13:06', '2025-09-20 14:13:06');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (49, '手机支架4', 'zj4', '手机支架',2, TRUE, 'online', '2025-09-20 14:13:18', '2025-09-20 14:13:18');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (50, '手机支架5', 'zj5', '手机支架',2, TRUE, 'online', '2025-09-20 14:13:28', '2025-09-20 14:13:28');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (51, '手机支架6', 'zj6', '手机支架',2, TRUE, 'online', '2025-09-20 14:13:38', '2025-09-20 14:13:38');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (52, '手机支架7', 'zj7', '手机支架',2, TRUE, 'online', '2025-09-20 14:13:54', '2025-09-20 14:13:54');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (53, 'M001', 'DJI-MINI5PRO-001', 'mini5pro',2, FALSE, 'online', '2025-09-21 14:05:07', '2025-09-22 01:11:08');
+INSERT INTO devices (id, name, serial_number, model,model_id, is_accessory, status, created_at, updated_at) VALUES (54, '2037', '123456', 'VIVO X200U 16+512',1, FALSE, 'online', '2025-09-22 09:03:09', '2025-09-25 10:20:43');
 
 -- 租赁数据
 INSERT INTO rentals (id, device_id, start_date, end_date, ship_out_time, ship_in_time, customer_name, customer_phone, destination, ship_out_tracking_no, ship_in_tracking_no, status, parent_rental_id, created_at, updated_at) VALUES (1, 1, '2025-08-31', '2025-08-31', '2025-08-29 08:00:00', '2025-09-02 08:00:00', '呆毛飘飘', '12345678901', 'Carey，12345678901，广东省广州哈哈区嘻嘻路呵呵小区', NULL, NULL, 'not_shipped', NULL, '2025-08-27 05:40:00', '2025-08-27 05:40:00');

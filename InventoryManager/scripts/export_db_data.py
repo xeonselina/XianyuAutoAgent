@@ -38,13 +38,14 @@ def generate_device_inserts():
             escape_string(device.name),
             escape_string(device.serial_number),
             escape_string(device.model),
+            escape_string(device.model_id),
             'TRUE' if device.is_accessory else 'FALSE',
             escape_string(device.status),
             escape_string(device.created_at.strftime('%Y-%m-%d %H:%M:%S') if device.created_at else None),
             escape_string(device.updated_at.strftime('%Y-%m-%d %H:%M:%S') if device.updated_at else None),
         ]
 
-        insert_sql = f"INSERT INTO devices (id, name, serial_number, model, is_accessory, status, created_at, updated_at) VALUES ({', '.join(values)});"
+        insert_sql = f"INSERT INTO devices (id, name, serial_number, model, model_id, is_accessory, status, created_at, updated_at) VALUES ({', '.join(values)});"
         inserts.append(insert_sql)
 
     return inserts
