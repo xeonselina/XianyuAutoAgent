@@ -547,9 +547,13 @@ const getTotalValue = () => {
   if (rental.value?.device?.device_model?.device_value) {
     total += parseFloat(String(rental.value.device.device_model.device_value))
   }
+  console.log('total of main device value')
+  console.log(total)
 
   // 个性化附件价值（从实际租赁的附件中获取）
   const personalizedAccessories = getPersonalizedAccessories()
+  console.log('personalizedAccessories')
+  personalizedAccessories.map(a=>console.log("a:",a.name,"a.value:",a.value))
   personalizedAccessories.forEach((acc: any) => {
     // 暂时使用默认值，如果附件有价值信息的话
     if (acc.value) {
