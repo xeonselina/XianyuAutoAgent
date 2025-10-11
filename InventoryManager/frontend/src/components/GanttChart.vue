@@ -22,22 +22,29 @@
         </el-col>
         
         <el-col :span="8" class="text-right">
-          <el-button 
-            type="success" 
+          <el-button
+            type="success"
             @click="showAddDeviceDialog = true"
             :icon="Plus"
           >
             添加设备
           </el-button>
-          <el-button 
-            type="primary" 
+          <el-button
+            type="primary"
             @click="showBookingDialog = true"
             :icon="Plus"
           >
             预定设备
           </el-button>
-          <el-button 
-            @click="ganttStore.loadData()" 
+          <el-button
+            type="info"
+            @click="$router.push('/statistics')"
+          >
+            <el-icon><DataAnalysis /></el-icon>
+            统计数据
+          </el-button>
+          <el-button
+            @click="ganttStore.loadData()"
             :loading="ganttStore.loading"
             :icon="Refresh"
           >
@@ -303,7 +310,7 @@
 import { ref, computed, onMounted, watch, nextTick, onUnmounted } from 'vue'
 import { useGanttStore, type Device, type Rental, type DeviceModel, type ModelAccessory } from '@/stores/gantt'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, ArrowLeft, ArrowRight, Search } from '@element-plus/icons-vue'
+import { Plus, Refresh, ArrowLeft, ArrowRight, Search, DataAnalysis } from '@element-plus/icons-vue'
 import axios from 'axios'
 import GanttRow from './GanttRow.vue'
 import BookingDialog from './BookingDialog.vue'

@@ -20,8 +20,9 @@ from datetime import date, timedelta
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from app import create_app
+from app import create_app, db
 from app.models.rental import Rental
+from app.models.rental_statistics import RentalStatistics
 
 
 def calculate_rental_value(rental):
@@ -225,6 +226,52 @@ def print_recent_30days_statistics(stats):
         print("-" * 80)
 
 
+def save_statistics_to_db(stats):
+    """
+    保存统计数据到数据库
+
+    Args:
+        stats: 统计结果字典（最近30天的统计数据）
+
+    Returns:
+        RentalStatistics: 保存的统计记录对象
+    """
+    from datetime import datetime
+
+    today = date.today()
+
+    # 检查今天是否已经有统计记录
+    existing = RentalStatistics.query.filter_by(stat_date=today).first()
+
+    if existing:
+        # 更新现有记录
+        existing.period_start = datetime.fromisoformat(stats['period_start']).date()
+        existing.period_end = datetime.fromisoformat(stats['period_end']).date()
+        existing.total_rentals = stats['total_rentals']
+        existing.total_rent = stats['total_rent']
+        existing.total_value = stats['total_value']
+        existing.updated_at = datetime.utcnow()
+
+        db.session.commit()
+        print(f"\n✓ 已更新今日统计记录 (ID: {existing.id})")
+        return existing
+    else:
+        # 创建新记录
+        new_stat = RentalStatistics(
+            stat_date=today,
+            period_start=datetime.fromisoformat(stats['period_start']).date(),
+            period_end=datetime.fromisoformat(stats['period_end']).date(),
+            total_rentals=stats['total_rentals'],
+            total_rent=stats['total_rent'],
+            total_value=stats['total_value']
+        )
+
+        db.session.add(new_stat)
+        db.session.commit()
+        print(f"\n✓ 已保存新的统计记录 (ID: {new_stat.id})")
+        return new_stat
+
+
 def main():
     """主函数"""
     app = create_app()
@@ -239,6 +286,14 @@ def main():
         # 统计最近30天的rental数据
         recent_stats = get_recent_30days_statistics()
         print_recent_30days_statistics(recent_stats)
+
+        # 保存最近30天的统计数据到数据库
+        try:
+            save_statistics_to_db(recent_stats)
+        except Exception as e:
+            print(f"\n✗ 保存统计数据失败: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 if __name__ == '__main__':

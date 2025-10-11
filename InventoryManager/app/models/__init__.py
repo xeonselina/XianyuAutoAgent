@@ -6,5 +6,6 @@ from .device import Device
 from .rental import Rental
 from .audit_log import AuditLog
 from .device_model import DeviceModel, ModelAccessory
+from .rental_statistics import RentalStatistics
 
-__all__ = ['Device', 'Rental', 'AuditLog', 'DeviceModel', 'ModelAccessory']
+__all__ = ['Device', 'Rental', 'AuditLog', 'DeviceModel', 'ModelAccessory', 'RentalStatistics']
