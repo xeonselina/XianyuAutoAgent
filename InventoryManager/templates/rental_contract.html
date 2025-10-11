@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>设备租赁合同 - 租赁记录 #{{ rental_id }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            line-height: 1.3;
+            font-size: 12px;
+        }
+        
+        .contract-container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 15px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        
+        .contract-header {
+            text-align: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #007bff;
+        }
+        
+        .contract-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        
+        .contract-content {
+            font-size: 14px;
+            line-height: 1.4;
+            color: #333;
+        }
+        
+        .contract-section {
+            margin-bottom: 12px;
+        }
+        
+        .party-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+        
+        .party-box {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ddd;
+            margin: 0 5px;
+            border-radius: 3px;
+            background-color: #f8f9fa;
+        }
+        
+        .table-contract {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 8px 0;
+            font-size: 12px;
+        }
+        
+        .table-contract th,
+        .table-contract td {
+            border: 1px solid #333;
+            padding: 4px 6px;
+            text-align: left;
+            vertical-align: top;
+        }
+        
+        .table-contract th {
+            background-color: #f8f9fa;
+            font-weight: bold;
+            text-align: center;
+        }
+        
+        .party-table th {
+            background-color: #e9ecef;
+            text-align: left;
+            padding: 6px 8px;
+            font-size: 12px;
+        }
+        
+        .party-table td {
+            padding: 8px;
+            line-height: 1.3;
+            font-size: 12px;
+        }
+        
+        .party-table td div {
+            margin-bottom: 4px;
+        }
+        
+        .signature-section {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+            padding-top: 10px;
+            border-top: 1px solid #ddd;
+        }
+        
+        .signature-box {
+            text-align: center;
+            width: 150px;
+            font-size: 12px;
+        }
+        
+        .signature-line {
+            border-bottom: 1px solid #333;
+            width: 120px;
+            height: 25px;
+            margin: 6px auto;
+        }
+        
+        .upload-section {
+            background-color: #f8f9fa;
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            margin-bottom: 15px;
+            font-size: 12px;
+        }
+        
+        .upload-section.dragover {
+            border-color: #007bff;
+            background-color: #e3f2fd;
+        }
+        
+        .id-preview {
+            max-width: 200px;
+            max-height: 120px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            margin: 6px auto;
+            display: none;
+        }
+        
+        .ocr-result {
+            background-color: #e8f5e8;
+            border: 1px solid #28a745;
+            border-radius: 3px;
+            padding: 8px;
+            margin-top: 8px;
+            display: none;
+            font-size: 12px;
+        }
+        
+        .print-section {
+            position: fixed;
+            bottom: 15px;
+            right: 15px;
+            z-index: 1000;
+        }
+        
+        .btn-action {
+            margin: 3px;
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+        
+        /* 紧凑样式 */
+        .contract-content p {
+            margin-bottom: 4px;
+        }
+        
+        .contract-content h5 {
+            margin-bottom: 6px;
+            margin-top: 8px;
+            font-size: 13px;
+        }
+        
+        .contract-content h6 {
+            margin-bottom: 4px;
+            margin-top: 6px;
+            font-size: 12px;
+        }
+        
+        @media print {
+            .upload-section,
+            .print-section,
+            .btn,
+            .ocr-result {
+                display: none !important;
+            }
+            
+            .contract-container {
+                box-shadow: none;
+                margin: 0;
+                padding: 8px;
+            }
+            
+            body {
+                background: white;
+                font-size: 12px;
+                line-height: 1.2;
+            }
+            
+            .contract-title {
+                font-size: 16px;
+            }
+            
+            .contract-content {
+                font-size: 12px;
+            }
+            
+            .table-contract {
+                font-size: 12px;
+            }
+            
+            .party-table td {
+                font-size: 12px;
+                line-height: 1.1;
+                padding: 3px;
+            }
+            
+            .contract-section {
+                margin-bottom: 4px;
+            }
+            
+            /* 打印时隐藏输入框，显示其值 */
+            .contract-input {
+                border: none;
+                background: transparent;
+                padding: 0;
+                margin: 0;
+                font-weight: normal;
+            }
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 10px 0;
+        }
+        
+        .highlight {
+            background-color: #fff3cd;
+            padding: 1px 2px;
+            border-radius: 2px;
+        }
+        
+        /* 合同输入框样式 */
+        .contract-input {
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            padding: 3px 6px;
+            font-size: 12px;
+            background-color: #fff;
+            transition: border-color 0.2s;
+        }
+        
+        .contract-input:focus {
+            border-color: #007bff;
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+        }
+        
+        .contract-input::placeholder {
+            color: #999;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <!-- 身份证上传区域 -->
+        <div class="upload-section" id="uploadSection">
+            <h4><i class="bi bi-cloud-upload"></i> 上传身份证照片</h4>
+            <p class="text-muted">请上传清晰的身份证正面照片，系统将自动识别姓名和身份证号码</p>
+            
+            <input type="file" id="idCardFile" accept="image/*" style="display: none;">
+            <button type="button" class="btn btn-primary btn-lg" onclick="document.getElementById('idCardFile').click();">
+                <i class="bi bi-upload"></i> 选择照片
+            </button>
+            <p class="text-muted mt-2">支持 JPG、PNG、JPEG 格式</p>
+            
+            <img id="idPreview" class="id-preview" alt="身份证预览">
+            
+            <div class="loading">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">识别中...</span>
+                </div>
+                <p class="mt-2">正在识别身份证信息...</p>
+            </div>
+            
+            <div id="ocrResult" class="ocr-result">
+                <h6><i class="bi bi-check-circle"></i> 识别结果</h6>
+                <div class="row">
+                    <div class="col-md-6">
+                        <strong>姓名：</strong><span id="ocrName">-</span>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>身份证号：</strong><span id="ocrIdNumber">-</span>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-success btn-sm mt-2" onclick="fillContract();">
+                    <i class="bi bi-arrow-down"></i> 填入合同
+                </button>
+            </div>
+        </div>
+        
+        <!-- 合同内容 -->
+        <div class="contract-container" id="contractContainer">
+            <div class="contract-header">
+                <div class="contract-title">设备租赁合同（{{ device_name }}）</div>
+            </div>
+            
+            <div class="contract-content">
+                <!-- 合同前言 -->
+                <div class="contract-section">
+                    <p style="text-indent: 2em; line-height: 1.8;">根据《中华人民共和国民法典》及相关法律规定，经过双方友好协商，甲乙双方本着诚实守信、平等自愿、公平合理的原则，就乙方租赁甲方电子设备事宜达成如下合同，以资双方共同遵照执行。</p>
+                </div>
+                
+                <!-- 甲乙双方信息表格 -->
+                <div class="contract-section">
+                    <table class="table-contract party-table">
+                        <tr>
+                            <th style="width: 50%;">出租方（甲方）：</th>
+                            <th style="width: 50%;">承租方（乙方）：</th>
+                        </tr>
+                        <tr>
+                            <td style="vertical-align: top; padding: 15px;">
+                                <div>闲鱼ID：光影租界</div>
+                                <div>真实姓名：张孝姝</div>
+                                <div>身份证号：500101198505270249</div>
+                                <div>联系方式：13510224947</div>
+                            </td>
+                            <td style="vertical-align: top; padding: 15px;">
+                                <div>闲鱼ID：{{ customer_name }}</div>
+                                <div>真实姓名：<input type="text" id="contractName" class="contract-input" placeholder="请输入真实姓名" style="width: 150px; display: inline-block; margin-left: 5px;"></div>
+                                <div>身份证号：<input type="text" id="contractIdNumber" class="contract-input" placeholder="请输入身份证号码" style="width: 200px; display: inline-block; margin-left: 5px;"></div>
+                                <div>联系方式：{{ customer_phone }}</div>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+                
+                <!-- 租赁设备清单 -->
+                <div class="contract-section">
+                    <h6><strong>租赁设备清单</strong></h6>
+                    <table class="table-contract">
+                        <tr>
+                            <th style="width: 40%;">设备名称</th>
+                            <th style="width: 25%;">序列号</th>
+                            <th style="width: 10%;">数量</th>
+                            <th style="width: 25%;">附件说明</th>
+                        </tr>
+                        <tr>
+                            <td>{{ device_name }}</td>
+                            <td>{{ serial_number }}</td>
+                            <td>1台</td>
+                            <td>手机壳、镜头转接环</td>
+                        </tr>
+                        <tr>
+                            <td>增距镜</td>
+                            <td>无</td>
+                            <td>1支</td>
+                            <td>镜头架、前后镜头盖</td>
+                        </tr>
+                        <tr>
+                            <td>充电线、充电头</td>
+                            <td>无</td>
+                            <td>1套</td>
+                            <td>无</td>
+                        </tr>
+                        <tr>
+                            <td>（其他配件）</td>
+                            <td>无</td>
+                            <td>无</td>
+                            <td>无</td>
+                        </tr>
+                    </table>
+                    <p style="margin-top: 10px;"><strong>注明：</strong>设备总价值约为¥{{ total_device_value }}元。</p>
+                </div>
+                
+                <!-- 租赁期限 -->
+                <div class="contract-section">
+                    <h6><strong>租赁期限</strong></h6>
+                    <table >
+                        <tr>
+                            <th style="width: 50%;">收货日：{{ ship_out_date }}</th>
+                            <th style="width: 50%;">租赁起止日期：{{ start_date }}至{{ end_date }}</th>
+                        </tr>
+                        <tr>
+                            <th>归还日：{{ ship_in_date }}</th>
+                            <th>总计：{{ rental_days }}天</th>
+                        </tr>
+                    </table>
+                </div>
+                
+                <!-- 押金 -->
+                <div class="contract-section">
+                    <h6><strong>押金</strong></h6>
+                    <table class="table-contract">
+                        <tr>
+                            <th style="width: 25%;">项目</th>
+                            <th style="width: 25%;">金额</th>
+                            <th style="width: 25%;">支付方式</th>
+                            <th style="width: 25%;">退还条件</th>
+                        </tr>
+                        <tr>
+                            <td>押金</td>
+                            <td>¥{{ deposit }}元</td>
+                            <td>闲鱼担保交易</td>
+                            <td>验收设备无损归还后，24小时内退还</td>
+                        </tr>
+                    </table>
+                </div>
+                
+                <!-- 双方权利义务 -->
+                <div class="contract-section">
+                    <h6><strong>双方权利义务</strong></h6>
+                    <div style="margin-left: 0;">
+                        <p><strong>甲方责任：</strong></p>
+                        <p>1. 确保设备功能正常、配件齐全；</p>
+                        <p>2. 提供基础操作指导（如需）；</p>
+                        <p>3. 确认收到租金及押金后，确保乙方在起租日前一天收到设备，并及时发货（更新物流信息）。</p>
+                        
+                        <p><strong>乙方责任：</strong></p>
+                        <p>1. 按操作规范使用设备，禁止私自改装/拆卸；</p>
+                        <p>2. 承担租赁期间设备保管责任；</p>
+                        <p>3. 归还前清理设备（镜头无指纹、机身无污渍）；</p>
+                        <p>4. 使用原装充电器，避免电池损坏。</p>
+                    </div>
+                </div>
+                
+                <!-- 设备损坏赔偿 -->
+                <div class="contract-section">
+                    <h6><strong>设备损坏赔偿</strong></h6>
+                    <table class="table-contract">
+                        <tr>
+                            <th style="width: 50%;">情形</th>
+                            <th style="width: 50%;">赔偿责任</th>
+                        </tr>
+                        <tr>
+                            <td>自然使用磨损</td>
+                            <td>甲方承担</td>
+                        </tr>
+                        <tr>
+                            <td>激光损坏</td>
+                            <td>甲方承担</td>
+                        </tr>
+                        <tr>
+                            <td>人为损坏/进水/摔碰导致显示或拍摄异常</td>
+                            <td>乙方按维修发票金额全额赔偿，及误工费400元</td>
+                        </tr>
+                        <tr>
+                            <td>设备丢失</td>
+                            <td>乙方按设备设备总价值赔偿</td>
+                        </tr>
+                    </table>
+                </div>
+                
+                <!-- 归还验收 -->
+                <div class="contract-section">
+                    <h6><strong>归还验收</strong></h6>
+                    <p>1. 乙方需在归还日12:00前寄出设备（保留快递凭证）；</p>
+                    <p>2. 甲方收到后24小时内完成检测，并视频记录开箱过程；</p>
+                    <p>3. 如有争议，双方可共同指定第三方检测机构鉴定（费用由责任方承担）。</p>
+                </div>
+                
+                <!-- 违约条款 -->
+                <div class="contract-section">
+                    <h6><strong>违约条款</strong></h6>
+                    <p>1. 乙方逾期归还：每超1天支付50元/天的租金，必须提前24小时与甲方确认是否有档期，否则需按100元/天补齐租金。</p>
+                    <p>2. 甲方未按约定退还押金：每逾期1天按押金10%支付违约金。</p>
+                </div>
+                
+                <!-- 争议解决 -->
+                <div class="contract-section">
+                    <h6><strong>争议解决</strong></h6>
+                    <p>因本合同产生的纠纷，双方应协商解决；协商不成时，可向甲方所在地人民法院提起诉讼。</p>
+                </div>
+                
+                <!-- 其他约定 -->
+                <div class="contract-section">
+                    <h6><strong>其他约定</strong></h6>
+                    <p>1. 本合同与闲鱼平台订单互为补充，冲突时以本合同为准；</p>
+                    <p>2. 设备检测标准参考《摄影器材通用验机规范》；</p>
+                    <p>3. 本合同自双方签字盖章之日起生效。</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 打印按钮 -->
+        <div class="print-section">
+            <button type="button" class="btn btn-success btn-action" onclick="printContract();">
+                <i class="bi bi-printer"></i> 打印合同
+            </button>
+            <button type="button" class="btn btn-secondary btn-action" onclick="window.close();">
+                <i class="bi bi-x"></i> 关闭
+            </button>
+        </div>
+    </div>
+    
+    <script src="https://cdn.bootcdn.net/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 全局变量
+        let ocrData = {
+            name: '',
+            id_number: ''
+        };
+        
+        // 文件上传处理
+        document.getElementById('idCardFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                handleFileUpload(file);
+            }
+        });
+        
+        // 拖拽上传
+        const uploadSection = document.getElementById('uploadSection');
+        
+        uploadSection.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            this.classList.add('dragover');
+        });
+        
+        uploadSection.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            this.classList.remove('dragover');
+        });
+        
+        uploadSection.addEventListener('drop', function(e) {
+            e.preventDefault();
+            this.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileUpload(files[0]);
+            }
+        });
+        
+        // 处理文件上传
+        function handleFileUpload(file) {
+            // 验证文件类型
+            if (!file.type.startsWith('image/')) {
+                alert('请上传图片文件！');
+                return;
+            }
+            
+            // 显示预览
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const preview = document.getElementById('idPreview');
+                preview.src = e.target.result;
+                preview.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+            
+            // 上传并识别
+            uploadAndRecognize(file);
+        }
+        
+        // 上传并识别身份证
+        function uploadAndRecognize(file) {
+            const loading = document.querySelector('.loading');
+            const ocrResult = document.getElementById('ocrResult');
+            
+            // 显示加载状态
+            loading.style.display = 'block';
+            ocrResult.style.display = 'none';
+            
+            // 创建FormData
+            const formData = new FormData();
+            formData.append('id_card', file);
+            
+            // 发送到后端进行OCR识别
+            fetch('/api/ocr/id-card', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                loading.style.display = 'none';
+                
+                if (data.success) {
+                    // 显示识别结果
+                    ocrData.name = data.data.name || '';
+                    ocrData.id_number = data.data.id_number || '';
+                    
+                    document.getElementById('ocrName').textContent = ocrData.name;
+                    document.getElementById('ocrIdNumber').textContent = ocrData.id_number;
+                    
+                    ocrResult.style.display = 'block';
+                    
+                    // 提示用户
+                    showToast('身份证信息识别成功！请检查结果并点击"填入合同"。', 'success');
+                } else {
+                    // OCR识别失败，清空结果显示
+                    ocrData.name = '';
+                    ocrData.id_number = '';
+                    ocrResult.style.display = 'none';
+                    
+                    showToast('身份证识别失败，请确保照片清晰且为身份证正面。支持有打码或部分遮挡的身份证。', 'error');
+                }
+            })
+            .catch(error => {
+                loading.style.display = 'none';
+                console.error('OCR识别错误:', error);
+                showToast('身份证识别失败，请重试。', 'error');
+            });
+        }
+        
+        // 将OCR结果填入合同
+        function fillContract() {
+            if (ocrData.name) {
+                document.getElementById('contractName').value = ocrData.name;
+            }
+            if (ocrData.id_number) {
+                document.getElementById('contractIdNumber').value = ocrData.id_number;
+            }
+            
+            // 滚动到合同区域
+            document.getElementById('contractContainer').scrollIntoView({ 
+                behavior: 'smooth' 
+            });
+            
+            showToast('身份证信息已填入合同！', 'success');
+        }
+        
+        // 打印合同
+        function printContract() {
+            // 检查是否已填入身份证信息
+            const contractIdNumber = document.getElementById('contractIdNumber').textContent;
+            if (contractIdNumber === '[待上传身份证识别]' || !contractIdNumber.trim() || contractIdNumber.includes('待上传')) {
+                if (confirm('身份证信息尚未填入，是否继续打印？')) {
+                    window.print();
+                } else {
+                    showToast('请先上传身份证并填入合同信息。', 'warning');
+                }
+            } else {
+                window.print();
+            }
+        }
+        
+        // 显示提示消息
+        function showToast(message, type = 'info') {
+            const alertClass = type === 'error' ? 'alert-danger' : 
+                              type === 'success' ? 'alert-success' : 
+                              type === 'warning' ? 'alert-warning' : 'alert-info';
+            
+            const toast = document.createElement('div');
+            toast.className = `alert ${alertClass} alert-dismissible fade show position-fixed`;
+            toast.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+            toast.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            document.body.appendChild(toast);
+            
+            // 自动消失
+            setTimeout(() => {
+                if (toast.parentNode) {
+                    toast.parentNode.removeChild(toast);
+                }
+            }, 5000);
+        }
+        
+        // 页面加载完成后的初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('租赁合同页面已加载');
+        });
+    </script>
+</body>
+</html>
