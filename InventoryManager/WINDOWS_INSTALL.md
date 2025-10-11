@@ -5,6 +5,8 @@
 ## 🚀 快速开始
 
 ### 方式一：自动安装脚本（推荐）
+0. **安装好 docker desktop并启动**
+   - [下载安装](https://docs.docker.com/desktop/setup/install/windows-install/)
 
 1. **下载项目**
    ```bash
