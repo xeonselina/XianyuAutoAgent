@@ -8,7 +8,7 @@ import json
 
 
 class DeviceModel(db.Model):
-    """设备型号模型"""
+    """设备型号模型（包含主设备和附件）"""
     __tablename__ = 'device_models'
 
     # 主键
@@ -20,9 +20,13 @@ class DeviceModel(db.Model):
     description = db.Column(db.Text, nullable=True, comment='型号描述')
     is_active = db.Column(db.Boolean, default=True, comment='是否启用')
 
-    # 新增字段
+    # 附件相关字段
+    is_accessory = db.Column(db.Boolean, default=False, nullable=False, comment='是否为附件')
+    parent_model_id = db.Column(db.Integer, db.ForeignKey('device_models.id'), nullable=True, comment='主设备型号ID（如果是附件）')
+
+    # 价值字段（主设备和附件共用）
     default_accessories = db.Column(db.Text, nullable=True, comment='默认附件列表，JSON格式')
-    device_value = db.Column(db.Numeric(precision=10, scale=2), nullable=True, comment='设备价值')
+    device_value = db.Column(db.Numeric(precision=10, scale=2), nullable=True, comment='设备/附件价值')
 
     # 时间戳
     created_at = db.Column(db.DateTime, default=datetime.utcnow, comment='创建时间')
@@ -30,25 +34,38 @@ class DeviceModel(db.Model):
 
     # 关系
     devices = db.relationship('Device', backref='device_model', lazy='dynamic')
-    accessories = db.relationship('ModelAccessory', backref='model', lazy='dynamic', cascade='all, delete-orphan')
+
+    # 附件关系（自引用）
+    parent_model = db.relationship('DeviceModel', remote_side=[id], backref='accessories', foreign_keys=[parent_model_id])
 
     def __repr__(self):
         return f'<DeviceModel {self.name}>'
 
-    def to_dict(self):
+    def to_dict(self, include_accessories=True):
         """转换为字典"""
-        return {
+        result = {
             'id': self.id,
             'name': self.name,
             'display_name': self.display_name,
             'description': self.description,
             'is_active': self.is_active,
+            'is_accessory': self.is_accessory,
+            'parent_model_id': self.parent_model_id,
             'default_accessories': self.get_default_accessories_list(),
             'device_value': float(self.device_value) if self.device_value else None,
             'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat(),
-            'accessories': [acc.to_dict() for acc in self.accessories.filter_by(is_active=True)]
+            'updated_at': self.updated_at.isoformat()
         }
+
+        # 只有主设备型号才返回附件列表
+        if not self.is_accessory and include_accessories:
+            result['accessories'] = [
+                acc.to_dict(include_accessories=False)
+                for acc in self.accessories
+                if acc.is_active
+            ]
+
+        return result
 
     def get_default_accessories_list(self):
         """获取默认附件列表"""
@@ -73,51 +90,30 @@ class DeviceModel(db.Model):
         else:
             self.default_accessories = None
 
+    def get_active_accessories(self):
+        """获取该型号的所有激活附件"""
+        if self.is_accessory:
+            return []  # 附件本身没有附件
+        return [acc for acc in self.accessories if acc.is_active]
+
     @classmethod
-    def get_active_models(cls):
-        """获取所有激活的设备型号"""
-        return cls.query.filter_by(is_active=True).all()
+    def get_active_models(cls, include_accessories=False):
+        """
+        获取所有激活的设备型号
 
-
-class ModelAccessory(db.Model):
-    """型号附件关系模型"""
-    __tablename__ = 'model_accessories'
-
-    # 主键
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True, comment='关系ID')
-
-    # 外键
-    model_id = db.Column(db.Integer, db.ForeignKey('device_models.id'), nullable=False, comment='主设备型号ID')
-
-    # 基本信息
-    accessory_name = db.Column(db.String(100), nullable=False, comment='附件名称')
-    accessory_description = db.Column(db.Text, nullable=True, comment='附件描述')
-    accessory_value = db.Column(db.Numeric(precision=10, scale=2), nullable=True, comment='附件价值')
-    is_required = db.Column(db.Boolean, default=False, comment='是否必需附件')
-    is_active = db.Column(db.Boolean, default=True, comment='是否启用')
-
-    # 时间戳
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, comment='创建时间')
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, comment='更新时间')
-
-    def __repr__(self):
-        return f'<ModelAccessory {self.accessory_name} for {self.model.name}>'
-
-    def to_dict(self):
-        """转换为字典"""
-        return {
-            'id': self.id,
-            'model_id': self.model_id,
-            'accessory_name': self.accessory_name,
-            'accessory_description': self.accessory_description,
-            'accessory_value': float(self.accessory_value) if self.accessory_value else None,
-            'is_required': self.is_required,
-            'is_active': self.is_active,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat()
-        }
+        Args:
+            include_accessories: 是否包含附件型号，默认False（只返回主设备型号）
+        """
+        query = cls.query.filter_by(is_active=True)
+        if not include_accessories:
+            query = query.filter_by(is_accessory=False)
+        return query.all()
 
     @classmethod
     def get_accessories_for_model(cls, model_id):
         """获取指定型号的所有激活附件"""
-        return cls.query.filter_by(model_id=model_id, is_active=True).all()
+        return cls.query.filter_by(
+            parent_model_id=model_id,
+            is_accessory=True,
+            is_active=True
+        ).all()

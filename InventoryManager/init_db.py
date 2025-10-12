@@ -61,23 +61,45 @@ def init_database():
                 sql_statements = [stmt.strip() for stmt in sql_content.split(';')
                                 if stmt.strip()]
 
-                # 执行每条SQL语句
-                device_count = 0
-                rental_count = 0
+                # 执行每条SQL语句并统计
+                import_stats = {
+                    'device_models': 0,
+                    'devices': 0,
+                    'rentals': 0,
+                    'audit_logs': 0,
+                    'rental_statistics': 0
+                }
 
                 for sql in sql_statements:
                     if sql:
                         try:
                             db.session.execute(text(sql))
-                            if 'INSERT INTO devices' in sql:
-                                device_count += 1
+                            # 统计各表的导入数量
+                            if 'INSERT INTO device_models' in sql:
+                                import_stats['device_models'] += 1
+                            elif 'INSERT INTO devices' in sql:
+                                import_stats['devices'] += 1
                             elif 'INSERT INTO rentals' in sql:
-                                rental_count += 1
+                                import_stats['rentals'] += 1
+                            elif 'INSERT INTO audit_logs' in sql:
+                                import_stats['audit_logs'] += 1
+                            elif 'INSERT INTO rental_statistics' in sql:
+                                import_stats['rental_statistics'] += 1
                         except Exception as e:
                             print(f"执行SQL失败: {sql[:100]}... 错误: {e}")
 
                 db.session.commit()
-                print(f"数据导入成功: {device_count} 个设备, {rental_count} 条租赁记录")
+
+                # 打印导入统计
+                print("=" * 50)
+                print("数据导入成功！")
+                print("-" * 50)
+                print(f"设备型号 (device_models):      {import_stats['device_models']} 条")
+                print(f"设备 (devices):                {import_stats['devices']} 条")
+                print(f"租赁记录 (rentals):            {import_stats['rentals']} 条")
+                print(f"审计日志 (audit_logs):         {import_stats['audit_logs']} 条")
+                print(f"租赁统计 (rental_statistics):  {import_stats['rental_statistics']} 条")
+                print("=" * 50)
             else:
                 print(f"警告: 找不到SQL文件 {sql_file_path}")
                 print("请先运行: python scripts/export_db_data.py 来生成数据文件")

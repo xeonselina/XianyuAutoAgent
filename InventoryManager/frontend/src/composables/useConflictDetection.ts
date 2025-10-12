@@ -25,8 +25,10 @@ export function useConflictDetection() {
     const end = dayjs(endDate)
 
     // 计算寄出和收回时间
-    const shipOutTime = start.subtract(logisticsDays, 'day').hour(9).minute(0).second(0)
-    const shipInTime = end.add(logisticsDays, 'day').hour(18).minute(0).second(0)
+    const shipOutTime = start.subtract(logisticsDays+1, 'day').hour(9).minute(0).second(0)
+    const shipInTime = end.add(logisticsDays+1, 'day').hour(18).minute(0).second(0)
+    console.log("shipOutTime",shipOutTime)
+    console.log("shipInTime",shipInTime)
 
     return {
       ship_out_time: shipOutTime.format('YYYY-MM-DD HH:mm:ss'),

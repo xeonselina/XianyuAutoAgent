@@ -240,7 +240,7 @@ def find_available_time_slot(ship_out_date, ship_in_date, model_filter, is_acces
     try:
         from app.services.inventory_service import InventoryService
         from app.utils.date_utils import convert_dates_to_datetime
-        from app.models.device_model import DeviceModel, ModelAccessory
+        from app.models.device_model import DeviceModel
 
         # 转换时间用于查询
         ship_out_time, ship_in_time = convert_dates_to_datetime(
