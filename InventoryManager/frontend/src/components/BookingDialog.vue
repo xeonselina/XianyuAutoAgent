@@ -255,6 +255,7 @@ import { useDeviceManagement } from '@/composables/useDeviceManagement'
 import { useAvailabilityCheck } from '@/composables/useAvailabilityCheck'
 import { useConflictDetection } from '@/composables/useConflictDetection'
 import { getCreateRentalRules } from '@/composables/useRentalFormValidation'
+import { extractPhoneNumber } from '@/utils/phoneExtractor'
 
 // Props & Emits
 interface Props {
@@ -608,6 +609,18 @@ watch(() => props.modelValue, async (visible) => {
     ])
   }
 }, { immediate: true })
+
+// Watch destination change to extract phone number
+watch(() => form.value.destination, (newDestination) => {
+  // 只有当客户电话为空时才自动提取
+  if (newDestination && !form.value.customerPhone) {
+    const extractedPhone = extractPhoneNumber(newDestination)
+    if (extractedPhone) {
+      form.value.customerPhone = extractedPhone
+      ElMessage.success('已自动从收件信息中提取手机号')
+    }
+  }
+})
 </script>
 
 <style scoped>

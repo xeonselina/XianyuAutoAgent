@@ -79,9 +79,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import VueDatePicker from '@vuepic/vue-datepicker'
 import type { Device, Rental } from '@/stores/gantt'
+import { extractPhoneNumber } from '@/utils/phoneExtractor'
 
 interface DeviceWithConflictStatus extends Device {
   conflicted?: boolean
@@ -114,6 +116,18 @@ const handleEndDateChange = (date: Date) => {
 const handleDeviceSelectorFocus = () => {
   emit('device-selector-focus')
 }
+
+// Watch destination change to extract phone number
+watch(() => props.form.destination, (newDestination) => {
+  // 只有当客户电话为空时才自动提取
+  if (newDestination && !props.form.customerPhone) {
+    const extractedPhone = extractPhoneNumber(newDestination)
+    if (extractedPhone) {
+      props.form.customerPhone = extractedPhone
+      ElMessage.success('已自动从收件信息中提取手机号')
+    }
+  }
+})
 </script>
 
 <style scoped>

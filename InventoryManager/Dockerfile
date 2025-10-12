@@ -33,8 +33,9 @@ LABEL org.opencontainers.image.source="https://github.com/your-repo/InventoryMan
 RUN echo "Building on: $BUILDPLATFORM, targeting: $TARGETPLATFORM"
 
 
-# 安装系统依赖
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# 安装系统依赖（临时取消代理以直接访问 Debian 仓库）
+RUN unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY && \
+    apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     pkg-config \
     default-libmysqlclient-dev \

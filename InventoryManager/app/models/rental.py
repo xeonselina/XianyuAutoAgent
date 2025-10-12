@@ -66,24 +66,19 @@ class Rental(db.Model):
             if child_rental.device:
                 # 获取附件的显示名称
                 model_name = child_rental.device.model
-                if child_rental.device.is_accessory:
-                    # 如果是附件，从 model_accessories 表中查找匹配的名称
-                    from app.models.device_model import ModelAccessory
-                    matching_accessory = ModelAccessory.query.filter_by(
-                        accessory_name=child_rental.device.model
-                    ).first()
-                    if matching_accessory:
-                        model_name = matching_accessory.accessory_name
-                else:
-                    # 如果不是附件，使用 device_model.name 或 device.model
-                    model_name = child_rental.device.device_model.name if child_rental.device.device_model else child_rental.device.model
+                if child_rental.device.device_model:
+                    # 优先使用 device_model 的 display_name
+                    model_name = child_rental.device.device_model.name
+                elif child_rental.device.is_accessory:
+                    # 如果没有 device_model，使用 device.model
+                    model_name = child_rental.device.device_model.name
 
                 accessories.append({
                     'id': child_rental.device.id,
                     'name': child_rental.device.name,
                     'model': model_name,
                     'is_accessory': child_rental.device.is_accessory,
-                    'value': child_rental.device.device_model.device_value if child_rental.device.device_model else None
+                    'value': float(child_rental.device.device_model.device_value) if child_rental.device.device_model and child_rental.device.device_model.device_value else None
                 })
 
         return {
