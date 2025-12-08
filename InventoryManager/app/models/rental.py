@@ -28,9 +28,16 @@ class Rental(db.Model):
     customer_phone = db.Column(db.String(20), comment='客户电话')
     destination = db.Column(db.String(100), comment='目的地')
 
+    # 订单信息
+    xianyu_order_no = db.Column(db.String(50), nullable=True, comment='闲鱼订单号')
+    order_amount = db.Column(db.DECIMAL(10, 2), nullable=True, comment='订单金额(元)')
+    buyer_id = db.Column(db.String(100), nullable=True, comment='买家ID(闲鱼EID)')
+
     # 物流信息
     ship_out_tracking_no = db.Column(db.String(50), comment='寄出快递单号')
     ship_in_tracking_no = db.Column(db.String(50), comment='寄回快递单号')
+    sf_waybill_no = db.Column(db.String(50), comment='顺丰运单号')
+    scheduled_ship_time = db.Column(db.DateTime, comment='预约发货时间')
     
     # 状态信息
     status = db.Column(
@@ -91,8 +98,13 @@ class Rental(db.Model):
             'customer_name': self.customer_name,
             'customer_phone': self.customer_phone,
             'destination': self.destination,
+            'xianyu_order_no': self.xianyu_order_no,
+            'order_amount': float(self.order_amount) if self.order_amount else None,
+            'buyer_id': self.buyer_id,
             'ship_out_tracking_no': self.ship_out_tracking_no,
             'ship_in_tracking_no': self.ship_in_tracking_no,
+            'sf_waybill_no': self.sf_waybill_no,
+            'scheduled_ship_time': self.scheduled_ship_time.isoformat() if self.scheduled_ship_time else None,
             'status': self.status,
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat(),
@@ -262,7 +274,7 @@ class Rental(db.Model):
     def get_rental_statistics(cls, start_date=None, end_date=None):
         """获取租赁统计信息"""
         query = cls.query
-        
+
         if start_date and end_date:
             query = query.filter(
                 db.and_(
@@ -270,13 +282,28 @@ class Rental(db.Model):
                     cls.end_date <= end_date
                 )
             )
-        
+
         total_rentals = query.count()
         shipped_rentals = query.filter(cls.status == 'shipped').count()
         not_shipped_rentals = query.filter(cls.status == 'not_shipped').count()
         returned_rentals = query.filter(cls.status == 'returned').count()
         completed_rentals = query.filter(cls.status == 'completed').count()
         cancelled_rentals = query.filter(cls.status == 'cancelled').count()
+
+        # 计算收入统计
+        revenue_query = query.filter(cls.order_amount.isnot(None))
+        total_revenue = db.session.query(db.func.sum(cls.order_amount)).filter(
+            cls.id.in_([r.id for r in query.all()]),
+            cls.order_amount.isnot(None)
+        ).scalar() or 0
+
+        average_order_amount = db.session.query(db.func.avg(cls.order_amount)).filter(
+            cls.id.in_([r.id for r in query.all()]),
+            cls.order_amount.isnot(None)
+        ).scalar() or 0
+
+        orders_with_amount = revenue_query.count()
+        orders_without_amount = total_rentals - orders_with_amount
 
         return {
             'total_rentals': total_rentals,
@@ -285,9 +312,13 @@ class Rental(db.Model):
             'returned_rentals': returned_rentals,
             'completed_rentals': completed_rentals,
             'cancelled_rentals': cancelled_rentals,
+            'total_revenue': float(total_revenue) if total_revenue else 0,
+            'average_order_amount': float(average_order_amount) if average_order_amount else 0,
+            'orders_with_amount': orders_with_amount,
+            'orders_without_amount': orders_without_amount,
             'period': {
                 'start_date': start_date.isoformat() if start_date else None,
-                'end_date': end_date.isoformat() if end_date else None
+                'end_date': end_date.isoformat() if start_date else None
             }
         }
     

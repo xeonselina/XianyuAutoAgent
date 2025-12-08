@@ -28,7 +28,7 @@ export default defineConfig({
     }
   },
   server: {
-    port: 5173,
+    port: 5002,
     proxy: {
       // 代理 API 请求到 Flask 后端
       '/api': {

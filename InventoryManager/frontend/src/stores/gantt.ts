@@ -72,6 +72,9 @@ export interface Rental {
   parent_rental_id?: number
   child_rentals?: Rental[]
   accessories?: { id: number; name: string; model: string; is_accessory: boolean; value?: number }[]
+  xianyu_order_no?: string
+  order_amount?: number
+  buyer_id?: string
 }
 
 export interface AvailableSlot {
@@ -286,18 +289,20 @@ export const useGanttStore = defineStore('gantt', () => {
   }
 
   // 添加设备
-  const addDevice = async (deviceData: { 
-    name: string; 
-    serial_number: string; 
+  const addDevice = async (deviceData: {
+    name: string;
+    serial_number: string;
     model: string;
+    model_id?: number;
     is_accessory: boolean;
-    description?: string 
+    description?: string
   }) => {
     try {
       const response = await axios.post('/api/devices', {
         name: deviceData.name,
         serial_number: deviceData.serial_number,
         model: deviceData.model,
+        model_id: deviceData.model_id,
         is_accessory: deviceData.is_accessory,
         status: 'online'
       })

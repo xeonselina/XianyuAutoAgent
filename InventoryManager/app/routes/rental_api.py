@@ -92,3 +92,21 @@ def web_update_rental(rental_id):
 def web_delete_rental(rental_id):
     """Web界面删除租赁记录"""
     return RentalHandlers.handle_delete_rental(rental_id)
+
+
+# ===================== 闲鱼订单API =====================
+
+@bp.route('/api/rentals/fetch-xianyu-order', methods=['POST'])
+@handle_response
+def fetch_xianyu_order():
+    """获取闲鱼订单详情"""
+    return RentalHandlers.handle_fetch_xianyu_order()
+
+
+# ===================== 批量打印API =====================
+
+@bp.route('/api/rentals/by-ship-date', methods=['GET'])
+@handle_response
+def get_rentals_by_ship_date():
+    """根据发货日期范围查询租赁记录（用于批量打印）"""
+    return RentalHandlers.handle_get_rentals_by_ship_date()

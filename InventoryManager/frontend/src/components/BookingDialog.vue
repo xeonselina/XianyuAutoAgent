@@ -54,6 +54,25 @@
         <div class="form-tip">寄出和收回所需的物流时间，0天表示当天取送</div>
       </el-form-item>
 
+      <!-- 闲鱼订单信息 -->
+      <el-form-item label="闲鱼订单号">
+        <div style="display: flex; gap: 8px;">
+          <el-input
+            v-model="form.xianyuOrderNo"
+            placeholder="请输入闲鱼订单号"
+            style="flex: 1;"
+          />
+          <el-button
+            type="primary"
+            @click="handleFetchOrderInfo"
+            :loading="fetchingOrder"
+          >
+            拉取订单信息
+          </el-button>
+        </div>
+        <div class="form-tip">输入订单号后点击按钮可自动填充收件人、地址等信息</div>
+      </el-form-item>
+
       <!-- 设备选择 -->
       <el-form-item label="选择设备" prop="selectedDeviceId">
         <div class="device-selection">
@@ -133,6 +152,24 @@
           placeholder="请输入收件人信息（姓名、电话、地址）"
         />
         <div class="form-tip">可选填写，系统会自动从收件信息中提取手机号码</div>
+      </el-form-item>
+
+      <el-form-item label="订单金额(元)">
+        <el-input
+          v-model="form.orderAmount"
+          placeholder="请输入订单金额"
+          type="number"
+        />
+        <div class="form-tip">用于收入统计</div>
+      </el-form-item>
+
+      <el-form-item label="买家ID">
+        <el-input
+          v-model="form.buyerId"
+          placeholder="买家闲鱼EID"
+          disabled
+        />
+        <div class="form-tip">从订单信息自动获取</div>
       </el-form-item>
 
       <!-- 附件选择 -->
@@ -291,13 +328,17 @@ const form = ref({
   customerName: '',
   customerPhone: '',
   destination: '',
-  selectedAccessoryIds: [] as number[]
+  selectedAccessoryIds: [] as number[],
+  xianyuOrderNo: '',
+  orderAmount: '',
+  buyerId: ''
 })
 
 // UI State
 const submitting = ref(false)
 const searching = ref(false)
 const searchingAccessory = ref(false)
+const fetchingOrder = ref(false)
 const availableSlot = ref<any>(null)
 const availableAccessorySlot = ref<any>(null)
 
@@ -502,6 +543,101 @@ const addFoundAccessory = () => {
   }
 }
 
+// 拉取闲鱼订单信息
+const handleFetchOrderInfo = async () => {
+  const orderNo = form.value.xianyuOrderNo?.trim()
+
+  if (!orderNo) {
+    ElMessage.warning('请先输入订单号')
+    return
+  }
+
+  fetchingOrder.value = true
+
+  try {
+    console.log('开始请求订单信息，订单号:', orderNo)
+
+    const response = await axios.post('/api/rentals/fetch-xianyu-order', {
+      order_no: orderNo
+    })
+
+    console.log('API响应:', response.data)
+    console.log('响应成功:', response.data.success)
+    console.log('响应数据:', response.data.data)
+
+    if (response.data.success && response.data.data) {
+      const orderData = response.data.data
+
+      console.log('=== 开始填充订单数据 ===')
+      console.log('订单数据:', orderData)
+
+      // 自动填充闲鱼ID（买家昵称）
+      if (orderData.buyer_nick) {
+        form.value.customerName = orderData.buyer_nick
+        console.log('填充闲鱼ID:', orderData.buyer_nick)
+      }
+
+      // 组合收件信息：姓名 + 电话 + 地址
+      const destinationParts = []
+
+      // 添加收件人姓名
+      if (orderData.receiver_name) {
+        destinationParts.push(orderData.receiver_name)
+      }
+
+      // 添加收件人电话
+      if (orderData.receiver_mobile) {
+        destinationParts.push(orderData.receiver_mobile)
+      }
+
+      // 添加完整地址
+      const addressParts = [
+        orderData.prov_name,
+        orderData.city_name,
+        orderData.area_name,
+        orderData.town_name,
+        orderData.address
+      ].filter(Boolean)
+
+      if (addressParts.length > 0) {
+        destinationParts.push(addressParts.join(''))
+      }
+
+      if (destinationParts.length > 0) {
+        form.value.destination = destinationParts.join(' ')
+        console.log('填充收件信息:', form.value.destination)
+      }
+
+      // 自动填充买家ID
+      if (orderData.buyer_eid) {
+        form.value.buyerId = orderData.buyer_eid
+        console.log('填充买家ID:', orderData.buyer_eid)
+      }
+
+      // 自动填充订单金额（从分转换为元）
+      if (orderData.pay_amount) {
+        form.value.orderAmount = (orderData.pay_amount / 100).toFixed(2)
+        console.log('填充订单金额:', form.value.orderAmount)
+      }
+
+      // 最后填充手机号（覆盖可能被watch自动提取的手机号）
+      if (orderData.receiver_mobile) {
+        form.value.customerPhone = orderData.receiver_mobile
+        console.log('填充手机号:', orderData.receiver_mobile)
+      }
+
+      ElMessage.success('订单信息获取成功')
+    } else {
+      ElMessage.error(response.data.message || '获取订单信息失败')
+    }
+  } catch (error: any) {
+    console.error('获取订单信息失败:', error)
+    ElMessage.error(error.response?.data?.message || '获取订单信息失败，请检查订单号是否正确')
+  } finally {
+    fetchingOrder.value = false
+  }
+}
+
 // Submit Handler
 const handleSubmit = async () => {
   try {
@@ -566,7 +702,10 @@ const handleSubmit = async () => {
       destination: form.value.destination,
       ship_out_time: dayjs(shipOutTime).format('YYYY-MM-DD HH:mm:ss'),
       ship_in_time: dayjs(shipInTime).format('YYYY-MM-DD HH:mm:ss'),
-      accessories: form.value.selectedAccessoryIds
+      accessories: form.value.selectedAccessoryIds,
+      xianyu_order_no: form.value.xianyuOrderNo,
+      order_amount: form.value.orderAmount ? parseFloat(form.value.orderAmount) : undefined,
+      buyer_id: form.value.buyerId
     }
 
     await ganttStore.createRental(rentalData)
@@ -591,7 +730,10 @@ const handleClose = () => {
     customerName: '',
     customerPhone: '',
     destination: '',
-    selectedAccessoryIds: []
+    selectedAccessoryIds: [],
+    xianyuOrderNo: '',
+    orderAmount: '',
+    buyerId: ''
   }
   availableSlot.value = null
   availableAccessorySlot.value = null

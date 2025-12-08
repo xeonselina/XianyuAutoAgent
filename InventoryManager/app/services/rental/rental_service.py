@@ -127,6 +127,9 @@ class RentalService:
                 ship_in_time=ship_in_time,
                 ship_out_tracking_no=data.get('ship_out_tracking_no', ''),
                 ship_in_tracking_no=data.get('ship_in_tracking_no', ''),
+                xianyu_order_no=data.get('xianyu_order_no'),
+                order_amount=data.get('order_amount'),
+                buyer_id=data.get('buyer_id'),
                 status='not_shipped'
             )
 

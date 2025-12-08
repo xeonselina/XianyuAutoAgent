@@ -17,7 +17,13 @@
       "Bash(colima restart:*)",
       "Bash(powershell:*)",
       "Bash(python:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(openspec list:*)",
+      "Bash(mkdir:*)",
+      "Bash(openspec show:*)",
+      "Bash(openspec validate:*)",
+      "Bash(ls:*)",
+      "Bash(openspec change show:*)"
     ],
     "deny": [],
     "ask": [],

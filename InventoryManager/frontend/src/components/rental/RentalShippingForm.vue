@@ -1,5 +1,23 @@
 <template>
   <div class="rental-shipping-form">
+    <!-- 客户联系信息 -->
+    <el-form-item label="客户电话" prop="customerPhone">
+      <el-input
+        v-model="form.customerPhone"
+        placeholder="请输入手机号码"
+        maxlength="11"
+      />
+    </el-form-item>
+
+    <el-form-item label="收件信息" prop="destination">
+      <el-input
+        v-model="form.destination"
+        type="textarea"
+        :rows="3"
+        placeholder="请填写详细的收件地址、收件人姓名等信息"
+      />
+    </el-form-item>
+
     <!-- 运单号管理 -->
     <el-form-item label="寄出运单号" prop="shipOutTrackingNo">
       <div class="tracking-input-group">
@@ -98,8 +116,11 @@
 </template>
 
 <script setup lang="ts">
+import { watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
 import VueDatePicker from '@vuepic/vue-datepicker'
+import { extractPhoneNumber } from '@/utils/phoneExtractor'
 
 interface Props {
   form: any
@@ -136,6 +157,18 @@ const handleShipInTimeChange = (time: Date) => {
 const handleStatusChange = (status: string) => {
   emit('status-change', status)
 }
+
+// Watch destination change to extract phone number
+watch(() => props.form.destination, (newDestination) => {
+  // 只有当客户电话为空时才自动提取
+  if (newDestination && !props.form.customerPhone) {
+    const extractedPhone = extractPhoneNumber(newDestination)
+    if (extractedPhone) {
+      props.form.customerPhone = extractedPhone
+      ElMessage.success('已自动从收件信息中提取手机号')
+    }
+  }
+})
 </script>
 
 <style scoped>

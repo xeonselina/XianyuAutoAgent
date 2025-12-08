@@ -37,6 +37,12 @@
             预定设备
           </el-button>
           <el-button
+            type="warning"
+            @click="$router.push('/batch-shipping')"
+          >
+            📦 批量发货
+          </el-button>
+          <el-button
             type="info"
             @click="$router.push('/statistics')"
           >
@@ -204,6 +210,11 @@
       @success="handleEditSuccess"
     />
 
+    <!-- 批量打印对话框 -->
+    <BatchPrintDialog
+      v-model="showBatchPrintDialog"
+    />
+
     <!-- 添加设备对话框 -->
     <el-dialog 
       v-model="showAddDeviceDialog" 
@@ -315,6 +326,7 @@ import axios from 'axios'
 import GanttRow from './GanttRow.vue'
 import BookingDialog from './BookingDialog.vue'
 import { EditRentalDialogNew } from './rental'
+import BatchPrintDialog from './rental/BatchPrintDialog.vue'
 import {
   toSystemDateString,
   isToday,
@@ -330,6 +342,7 @@ const ganttStore = useGanttStore()
 const showBookingDialog = ref(false)
 const showEditDialog = ref(false)
 const showAddDeviceDialog = ref(false)
+const showBatchPrintDialog = ref(false)
 const selectedRental = ref<Rental | null>(null)
 const searchKeyword = ref<string>('')
 const selectedDeviceModel = ref<string>('')
@@ -350,11 +363,19 @@ const addDeviceFormRef = ref()
 const addingDevice = ref(false)
 const deviceModels = ref<DeviceModel[]>([])
 const selectedModelAccessories = ref<ModelAccessory[]>([])
-const addDeviceForm = ref({
+const addDeviceForm = ref<{
+  name: string
+  serial_number: string
+  model: string
+  model_id?: number
+  accessory_type: string
+  is_accessory: boolean
+  description: string
+}>({
   name: '',
   serial_number: '',
   model: '',
-  model_id: null,
+  model_id: undefined,
   accessory_type: '',
   is_accessory: false,
   description: ''
@@ -660,6 +681,7 @@ const loadDeviceModels = async () => {
 const onModelChange = (modelId: number) => {
   const selectedModel = deviceModels.value.find(model => model.id === modelId)
   if (selectedModel) {
+    addDeviceForm.value.model_id = modelId
     addDeviceForm.value.model = selectedModel.name
     selectedModelAccessories.value = selectedModel.accessories || []
     // 清空附件类型选择
@@ -688,7 +710,7 @@ const resetAddDeviceForm = () => {
     name: '',
     serial_number: '',
     model: '',
-    model_id: null,
+    model_id: undefined,
     accessory_type: '',
     is_accessory: false,
     description: ''
