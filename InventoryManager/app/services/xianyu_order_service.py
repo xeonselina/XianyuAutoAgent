@@ -1,10 +1,10 @@
 """
 闲鱼管家API服务
-用于调用闲鱼管家平台API获取订单详情
+提供订单详情查询、发货通知等功能
 """
 
 import hashlib
-import http.client
+import requests
 import json
 import time
 import os
@@ -15,20 +15,33 @@ logger = logging.getLogger(__name__)
 
 
 class XianyuOrderService:
-    """闲鱼管家订单API服务类"""
+    """闲鱼管家订单API服务类 - 统一的闲鱼API客户端"""
 
     def __init__(self):
         """初始化服务,从环境变量读取配置"""
-        self.app_key = os.getenv('XIANYU_APP_KEY')
-        self.app_secret = os.getenv('XIANYU_APP_SECRET')
+        # 兼容两种环境变量命名方式
+        self.app_key = os.getenv('XIANYU_APP_KEY') or os.getenv('XIANYU_APP_ID')
+        self.app_secret = os.getenv('XIANYU_APP_SECRET') or os.getenv('XIANYU_SECRET')
         self.api_domain = os.getenv('XIANYU_API_DOMAIN', 'open.goofish.pro')
+        self.base_url = f"https://{self.api_domain}"
+
+        # 卖家ID（可选）
+        self.seller_id = os.getenv('XIANYU_SELLER_ID')
+
+        # 寄件方信息（可选，用于发货接口）
+        self.ship_name = os.getenv('XIANYU_SHIP_NAME')
+        self.ship_mobile = os.getenv('XIANYU_SHIP_MOBILE')
+        self.ship_prov_name = os.getenv('XIANYU_SHIP_PROV_NAME')
+        self.ship_city_name = os.getenv('XIANYU_SHIP_CITY_NAME')
+        self.ship_area_name = os.getenv('XIANYU_SHIP_AREA_NAME')
+        self.ship_address = os.getenv('XIANYU_SHIP_ADDRESS')
 
         if not self.app_key or not self.app_secret:
-            logger.warning("闲鱼API凭证未配置。请设置XIANYU_APP_KEY和XIANYU_APP_SECRET环境变量")
+            logger.warning("闲鱼API凭证未配置。请设置XIANYU_APP_KEY/XIANYU_APP_ID和XIANYU_APP_SECRET/XIANYU_SECRET环境变量")
 
-    def gen_sign(self, body_json: str, timestamp: int) -> str:
+    def _gen_body_sign(self, body_json: str, timestamp: int) -> str:
         """
-        生成API签名
+        生成基于请求体的API签名（用于订单详情接口）
 
         Args:
             body_json: 请求体JSON字符串
@@ -51,9 +64,36 @@ class XianyuOrderService:
 
         return sign
 
-    def request(self, url: str, data: dict, timeout: int = 10) -> Optional[Dict[str, Any]]:
+    def _gen_param_sign(self, params: Dict) -> str:
         """
-        发送API请求
+        生成基于参数的MD5签名（用于发货接口）
+
+        Args:
+            params: 请求参数字典
+
+        Returns:
+            MD5签名
+        """
+        # 按key排序
+        sorted_params = sorted(params.items(), key=lambda x: x[0])
+
+        # 拼接 key + value
+        sign_str = ''.join([f'{k}{v}' for k, v in sorted_params if v is not None])
+
+        # 追加secret
+        sign_str += self.app_secret
+
+        # MD5哈希
+        sign = hashlib.md5(sign_str.encode('utf-8')).hexdigest()
+
+        logger.debug(f"签名字符串: {sign_str}")
+        logger.debug(f"生成签名: {sign}")
+
+        return sign
+
+    def _request_with_body_sign(self, url: str, data: dict, timeout: int = 30) -> Optional[Dict[str, Any]]:
+        """
+        使用请求体签名方式发送API请求（用于订单详情接口）
 
         Args:
             url: API路径(如 /api/open/order/detail)
@@ -72,35 +112,35 @@ class XianyuOrderService:
             timestamp = int(time.time())
 
             # 生成签名
-            sign = self.gen_sign(body, timestamp)
+            sign = self._gen_body_sign(body, timestamp)
 
             # 拼接地址
-            full_url = f"{url}?appid={self.app_key}&timestamp={timestamp}&sign={sign}"
+            full_url = f"{self.base_url}{url}?appid={self.app_key}&timestamp={timestamp}&sign={sign}"
 
             # 设置请求头
             headers = {"Content-Type": "application/json"}
 
-            # 请求接口
-            conn = http.client.HTTPSConnection(self.api_domain, timeout=timeout)
-            try:
-                conn.request("POST", full_url, body, headers)
-                res = conn.getresponse()
-                resp_data = res.read().decode("utf-8")
+            logger.debug(f"请求URL: {full_url}")
+            logger.debug(f"请求体: {body}")
 
-                # 解析响应
-                result = json.loads(resp_data)
-                return result
-            finally:
-                conn.close()
+            # 使用requests发送请求
+            response = requests.post(full_url, data=body, headers=headers, timeout=timeout)
+            response.raise_for_status()
 
-        except http.client.HTTPException as e:
-            logger.error(f"闲鱼API HTTP错误: {e}")
+            result = response.json()
+            return result
+
+        except requests.exceptions.Timeout:
+            logger.error(f"闲鱼API请求超时")
+            return None
+        except requests.exceptions.RequestException as e:
+            logger.error(f"闲鱼API请求失败: {e}")
             return None
         except json.JSONDecodeError as e:
             logger.error(f"闲鱼API响应解析失败: {e}")
             return None
         except Exception as e:
-            logger.error(f"闲鱼API请求失败: {e}")
+            logger.error(f"闲鱼API请求异常: {e}")
             return None
 
     def get_order_detail(self, order_no: str) -> Optional[Dict[str, Any]]:
@@ -140,7 +180,7 @@ class XianyuOrderService:
 
         # 调用API
         logger.info(f"正在获取闲鱼订单详情: {order_no}")
-        result = self.request("/api/open/order/detail", request_data)
+        result = self._request_with_body_sign("/api/open/order/detail", request_data)
 
         if not result:
             logger.error(f"获取订单详情失败: 无响应")
@@ -161,6 +201,143 @@ class XianyuOrderService:
         logger.info(f"成功获取订单详情: {order_no}")
         return order_data
 
+    def ship_order(self, rental) -> Dict:
+        """
+        订单物流发货通知
+
+        Args:
+            rental: 租赁记录对象
+
+        Returns:
+            Dict: API响应结果
+            {
+                'success': bool,
+                'message': str,
+                'skipped': bool (可选),
+                'data': dict (可选)
+            }
+        """
+        # 检查必要字段
+        if not rental.xianyu_order_no:
+            logger.warning(f"Rental {rental.id} 没有闲鱼订单号，跳过闲鱼发货通知")
+            return {
+                'success': False,
+                'message': '没有闲鱼订单号',
+                'skipped': True
+            }
+
+        if not rental.sf_waybill_no and not rental.ship_out_tracking_no:
+            logger.error(f"Rental {rental.id} 没有运单号")
+            return {
+                'success': False,
+                'message': '没有运单号'
+            }
+
+        # 使用顺丰运单号，如果没有则用备用运单号
+        waybill_no = rental.sf_waybill_no or rental.ship_out_tracking_no
+
+        # 构建请求参数（用于签名）
+        timestamp = int(time.time())
+
+        query_params = {
+            'appid': self.app_key,
+            'timestamp': timestamp
+        }
+
+        if self.seller_id:
+            query_params['seller_id'] = self.seller_id
+
+        # 生成签名（不包含sign本身）
+        sign = self._gen_param_sign(query_params)
+        query_params['sign'] = sign
+
+        # 构建请求体
+        body = {
+            'order_no': rental.xianyu_order_no,
+            'waybill_no': waybill_no,
+            'express_code': 'shunfeng',  # 顺丰快递代码
+            'express_name': '顺丰速运'
+        }
+
+        # 添加寄件方信息（如果配置了）
+        if self.ship_name and self.ship_mobile:
+            body['ship_name'] = self.ship_name
+            body['ship_mobile'] = self.ship_mobile
+            body['ship_address'] = self.ship_address
+
+            # 优先使用省市区文本格式
+            if self.ship_prov_name and self.ship_city_name and self.ship_area_name:
+                body['ship_prov_name'] = self.ship_prov_name
+                body['ship_city_name'] = self.ship_city_name
+                body['ship_area_name'] = self.ship_area_name
+
+        # 发送请求
+        url = f"{self.base_url}/api/open/order/ship"
+
+        logger.info(f"闲鱼发货通知: Rental {rental.id}, Order {rental.xianyu_order_no}")
+        logger.debug(f"请求URL: {url}")
+        logger.debug(f"查询参数: {query_params}")
+        logger.debug(f"请求体: {body}")
+
+        try:
+            response = requests.post(
+                url,
+                params=query_params,
+                json=body,
+                headers={'Content-Type': 'application/json'},
+                timeout=30
+            )
+
+            logger.info(f"闲鱼API响应: {response.status_code}")
+            logger.debug(f"响应内容: {response.text}")
+
+            response.raise_for_status()
+            result = response.json()
+
+            # 检查业务状态码
+            if result.get('code') == 0:
+                logger.info(f"闲鱼发货成功: Rental {rental.id}")
+                return {
+                    'success': True,
+                    'message': 'ok',
+                    'data': result.get('data')
+                }
+            else:
+                error_msg = result.get('msg', '未知错误')
+                logger.error(f"闲鱼发货失败: Rental {rental.id}, 错误: {error_msg}")
+                return {
+                    'success': False,
+                    'message': error_msg,
+                    'code': result.get('code')
+                }
+
+        except requests.exceptions.Timeout:
+            logger.error(f"闲鱼API超时: Rental {rental.id}")
+            return {
+                'success': False,
+                'message': '请求超时'
+            }
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"闲鱼API请求失败: Rental {rental.id}, {e}")
+            return {
+                'success': False,
+                'message': f'网络请求失败: {str(e)}'
+            }
+
+        except Exception as e:
+            logger.error(f"闲鱼API异常: Rental {rental.id}, {e}")
+            return {
+                'success': False,
+                'message': f'未知错误: {str(e)}'
+            }
+
 
 # 创建全局服务实例
 xianyu_service = XianyuOrderService()
+
+
+# 向后兼容的工厂函数
+def get_xianyu_service() -> XianyuOrderService:
+    """获取闲鱼API服务单例（向后兼容）"""
+    return xianyu_service

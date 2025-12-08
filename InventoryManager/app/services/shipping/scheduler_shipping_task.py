@@ -7,7 +7,7 @@ import logging
 from app import db
 from app.models.rental import Rental
 from app.services.shipping.sf_express_service import get_sf_express_service
-from app.services.shipping.xianyu_api_service import get_xianyu_service
+from app.services.xianyu_order_service import get_xianyu_service
 
 logger = logging.getLogger(__name__)
 
