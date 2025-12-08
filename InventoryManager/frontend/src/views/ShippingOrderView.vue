@@ -22,6 +22,11 @@
             <img src="/src/assets/logo.jpg" alt="光影租界" class="logo" />
             <h2><el-icon><Document /></el-icon> 出货单</h2>
           </div>
+          <!-- Barcode for Rental ID -->
+          <div class="barcode-container">
+            <svg ref="barcodeCanvas" class="barcode"></svg>
+            <div class="barcode-label">订单编号</div>
+          </div>
         </div>
 
         <!-- 合并的客户信息卡片 -->
@@ -120,7 +125,7 @@
         <div class="reminder-section">
           <div class="reminder-text">
             <el-icon><Warning /></el-icon>
-            为避免器材损坏并尽快返还您押金，请在归还日中午12:00将此发货单随货发<span class="sf-express">顺丰</span>（寄付）寄回
+            为避免器材损坏并尽快返还您押金，请在归还日下午16:00将此发货单随货发<span class="sf-express">顺丰</span>（寄付）寄回
           </div>
           <div class="contact-text">
             小二微信：vacuumdust，13510224947
@@ -148,9 +153,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
+// @ts-ignore
+import JsBarcode from 'jsbarcode'
 import { 
   ArrowLeft, 
   Printer, 
@@ -173,6 +180,7 @@ const ganttStore = useGanttStore()
 
 // 响应式状态
 const rental = ref<Rental | null>(null)
+const barcodeCanvas = ref<SVGElement | null>(null)
 
 // 计算属性
 const rentalDays = computed(() => {
@@ -270,6 +278,23 @@ const getPersonalizedAccessories = () => {
   return rental.value.accessories.filter(acc => acc.is_accessory)
 }
 
+// 生成条形码
+const generateBarcode = () => {
+  if (barcodeCanvas.value && rental.value?.id) {
+    try {
+      JsBarcode(barcodeCanvas.value, String(rental.value.id), {
+        format: 'CODE128',
+        width: 2,
+        height: 60,
+        displayValue: false, // 不显示条形码下方的默认文字
+        margin: 5
+      })
+    } catch (error) {
+      console.error('Barcode generation error:', error)
+    }
+  }
+}
+
 // 生命周期
 onMounted(async () => {
   const rentalId = route.params.id
@@ -277,6 +302,9 @@ onMounted(async () => {
     const rentalData = await ganttStore.getRentalById(Number(rentalId))
     if (rentalData) {
       rental.value = rentalData
+      // 等待DOM更新后生成条形码
+      await nextTick()
+      generateBarcode()
     }
   }
 })
@@ -331,6 +359,28 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   position: relative;
+}
+
+.barcode-container {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: white;
+  padding: 8px;
+  border-radius: 4px;
+  text-align: center;
+}
+
+.barcode {
+  display: block;
+}
+
+.barcode-label {
+  font-size: 12px;
+  color: #333;
+  margin-top: 4px;
+  font-weight: bold;
 }
 
 .logo {
@@ -462,6 +512,12 @@ onMounted(async () => {
 
 .product-table td:not(.device-name) {
   color: #333;
+}
+
+/* 附件行样式 - 加深颜色提高可读性 */
+.product-table tbody tr:not(.main-product) td {
+  color: #000;
+  font-weight: 500;
 }
 
 /* 合并信息卡片的特殊样式 */

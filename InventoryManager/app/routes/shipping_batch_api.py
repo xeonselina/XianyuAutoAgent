@@ -60,7 +60,7 @@ def scan_rental():
                 'start_date': rental.start_date.isoformat() if rental.start_date else None,
                 'end_date': rental.end_date.isoformat() if rental.end_date else None,
                 'ship_out_time': rental.ship_out_time.isoformat() if rental.ship_out_time else None,
-                'sf_waybill_no': rental.sf_waybill_no,
+                'ship_out_tracking_no': rental.ship_out_tracking_no,
                 'status': rental.status
             }
         }), 200
@@ -109,7 +109,7 @@ def record_waybill():
 
         # 检查运单号是否已被其他租赁使用
         existing_rental = Rental.query.filter(
-            Rental.sf_waybill_no == waybill_no,
+            Rental.ship_out_tracking_no == waybill_no,
             Rental.id != rental_id
         ).first()
 
@@ -121,7 +121,7 @@ def record_waybill():
             }), 409
 
         # 更新运单号
-        rental.sf_waybill_no = waybill_no
+        rental.ship_out_tracking_no = waybill_no
         db.session.commit()
 
         logger.info(f"运单号已录入: Rental {rental_id}, Waybill {waybill_no}")
@@ -175,7 +175,7 @@ def schedule_shipment():
 
         for rental in rentals:
             # 只预约有运单号的租赁
-            if not rental.sf_waybill_no:
+            if not rental.ship_out_tracking_no:
                 failed_rentals.append({
                     'id': rental.id,
                     'reason': '缺少运单号'
@@ -236,7 +236,7 @@ def get_status():
 
         # 统计各状态数量
         total = len(rentals)
-        waybill_recorded = sum(1 for r in rentals if r.sf_waybill_no)
+        waybill_recorded = sum(1 for r in rentals if r.ship_out_tracking_no)
         scheduled = sum(1 for r in rentals if r.scheduled_ship_time)
         shipped = sum(1 for r in rentals if r.status == 'shipped')
 

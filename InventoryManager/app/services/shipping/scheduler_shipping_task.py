@@ -32,7 +32,7 @@ def process_scheduled_shipments():
     rentals = Rental.query.filter(
         Rental.scheduled_ship_time <= now,
         Rental.status != 'shipped',
-        Rental.sf_waybill_no.isnot(None)
+        Rental.ship_out_tracking_no.isnot(None)
     ).all()
 
     if not rentals:
@@ -141,7 +141,7 @@ def retry_failed_shipments(rental_ids: list = None, max_retries: int = 3):
     query = Rental.query.filter(
         Rental.scheduled_ship_time.isnot(None),
         Rental.status != 'shipped',
-        Rental.sf_waybill_no.isnot(None)
+        Rental.ship_out_tracking_no.isnot(None)
     )
 
     if rental_ids:

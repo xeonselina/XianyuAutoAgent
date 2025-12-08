@@ -50,9 +50,10 @@
                 <img src="/src/assets/logo.jpg" alt="光影租界" class="logo" />
                 <h2><el-icon><Document /></el-icon> 出货单</h2>
               </div>
-              <!-- QR Code for Rental ID -->
-              <div class="qr-code-container">
-                <canvas :ref="`qrCanvas${rental.id}`" class="qr-code"></canvas>
+              <!-- Barcode for Rental ID -->
+              <div class="barcode-container">
+                <svg :id="`barcode${rental.id}`" class="barcode"></svg>
+                <div class="barcode-label">订单编号</div>
               </div>
             </div>
 
@@ -121,7 +122,7 @@
                   </div>
                   <div class="info-row compact">
                     <span class="info-label">归还时间：</span>
-                    <span class="info-value return-date">{{ getReturnDate(rental) }} 中午 12:00 前</span>
+                    <span class="info-value return-date">{{ getReturnDate(rental) }} 下午 16:00 前</span>
                   </div>
                   <div class="info-row compact">
                     <span class="info-label">租赁天数：</span>
@@ -152,7 +153,7 @@
             <div class="reminder-section">
               <div class="reminder-text">
                 <el-icon><Warning /></el-icon>
-                为避免器材损坏并尽快返还您押金，请在归还日中午12:00将此发货单随货发<span class="sf-express">顺丰</span>（寄付）寄回
+                为避免器材损坏并尽快返还您押金，请在归还日下午16:00将此发货单随货发<span class="sf-express">顺丰</span>（寄付）寄回
               </div>
               <div class="contact-text">
                 小二微信：vacuumdust，13510224947
@@ -199,7 +200,8 @@ import {
 } from '@element-plus/icons-vue'
 import axios from 'axios'
 import dayjs from 'dayjs'
-import QRCode from 'qrcode'
+// @ts-ignore
+import JsBarcode from 'jsbarcode'
 
 // Router
 const route = useRoute()
@@ -241,9 +243,12 @@ const fetchRentals = async () => {
       if (rentals.value.length === 0) {
         ElMessage.warning('该日期范围内未找到发货单')
       } else {
-        // Generate QR codes after rentals are loaded
+        // Generate barcodes after rentals are loaded
         await nextTick()
-        generateQRCodes()
+        // 添加小延迟确保DOM完全渲染
+        setTimeout(() => {
+          generateBarcodes()
+        }, 100)
       }
     } else {
       error.value = response.data.message || '加载订单失败'
@@ -256,16 +261,27 @@ const fetchRentals = async () => {
   }
 }
 
-const generateQRCodes = () => {
+const generateBarcodes = () => {
+  console.log('开始生成条形码，订单数量:', rentals.value.length)
   rentals.value.forEach(rental => {
-    const canvas = document.querySelector(`[ref="qrCanvas${rental.id}"]`) as HTMLCanvasElement
-    if (canvas) {
-      QRCode.toCanvas(canvas, String(rental.id), {
-        width: 80,
-        margin: 1
-      }, (error) => {
-        if (error) console.error('QR Code generation error:', error)
-      })
+    const barcodeId = `barcode${rental.id}`
+    const svg = document.getElementById(barcodeId)
+    console.log(`查找svg ${barcodeId}:`, svg ? '找到' : '未找到')
+    if (svg) {
+      try {
+        JsBarcode(svg, String(rental.id), {
+          format: 'CODE128',
+          width: 2,
+          height: 60,
+          displayValue: false, // 不显示条形码下方的默认文字
+          margin: 5
+        })
+        console.log(`Rental ${rental.id} 条形码生成成功`)
+      } catch (error) {
+        console.error(`Rental ${rental.id} 条形码生成失败:`, error)
+      }
+    } else {
+      console.error(`SVG ${barcodeId} 未找到`)
     }
   })
 }
@@ -393,18 +409,26 @@ const getPersonalizedAccessories = (rental: any) => {
   gap: 20px;
 }
 
-.qr-code-container {
+.barcode-container {
   position: absolute;
-  top: 0;
-  right: 0;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
   padding: 8px;
   background: white;
-  border: 1px solid #e0e0e0;
   border-radius: 4px;
+  text-align: center;
 }
 
-.qr-code {
+.barcode {
   display: block;
+}
+
+.barcode-label {
+  font-size: 12px;
+  color: #333;
+  margin-top: 4px;
+  font-weight: bold;
 }
 
 .logo {
@@ -491,6 +515,12 @@ const getPersonalizedAccessories = (rental: any) => {
 .serial-number {
   color: #606266;
   font-size: 14px;
+}
+
+/* 附件行样式 - 加深颜色提高可读性 */
+.product-table tbody tr:not(.main-product) td {
+  color: #000;
+  font-weight: 500;
 }
 
 .combined-info .info-grid {

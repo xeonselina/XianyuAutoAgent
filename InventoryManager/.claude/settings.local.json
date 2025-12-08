@@ -23,7 +23,8 @@
       "Bash(openspec show:*)",
       "Bash(openspec validate:*)",
       "Bash(ls:*)",
-      "Bash(openspec change show:*)"
+      "Bash(openspec change show:*)",
+      "Bash(mysql:*)"
     ],
     "deny": [],
     "ask": [],

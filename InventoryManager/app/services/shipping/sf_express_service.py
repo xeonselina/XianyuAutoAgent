@@ -54,7 +54,7 @@ class SFExpressService:
                     'message': '缺少收件人信息'
                 }
 
-            if not rental.sf_waybill_no:
+            if not rental.ship_out_tracking_no:
                 logger.error(f"Rental {rental.id} 没有运单号")
                 return {
                     'success': False,
@@ -63,7 +63,7 @@ class SFExpressService:
 
             # 构建订单数据
             order_data = {
-                'orderId': f"R{rental.id}_{rental.sf_waybill_no}",  # 客户订单号
+                'orderId': f"R{rental.id}_{rental.ship_out_tracking_no}",  # 客户订单号
                 'cargoDetails': [
                     {
                         'name': rental.device.device_model.name if rental.device and rental.device.device_model else '租赁设备',
@@ -85,10 +85,10 @@ class SFExpressService:
                 ],
                 'expressTypeId': 1,  # 标准快递
                 'payMethod': 1,  # 寄付月结
-                'waybillNo': rental.sf_waybill_no  # 运单号
+                'waybillNo': rental.ship_out_tracking_no  # 运单号
             }
 
-            logger.info(f"顺丰下单: Rental {rental.id}, 运单号 {rental.sf_waybill_no}")
+            logger.info(f"顺丰下单: Rental {rental.id}, 运单号 {rental.ship_out_tracking_no}")
             logger.debug(f"订单数据: {order_data}")
 
             # 调用顺丰SDK下单
