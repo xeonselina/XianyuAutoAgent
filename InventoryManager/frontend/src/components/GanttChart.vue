@@ -38,7 +38,7 @@
           </el-button>
           <el-button
             type="warning"
-            @click="$router.push('/batch-shipping')"
+            @click="openBatchShipping"
           >
             📦 批量发货
           </el-button>
@@ -792,6 +792,10 @@ const handleUpdateDeviceStatus = async (device: Device, newStatus: string) => {
       await ganttStore.loadData()
     }
   }
+}
+
+const openBatchShipping = () => {
+  window.open('/batch-shipping', '_blank')
 }
 
 // 统计数据缓存

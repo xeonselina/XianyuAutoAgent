@@ -59,11 +59,11 @@
         <el-table-column label="状态" width="120">
           <template #default="{ row }">
             <el-tag v-if="row.status === 'shipped'" type="success">已发货</el-tag>
-            <el-tag v-else-if="row.sf_waybill_no" type="warning">已录入运单</el-tag>
+            <el-tag v-else-if="row.ship_out_tracking_no" type="warning">已录入运单</el-tag>
             <el-tag v-else type="info">未录入</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="sf_waybill_no" label="运单号" width="150" />
+        <el-table-column prop="ship_out_tracking_no" label="运单号" width="150" />
         <el-table-column label="预约时间" width="160">
           <template #default="{ row }">
             {{ row.scheduled_ship_time ? formatDateTime(row.scheduled_ship_time) : '-' }}
@@ -118,9 +118,9 @@
           <span class="label">租赁时间:</span>
           <span class="value">{{ currentRental.start_date }} 至 {{ currentRental.end_date }}</span>
         </div>
-        <div class="detail-item" v-if="currentRental.sf_waybill_no">
+        <div class="detail-item" v-if="currentRental.ship_out_tracking_no">
           <span class="label">已录入运单:</span>
-          <span class="value highlight">{{ currentRental.sf_waybill_no }}</span>
+          <span class="value highlight">{{ currentRental.ship_out_tracking_no }}</span>
         </div>
       </div>
 
@@ -182,12 +182,12 @@ const scheduling = ref(false)
 
 // Scanner state
 const scanBuffer = ref('')
-const scanTimeout = ref<NodeJS.Timeout | null>(null)
+const scanTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
 const awaitingWaybill = ref(false)
 
 // Computed
-const hasWaybills = computed(() => rentals.value.some(r => r.sf_waybill_no))
-const waybillCount = computed(() => rentals.value.filter(r => r.sf_waybill_no).length)
+const hasWaybills = computed(() => rentals.value.some(r => r.ship_out_tracking_no))
+const waybillCount = computed(() => rentals.value.filter(r => r.ship_out_tracking_no).length)
 
 // Methods
 const goBack = () => {
@@ -230,7 +230,8 @@ const printAll = () => {
   if (!dateRange.value) return
   const [start, end] = dateRange.value
   const url = `/batch-shipping-order?start_date=${dayjs(start).format('YYYY-MM-DD')}&end_date=${dayjs(end).format('YYYY-MM-DD')}`
-  router.push(url)
+  // 在新标签页打开
+  window.open(url, '_blank')
 }
 
 const showScheduleDialog = () => {
@@ -239,7 +240,7 @@ const showScheduleDialog = () => {
 
 const confirmSchedule = async () => {
   const rentalIds = rentals.value
-    .filter(r => r.sf_waybill_no)
+    .filter(r => r.ship_out_tracking_no)
     .map(r => r.id)
 
   if (rentalIds.length === 0) {

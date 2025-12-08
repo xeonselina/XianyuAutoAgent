@@ -226,15 +226,15 @@ class XianyuOrderService:
                 'skipped': True
             }
 
-        if not rental.sf_waybill_no and not rental.ship_out_tracking_no:
+        if not rental.ship_out_tracking_no:
             logger.error(f"Rental {rental.id} 没有运单号")
             return {
                 'success': False,
                 'message': '没有运单号'
             }
 
-        # 使用顺丰运单号，如果没有则用备用运单号
-        waybill_no = rental.sf_waybill_no or rental.ship_out_tracking_no
+        # 使用寄出快递单号
+        waybill_no = rental.ship_out_tracking_no
 
         # 构建请求参数（用于签名）
         timestamp = int(time.time())

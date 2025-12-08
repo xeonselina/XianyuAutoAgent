@@ -36,7 +36,6 @@ class Rental(db.Model):
     # 物流信息
     ship_out_tracking_no = db.Column(db.String(50), comment='寄出快递单号')
     ship_in_tracking_no = db.Column(db.String(50), comment='寄回快递单号')
-    sf_waybill_no = db.Column(db.String(50), comment='顺丰运单号')
     scheduled_ship_time = db.Column(db.DateTime, comment='预约发货时间')
     
     # 状态信息
@@ -103,7 +102,6 @@ class Rental(db.Model):
             'buyer_id': self.buyer_id,
             'ship_out_tracking_no': self.ship_out_tracking_no,
             'ship_in_tracking_no': self.ship_in_tracking_no,
-            'sf_waybill_no': self.sf_waybill_no,
             'scheduled_ship_time': self.scheduled_ship_time.isoformat() if self.scheduled_ship_time else None,
             'status': self.status,
             'created_at': self.created_at.isoformat(),

@@ -31,6 +31,7 @@ declare module 'vue' {
     ElTable: typeof import('element-plus/es')['ElTable']
     ElTableColumn: typeof import('element-plus/es')['ElTableColumn']
     ElTag: typeof import('element-plus/es')['ElTag']
+    ElTooltip: typeof import('element-plus/es')['ElTooltip']
     ElUpload: typeof import('element-plus/es')['ElUpload']
     GanttChart: typeof import('./src/components/GanttChart.vue')['default']
     GanttRow: typeof import('./src/components/GanttRow.vue')['default']

@@ -71,3 +71,69 @@ def shutdown_scheduler():
 def get_scheduler():
     """获取调度器实例"""
     return scheduler
+
+
+def run_task_now(task_name):
+    """
+    立即运行指定的定时任务
+
+    Args:
+        task_name: 任务名称
+
+    Returns:
+        bool: 是否成功执行
+    """
+    global scheduler
+    if not scheduler:
+        logger.error('调度器未初始化')
+        return False
+
+    try:
+        # 根据任务名称查找并立即执行任务
+        job = scheduler.get_job(task_name)
+        if job:
+            job.modify(next_run_time=None)  # 立即执行
+            logger.info(f'任务 {task_name} 已被触发执行')
+            return True
+        else:
+            logger.warning(f'找不到任务: {task_name}')
+            return False
+    except Exception as e:
+        logger.error(f'执行任务 {task_name} 失败: {e}')
+        return False
+
+
+def get_scheduler_status():
+    """
+    获取调度器状态
+
+    Returns:
+        dict: 调度器状态信息
+    """
+    global scheduler
+    if not scheduler:
+        return {
+            'running': False,
+            'jobs': []
+        }
+
+    try:
+        jobs = []
+        for job in scheduler.get_jobs():
+            jobs.append({
+                'id': job.id,
+                'name': job.name,
+                'next_run_time': job.next_run_time.isoformat() if job.next_run_time else None
+            })
+
+        return {
+            'running': scheduler.running,
+            'jobs': jobs
+        }
+    except Exception as e:
+        logger.error(f'获取调度器状态失败: {e}')
+        return {
+            'running': False,
+            'jobs': [],
+            'error': str(e)
+        }
