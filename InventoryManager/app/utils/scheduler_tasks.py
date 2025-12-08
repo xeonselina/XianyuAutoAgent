@@ -11,7 +11,7 @@ from app import db
 from app.models.rental import Rental
 from app.models.device import Device
 from app.services.device_status_service import DeviceStatusService
-from app.utils.sf_express_api import create_sf_client, batch_query_tracking_info
+from app.utils.sf.sf_sdk_wrapper import create_sf_client, batch_query_tracking_info
 import os
 
 logger = logging.getLogger(__name__)
@@ -195,13 +195,17 @@ class RentalTrackingScheduler:
             for i in range(0, len(tracking_numbers), batch_size):
                 batch_numbers = tracking_numbers[i:i + batch_size]
                 logger.info(f"查询第 {i//batch_size + 1} 批，共 {len(batch_numbers)} 个单号")
-                
+
+                # 获取收件人手机号后四位
+                check_phone_no = os.getenv('SF_CHECKPHONENO', '')
+
                 batch_info = batch_query_tracking_info(
                     batch_numbers,
+                    check_phone_no=check_phone_no,
                     partner_id=self.sf_client.partner_id,
                     checkword=self.sf_client.checkword
                 )
-                
+
                 all_tracking_info.update(batch_info)
             
             # 更新租赁记录

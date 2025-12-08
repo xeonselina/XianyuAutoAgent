@@ -5,7 +5,7 @@
 import os
 import logging
 from typing import Dict, Optional
-from app.utils.sf_express_api import SFExpressAPI
+from app.utils.sf.sf_sdk_wrapper import SFExpressSDK
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +28,8 @@ class SFExpressService:
         if not self.partner_id or not self.checkword:
             logger.warning('顺丰API凭证未配置 (SF_PARTNER_ID/SF_APP_KEY, SF_CHECKWORD/SF_APP_SECRET)')
 
-        # 创建SF API客户端
-        self.client = SFExpressAPI(
+        # 创建SF SDK客户端
+        self.client = SFExpressSDK(
             partner_id=self.partner_id,
             checkword=self.checkword,
             test_mode=self.test_mode
@@ -91,9 +91,7 @@ class SFExpressService:
             logger.info(f"顺丰下单: Rental {rental.id}, 运单号 {rental.sf_waybill_no}")
             logger.debug(f"订单数据: {order_data}")
 
-            # 调用顺丰API下单
-            # 注意：这里使用的是速运API的下单接口，不同于路由查询接口
-            # 实际实现需要根据顺丰API文档调整
+            # 调用顺丰SDK下单
             result = self.create_order(order_data)
 
             if result.get('success'):
@@ -121,35 +119,15 @@ class SFExpressService:
             Dict: API响应
         """
         try:
-            # 调用顺丰API的EXP_RECE_CREATE_ORDER服务
-            # 注意：此处简化实现，实际需要根据文档完整实现
-            response = self.client._make_request('EXP_RECE_CREATE_ORDER', order_data)
-
-            # 解析响应
-            if response.get('apiResultCode') == 'A1000':
-                # 成功
-                msg_data = response.get('msgData', '{}')
-                import json
-                data = json.loads(msg_data) if isinstance(msg_data, str) else msg_data
-
-                return {
-                    'success': True,
-                    'message': '下单成功',
-                    'data': data
-                }
-            else:
-                # 失败
-                return {
-                    'success': False,
-                    'message': response.get('apiErrorMsg', '下单失败'),
-                    'code': response.get('apiResultCode')
-                }
+            # 调用顺丰SDK下单
+            result = self.client.create_order(order_data)
+            return result
 
         except Exception as e:
-            logger.error(f"顺丰API调用失败: {e}")
+            logger.error(f"顺丰SDK调用失败: {e}")
             return {
                 'success': False,
-                'message': f'API调用失败: {str(e)}'
+                'message': f'SDK调用失败: {str(e)}'
             }
 
 
