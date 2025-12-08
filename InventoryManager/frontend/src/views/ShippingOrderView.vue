@@ -89,7 +89,7 @@
               </div>
               <div class="info-row compact">
                 <span class="info-label">归还时间：</span>
-                <span class="info-value return-date">{{ getReturnDate() }} 中午 12:00 前</span>  
+                <span class="info-value return-date">{{ getReturnDate() }} 下午 16:00 前</span>  
               </div>
               <div class="info-row compact">
                 <span class="info-label">租赁天数：</span>

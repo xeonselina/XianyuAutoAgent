@@ -25,7 +25,10 @@
       label-width="120px"
       v-if="rental"
     >
-      <!-- 基础信息表单 -->
+      <!-- 基础信息 -->
+      <el-divider content-position="left">
+        <span class="divider-title">📋 基础信息</span>
+      </el-divider>
       <RentalBasicForm
         :form="form"
         :rental="rental"
@@ -37,7 +40,10 @@
         @device-selector-focus="handleDeviceSelectorFocus"
       />
 
-      <!-- 物流信息表单 -->
+      <!-- 客户与物流信息 -->
+      <el-divider content-position="left">
+        <span class="divider-title">🚚 客户与物流信息</span>
+      </el-divider>
       <RentalShippingForm
         :form="form"
         :querying-ship-out="queryingShipOut"
@@ -50,6 +56,9 @@
       />
 
       <!-- 附件选择 -->
+      <el-divider content-position="left">
+        <span class="divider-title">🔧 附件选择</span>
+      </el-divider>
       <RentalAccessorySelector
         :form="form"
         :rental="rental"
@@ -137,7 +146,10 @@ const form = ref({
   shipOutTime: null as Date | null,
   shipInTime: null as Date | null,
   status: 'not_shipped',
-  accessories: [] as number[]
+  accessories: [] as number[],
+  xianyuOrderNo: '',
+  orderAmount: '',
+  buyerId: ''
 })
 
 // UI State
@@ -211,7 +223,10 @@ const handleSubmit = async () => {
         ? dayjs(form.value.shipInTime).format('YYYY-MM-DD HH:mm:ss')
         : null,
       status: form.value.status,
-      accessories: form.value.accessories
+      accessories: form.value.accessories,
+      xianyu_order_no: form.value.xianyuOrderNo,
+      order_amount: form.value.orderAmount ? parseFloat(form.value.orderAmount) : undefined,
+      buyer_id: form.value.buyerId
     }
 
     await ganttStore.updateRental(props.rental!.id, updateData)
@@ -434,7 +449,10 @@ const initForm = async () => {
       status: rentalData.status || 'not_shipped',
       accessories: (rentalData.child_rentals || [])
         .map((child: any) => child.device_id)
-        .filter(Boolean)
+        .filter(Boolean),
+      xianyuOrderNo: rentalData.xianyu_order_no || '',
+      orderAmount: rentalData.order_amount ? String(rentalData.order_amount) : '',
+      buyerId: rentalData.buyer_id || ''
     }
 
     if (latestRental) {
@@ -472,5 +490,24 @@ watch(
 <style scoped>
 .dialog-footer {
   text-align: right;
+}
+
+.divider-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+:deep(.el-divider) {
+  margin: 20px 0 16px 0;
+}
+
+:deep(.el-divider:first-of-type) {
+  margin-top: 0;
+}
+
+:deep(.el-divider__text) {
+  background-color: var(--el-bg-color);
+  padding: 0 12px;
 }
 </style>

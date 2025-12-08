@@ -225,6 +225,16 @@ class RentalHandlers:
             if 'ship_in_tracking_no' in data:
                 rental.ship_in_tracking_no = data['ship_in_tracking_no']
 
+            # 处理订单字段
+            if 'xianyu_order_no' in data:
+                rental.xianyu_order_no = data['xianyu_order_no']
+
+            if 'order_amount' in data:
+                rental.order_amount = data['order_amount']
+
+            if 'buyer_id' in data:
+                rental.buyer_id = data['buyer_id']
+
             # 处理时间字段
             if 'ship_out_time' in data:
                 if data['ship_out_time']:
@@ -392,3 +402,102 @@ class RentalHandlers:
         except Exception as e:
             current_app.logger.error(f"检查重复租赁失败: {e}")
             return server_error('检查重复租赁失败')
+
+    @staticmethod
+    def handle_fetch_xianyu_order() -> ApiResponse:
+        """处理获取闲鱼订单详情请求"""
+        try:
+            from app.services.xianyu_order_service import xianyu_service
+
+            data = request.get_json()
+            if not data:
+                return bad_request('请求数据不能为空')
+
+            order_no = data.get('order_no', '').strip()
+            if not order_no:
+                return bad_request('订单号不能为空')
+
+            # 调用闲鱼API服务
+            order_data = xianyu_service.get_order_detail(order_no)
+
+            if not order_data:
+                return server_error('获取订单详情失败，请检查订单号是否正确')
+
+            # 转换数据为前端需要的格式
+            response_data = {
+                'order_no': order_data.get('order_no'),
+                'receiver_name': order_data.get('receiver_name'),
+                'receiver_mobile': order_data.get('receiver_mobile'),
+                'prov_name': order_data.get('prov_name', ''),
+                'city_name': order_data.get('city_name', ''),
+                'area_name': order_data.get('area_name', ''),
+                'town_name': order_data.get('town_name', ''),
+                'address': order_data.get('address', ''),
+                'buyer_eid': order_data.get('buyer_eid'),
+                'buyer_nick': order_data.get('buyer_nick'),
+                'pay_amount': order_data.get('pay_amount'),  # 单位:分
+            }
+
+            return success(data=response_data, message='订单信息获取成功')
+
+        except Exception as e:
+            current_app.logger.error(f"获取闲鱼订单详情失败: {e}")
+            return server_error('获取订单详情失败')
+
+    @staticmethod
+    def handle_get_rentals_by_ship_date() -> ApiResponse:
+        """处理根据发货日期范围查询租赁记录请求（用于批量打印）"""
+        try:
+            from datetime import timedelta
+            from app.models.rental import Rental
+
+            # 获取查询参数
+            start_date_str = request.args.get('start_date')
+            end_date_str = request.args.get('end_date')
+
+            if not start_date_str or not end_date_str:
+                return bad_request('缺少必要参数: start_date 和 end_date')
+
+            # 解析日期
+            try:
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                return bad_request('日期格式错误，应为 YYYY-MM-DD')
+
+            # 验证日期范围
+            if end_date < start_date:
+                return bad_request('结束日期不能早于开始日期')
+
+            # 防止恶意查询过大范围
+            date_diff = (end_date - start_date).days
+            if date_diff > 365:
+                return bad_request('日期范围不能超过365天')
+
+            # 查询租赁记录
+            # 将 end_date 加一天以包含结束日期当天的记录
+            query_end_date = datetime.combine(end_date, datetime.max.time())
+            query_start_date = datetime.combine(start_date, datetime.min.time())
+
+            rentals = Rental.query.filter(
+                Rental.ship_out_time >= query_start_date,
+                Rental.ship_out_time <= query_end_date,
+                Rental.parent_rental_id.is_(None),
+                Rental.status != 'cancelled'
+            ).order_by(Rental.ship_out_time.asc()).all()
+
+            # 构建响应数据
+            rentals_data = [rental.to_dict() for rental in rentals]
+
+            return success(data={
+                'rentals': rentals_data,
+                'count': len(rentals),
+                'date_range': {
+                    'start': start_date_str,
+                    'end': end_date_str
+                }
+            })
+
+        except Exception as e:
+            current_app.logger.error(f"根据发货日期查询租赁记录失败: {e}")
+            return server_error('查询租赁记录失败')

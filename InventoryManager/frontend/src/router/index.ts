@@ -2,6 +2,8 @@ import { createRouter, createWebHistory } from 'vue-router'
 import GanttView from '../views/GanttView.vue'
 import RentalContractView from '../views/RentalContractView.vue'
 import ShippingOrderView from '../views/ShippingOrderView.vue'
+import BatchShippingOrderView from '../views/BatchShippingOrderView.vue'
+import BatchShippingView from '../views/BatchShippingView.vue'
 import StatisticsView from '../views/StatisticsView.vue'
 
 const router = createRouter({
@@ -25,6 +27,16 @@ const router = createRouter({
       path: '/shipping/:id',
       name: 'shipping-order',
       component: ShippingOrderView,
+    },
+    {
+      path: '/batch-shipping-order',
+      name: 'batch-shipping-order',
+      component: BatchShippingOrderView,
+    },
+    {
+      path: '/batch-shipping',
+      name: 'batch-shipping',
+      component: BatchShippingView,
     },
     {
       path: '/statistics',
