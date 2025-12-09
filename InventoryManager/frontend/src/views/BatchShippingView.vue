@@ -68,6 +68,19 @@
           </template>
         </el-table-column>
         <el-table-column prop="ship_out_tracking_no" label="运单号" width="180" />
+        <el-table-column label="快递类型" width="120">
+          <template #default="{ row }">
+            <el-select
+              v-model="row.express_type_id"
+              size="small"
+              @change="updateExpressType(row.id, row.express_type_id)"
+            >
+              <el-option :value="1" label="特快" />
+              <el-option :value="2" label="标快" />
+              <el-option :value="6" label="半日达" />
+            </el-select>
+          </template>
+        </el-table-column>
         <el-table-column label="预约时间" width="180">
           <template #default="{ row }">
             {{ row.scheduled_ship_time ? formatDateTime(row.scheduled_ship_time) : '-' }}
@@ -215,7 +228,10 @@ const previewOrders = async () => {
     })
 
     if (response.data.success) {
-      rentals.value = response.data.data.rentals
+      rentals.value = response.data.data.rentals.map((r: any) => ({
+        ...r,
+        express_type_id: r.express_type_id || 2  // 默认为标快
+      }))
       if (rentals.value.length === 0) {
         ElMessage.info('该日期范围内未找到发货单')
       } else {
@@ -276,6 +292,24 @@ const confirmSchedule = async () => {
 
 const formatDateTime = (dateStr: string) => {
   return dayjs(dateStr).format('MM-DD HH:mm')
+}
+
+const updateExpressType = async (rentalId: number, expressTypeId: number) => {
+  try {
+    const response = await axios.patch('/api/shipping-batch/express-type', {
+      rental_id: rentalId,
+      express_type_id: expressTypeId
+    })
+
+    if (response.data.success) {
+      ElMessage.success('快递类型已更新')
+    } else {
+      ElMessage.error(response.data.message || '更新快递类型失败')
+    }
+  } catch (error: any) {
+    console.error('更新快递类型失败:', error)
+    ElMessage.error('更新快递类型失败')
+  }
 }
 
 // Barcode Scanner Handlers

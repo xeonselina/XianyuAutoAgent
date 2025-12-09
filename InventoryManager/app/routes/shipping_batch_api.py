@@ -256,3 +256,58 @@ def get_status():
             'success': False,
             'message': f'服务器错误: {str(e)}'
         }), 500
+
+
+@bp.route('/express-type', methods=['PATCH'])
+def update_express_type():
+    """
+    更新租赁订单的快递类型
+
+    接收租赁ID和快递类型ID，更新数据库
+    """
+    try:
+        data = request.get_json()
+        rental_id = data.get('rental_id')
+        express_type_id = data.get('express_type_id')
+
+        # 验证参数
+        if not rental_id or express_type_id is None:
+            return jsonify({
+                'success': False,
+                'message': '缺少必要参数'
+            }), 400
+
+        # 验证快递类型ID
+        if express_type_id not in [1, 2, 6]:
+            return jsonify({
+                'success': False,
+                'message': '快递类型无效'
+            }), 400
+
+        # 查询租赁记录
+        rental = Rental.query.get(rental_id)
+
+        if not rental:
+            return jsonify({
+                'success': False,
+                'message': '租赁记录不存在'
+            }), 404
+
+        # 更新快递类型
+        rental.express_type_id = express_type_id
+        db.session.commit()
+
+        logger.info(f"快递类型已更新: Rental {rental_id}, ExpressType {express_type_id}")
+
+        return jsonify({
+            'success': True,
+            'message': '快递类型已更新'
+        }), 200
+
+    except Exception as e:
+        logger.error(f"更新快递类型失败: {e}")
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'message': f'服务器错误: {str(e)}'
+        }), 500

@@ -16,7 +16,8 @@ python-dateutil==2.8.2
 
 # 生产环境WSGI服务器 - 必需
 gunicorn==21.2.0
-gevent==23.7.0
+# gevent 24.2.1 稳定版本,兼容 Python 3.10
+gevent==24.2.1
 
 # 开发依赖（可选，开发时安装）
 # 测试工具
@@ -42,6 +43,8 @@ schedule==1.2.0
 
 # HTTP请求库
 requests==2.31.0
+# 使用兼容的 urllib3 版本，避免 SSL 递归错误
+urllib3>=1.26.0,<2.0.0
 
 # 模板引擎
 Jinja2==3.1.2

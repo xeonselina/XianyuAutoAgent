@@ -61,6 +61,9 @@ class SFExpressService:
                     'message': '没有运单号'
                 }
 
+            # 获取快递类型，默认为2(标快)
+            express_type_id = rental.express_type_id if rental.express_type_id else 2
+
             # 构建订单数据
             order_data = {
                 'orderId': f"R{rental.id}_{rental.ship_out_tracking_no}",  # 客户订单号
@@ -83,12 +86,16 @@ class SFExpressService:
                         'address': self.sender_address
                     }
                 ],
-                'expressTypeId': 1,  # 标准快递
+                'expressTypeId': express_type_id,  # 使用租赁记录的快递类型
                 'payMethod': 1,  # 寄付月结
                 'waybillNo': rental.ship_out_tracking_no  # 运单号
             }
 
-            logger.info(f"顺丰下单: Rental {rental.id}, 运单号 {rental.ship_out_tracking_no}")
+            # 快递类型名称映射
+            express_type_names = {1: '特快', 2: '标快', 6: '半日达'}
+            express_type_name = express_type_names.get(express_type_id, '未知')
+
+            logger.info(f"顺丰下单: Rental {rental.id}, 运单号 {rental.ship_out_tracking_no}, 快递类型: {express_type_id}({express_type_name})")
             logger.debug(f"订单数据: {order_data}")
 
             # 调用顺丰SDK下单

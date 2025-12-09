@@ -11,7 +11,7 @@ ARG http_proxy
 ARG https_proxy
 ARG no_proxy
 
-FROM python:3.11-slim
+FROM python:3.10-slim
 
 # 设置代理环境变量
 ENV HTTP_PROXY=$HTTP_PROXY
@@ -141,18 +141,5 @@ EXPOSE 5002
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:5002/ || exit 1
 
-# 启动命令 - 使用生产级配置
-CMD ["gunicorn", \
-     "--bind", "0.0.0.0:5002", \
-     "--workers", "4", \
-     "--worker-class", "gevent", \
-     "--worker-connections", "1000", \
-     "--timeout", "120", \
-     "--keep-alive", "2", \
-     "--max-requests", "1000", \
-     "--max-requests-jitter", "100", \
-     "--preload", \
-     "--access-logfile", "-", \
-     "--error-logfile", "-", \
-     "--log-level", "info", \
-     "run:app"]
+# 启动命令 - 使用配置文件启动,确保 monkey patch 在导入 SSL 之前完成
+CMD ["gunicorn", "--config", "gunicorn_config.py", "run:app"]
