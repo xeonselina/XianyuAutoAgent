@@ -25,7 +25,7 @@
           <!-- Barcode for Rental ID -->
           <div class="barcode-container">
             <svg ref="barcodeCanvas" class="barcode"></svg>
-            <div class="barcode-label">订单编号</div>
+            <div class="barcode-label">订单识别码</div>
           </div>
         </div>
 

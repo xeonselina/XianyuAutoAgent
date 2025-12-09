@@ -48,23 +48,27 @@
       </div>
 
       <el-table :data="rentals" border stripe>
-        <el-table-column prop="id" label="ID" width="80" />
+        <el-table-column label="设备名称" width="80">
+          <template #default="{ row }">
+            {{ row.device?.name || '-' }}
+          </template>
+        </el-table-column>
         <el-table-column prop="customer_name" label="客户" width="120" />
-        <el-table-column label="设备" width="200">
+        <el-table-column label="设备" width="180">
           <template #default="{ row }">
             {{ row.device?.device_model?.name || row.device?.name || '-' }}
           </template>
         </el-table-column>
-        <el-table-column prop="destination" label="地址" min-width="200" show-overflow-tooltip />
-        <el-table-column label="状态" width="120">
+        <el-table-column prop="destination" label="地址" min-width="260" show-overflow-tooltip />
+        <el-table-column label="状态" width="80">
           <template #default="{ row }">
             <el-tag v-if="row.status === 'shipped'" type="success">已发货</el-tag>
             <el-tag v-else-if="row.ship_out_tracking_no" type="warning">已录入运单</el-tag>
             <el-tag v-else type="info">未录入</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="ship_out_tracking_no" label="运单号" width="150" />
-        <el-table-column label="预约时间" width="160">
+        <el-table-column prop="ship_out_tracking_no" label="运单号" width="180" />
+        <el-table-column label="预约时间" width="180">
           <template #default="{ row }">
             {{ row.scheduled_ship_time ? formatDateTime(row.scheduled_ship_time) : '-' }}
           </template>
