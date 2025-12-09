@@ -1,6 +1,6 @@
 """
 顺丰快递 SDK 封装
-基于官方 SDK (callExpressRequest.py) 的封装
+基于顺丰 OpenAPI 2.0 (OAuth2.0 鉴权方式)
 """
 
 import time
@@ -19,28 +19,32 @@ logger = logging.getLogger(__name__)
 class SFExpressSDK:
     """顺丰快递 SDK 封装类"""
 
-    def __init__(self, partner_id: str, checkword: str, test_mode: bool = False):
+    def __init__(self, partner_id: str, checkword: str, test_mode: bool = False, use_oauth: bool = True):
         """
         初始化顺丰 SDK
 
         Args:
-            partner_id: 顺丰分配的顾客编码
-            checkword: 顺丰分配的校验码
+            partner_id: 顺丰分配的顾客编码 (OAuth2.0 时为 dev_id)
+            checkword: 顺丰分配的校验码 (OAuth2.0 时为 dev_key)
             test_mode: 是否使用测试环境
+            use_oauth: 是否使用 OAuth2.0 鉴权方式（默认 True，新版 API）
         """
         self.partner_id = partner_id
         self.checkword = checkword
         self.test_mode = test_mode
+        self.use_oauth = use_oauth
+        self.access_token = None
+        self.token_expires_at = 0
 
         # API 地址
         if test_mode:
             self.req_url = 'https://sfapi-sbox.sf-express.com/std/service'
         else:
-            self.req_url = 'https://sfapi.sf-express.com/std/service'
+            self.req_url = 'https://sfapi.sf-express.com/std/service' 
 
     def _call_sf_express_service(self, service_code: str, msg_data: dict) -> dict:
         """
-        调用顺丰 API 服务 (基于官方 SDK)
+        调用顺丰 API 服务 (msgDigest 鉴权方式 - 旧版)
 
         Args:
             service_code: 服务代码 (如 EXP_RECE_CREATE_ORDER, EXP_RECE_SEARCH_ROUTES)
@@ -49,6 +53,7 @@ class SFExpressSDK:
         Returns:
             dict: API 响应结果
         """
+        response = None
         try:
             # 将消息数据转换为 JSON 字符串
             msg_data_str = json.dumps(msg_data, ensure_ascii=False, separators=(',', ':'))
@@ -57,39 +62,18 @@ class SFExpressSDK:
             request_id = str(uuid.uuid1())
             timestamp = str(int(time.time()))
 
-            # 构建签名字符串并进行 URL 编码
-            sign_str = msg_data_str + timestamp + self.checkword
-            encoded_str = urllib.parse.quote_plus(sign_str)
-
-            # MD5 加密
-            m = hashlib.md5()
-            m.update(encoded_str.encode('utf-8'))
-            md5_bytes = m.digest()
-
-            # Base64 编码
-            msg_digest = base64.b64encode(md5_bytes).decode('utf-8')
-
-            # 构建请求参数
-            data = {
-                "partnerID": self.partner_id,
-                "requestID": request_id,
-                "serviceCode": service_code,
-                "timestamp": timestamp,
-                "msgDigest": msg_digest,
-                "msgData": msg_data_str
-            }
-
-            logger.info(f"调用顺丰API: {service_code}")
-            logger.debug(f"请求数据: {data}")
-
-            # 发送 POST 请求
-            response = requests.post(
-                self.req_url,
-                data=data,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-                timeout=30
-            )
-
+            sign = urllib.parse.quote_plus(msg_data_str + timestamp + self.checkword)
+            # 先md5加密然后base64加密
+            m = hashlib.md5()    
+            m.update(sign.encode('utf-8'))       
+            md5Str = m.digest()    
+            msgDigest = base64.b64encode(md5Str).decode('utf-8')
+            data = {"partnerID": self.partner_id,"requestID": request_id,"serviceCode": service_code,"timestamp": timestamp,"msgDigest": msgDigest,"msgData": msg_data_str}
+            # 发送post请求
+            logger.info(f"调用顺丰API : {service_code} with ")
+            logger.info("msgDigest: " + msgDigest)
+            logger.info(f"请求数据: {data}")
+            response = requests.post(self.req_url, data=data)
             logger.info(f"HTTP状态码: {response.status_code}")
             logger.debug(f"响应内容: {response.text}")
 
@@ -99,14 +83,23 @@ class SFExpressSDK:
             return result
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"API请求失败: {e}")
-            return {"apiResultCode": "A9999", "apiErrorMsg": f"网络请求失败: {str(e)}"}
+            import traceback
+            logger.error(f"API请求失败: {type(e).__name__}")
+            logger.error(f"错误详情: {str(e)}")
+            logger.error(f"完整堆栈:\n{traceback.format_exc()}")
+            return {"apiResultCode": "A9999", "apiErrorMsg": "网络请求失败"}
         except json.JSONDecodeError as e:
-            logger.error(f"JSON解析失败: {e}, 响应内容: {response.text}")
-            return {"apiResultCode": "A9998", "apiErrorMsg": f"响应解析失败: {str(e)}"}
+            import traceback
+            logger.error(f"JSON解析失败: {type(e).__name__}")
+            logger.error(f"错误详情: {str(e)}")
+            logger.error(f"完整堆栈:\n{traceback.format_exc()}")
+            return {"apiResultCode": "A9998", "apiErrorMsg": "响应解析失败"}
         except Exception as e:
-            logger.error(f"API调用异常: {e}")
-            return {"apiResultCode": "A9997", "apiErrorMsg": f"未知错误: {str(e)}"}
+            import traceback
+            logger.error(f"API调用异常: {type(e).__name__}")
+            logger.error(f"错误详情: {str(e)}")
+            logger.error(f"完整堆栈:\n{traceback.format_exc()}")
+            return {"apiResultCode": "A9997", "apiErrorMsg": "未知错误"}
 
     def create_order(self, order_data: dict) -> Dict:
         """

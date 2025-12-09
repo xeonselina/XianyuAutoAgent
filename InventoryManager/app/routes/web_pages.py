@@ -42,6 +42,15 @@ def rental_contract(rental_id):
     return send_from_directory(vue_dist_path, 'index.html')
 
 
+@bp.route('/sf-tracking')
+def sf_tracking():
+    """顺丰物流追踪页面 - 服务Vue应用"""
+    from flask import send_from_directory
+    import os
+    vue_dist_path = os.path.join(current_app.root_path, '..', 'static', 'vue-dist')
+    return send_from_directory(vue_dist_path, 'index.html')
+
+
 @bp.route('/batch-shipping')
 def batch_shipping():
     """批量发货管理页面 - 服务Vue应用"""
