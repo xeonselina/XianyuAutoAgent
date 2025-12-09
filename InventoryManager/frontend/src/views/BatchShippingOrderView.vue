@@ -82,18 +82,20 @@
                   <th style="width: 8%;">序号</th>
                   <th style="width: 40%;">品名</th>
                   <th style="width: 8%;">数量</th>
-                  <th style="width: 20%;">资产编号</th>
-                  <th style="width: 24%;">序列号/附件说明</th>
+                  <th style="width: 20%;">资产编号/序列号</th>
+                  <th style="width: 24%;">附件说明</th>
                 </tr>
               </thead>
               <tbody>
                 <!-- 主设备 -->
                 <tr class="main-product">
-                  <td>1</td>
+                  <td class="serial-number">1</td>
                   <td class="device-name">{{ rental.device?.device_model?.name || rental.device?.name || '-' }}</td>
-                  <td>1台</td>
-                  <td>{{ rental.device?.name || '-' }}</td>
-                  <td class="serial-number">{{ rental.device?.serial_number || '-' }}/{{ getDefaultAccessories(rental) }}</td>
+                  <td class="serial-number">1台</td>
+                  <td class="serial-number">{{ rental.device?.name || '-' }}
+                    <br />
+                    {{ rental.device?.serial_number || '-' }}</td>
+                  <td class="serial-number">{{ getDefaultAccessories(rental) }}</td>
                 </tr>
                 <!-- 个性化附件 -->
                 <tr v-for="(accessory, accIndex) in getPersonalizedAccessories(rental)" :key="`personal-${accessory.id}`">
@@ -312,14 +314,21 @@ const getRentalDays = (rental: any) => {
   return end.diff(start, 'day') + 1
 }
 
+// 获取默认附件列表
 const getDefaultAccessories = (rental: any) => {
-  const model = rental.device?.device_model?.name || ''
-  if (model.includes('X200U')) {
-    return '镜头盖*2，数据线，充电线，充电头'
-  } else if (model.includes('X4')) {
-    return '镜头盖*2，数据线，充电线，充电头，自拍杆'
+  if (!rental.device?.device_model?.default_accessories) {
+    return ""
   }
-  return '标准配件'
+
+  const accessories = rental.device.device_model.default_accessories
+
+  // 如果是数组，转换为字符串
+  if (Array.isArray(accessories)) {
+    return accessories.join('、')
+  }
+
+  // 如果是字符串，直接返回
+  return accessories
 }
 
 const getPersonalizedAccessories = (rental: any) => {
@@ -472,7 +481,7 @@ const getPersonalizedAccessories = (rental: any) => {
 
 .info-label {
   font-weight: 600;
-  color: #606266;
+  color: #202121;
   white-space: nowrap;
   display: flex;
   align-items: center;
@@ -500,7 +509,7 @@ const getPersonalizedAccessories = (rental: any) => {
 .product-table th {
   background-color: #f2f6fc;
   font-weight: 600;
-  color: #606266;
+  color: #2d2d2d;
 }
 
 .product-table .main-product {
@@ -513,7 +522,7 @@ const getPersonalizedAccessories = (rental: any) => {
 }
 
 .serial-number {
-  color: #606266;
+  color: #323333;
   font-size: 14px;
 }
 
@@ -581,7 +590,7 @@ const getPersonalizedAccessories = (rental: any) => {
 
 .contact-text {
   font-size: 14px;
-  color: #616161;
+  color: #2b2b2b;
 }
 
 .qr-codes-section {
@@ -606,7 +615,7 @@ const getPersonalizedAccessories = (rental: any) => {
 .qr-code-label {
   margin-top: 8px;
   font-size: 13px;
-  color: #606266;
+  color: #353536;
 }
 
 /* 打印样式 */

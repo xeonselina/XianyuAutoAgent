@@ -54,8 +54,8 @@
               <th style="width: 8%;">序号</th>
               <th style="width: 40%;">品名</th>
               <th style="width: 8%;">数量</th>
-              <th style="width: 20%;">资产编号</th>
-              <th style="width: 24%;">序列号/附件说明</th>
+              <th style="width: 20%;">资产编号/序列号</th>
+              <th style="width: 24%;">附件说明</th>
             </tr>
           </thead>
           <tbody>
@@ -64,8 +64,8 @@
               <td>1</td>
               <td class="device-name">{{ rental?.device?.device_model?.name || rental?.device?.name }}</td>
               <td>1台</td>
-              <td>{{ rental?.device?.name }}</td>
-              <td class="serial-number">{{ rental?.device?.serial_number || '-' }}/{{ getDefaultAccessories() }}</td>
+              <td>{{ rental?.device?.name }}/{{ rental?.device?.serial_number || '-' }}</td>
+              <td class="serial-number">{{ getDefaultAccessories() }}</td>
             </tr>
             <!-- 个性化附件 -->
             <tr v-for="(accessory, index) in getPersonalizedAccessories()" :key="`personal-${accessory.id}`">
@@ -507,7 +507,7 @@ onMounted(async () => {
 
 .serial-number {
   font-family: monospace;
-  color: #666;
+  color: #353232;
 }
 
 .product-table td:not(.device-name) {
