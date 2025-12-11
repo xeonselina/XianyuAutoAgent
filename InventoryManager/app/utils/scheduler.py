@@ -20,44 +20,83 @@ def init_scheduler(app):
     Args:
         app: Flask应用实例
     """
+    import os
+
     global scheduler
 
     if scheduler is not None:
         logger.warning('调度器已经初始化')
         return
 
-    # 创建后台调度器
-    scheduler = BackgroundScheduler(daemon=True)
+    # 在多worker环境下，只在第一个worker中运行定时任务
+    # 通过环境变量标记
+    worker_id = os.environ.get('GUNICORN_WORKER_ID')
+    if worker_id:
+        logger.info(f'当前Worker ID: {worker_id}')
+        # 只在worker 0或未设置worker_id时运行调度器
+        # 由于gunicorn不自动设置这个变量，我们用进程ID来判断
+        pass
 
-    # 添加定时发货任务 - 每5分钟执行一次
+    # 检查是否已经有其他进程启动了调度器
+    # 使用文件锁机制确保只有一个调度器运行
+    import fcntl
+    lock_file_path = '/tmp/inventory_scheduler.lock'
+
     try:
-        from app.services.shipping.scheduler_shipping_task import process_scheduled_shipments
+        lock_file = open(lock_file_path, 'w')
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 
-        scheduler.add_job(
-            func=process_scheduled_shipments,
-            trigger=IntervalTrigger(minutes=5),
-            id='process_scheduled_shipments',
-            name='处理预约发货任务',
-            replace_existing=True,
-            max_instances=1,  # 同时只允许一个实例运行
-            misfire_grace_time=300  # 5分钟宽限时间
-        )
+        logger.info(f'获取调度器锁成功，进程 {os.getpid()} 将启动调度器')
 
-        logger.info('已添加定时发货任务: 每5分钟执行一次')
+        # 创建后台调度器
+        scheduler = BackgroundScheduler(daemon=True)
 
+        # 添加定时发货任务 - 每5分钟执行一次
+        try:
+            from app.services.shipping.scheduler_shipping_task import process_scheduled_shipments
+
+            # 包装任务函数，确保在应用上下文中运行
+            def run_with_app_context():
+                with app.app_context():
+                    logger.info(f'[Worker {os.getpid()}] 开始执行定时发货任务')
+                    try:
+                        return process_scheduled_shipments()
+                    except Exception as e:
+                        logger.error(f'[Worker {os.getpid()}] 定时发货任务执行失败: {e}', exc_info=True)
+                        return {'total': 0, 'success': 0, 'failed': 0, 'error': str(e)}
+
+            scheduler.add_job(
+                func=run_with_app_context,
+                trigger=IntervalTrigger(minutes=5),
+                id='process_scheduled_shipments',
+                name='处理预约发货任务',
+                replace_existing=True,
+                max_instances=1,  # 同时只允许一个实例运行
+                misfire_grace_time=300  # 5分钟宽限时间
+            )
+
+            logger.info('已添加定时发货任务: 每5分钟执行一次')
+
+        except Exception as e:
+            logger.error(f'添加定时发货任务失败: {e}')
+
+        # 启动调度器
+        try:
+            scheduler.start()
+            logger.info('定时调度器已启动')
+
+            # 注册关闭时停止调度器
+            atexit.register(lambda: shutdown_scheduler())
+
+        except Exception as e:
+            logger.error(f'启动定时调度器失败: {e}')
+
+    except BlockingIOError:
+        # 无法获取锁，说明其他进程已经启动了调度器
+        logger.info(f'进程 {os.getpid()} 无法获取调度器锁，跳过调度器初始化（其他worker已启动）')
+        return
     except Exception as e:
-        logger.error(f'添加定时发货任务失败: {e}')
-
-    # 启动调度器
-    try:
-        scheduler.start()
-        logger.info('定时调度器已启动')
-
-        # 注册关闭时停止调度器
-        atexit.register(lambda: shutdown_scheduler())
-
-    except Exception as e:
-        logger.error(f'启动定时调度器失败: {e}')
+        logger.error(f'初始化调度器时发生错误: {e}')
 
 
 def shutdown_scheduler():

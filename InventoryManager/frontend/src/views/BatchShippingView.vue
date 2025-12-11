@@ -203,8 +203,9 @@ const scanTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
 const awaitingWaybill = ref(false)
 
 // Computed
-const hasWaybills = computed(() => rentals.value.some(r => r.ship_out_tracking_no))
-const waybillCount = computed(() => rentals.value.filter(r => r.ship_out_tracking_no).length)
+// 只统计未发货且有运单号的订单
+const hasWaybills = computed(() => rentals.value.some(r => r.ship_out_tracking_no && r.status !== 'shipped'))
+const waybillCount = computed(() => rentals.value.filter(r => r.ship_out_tracking_no && r.status !== 'shipped').length)
 
 // Methods
 const goBack = () => {
@@ -259,12 +260,13 @@ const showScheduleDialog = () => {
 }
 
 const confirmSchedule = async () => {
+  // 只预约未发货且有运单号的订单
   const rentalIds = rentals.value
-    .filter(r => r.ship_out_tracking_no)
+    .filter(r => r.ship_out_tracking_no && r.status !== 'shipped')
     .map(r => r.id)
 
   if (rentalIds.length === 0) {
-    ElMessage.warning('没有可预约的订单')
+    ElMessage.warning('没有可预约的订单（已发货的订单不能重复预约）')
     return
   }
 

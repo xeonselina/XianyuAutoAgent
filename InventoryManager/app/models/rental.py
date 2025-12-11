@@ -61,32 +61,50 @@ class Rental(db.Model):
     def __repr__(self):
         return f'<Rental {self.id}: {self.device_id} ({self.start_date} - {self.end_date})>'
     
-    def to_dict(self):
-        """转换为字典"""
-        # 获取设备信息和附件信息
+    def to_dict(self, include_children=True, _depth=0):
+        """转换为字典
+
+        Args:
+            include_children: 是否包含子租赁详情（默认True）
+            _depth: 内部递归深度计数器，防止无限递归
+        """
+        # 防止无限递归，最大深度为2
+        if _depth > 2:
+            return {
+                'id': self.id,
+                'device_id': self.device_id,
+                'status': self.status
+            }
+
+        # 获取设备信息
         device_dict = self.device.to_dict() if self.device else None
-        child_rentals_list = [rental.to_dict() for rental in self.child_rentals] if self.child_rentals else []
 
         # 构建附件列表，兼容前端期望的数据结构
         accessories = []
-        for child_rental in self.child_rentals:
-            if child_rental.device:
-                # 获取附件的显示名称
-                model_name = child_rental.device.model
-                if child_rental.device.device_model:
-                    # 优先使用 device_model 的 display_name
-                    model_name = child_rental.device.device_model.name
-                elif child_rental.device.is_accessory:
-                    # 如果没有 device_model，使用 device.model
-                    model_name = child_rental.device.device_model.name
+        child_rentals_list = []
 
-                accessories.append({
-                    'id': child_rental.device.id,
-                    'name': child_rental.device.name,
-                    'model': model_name,
-                    'is_accessory': child_rental.device.is_accessory,
-                    'value': float(child_rental.device.device_model.device_value) if child_rental.device.device_model and child_rental.device.device_model.device_value else None
-                })
+        if include_children and _depth < 2:
+            for child_rental in self.child_rentals:
+                if child_rental.device:
+                    # 获取附件的显示名称
+                    model_name = child_rental.device.model
+                    if child_rental.device.device_model:
+                        # 优先使用 device_model 的 display_name
+                        model_name = child_rental.device.device_model.name
+                    elif child_rental.device.is_accessory:
+                        # 如果没有 device_model，使用 device.model
+                        model_name = child_rental.device.device_model.name
+
+                    accessories.append({
+                        'id': child_rental.device.id,
+                        'name': child_rental.device.name,
+                        'model': model_name,
+                        'is_accessory': child_rental.device.is_accessory,
+                        'value': float(child_rental.device.device_model.device_value) if child_rental.device.device_model and child_rental.device.device_model.device_value else None
+                    })
+
+                # 递归调用时增加深度，避免无限循环
+                child_rentals_list.append(child_rental.to_dict(include_children=False, _depth=_depth + 1))
 
         return {
             'id': self.id,

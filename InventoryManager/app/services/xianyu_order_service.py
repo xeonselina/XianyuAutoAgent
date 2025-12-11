@@ -103,6 +103,9 @@ class XianyuOrderService:
         Returns:
             API响应的JSON数据,失败返回None
         """
+        import traceback
+        import sys
+
         try:
             # 将json对象转成json字符串
             # 特别注意：使用 json.dumps 函数时必须补充第二个参数 separators=(',', ':') 用于过滤空格，否则会签名错误
@@ -123,24 +126,62 @@ class XianyuOrderService:
             logger.debug(f"请求URL: {full_url}")
             logger.debug(f"请求体: {body}")
 
+            # 详细的请求前日志
+            logger.info(f"[REQUEST START] 准备发送闲鱼API请求")
+            logger.info(f"[REQUEST] URL: {full_url}")
+            logger.info(f"[REQUEST] 超时设置: {timeout}秒")
+            logger.info(f"[REQUEST] Python版本: {sys.version}")
+            logger.info(f"[REQUEST] Requests库版本: {requests.__version__}")
+
+            # 检查是否在gevent环境
+            try:
+                import gevent
+                logger.info(f"[REQUEST] Gevent版本: {gevent.__version__}")
+                logger.info(f"[REQUEST] 当前Greenlet: {gevent.getcurrent()}")
+            except ImportError:
+                logger.info(f"[REQUEST] Gevent未安装")
+
+            # 检查SSL配置
+            try:
+                import ssl
+                logger.info(f"[REQUEST] SSL版本: {ssl.OPENSSL_VERSION}")
+            except Exception as ssl_err:
+                logger.warning(f"[REQUEST] 无法获取SSL版本: {ssl_err}")
+
             # 使用requests发送请求
+            logger.info(f"[REQUEST] 正在调用 requests.post()...")
             response = requests.post(full_url, data=body, headers=headers, timeout=timeout)
+            logger.info(f"[REQUEST SUCCESS] requests.post() 调用完成，状态码: {response.status_code}")
+
             response.raise_for_status()
+            logger.info(f"[REQUEST] HTTP状态检查通过")
 
             result = response.json()
+            logger.info(f"[REQUEST] JSON解析成功")
             return result
 
         except requests.exceptions.Timeout:
-            logger.error(f"闲鱼API请求超时")
+            logger.error(f"[REQUEST ERROR] 闲鱼API请求超时")
+            logger.error(f"[REQUEST ERROR] 完整堆栈:\n{traceback.format_exc()}")
             return None
         except requests.exceptions.RequestException as e:
-            logger.error(f"闲鱼API请求失败: {e}")
+            logger.error(f"[REQUEST ERROR] 闲鱼API请求失败: {type(e).__name__}: {e}")
+            logger.error(f"[REQUEST ERROR] 完整堆栈:\n{traceback.format_exc()}")
             return None
         except json.JSONDecodeError as e:
-            logger.error(f"闲鱼API响应解析失败: {e}")
+            logger.error(f"[REQUEST ERROR] 闲鱼API响应解析失败: {e}")
+            logger.error(f"[REQUEST ERROR] 响应内容: {response.text if 'response' in locals() else 'N/A'}")
+            logger.error(f"[REQUEST ERROR] 完整堆栈:\n{traceback.format_exc()}")
+            return None
+        except RecursionError as e:
+            logger.error(f"[REQUEST ERROR] 递归深度超限!!!")
+            logger.error(f"[REQUEST ERROR] RecursionError: {e}")
+            logger.error(f"[REQUEST ERROR] 完整堆栈:\n{traceback.format_exc()}")
+            logger.error(f"[REQUEST ERROR] 递归限制: {sys.getrecursionlimit()}")
             return None
         except Exception as e:
-            logger.error(f"闲鱼API请求异常: {e}")
+            logger.error(f"[REQUEST ERROR] 闲鱼API请求异常: {type(e).__name__}: {e}")
+            logger.error(f"[REQUEST ERROR] 完整堆栈:\n{traceback.format_exc()}")
             return None
 
     def get_order_detail(self, order_no: str) -> Optional[Dict[str, Any]]:
@@ -279,7 +320,35 @@ class XianyuOrderService:
         logger.debug(f"查询参数: {query_params}")
         logger.debug(f"请求体: {body}")
 
+        import traceback
+        import sys
+
         try:
+            # 详细的请求前日志
+            logger.info(f"[SHIP REQUEST START] 准备发送闲鱼发货通知API请求")
+            logger.info(f"[SHIP REQUEST] Rental ID: {rental.id}, Order: {rental.xianyu_order_no}")
+            logger.info(f"[SHIP REQUEST] URL: {url}")
+            logger.info(f"[SHIP REQUEST] 查询参数: {query_params}")
+            logger.info(f"[SHIP REQUEST] 超时设置: 30秒")
+            logger.info(f"[SHIP REQUEST] Python版本: {sys.version}")
+            logger.info(f"[SHIP REQUEST] Requests库版本: {requests.__version__}")
+
+            # 检查是否在gevent环境
+            try:
+                import gevent
+                logger.info(f"[SHIP REQUEST] Gevent版本: {gevent.__version__}")
+                logger.info(f"[SHIP REQUEST] 当前Greenlet: {gevent.getcurrent()}")
+            except ImportError:
+                logger.info(f"[SHIP REQUEST] Gevent未安装")
+
+            # 检查SSL配置
+            try:
+                import ssl
+                logger.info(f"[SHIP REQUEST] SSL版本: {ssl.OPENSSL_VERSION}")
+            except Exception as ssl_err:
+                logger.warning(f"[SHIP REQUEST] 无法获取SSL版本: {ssl_err}")
+
+            logger.info(f"[SHIP REQUEST] 正在调用 requests.post()...")
             response = requests.post(
                 url,
                 params=query_params,
@@ -287,12 +356,16 @@ class XianyuOrderService:
                 headers={'Content-Type': 'application/json'},
                 timeout=30
             )
+            logger.info(f"[SHIP REQUEST SUCCESS] requests.post() 调用完成，状态码: {response.status_code}")
 
             logger.info(f"闲鱼API响应: {response.status_code}")
             logger.debug(f"响应内容: {response.text}")
 
             response.raise_for_status()
+            logger.info(f"[SHIP REQUEST] HTTP状态检查通过")
+
             result = response.json()
+            logger.info(f"[SHIP REQUEST] JSON解析成功")
 
             # 检查业务状态码
             if result.get('code') == 0:
@@ -312,21 +385,34 @@ class XianyuOrderService:
                 }
 
         except requests.exceptions.Timeout:
-            logger.error(f"闲鱼API超时: Rental {rental.id}")
+            logger.error(f"[SHIP REQUEST ERROR] 闲鱼API超时: Rental {rental.id}")
+            logger.error(f"[SHIP REQUEST ERROR] 完整堆栈:\n{traceback.format_exc()}")
             return {
                 'success': False,
                 'message': '请求超时'
             }
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"闲鱼API请求失败: Rental {rental.id}, {e}")
+            logger.error(f"[SHIP REQUEST ERROR] 闲鱼API请求失败: Rental {rental.id}, {type(e).__name__}: {e}")
+            logger.error(f"[SHIP REQUEST ERROR] 完整堆栈:\n{traceback.format_exc()}")
             return {
                 'success': False,
                 'message': f'网络请求失败: {str(e)}'
             }
 
+        except RecursionError as e:
+            logger.error(f"[SHIP REQUEST ERROR] 递归深度超限!!! Rental {rental.id}")
+            logger.error(f"[SHIP REQUEST ERROR] RecursionError: {e}")
+            logger.error(f"[SHIP REQUEST ERROR] 完整堆栈:\n{traceback.format_exc()}")
+            logger.error(f"[SHIP REQUEST ERROR] 递归限制: {sys.getrecursionlimit()}")
+            return {
+                'success': False,
+                'message': f'递归深度超限: {str(e)}'
+            }
+
         except Exception as e:
-            logger.error(f"闲鱼API异常: Rental {rental.id}, {e}")
+            logger.error(f"[SHIP REQUEST ERROR] 闲鱼API异常: Rental {rental.id}, {type(e).__name__}: {e}")
+            logger.error(f"[SHIP REQUEST ERROR] 完整堆栈:\n{traceback.format_exc()}")
             return {
                 'success': False,
                 'message': f'未知错误: {str(e)}'
