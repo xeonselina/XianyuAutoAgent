@@ -1,6 +1,10 @@
 """
 Gunicorn 配置文件
 在导入任何其他模块之前进行 gevent monkey patching,避免 SSL 递归错误
+
+注意：虽然 run.py 中也有 monkey patch，但 gunicorn 在不同时机会导入模块，
+因此在配置文件中也需要尽早 patch。gevent 的 monkey patch 是幂等的，
+多次调用不会有问题。
 """
 
 # 在所有导入之前进行 monkey patch
@@ -23,7 +27,9 @@ errorlog = "-"
 loglevel = "info"
 
 # 预加载应用
-preload_app = True
+# 注意：设置为 False 以避免在主进程中预加载应用导致的 SSL monkey patch 问题
+# 每个 worker 会独立加载应用，确保 monkey patch 在导入模块之前完成
+preload_app = False
 
 # Worker 进程配置
 def post_fork(server, worker):

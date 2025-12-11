@@ -161,31 +161,48 @@ def process_scheduled_shipments():
     2. 调用闲鱼API发货通知
     3. 更新rental状态为shipped
     """
+    import traceback
+
     logger.info("开始处理预约发货任务")
 
-    # 查询需要发货的租赁记录
-    rentals = Rental.query.filter(
-        Rental.scheduled_ship_time.isnot(None),
-        Rental.status != 'shipped',
-        Rental.ship_out_tracking_no.isnot(None)
-    ).all()
+    try:
+        # 查询需要发货的租赁记录
+        logger.info("正在查询数据库...")
+        rentals = Rental.query.filter(
+            Rental.scheduled_ship_time.isnot(None),
+            Rental.status != 'shipped',
+            Rental.ship_out_tracking_no.isnot(None)
+        ).all()
 
-    if not rentals:
-        logger.info("没有需要发货的订单")
+        logger.info(f"数据库查询完成，找到 {len(rentals)} 条记录")
+
+        if not rentals:
+            logger.info("没有需要发货的订单")
+            return {
+                'total': 0,
+                'success': 0,
+                'failed': 0,
+                'skipped': 0
+            }
+
+        logger.info(f"找到 {len(rentals)} 个待发货订单")
+
+        # 使用统一的批量处理函数
+        result = _process_rentals_batch(rentals, max_retries=1, update_status=True)
+
+        logger.info(f"预约发货任务完成: {result}")
+        return result
+
+    except Exception as e:
+        logger.error(f"预约发货任务执行异常: {type(e).__name__}: {e}")
+        logger.error(f"完整堆栈:\n{traceback.format_exc()}")
         return {
             'total': 0,
             'success': 0,
             'failed': 0,
-            'skipped': 0
+            'skipped': 0,
+            'error': str(e)
         }
-
-    logger.info(f"找到 {len(rentals)} 个待发货订单")
-
-    # 使用统一的批量处理函数
-    result = _process_rentals_batch(rentals, max_retries=1, update_status=True)
-
-    logger.info(f"预约发货任务完成: {result}")
-    return result
 
 
 def retry_failed_shipments(rental_ids: Optional[List[int]] = None, max_retries: int = 3):

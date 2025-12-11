@@ -241,10 +241,12 @@ const fetchRentals = async () => {
     })
 
     if (response.data.success) {
-      rentals.value = response.data.data.rentals
+      // 过滤掉已发货的订单，只打印未发货的发货单
+      rentals.value = response.data.data.rentals.filter((r: any) => r.status !== 'shipped')
       if (rentals.value.length === 0) {
-        ElMessage.warning('该日期范围内未找到发货单')
+        ElMessage.warning('该日期范围内未找到未发货的发货单')
       } else {
+        ElMessage.success(`找到 ${rentals.value.length} 个未发货订单`)
         // Generate barcodes after rentals are loaded
         await nextTick()
         // 添加小延迟确保DOM完全渲染
