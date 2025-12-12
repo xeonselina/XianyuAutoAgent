@@ -104,7 +104,7 @@
                   class="status-badge"
                   :class="getStatusClass(currentTracking.status)"
                 >
-                  {{ getStatusText(currentTracking.status) }}
+                  {{ getStatusText(currentTracking) }}
                 </span>
               </p>
               <p v-if="currentTracking.last_update">
@@ -168,6 +168,7 @@ interface TrackingRoute {
 interface TrackingInfo {
   tracking_number: string
   status: string
+  status_text?: string
   routes: TrackingRoute[]
   last_update: string | null
   delivered_time: string | null
@@ -178,7 +179,7 @@ export default {
   data(): {
     rentals: Rental[]
     loading: boolean
-    trackingStatus: Record<string, string>
+    trackingStatus: Record<string, TrackingInfo>
     loadingTracking: Record<string, boolean>
     showTrackingModal: boolean
     currentTracking: TrackingInfo | null
@@ -268,8 +269,8 @@ export default {
 
         if (response.data.success) {
           this.currentTracking = response.data.data
-          // 更新状态缓存
-          this.trackingStatus[trackingNumber] = response.data.data.status
+          // 更新状态缓存 - 保存完整对象
+          this.trackingStatus[trackingNumber] = response.data.data
         } else {
           alert('查询失败: ' + response.data.message)
           this.closeModal()
@@ -294,10 +295,10 @@ export default {
         })
 
         if (response.data.success) {
-          // 更新所有运单的状态
+          // 更新所有运单的状态 - 保存完整对象
           const data = response.data.data
           for (const trackingNumber in data) {
-            this.trackingStatus[trackingNumber] = data[trackingNumber].status
+            this.trackingStatus[trackingNumber] = data[trackingNumber]
           }
 
           // 显示统计信息
@@ -334,10 +335,15 @@ export default {
         minute: '2-digit'
       })
     },
-    getStatusText(status: string | undefined) {
+    getStatusText(status: string | TrackingInfo | undefined) {
+      // 如果传入的是对象,优先使用 status_text
+      if (typeof status === 'object' && status !== null) {
+        return (status as TrackingInfo).status_text || '未查询'
+      }
+
       const statusMap = {
         'picked_up': '已揽收',
-        'in_transit': '运输中',
+        'in_transit': '运送中',
         'delivering': '派送中',
         'delivered': '已签收',
         'processing': '处理中',
@@ -346,7 +352,13 @@ export default {
       }
       return statusMap[status as keyof typeof statusMap] || '未查询'
     },
-    getStatusClass(status: string | undefined) {
+    getStatusClass(status: string | TrackingInfo | undefined) {
+      // 如果传入的是对象,提取 status 字段
+      let statusStr = status
+      if (typeof status === 'object' && status !== null) {
+        statusStr = (status as TrackingInfo).status
+      }
+
       const classMap = {
         'picked_up': 'status-picked',
         'in_transit': 'status-transit',
@@ -356,7 +368,7 @@ export default {
         'not_found': 'status-notfound',
         'unknown': 'status-unknown'
       }
-      return classMap[status as keyof typeof classMap] || 'status-default'
+      return classMap[statusStr as keyof typeof classMap] || 'status-default'
     }
   }
 }
@@ -367,6 +379,7 @@ export default {
   padding: 20px;
   max-width: 1400px;
   margin: 0 auto;
+  color: #000;
 }
 
 .header {
@@ -378,6 +391,7 @@ export default {
 
 .header h2 {
   margin: 0;
+  color: #000;
 }
 
 .date-filter {
@@ -448,6 +462,11 @@ export default {
 .table th {
   background: #f8f9fa;
   font-weight: 600;
+  color: #000;
+}
+
+.table td {
+  color: #000;
 }
 
 code {
@@ -455,6 +474,7 @@ code {
   padding: 2px 6px;
   border-radius: 3px;
   font-size: 0.9em;
+  color: #000;
 }
 
 .status-badge {
@@ -464,14 +484,14 @@ code {
   font-weight: 500;
 }
 
-.status-picked { background: #d1ecf1; color: #0c5460; }
-.status-transit { background: #fff3cd; color: #856404; }
-.status-delivering { background: #cfe2ff; color: #084298; }
-.status-delivered { background: #d1e7dd; color: #0f5132; }
-.status-processing { background: #e2e3e5; color: #383d41; }
-.status-notfound { background: #f8d7da; color: #842029; }
-.status-unknown { background: #e2e3e5; color: #383d41; }
-.status-default { background: #e2e3e5; color: #383d41; }
+.status-picked { background: #d1ecf1; color: #000; }
+.status-transit { background: #fff3cd; color: #000; }
+.status-delivering { background: #cfe2ff; color: #000; }
+.status-delivered { background: #d1e7dd; color: #000; font-weight: 600; }
+.status-processing { background: #e2e3e5; color: #000; }
+.status-notfound { background: #f8d7da; color: #000; }
+.status-unknown { background: #e2e3e5; color: #000; }
+.status-default { background: #e2e3e5; color: #000; }
 
 .pagination {
   display: flex;
@@ -532,6 +552,7 @@ code {
 
 .modal-header h3 {
   margin: 0;
+  color: #000;
 }
 
 .close-btn {
@@ -560,6 +581,7 @@ code {
 
 .tracking-info p {
   margin: 8px 0;
+  color: #000;
 }
 
 .timeline {
@@ -607,18 +629,19 @@ code {
 
 .timeline-time {
   font-weight: 600;
-  color: #0d6efd;
+  color: #000;
   margin-bottom: 5px;
 }
 
 .timeline-location {
   font-size: 0.95em;
   margin-bottom: 5px;
+  color: #000;
 }
 
 .timeline-remark {
   font-size: 0.9em;
-  color: #6c757d;
+  color: #000;
 }
 
 .empty-routes {

@@ -67,7 +67,7 @@ def init_scheduler(app):
 
             scheduler.add_job(
                 func=run_with_app_context,
-                trigger=IntervalTrigger(minutes=5),
+                trigger=IntervalTrigger(minutes=1),
                 id='process_scheduled_shipments',
                 name='处理预约发货任务',
                 replace_existing=True,

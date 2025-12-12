@@ -158,6 +158,7 @@ class XianyuOrderService:
 
             result = response.json()
             logger.info(f"[REQUEST] JSON解析成功")
+            logger.info(f"[response] {response.text}")
             return result
 
         except requests.exceptions.Timeout:
@@ -277,23 +278,8 @@ class XianyuOrderService:
         # 使用寄出快递单号
         waybill_no = rental.ship_out_tracking_no
 
-        # 构建请求参数（用于签名）
-        timestamp = int(time.time())
-
-        query_params = {
-            'appid': self.app_key,
-            'timestamp': timestamp
-        }
-
-        if self.seller_id:
-            query_params['seller_id'] = self.seller_id
-
-        # 生成签名（不包含sign本身）
-        sign = self._gen_param_sign(query_params)
-        query_params['sign'] = sign
-
         # 构建请求体
-        body = {
+        request_data = {
             'order_no': rental.xianyu_order_no,
             'waybill_no': waybill_no,
             'express_code': 'shunfeng',  # 顺丰快递代码
@@ -302,120 +288,44 @@ class XianyuOrderService:
 
         # 添加寄件方信息（如果配置了）
         if self.ship_name and self.ship_mobile:
-            body['ship_name'] = self.ship_name
-            body['ship_mobile'] = self.ship_mobile
-            body['ship_address'] = self.ship_address
+            request_data['ship_name'] = self.ship_name
+            request_data['ship_mobile'] = self.ship_mobile
+            request_data['ship_address'] = self.ship_address
 
             # 优先使用省市区文本格式
             if self.ship_prov_name and self.ship_city_name and self.ship_area_name:
-                body['ship_prov_name'] = self.ship_prov_name
-                body['ship_city_name'] = self.ship_city_name
-                body['ship_area_name'] = self.ship_area_name
-
-        # 发送请求
-        url = f"{self.base_url}/api/open/order/ship"
+                request_data['ship_prov_name'] = self.ship_prov_name
+                request_data['ship_city_name'] = self.ship_city_name
+                request_data['ship_area_name'] = self.ship_area_name
 
         logger.info(f"闲鱼发货通知: Rental {rental.id}, Order {rental.xianyu_order_no}")
-        logger.debug(f"请求URL: {url}")
-        logger.debug(f"查询参数: {query_params}")
-        logger.debug(f"请求体: {body}")
+        logger.debug(f"请求数据: {request_data}")
 
-        import traceback
-        import sys
+        # 使用与 get_order_detail 相同的签名方式
+        result = self._request_with_body_sign("/api/open/order/ship", request_data)
 
-        try:
-            # 详细的请求前日志
-            logger.info(f"[SHIP REQUEST START] 准备发送闲鱼发货通知API请求")
-            logger.info(f"[SHIP REQUEST] Rental ID: {rental.id}, Order: {rental.xianyu_order_no}")
-            logger.info(f"[SHIP REQUEST] URL: {url}")
-            logger.info(f"[SHIP REQUEST] 查询参数: {query_params}")
-            logger.info(f"[SHIP REQUEST] 超时设置: 30秒")
-            logger.info(f"[SHIP REQUEST] Python版本: {sys.version}")
-            logger.info(f"[SHIP REQUEST] Requests库版本: {requests.__version__}")
-
-            # 检查是否在gevent环境
-            try:
-                import gevent
-                logger.info(f"[SHIP REQUEST] Gevent版本: {gevent.__version__}")
-                logger.info(f"[SHIP REQUEST] 当前Greenlet: {gevent.getcurrent()}")
-            except ImportError:
-                logger.info(f"[SHIP REQUEST] Gevent未安装")
-
-            # 检查SSL配置
-            try:
-                import ssl
-                logger.info(f"[SHIP REQUEST] SSL版本: {ssl.OPENSSL_VERSION}")
-            except Exception as ssl_err:
-                logger.warning(f"[SHIP REQUEST] 无法获取SSL版本: {ssl_err}")
-
-            logger.info(f"[SHIP REQUEST] 正在调用 requests.post()...")
-            response = requests.post(
-                url,
-                params=query_params,
-                json=body,
-                headers={'Content-Type': 'application/json'},
-                timeout=30
-            )
-            logger.info(f"[SHIP REQUEST SUCCESS] requests.post() 调用完成，状态码: {response.status_code}")
-
-            logger.info(f"闲鱼API响应: {response.status_code}")
-            logger.debug(f"响应内容: {response.text}")
-
-            response.raise_for_status()
-            logger.info(f"[SHIP REQUEST] HTTP状态检查通过")
-
-            result = response.json()
-            logger.info(f"[SHIP REQUEST] JSON解析成功")
-
-            # 检查业务状态码
-            if result.get('code') == 0:
-                logger.info(f"闲鱼发货成功: Rental {rental.id}")
-                return {
-                    'success': True,
-                    'message': 'ok',
-                    'data': result.get('data')
-                }
-            else:
-                error_msg = result.get('msg', '未知错误')
-                logger.error(f"闲鱼发货失败: Rental {rental.id}, 错误: {error_msg}")
-                return {
-                    'success': False,
-                    'message': error_msg,
-                    'code': result.get('code')
-                }
-
-        except requests.exceptions.Timeout:
-            logger.error(f"[SHIP REQUEST ERROR] 闲鱼API超时: Rental {rental.id}")
-            logger.error(f"[SHIP REQUEST ERROR] 完整堆栈:\n{traceback.format_exc()}")
+        if not result:
+            logger.error(f"闲鱼发货失败: Rental {rental.id}, 无响应")
             return {
                 'success': False,
-                'message': '请求超时'
+                'message': '无响应'
             }
 
-        except requests.exceptions.RequestException as e:
-            logger.error(f"[SHIP REQUEST ERROR] 闲鱼API请求失败: Rental {rental.id}, {type(e).__name__}: {e}")
-            logger.error(f"[SHIP REQUEST ERROR] 完整堆栈:\n{traceback.format_exc()}")
+        # 检查业务状态码
+        if result.get('code') == 0:
+            logger.info(f"闲鱼发货成功: Rental {rental.id}")
             return {
-                'success': False,
-                'message': f'网络请求失败: {str(e)}'
+                'success': True,
+                'message': 'ok',
+                'data': result.get('data')
             }
-
-        except RecursionError as e:
-            logger.error(f"[SHIP REQUEST ERROR] 递归深度超限!!! Rental {rental.id}")
-            logger.error(f"[SHIP REQUEST ERROR] RecursionError: {e}")
-            logger.error(f"[SHIP REQUEST ERROR] 完整堆栈:\n{traceback.format_exc()}")
-            logger.error(f"[SHIP REQUEST ERROR] 递归限制: {sys.getrecursionlimit()}")
+        else:
+            error_msg = result.get('msg', '未知错误')
+            logger.error(f"闲鱼发货失败: Rental {rental.id}, 错误: {error_msg}")
             return {
                 'success': False,
-                'message': f'递归深度超限: {str(e)}'
-            }
-
-        except Exception as e:
-            logger.error(f"[SHIP REQUEST ERROR] 闲鱼API异常: Rental {rental.id}, {type(e).__name__}: {e}")
-            logger.error(f"[SHIP REQUEST ERROR] 完整堆栈:\n{traceback.format_exc()}")
-            return {
-                'success': False,
-                'message': f'未知错误: {str(e)}'
+                'message': error_msg,
+                'code': result.get('code')
             }
 
 
