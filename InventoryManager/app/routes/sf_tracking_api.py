@@ -20,9 +20,12 @@ SENDER_PHONE_LAST4 = '4947'  # 13510224947 的后四位
 
 def get_sf_client():
     """获取顺丰 SDK 客户端实例"""
-    partner_id = os.getenv('SF_PARTNER_ID') or os.getenv('SF_APP_KEY')
-    checkword = os.getenv('SF_CHECKWORD') or os.getenv('SF_APP_SECRET')
-    test_mode = os.getenv('SF_API_MODE', 'test') == 'test'
+    partner_id = os.getenv('SF_PARTNER_ID')
+    checkword = os.getenv('SF_CHECKWORD')
+    test_mode = os.getenv('SF_TEST_MODE', 'true') == 'true'
+    logger.info(f"test_mode in sf_tracking_api: {test_mode}")
+    logger.info(f"partner_id in sf_tracking_api: {partner_id}")
+    logger.info(f"checkword in sf_tracking_api: {checkword}")
 
     return SFExpressSDK(
         partner_id=partner_id,

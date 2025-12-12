@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class SFExpressSDK:
     """顺丰快递 SDK 封装类"""
 
-    def __init__(self, partner_id: str, checkword: str, test_mode: bool = False, use_oauth: bool = True):
+    def __init__(self, partner_id: str, checkword: str, test_mode:bool = False, use_oauth: bool = True):
         """
         初始化顺丰 SDK
 
@@ -40,7 +40,7 @@ class SFExpressSDK:
         if test_mode:
             self.req_url = 'https://sfapi-sbox.sf-express.com/std/service'
         else:
-            self.req_url = 'https://sfapi.sf-express.com/std/service' 
+            self.req_url = 'https://bspgw.sf-express.com/std/service' 
 
     def _call_sf_express_service(self, service_code: str, msg_data: dict) -> dict:
         """
@@ -60,7 +60,8 @@ class SFExpressSDK:
 
             # 生成 UUID 和时间戳
             request_id = str(uuid.uuid1())
-            timestamp = str(int(time.time()))
+            
+            timestamp = str(int(time.time())*1000)
 
             sign = urllib.parse.quote_plus(msg_data_str + timestamp + self.checkword)
             # 先md5加密然后base64加密
@@ -71,11 +72,13 @@ class SFExpressSDK:
             data = {"partnerID": self.partner_id,"requestID": request_id,"serviceCode": service_code,"timestamp": timestamp,"msgDigest": msgDigest,"msgData": msg_data_str}
             # 发送post请求
             logger.info(f"调用顺丰API : {service_code} with ")
+            logger.info("msg_data_str: " + msg_data_str)
             logger.info("msgDigest: " + msgDigest)
             logger.info(f"请求数据: {data}")
+            logger.info(f"req_url: {self.req_url}")
             response = requests.post(self.req_url, data=data)
             logger.info(f"HTTP状态码: {response.status_code}")
-            logger.debug(f"响应内容: {response.text}")
+            logger.info(f"响应内容: {response.text}")
 
             response.raise_for_status()
             result = response.json()
@@ -113,26 +116,19 @@ class SFExpressSDK:
         """
         response = self._call_sf_express_service('EXP_RECE_CREATE_ORDER', order_data)
 
+        #response 的格式类似则样 {"apiErrorMsg":"","apiResponseID":"00019B128030A93FEC2951DF3A5B903F","apiResultCode":"A1000","apiResultData":"{\"success\":false,\"errorCode\":\"20003\",\"errorMsg\":\"联系人类型错误\",\"msgData\":null}"}
+        #请修改下面的成功错误的判断逻辑
         # 解析响应
-        if response.get('apiResultCode') == 'A1000':
-            msg_data_str = response.get('msgData', '{}')
-            try:
-                data = json.loads(msg_data_str) if isinstance(msg_data_str, str) else msg_data_str
-                return {
-                    'success': True,
-                    'message': '下单成功',
-                    'data': data
-                }
-            except json.JSONDecodeError as e:
-                logger.error(f"解析订单响应失败: {e}")
-                return {
-                    'success': False,
-                    'message': f'解析响应失败: {str(e)}'
-                }
+        if response.get('apiResultCode') == 'A1000' and json.loads(response.get('apiResultData')).get('success') == True:
+            return {
+                'success': True,
+                'message': '下单成功',
+                'data': response.get('apiResultData')
+            }
         else:
             return {
                 'success': False,
-                'message': response.get('apiErrorMsg', '下单失败'),
+                'message': response.get('apiResultData', '下单失败'),
                 'code': response.get('apiResultCode')
             }
 
@@ -198,14 +194,18 @@ class SFExpressSDK:
             return result
 
         try:
-            msg_data_str = response.get("msgData", "{}")
-            msg_data = json.loads(msg_data_str) if isinstance(msg_data_str, str) else msg_data_str
+            # 先解析 apiResultData (它是一个JSON字符串)
+            api_result_data_str = response.get("apiResultData", "{}")
+            api_result_data = json.loads(api_result_data_str) if isinstance(api_result_data_str, str) else api_result_data_str
 
-            if not msg_data.get("success", False):
-                logger.error(f"查询失败: {msg_data.get('errorMsg', '未知错误')}")
+            logger.info(f"解析后的 apiResultData: {api_result_data}")
+
+            if not api_result_data.get("success", False):
+                logger.error(f"查询失败: {api_result_data.get('errorMsg', '未知错误')}")
                 return result
 
-            routes = msg_data.get("msgData", {}).get("routeResps", [])
+            # 从 msgData 中获取 routeResps
+            routes = api_result_data.get("msgData", {}).get("routeResps", [])
 
             for route in routes:
                 tracking_no = route.get("mailNo", "")
@@ -216,6 +216,7 @@ class SFExpressSDK:
                     "tracking_number": tracking_no,
                     "routes": [],
                     "status": "unknown",
+                    "status_text": "未知",
                     "delivered_time": None,
                     "last_update": None
                 }
@@ -226,32 +227,48 @@ class SFExpressSDK:
                         "accept_time": route_detail.get("acceptTime", ""),
                         "accept_address": route_detail.get("acceptAddress", ""),
                         "remark": route_detail.get("remark", ""),
-                        "op_code": route_detail.get("opCode", "")
+                        "op_code": route_detail.get("opCode", ""),
+                        "first_status_code": route_detail.get("firstStatusCode", ""),
+                        "first_status_name": route_detail.get("firstStatusName", ""),
+                        "secondary_status_code": route_detail.get("secondaryStatusCode", ""),
+                        "secondary_status_name": route_detail.get("secondaryStatusName", "")
                     }
                     route_info["routes"].append(route_item)
 
-                # 确定快递状态
+                # 确定快递状态 (使用最新的路由记录)
                 if route_info["routes"]:
-                    latest_route = route_info["routes"][0]
+                    latest_route = route_info["routes"][-1]  # 最后一条是最新的
                     route_info["last_update"] = latest_route["accept_time"]
 
+                    # 使用 firstStatusCode 判断状态
+                    first_status_code = latest_route.get("first_status_code", "")
+                    first_status_name = latest_route.get("first_status_name", "")
                     op_code = latest_route.get("op_code", "")
-                    if op_code in ["80", "8000"]:
+
+                    # 根据一级状态码判断
+                    if first_status_code == "4" or op_code == "80":
                         route_info["status"] = "delivered"
+                        route_info["status_text"] = "已签收"
                         route_info["delivered_time"] = latest_route["accept_time"]
-                    elif op_code in ["70", "7000"]:
+                    elif first_status_code == "3":
                         route_info["status"] = "delivering"
-                    elif op_code in ["50", "5000"]:
+                        route_info["status_text"] = "派送中"
+                    elif first_status_code == "2":
                         route_info["status"] = "in_transit"
-                    elif op_code in ["10", "1000"]:
+                        route_info["status_text"] = "运送中"
+                    elif first_status_code == "1":
                         route_info["status"] = "picked_up"
+                        route_info["status_text"] = "已揽收"
                     else:
                         route_info["status"] = "processing"
+                        route_info["status_text"] = first_status_name or "处理中"
 
                 result[tracking_no] = route_info
 
         except (json.JSONDecodeError, KeyError, TypeError) as e:
+            import traceback
             logger.error(f"解析路由响应失败: {e}")
+            logger.error(f"完整堆栈:\n{traceback.format_exc()}")
 
         return result
 
