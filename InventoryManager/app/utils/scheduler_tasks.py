@@ -378,29 +378,3 @@ def get_device_status_summary() -> Dict:
         }
 
 
-def process_scheduled_shipments():
-    """
-    处理预约发货任务
-
-    供调度器定期调用
-    """
-    logger.info("开始执行定时发货任务")
-    start_time = datetime.now()
-
-    try:
-        from app.services.shipping.scheduler_shipping_task import process_scheduled_shipments as execute_shipments
-        result = execute_shipments()
-        logger.info(f"定时发货任务完成: {result}")
-        return result
-    except Exception as e:
-        logger.error(f"定时发货任务执行失败: {e}", exc_info=True)
-        return {
-            'total': 0,
-            'success': 0,
-            'failed': 0,
-            'error': str(e)
-        }
-    finally:
-        end_time = datetime.now()
-        duration = (end_time - start_time).total_seconds()
-        logger.info(f"定时发货任务耗时: {duration:.2f} 秒")

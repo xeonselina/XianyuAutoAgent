@@ -112,23 +112,73 @@ class SFExpressSDK:
             order_data: 订单数据
 
         Returns:
-            Dict: API 响应
+            Dict: API 响应，包含运单号信息
         """
         response = self._call_sf_express_service('EXP_RECE_CREATE_ORDER', order_data)
 
-        #response 的格式类似则样 {"apiErrorMsg":"","apiResponseID":"00019B128030A93FEC2951DF3A5B903F","apiResultCode":"A1000","apiResultData":"{\"success\":false,\"errorCode\":\"20003\",\"errorMsg\":\"联系人类型错误\",\"msgData\":null}"}
-        #请修改下面的成功错误的判断逻辑
-        # 解析响应
-        if response.get('apiResultCode') == 'A1000' and json.loads(response.get('apiResultData')).get('success') == True:
+        #response 的格式类似: {"apiErrorMsg":"","apiResponseID":"00019B128030A93FEC2951DF3A5B903F","apiResultCode":"A1000","apiResultData":"{\"success\":true,\"waybillNoInfoList\":[{\"waybillType\":1,\"waybillNo\":\"SF1234567890\"}]}"}
+
+        # 检查API调用是否成功
+        if response.get('apiResultCode') != 'A1000':
+            return {
+                'success': False,
+                'message': response.get('apiErrorMsg', '下单失败'),
+                'code': response.get('apiResultCode')
+            }
+
+        # 解析 apiResultData
+        try:
+            api_result_data_str = response.get('apiResultData', '{}')
+            api_result_data = json.loads(api_result_data_str) if isinstance(api_result_data_str, str) else api_result_data_str
+
+            if not api_result_data.get('success', False):
+                # 业务失败
+                error_msg = api_result_data.get('errorMsg', '下单失败')
+                error_code = api_result_data.get('errorCode', '')
+                logger.error(f"顺丰下单业务失败: {error_code} - {error_msg}")
+                return {
+                    'success': False,
+                    'message': f"{error_code}: {error_msg}" if error_code else error_msg,
+                    'code': response.get('apiResultCode')
+                }
+
+            # 提取运单号
+            waybill_no_info_list = api_result_data.get('waybillNoInfoList', [])
+            waybill_no = None
+
+            if waybill_no_info_list and len(waybill_no_info_list) > 0:
+                if len(waybill_no_info_list) > 1:
+                    logger.warning(f"waybillNoInfoList包含多个元素: {len(waybill_no_info_list)}, 仅使用第一个")
+                waybill_no = waybill_no_info_list[0].get('waybillNo')
+
+            if not waybill_no:
+                logger.error(f"顺丰API未返回运单号, apiResultData: {api_result_data_str}")
+                return {
+                    'success': False,
+                    'message': '顺丰API未返回运单号',
+                    'code': response.get('apiResultCode')
+                }
+
+            logger.info(f"顺丰下单成功，运单号: {waybill_no}")
             return {
                 'success': True,
                 'message': '下单成功',
-                'data': response.get('apiResultData')
+                'waybill_no': waybill_no,
+                'data': api_result_data
             }
-        else:
+
+        except json.JSONDecodeError as e:
+            logger.error(f"解析apiResultData失败: {e}, 原始数据: {response.get('apiResultData')}")
             return {
                 'success': False,
-                'message': response.get('apiResultData', '下单失败'),
+                'message': '顺丰API响应格式异常',
+                'code': response.get('apiResultCode')
+            }
+        except (KeyError, TypeError) as e:
+            logger.error(f"提取运单号失败: {e}, apiResultData: {response.get('apiResultData')}")
+            return {
+                'success': False,
+                'message': f'解析运单号失败: {str(e)}',
                 'code': response.get('apiResultCode')
             }
 

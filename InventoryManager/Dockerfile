@@ -49,6 +49,7 @@ RUN unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY && \
     libharfbuzz-dev \
     libfribidi-dev \
     libxcb1-dev \
+    poppler-utils \
     curl \
     vim \
     && rm -rf /var/lib/apt/lists/* \
