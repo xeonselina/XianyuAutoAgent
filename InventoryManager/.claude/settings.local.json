@@ -24,7 +24,10 @@
       "Bash(openspec validate:*)",
       "Bash(ls:*)",
       "Bash(openspec change show:*)",
-      "Bash(mysql:*)"
+      "Bash(mysql:*)",
+      "Bash(openspec archive batch-print-sf-waybills:*)",
+      "Bash(grep:*)",
+      "SlashCommand(/openspec:apply simplify-batch-shipping-flow)"
     ],
     "deny": [],
     "ask": [],

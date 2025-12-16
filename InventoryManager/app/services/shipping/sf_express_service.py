@@ -2,8 +2,12 @@
 顺丰速运 API 服务 - 速运下单接口
 """
 
-import os,re
+import os
+import re
 import logging
+import tempfile
+import requests
+import base64
 from typing import Dict, Optional
 from app.utils.sf.sf_sdk_wrapper import SFExpressSDK
 
@@ -36,12 +40,13 @@ class SFExpressService:
             test_mode=self.test_mode
         )
 
-    def place_shipping_order(self, rental) -> Dict:
+    def place_shipping_order(self, rental, scheduled_time) -> Dict:
         """
         下速运订单
 
         Args:
             rental: 租赁记录对象
+            scheduled_time: 预约发货时间（必需，datetime对象）
 
         Returns:
             Dict: API响应结果
@@ -55,11 +60,11 @@ class SFExpressService:
                     'message': '缺少收件人信息'
                 }
 
-            if not rental.ship_out_tracking_no:
-                logger.error(f"Rental {rental.id} 没有运单号")
+            if not scheduled_time:
+                logger.error(f"Rental {rental.id} 缺少预约发货时间")
                 return {
                     'success': False,
-                    'message': '没有运单号'
+                    'message': '缺少预约发货时间'
                 }
 
             # 获取快递类型，默认为2(标快)
@@ -77,10 +82,13 @@ class SFExpressService:
             receiver_phone = destination_info.get('phone', rental.customer_phone)
             receiver_address = destination_info.get('address', rental.destination)
 
+            # 格式化预约发货时间为 YYYY-MM-DD HH24:MM:SS
+            send_start_tm = scheduled_time.strftime('%Y-%m-%d %H:%M:%S')
+
             # 构建订单数据
             order_data = {
                 'language': 'zh-CN',
-                'orderId': f"R{rental.id}_{rental.ship_out_tracking_no}",  # 客户订单号
+                'orderId': f"R{rental.id}_{int(time.time())}",  # 客户订单号（使用时间戳）
                 'cargoDetails': [
                     {
                         'name': rental.device.device_model.name if rental.device and rental.device.device_model else '租赁设备',
@@ -107,8 +115,9 @@ class SFExpressService:
                 'expressTypeId': express_type_id,  # 使用租赁记录的快递类型
                 'payMethod': 1,  # 寄付月结
                 'remark': f"R{rental.customer_name}",
-                'waybillNoInfoList': [{'waybillType': 1,'waybillNo': rental.ship_out_tracking_no}],  # 运单号
-                'isGenWaybillNo': 0,
+                'sendStartTm': send_start_tm,  # 预约发货时间
+                'waybillNoInfoList': [{'waybillType': 1}],  # 运单号
+                'isGenWaybillNo': 1,
                 'isUnifiedWaybillNo': 1
             }
 
@@ -116,7 +125,7 @@ class SFExpressService:
             express_type_names = {1: '特快', 2: '标快', 6: '半日达'}
             express_type_name = express_type_names.get(express_type_id, '未知')
 
-            logger.info(f"顺丰下单: Rental {rental.id}, 运单号 {rental.ship_out_tracking_no}, 快递类型: {express_type_id}({express_type_name})")
+            logger.info(f"顺丰下单: Rental {rental.id}, 快递类型: {express_type_id}({express_type_name}), 预约时间: {send_start_tm}")
             logger.info(f"订单数据: {order_data}")
 
             # 调用顺丰SDK下单
@@ -156,6 +165,232 @@ class SFExpressService:
             return {
                 'success': False,
                 'message': f'SDK调用失败: {str(e)}'
+            }
+
+    def _download_pdf(self, pdf_url: str, pdf_token: str, waybill_no: str) -> bytes:
+        """
+        从顺丰服务器下载PDF文件
+
+        Args:
+            pdf_url: PDF文件下载地址
+            pdf_token: 认证token
+            waybill_no: 运单号（用于保存临时文件）
+
+        Returns:
+            bytes: PDF文件的二进制数据
+
+        Raises:
+            Exception: 下载失败时抛出异常
+        """
+        try:
+            logger.info(f"开始下载面单PDF: {waybill_no}")
+            logger.info(f"PDF URL: {pdf_url}")
+
+            # 设置请求头
+            headers = {
+                'X-Auth-Token': pdf_token
+            }
+
+            # 发送GET请求下载PDF
+            response = requests.get(pdf_url, headers=headers, timeout=30)
+            logger.info(f"下载面单PDF响应: {response.status_code}")
+            response.raise_for_status()
+
+            pdf_data = response.content
+            logger.info(f"下载面单PDF成功: {waybill_no}, 大小: {len(pdf_data)} 字节")
+
+            # 保存到临时目录用于调试
+            temp_dir = tempfile.gettempdir()
+            temp_file_path = os.path.join(temp_dir, f"sf_waybill_{waybill_no}.pdf")
+
+            logger.info(f"准备保存PDF到: {temp_dir}")
+            logger.info(f"完整路径: {temp_file_path}")
+
+            try:
+                with open(temp_file_path, 'wb') as f:
+                    bytes_written = f.write(pdf_data)
+                logger.info(f"写入了 {bytes_written} 字节到文件")
+
+                # 验证文件是否存在
+                if os.path.exists(temp_file_path):
+                    file_size = os.path.getsize(temp_file_path)
+                    logger.info(f"文件验证成功: {temp_file_path}, 大小: {file_size} 字节")
+                else:
+                    logger.error(f"文件写入后不存在: {temp_file_path}")
+            except Exception as write_error:
+                logger.error(f"写入文件失败: {write_error}", exc_info=True)
+
+            return pdf_data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"下载面单PDF失败: {waybill_no}, {e}")
+            raise Exception(f"下载面单PDF失败: {str(e)}") from e
+        except Exception as e:
+            logger.error(f"保存面单PDF到临时文件失败: {waybill_no}, {e}")
+            raise
+
+    def get_waybill_pdf(self, rental) -> Dict:
+        """
+        获取快递面单PDF
+        调用顺丰COM_RECE_CLOUD_PRINT_WAYBILLS接口
+
+        Args:
+            rental: 租赁记录对象
+
+        Returns:
+            Dict: {
+                'success': bool,
+                'pdf_data': bytes (可选),
+                'message': str
+            }
+        """
+        try:
+            logger.info(f"get_waybill_pdf 开始执行: Rental {rental.id}")
+
+            # 检查运单号
+            logger.info(f"Rental {rental.id}: 检查运单号")
+            if not rental.ship_out_tracking_no:
+                logger.error(f"Rental {rental.id} 缺少运单号")
+                return {
+                    'success': False,
+                    'message': '缺少运单号'
+                }
+            logger.info(f"Rental {rental.id}: 运单号 = {rental.ship_out_tracking_no}")
+
+            # 检查收件人信息
+            logger.info(f"Rental {rental.id}: 检查收件人信息")
+            if not rental.customer_name or not rental.customer_phone or not rental.destination:
+                logger.error(f"Rental {rental.id} 缺少收件人信息: customer_name={rental.customer_name}, phone={rental.customer_phone}, destination={rental.destination}")
+                return {
+                    'success': False,
+                    'message': '缺少收件人信息'
+                }
+            logger.info(f"Rental {rental.id}: 收件人信息完整")
+
+            # 解析目的地信息
+            destination_info = self._parse_destination(rental.destination)
+            receiver_name = destination_info.get('name', rental.customer_name)
+            receiver_phone = destination_info.get('phone', rental.customer_phone)
+            receiver_address = destination_info.get('address', rental.destination)
+
+            # 构建备注信息
+            remark_lines = [f"客户名：{rental.customer_name}"]
+
+            # 添加设备信息
+            if rental.device:
+                remark_lines.append(f"设备号：{rental.device.name}")
+
+            # 添加附件信息
+            if rental.child_rentals:
+                accessories = []
+                for child_rental in rental.child_rentals:
+                    if child_rental.device and child_rental.device.device_model:
+                        accessories.append(child_rental.device.device_model.name)
+                if accessories:
+                    remark_lines.append(f"附件：{'、'.join(accessories)}")
+
+            # 添加寄出日期
+            if rental.ship_out_time:
+                remark_lines.append(f"寄出日期：{rental.ship_out_time.strftime('%Y-%m-%d')}")
+
+            # 添加寄还时间
+            if rental.ship_in_time:
+                remark_lines.append(f"寄还时间：{rental.ship_in_time.strftime('%Y-%m-%d')} 16:00前")
+
+            remark = '\n'.join(remark_lines)
+
+            # 构建面单打印请求数据
+            waybill_data = {
+                'language': 'zh-CN',
+                'documents': [
+                    {
+                        'masterWaybillNo': rental.ship_out_tracking_no,
+                        'isPrintLogo': 'true',
+                        'remark': remark
+                    }
+                ],
+                'templateCode': 'fm_76130_standard_Y45WBDEO',  # 标准模板
+                'version': '2.0',
+                'fileType': 'pdf',  # 返回PDF格式
+                'sync': 1  # 同步返回
+            }
+
+            logger.info(f"Rental {rental.id}: 调用顺丰API获取面单PDF")
+            logger.info(f"Rental {rental.id}: 运单号 {rental.ship_out_tracking_no}")
+            logger.info(f"Rental {rental.id}: 面单请求数据: {waybill_data}")
+
+            # 调用顺丰SDK
+            logger.info(f"Rental {rental.id}: 开始调用顺丰SDK")
+            result = self.client._call_sf_express_service('COM_RECE_CLOUD_PRINT_WAYBILLS', waybill_data)
+            logger.info(f"Rental {rental.id}: 顺丰API原始响应: {result}")
+
+            # 检查API调用结果
+            logger.info(f"Rental {rental.id}: 检查API响应码")
+            if result.get('apiResultCode') != 'A1000':
+                error_msg = result.get('apiErrorMsg', '未知错误')
+                logger.error(f"Rental {rental.id}: 获取面单PDF失败，API错误码: {result.get('apiResultCode')}, 错误: {error_msg}")
+                return {
+                    'success': False,
+                    'message': f'顺丰API错误: {error_msg}'
+                }
+            logger.info(f"Rental {rental.id}: API响应码正常 (A1000)")
+
+            # 解析apiResultData
+            logger.info(f"Rental {rental.id}: 解析apiResultData")
+            import json
+            api_result_data = result.get('apiResultData', '{}')
+            logger.info(f"Rental {rental.id}: apiResultData类型: {type(api_result_data)}")
+            if isinstance(api_result_data, str):
+                logger.info(f"Rental {rental.id}: apiResultData是字符串，进行JSON解析")
+                api_result_data = json.loads(api_result_data)
+            logger.info(f"Rental {rental.id}: 解析后的apiResultData: {api_result_data}")
+
+            if not api_result_data.get('success', False):
+                error_msg = api_result_data.get('errorMsg', '未知错误')
+                logger.error(f"Rental {rental.id}: 业务处理失败: {error_msg}")
+                return {
+                    'success': False,
+                    'message': error_msg
+                }
+            logger.info(f"Rental {rental.id}: 业务处理成功")
+
+            # 获取面单文件信息
+            logger.info(f"Rental {rental.id}: 获取面单文件信息")
+            obj = api_result_data.get('obj', {})
+            logger.info(f"Rental {rental.id}: obj = {obj}")
+            files = obj.get('files', [])
+            logger.info(f"Rental {rental.id}: files数量 = {len(files)}")
+
+            if not files:
+                logger.error(f"Rental {rental.id}: 顺丰API未返回面单文件")
+                return {
+                    'success': False,
+                    'message': '未获取到面单文件'
+                }
+
+            pdf_url = files[0]['url']
+            pdf_token = files[0]['token']
+            logger.info(f"Rental {rental.id}: PDF URL = {pdf_url}")
+            logger.info(f"Rental {rental.id}: PDF Token = {pdf_token}")
+
+            # 下载 pdf 文件
+            logger.info(f"Rental {rental.id}: 开始下载PDF文件")
+            pdf_data = self._download_pdf(pdf_url, pdf_token, rental.ship_out_tracking_no)
+            logger.info(f"Rental {rental.id}: PDF下载完成，数据类型: {type(pdf_data)}, 长度: {len(pdf_data) if pdf_data else 0}")
+
+            return {
+                'success': True,
+                'pdf_data': pdf_data,
+                'message': '获取成功'
+            }
+
+        except Exception as e:
+            import traceback
+            logger.error(f"获取面单PDF异常: Rental {rental.id}, {e}")
+            logger.error(f"完整堆栈:\n{traceback.format_exc()}")
+            return {
+                'success': False,
+                'message': f'获取面单异常: {str(e)}'
             }
 
     def _parse_destination(self, destination: str) -> Dict[str, str]:

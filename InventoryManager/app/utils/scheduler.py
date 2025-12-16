@@ -51,34 +51,8 @@ def init_scheduler(app):
         # 创建后台调度器
         scheduler = BackgroundScheduler(daemon=True)
 
-        # 添加定时发货任务 - 每5分钟执行一次
-        try:
-            from app.services.shipping.scheduler_shipping_task import process_scheduled_shipments
-
-            # 包装任务函数，确保在应用上下文中运行
-            def run_with_app_context():
-                with app.app_context():
-                    logger.info(f'[Worker {os.getpid()}] 开始执行定时发货任务')
-                    try:
-                        return process_scheduled_shipments()
-                    except Exception as e:
-                        logger.error(f'[Worker {os.getpid()}] 定时发货任务执行失败: {e}', exc_info=True)
-                        return {'total': 0, 'success': 0, 'failed': 0, 'error': str(e)}
-
-            scheduler.add_job(
-                func=run_with_app_context,
-                trigger=IntervalTrigger(minutes=1),
-                id='process_scheduled_shipments',
-                name='处理预约发货任务',
-                replace_existing=True,
-                max_instances=1,  # 同时只允许一个实例运行
-                misfire_grace_time=300  # 5分钟宽限时间
-            )
-
-            logger.info('已添加定时发货任务: 每5分钟执行一次')
-
-        except Exception as e:
-            logger.error(f'添加定时发货任务失败: {e}')
+        # 可以在这里添加其他定时任务
+        # 注意：预约发货功能已改为立即下单，不再使用定时任务
 
         # 启动调度器
         try:

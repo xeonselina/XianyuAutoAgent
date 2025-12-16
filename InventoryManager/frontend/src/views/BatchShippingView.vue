@@ -37,6 +37,14 @@
             批量打印发货单
           </el-button>
           <el-button
+            @click="showWaybillPrintDialog"
+            type="primary"
+            :disabled="!hasWaybills"
+          >
+            <el-icon><Printer /></el-icon>
+            批量打印快递面单 ({{ waybillCount }})
+          </el-button>
+          <el-button
             @click="showScheduleDialog"
             type="warning"
             :disabled="!hasWaybills"
@@ -63,8 +71,7 @@
         <el-table-column label="状态" width="80">
           <template #default="{ row }">
             <el-tag v-if="row.status === 'shipped'" type="success">已发货</el-tag>
-            <el-tag v-else-if="row.ship_out_tracking_no" type="warning">已录入运单</el-tag>
-            <el-tag v-else type="info">未录入</el-tag>
+            <el-tag v-else type="info">待发货</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="ship_out_tracking_no" label="运单号" width="180" />
@@ -88,63 +95,7 @@
         </el-table-column>
       </el-table>
 
-      <!-- Scanning Instruction -->
-      <div class="scan-instruction">
-        <el-alert type="info" :closable="false">
-          <template #title>
-            <strong>扫码操作说明</strong>
-          </template>
-          使用扫码枪扫描发货单上的二维码，系统将自动识别并提示录入运单号
-        </el-alert>
-      </div>
     </el-card>
-
-    <!-- Rental Detail Dialog -->
-    <el-dialog
-      v-model="rentalDialogVisible"
-      title="租赁详情 - 请扫描顺丰面单"
-      width="600px"
-      :close-on-click-modal="false"
-    >
-      <div v-if="currentRental" class="rental-details">
-        <div class="detail-item">
-          <span class="label">租赁ID:</span>
-          <span class="value">{{ currentRental.rental_id }}</span>
-        </div>
-        <div class="detail-item">
-          <span class="label">客户姓名:</span>
-          <span class="value">{{ currentRental.customer_name }}</span>
-        </div>
-        <div class="detail-item">
-          <span class="label">联系电话:</span>
-          <span class="value">{{ currentRental.customer_phone }}</span>
-        </div>
-        <div class="detail-item">
-          <span class="label">收货地址:</span>
-          <span class="value">{{ currentRental.destination }}</span>
-        </div>
-        <div class="detail-item">
-          <span class="label">租赁设备:</span>
-          <span class="value">{{ currentRental.device_name }}</span>
-        </div>
-        <div class="detail-item" v-if="currentRental.accessories && currentRental.accessories.length > 0">
-          <span class="label">附件:</span>
-          <span class="value">{{ currentRental.accessories.join(', ') }}</span>
-        </div>
-        <div class="detail-item">
-          <span class="label">租赁时间:</span>
-          <span class="value">{{ currentRental.start_date }} 至 {{ currentRental.end_date }}</span>
-        </div>
-        <div class="detail-item" v-if="currentRental.ship_out_tracking_no">
-          <span class="label">已录入运单:</span>
-          <span class="value highlight">{{ currentRental.ship_out_tracking_no }}</span>
-        </div>
-      </div>
-
-      <template #footer>
-        <el-button @click="rentalDialogVisible = false">关闭</el-button>
-      </template>
-    </el-dialog>
 
     <!-- Schedule Shipping Dialog -->
     <el-dialog
@@ -153,7 +104,7 @@
       width="500px"
     >
       <div class="schedule-form">
-        <p>将为 <strong>{{ waybillCount }}</strong> 个已录入运单的订单预约发货</p>
+        <p>将为 <strong>{{ waybillCount }}</strong> 个未发货的订单预约发货（运单号将自动生成）</p>
         <el-form label-width="100px">
           <el-form-item label="发货时间:">
             <el-date-picker
@@ -174,11 +125,51 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- Waybill Print Dialog -->
+    <el-dialog
+      v-model="waybillPrintDialogVisible"
+      title="批量打印快递面单"
+      width="600px"
+      :close-on-click-modal="false"
+    >
+      <div v-if="printing" class="printing-status">
+        <el-progress :percentage="printProgress" :status="printProgress === 100 ? 'success' : undefined" />
+        <p style="text-align: center; margin-top: 10px">正在打印面单...</p>
+      </div>
+
+      <div v-if="printResults" class="print-results">
+        <el-alert
+          :type="printResults.failed_count === 0 ? 'success' : 'warning'"
+          :closable="false"
+        >
+          <template #title>
+            打印完成: 成功 {{ printResults.success_count }} / 失败 {{ printResults.failed_count }}
+          </template>
+        </el-alert>
+
+        <div v-if="printResults.failed_count > 0" class="failed-items">
+          <h4>失败项目:</h4>
+          <div
+            v-for="result in printResults.results.filter((r: any) => !r.success)"
+            :key="result.rental_id"
+            class="failed-item"
+          >
+            <span class="rental-id">订单 {{ result.rental_id }}:</span>
+            <span class="error-msg">{{ result.message }}</span>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <el-button @click="closeWaybillPrintDialog">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Search, Printer, Clock } from '@element-plus/icons-vue'
@@ -191,21 +182,20 @@ const router = useRouter()
 const dateRange = ref<[Date, Date] | null>(null)
 const rentals = ref<any[]>([])
 const loading = ref(false)
-const currentRental = ref<any>(null)
-const rentalDialogVisible = ref(false)
 const scheduleDialogVisible = ref(false)
 const scheduledTime = ref<string>(dayjs().add(1, 'hour').format('YYYY-MM-DDTHH:mm:ss'))
 const scheduling = ref(false)
 
-// Scanner state
-const scanBuffer = ref('')
-const scanTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
-const awaitingWaybill = ref(false)
+// Waybill printing state
+const waybillPrintDialogVisible = ref(false)
+const printing = ref(false)
+const printProgress = ref(0)
+const printResults = ref<any>(null)
 
 // Computed
-// 只统计未发货且有运单号的订单
-const hasWaybills = computed(() => rentals.value.some(r => r.ship_out_tracking_no && r.status !== 'shipped'))
-const waybillCount = computed(() => rentals.value.filter(r => r.ship_out_tracking_no && r.status !== 'shipped').length)
+// 统计未发货的订单（运单号将在预约时自动生成）
+const hasWaybills = computed(() => rentals.value.some(r => r.status !== 'shipped'))
+const waybillCount = computed(() => rentals.value.filter(r => r.status !== 'shipped').length)
 
 // Methods
 const goBack = () => {
@@ -260,9 +250,9 @@ const showScheduleDialog = () => {
 }
 
 const confirmSchedule = async () => {
-  // 只预约未发货且有运单号的订单
+  // 只预约未发货的订单
   const rentalIds = rentals.value
-    .filter(r => r.ship_out_tracking_no && r.status !== 'shipped')
+    .filter(r => r.status !== 'shipped')
     .map(r => r.id)
 
   if (rentalIds.length === 0) {
@@ -278,8 +268,15 @@ const confirmSchedule = async () => {
     })
 
     if (response.data.success) {
-      const { scheduled_count, failed_rentals } = response.data.data
-      ElMessage.success(`成功预约 ${scheduled_count} 个订单`)
+      const { scheduled_count, failed_rentals, results } = response.data.data
+
+      // 显示详细结果
+      if (failed_rentals && failed_rentals.length > 0) {
+        ElMessage.warning(`预约完成: 成功 ${scheduled_count} 个，失败 ${failed_rentals.length} 个`)
+      } else {
+        ElMessage.success(`成功预约 ${scheduled_count} 个订单，运单号已自动生成`)
+      }
+
       scheduleDialogVisible.value = false
       // Refresh rentals
       previewOrders()
@@ -314,121 +311,68 @@ const updateExpressType = async (rentalId: number, expressTypeId: number) => {
   }
 }
 
-// Barcode Scanner Handlers
-const handleKeyDown = async (event: KeyboardEvent) => {
-  // Clear existing timeout
-  if (scanTimeout.value) {
-    clearTimeout(scanTimeout.value)
-  }
+// Waybill Printing Methods
+const showWaybillPrintDialog = async () => {
+  // 只打印未发货且有运单号的订单
+  const rentalIds = rentals.value
+    .filter(r => r.ship_out_tracking_no && r.status !== 'shipped')
+    .map(r => r.id)
 
-  // Handle Enter key (end of scan)
-  if (event.key === 'Enter') {
-    if (scanBuffer.value.length > 0) {
-      await processScan(scanBuffer.value)
-      scanBuffer.value = ''
-    }
+  if (rentalIds.length === 0) {
+    ElMessage.warning('没有可打印的订单')
     return
   }
 
-  // Accumulate characters (only single char keys)
-  if (event.key.length === 1) {
-    scanBuffer.value += event.key
-
-    // Set timeout to clear buffer after 200ms of inactivity
-    scanTimeout.value = setTimeout(() => {
-      scanBuffer.value = ''
-    }, 200)
-  }
-}
-
-const processScan = async (value: string) => {
-  console.log('Scanned:', value)
-
-  // Pattern detection
-  if (/^\d+$/.test(value)) {
-    // Rental ID (pure digits)
-    await handleRentalScan(parseInt(value))
-  } else if (/^[A-Z0-9]{10,}$/i.test(value)) {
-    // SF Waybill (alphanumeric, 10+ chars)
-    if (awaitingWaybill.value && currentRental.value) {
-      await handleWaybillScan(value)
-    } else {
-      ElMessage.warning('请先扫描租赁订单二维码')
-    }
-  } else {
-    ElMessage.warning(`无法识别的扫码内容: ${value}`)
-  }
-}
-
-const handleRentalScan = async (rentalId: number) => {
-  try {
-    const response = await axios.post('/api/shipping-batch/scan-rental', {
-      rental_id: rentalId
-    })
-
-    if (response.data.success) {
-      currentRental.value = response.data.data
-      rentalDialogVisible.value = true
-      awaitingWaybill.value = true
-
-      // Voice prompt
-      speak('请扫描顺丰面单')
-    } else {
-      ElMessage.error(response.data.message)
-    }
-  } catch (error: any) {
-    ElMessage.error('查询租赁记录失败')
-  }
-}
-
-const handleWaybillScan = async (waybillNo: string) => {
-  if (!currentRental.value) return
+  // 显示对话框并立即开始打印
+  waybillPrintDialogVisible.value = true
+  printResults.value = null
+  printProgress.value = 0
 
   try {
-    const response = await axios.post('/api/shipping-batch/record-waybill', {
-      rental_id: currentRental.value.rental_id,
-      waybill_no: waybillNo
+    printing.value = true
+    printProgress.value = 0
+
+    const response = await axios.post('/api/shipping-batch/print-waybills', {
+      rental_ids: rentalIds
+      // 不传 printer_sn，使用后端默认打印机
     })
 
+    printProgress.value = 100
+
     if (response.data.success) {
-      ElMessage.success('运单号已录入')
-      rentalDialogVisible.value = false
-      awaitingWaybill.value = false
-      currentRental.value = null
+      printResults.value = response.data.data
 
-      // Voice prompt
-      speak('已录入')
-
-      // Refresh rentals
-      previewOrders()
+      if (printResults.value.failed_count === 0) {
+        ElMessage.success(`成功打印 ${printResults.value.success_count} 个面单`)
+        // 全部成功，2秒后自动关闭
+        setTimeout(() => {
+          if (printResults.value?.failed_count === 0) {
+            closeWaybillPrintDialog()
+          }
+        }, 2000)
+      } else {
+        ElMessage.warning(
+          `打印完成: 成功 ${printResults.value.success_count} 个，失败 ${printResults.value.failed_count} 个`
+        )
+      }
     } else {
-      ElMessage.error(response.data.message)
+      ElMessage.error(response.data.message || '打印失败')
     }
   } catch (error: any) {
-    ElMessage.error('录入运单号失败')
+    console.error('打印快递面单失败:', error)
+    ElMessage.error('打印快递面单失败')
+  } finally {
+    printing.value = false
   }
 }
 
-const speak = (text: string) => {
-  if (!window.speechSynthesis) return
-
-  const utterance = new SpeechSynthesisUtterance(text)
-  utterance.lang = 'zh-CN'
-  utterance.rate = 1.0
-  window.speechSynthesis.speak(utterance)
+const closeWaybillPrintDialog = () => {
+  waybillPrintDialogVisible.value = false
+  printResults.value = null
+  printProgress.value = 0
 }
 
-// Lifecycle
-onMounted(() => {
-  document.addEventListener('keydown', handleKeyDown)
-})
-
-onUnmounted(() => {
-  document.removeEventListener('keydown', handleKeyDown)
-  if (scanTimeout.value) {
-    clearTimeout(scanTimeout.value)
-  }
-})
+// Lifecycle hooks removed - no scanning needed
 </script>
 
 <style scoped>
@@ -525,5 +469,57 @@ onUnmounted(() => {
 .schedule-form p {
   margin-bottom: 20px;
   font-size: 15px;
+}
+
+.waybill-print-form {
+  padding: 20px 0;
+}
+
+.waybill-print-form p {
+  margin-bottom: 20px;
+  font-size: 15px;
+}
+
+.printing-status {
+  padding: 30px 0;
+}
+
+.print-results {
+  padding: 20px 0;
+}
+
+.failed-items {
+  margin-top: 20px;
+  padding: 15px;
+  background-color: #fef0f0;
+  border-radius: 4px;
+}
+
+.failed-items h4 {
+  margin: 0 0 10px 0;
+  color: #f56c6c;
+  font-size: 14px;
+}
+
+.failed-item {
+  padding: 8px 0;
+  border-bottom: 1px solid #fde2e2;
+  display: flex;
+  gap: 10px;
+}
+
+.failed-item:last-child {
+  border-bottom: none;
+}
+
+.failed-item .rental-id {
+  font-weight: 600;
+  color: #606266;
+  min-width: 100px;
+}
+
+.failed-item .error-msg {
+  color: #f56c6c;
+  flex: 1;
 }
 </style>
