@@ -51,8 +51,16 @@ def init_scheduler(app):
         # 创建后台调度器
         scheduler = BackgroundScheduler(daemon=True)
 
-        # 可以在这里添加其他定时任务
-        # 注意：预约发货功能已改为立即下单，不再使用定时任务
+        # 添加预约发货处理任务（每分钟执行一次）
+        from app.utils.scheduler_tasks import process_scheduled_shipments
+        scheduler.add_job(
+            func=process_scheduled_shipments,
+            trigger=IntervalTrigger(minutes=1),
+            id='process_scheduled_shipments',
+            name='处理预约发货订单',
+            replace_existing=True
+        )
+        logger.info('已注册定时任务: process_scheduled_shipments (每分钟执行)')
 
         # 启动调度器
         try:

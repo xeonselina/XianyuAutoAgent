@@ -378,3 +378,87 @@ def get_device_status_summary() -> Dict:
         }
 
 
+class ScheduledShippingProcessor:
+    """预约发货处理器 - 定时任务，将到达预约时间的订单状态改为已发货"""
+
+    def process_due_shipments(self):
+        """
+        处理到达预约时间的发货订单
+
+        查找status='scheduled_for_shipping'且scheduled_ship_time <= now的订单
+        将其状态改为'shipped'，设置ship_out_time，并调用闲鱼API同步发货信息
+        """
+        logger.info("开始执行预约发货定时任务")
+        start_time = datetime.now()
+
+        try:
+            from app.services.xianyu_order_service import get_xianyu_service
+            xianyu_service = get_xianyu_service()
+
+            # 查询到达预约时间的订单
+            now = datetime.utcnow()
+            due_rentals = Rental.query.filter(
+                Rental.status == 'scheduled_for_shipping',
+                Rental.scheduled_ship_time <= now
+            ).all()
+
+            logger.info(f"找到 {len(due_rentals)} 个需要发货的订单")
+
+            processed_count = 0
+            failed_count = 0
+
+            for rental in due_rentals:
+                try:
+                    logger.info(f"处理预约发货: Rental {rental.id}, 预约时间: {rental.scheduled_ship_time}")
+
+                    # 更新状态
+                    rental.status = 'shipped'
+                    rental.ship_out_time = datetime.utcnow()
+
+                    # 如果有闲鱼订单号，调用闲鱼API同步
+                    if rental.xianyu_order_no:
+                        logger.info(f"Rental {rental.id} 有闲鱼订单号，调用闲鱼API同步")
+                        xianyu_result = xianyu_service.ship_order(rental)
+
+                        if not xianyu_result.get('success') and not xianyu_result.get('skipped'):
+                            error_msg = xianyu_result.get('message', '未知错误')
+                            logger.error(f"Rental {rental.id} 闲鱼同步失败: {error_msg}")
+                            # 闲鱼同步失败，回滚事务，下次重试
+                            db.session.rollback()
+                            failed_count += 1
+                            continue
+
+                    # 提交事务
+                    db.session.commit()
+                    processed_count += 1
+                    logger.info(f"Rental {rental.id} 预约发货处理成功")
+
+                except Exception as e:
+                    import traceback
+                    logger.error(f"处理 Rental {rental.id} 时发生异常: {e}")
+                    logger.error(f"完整堆栈:\\n{traceback.format_exc()}")
+                    db.session.rollback()
+                    failed_count += 1
+
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+            logger.info(f"预约发货定时任务执行完成: 成功 {processed_count} 个, 失败 {failed_count} 个, 耗时: {duration:.2f} 秒")
+
+        except Exception as e:
+            import traceback
+            logger.error(f"预约发货定时任务执行失败: {e}")
+            logger.error(f"完整堆栈:\\n{traceback.format_exc()}")
+
+
+# 全局调度器实例
+scheduled_shipping_processor = ScheduledShippingProcessor()
+
+
+def process_scheduled_shipments():
+    """
+    处理预约发货的入口函数
+    供外部调用
+    """
+    scheduled_shipping_processor.process_due_shipments()
+
+

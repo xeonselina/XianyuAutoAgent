@@ -57,19 +57,19 @@ def schedule_shipment():
         results = []
 
         for rental in rentals:
-            # 跳过已发货的订单
-            if rental.status == 'shipped':
-                logger.info(f"Rental {rental.id} 已发货，跳过")
+            # 跳过已发货或已预约发货的订单
+            if rental.status in ('shipped', 'scheduled_for_shipping'):
+                logger.info(f"Rental {rental.id} 已发货或已预约发货，跳过")
                 result_item = {
                     'success': False,
                     'rental_id': rental.id,
-                    'message': '订单已发货',
+                    'message': '订单已发货或已预约发货',
                     'waybill_no': None
                 }
                 results.append(result_item)
                 failed_rentals.append({
                     'id': rental.id,
-                    'reason': '订单已发货',
+                    'reason': '订单已发货或已预约发货',
                     'waybill_no': None
                 })
                 continue
@@ -117,33 +117,14 @@ def schedule_shipment():
 
                 logger.info(f"Rental {rental.id} 顺丰下单成功，运单号: {waybill_no}")
 
-                # 保存运单号到数据库
+                # 保存运单号和预约时间到数据库
                 rental.ship_out_tracking_no = waybill_no
-
-                # 2. 调用闲鱼API发货通知（如果有闲鱼订单号）
-                if rental.xianyu_order_no:
-                    xianyu_result = xianyu_service.ship_order(rental)
-                    if not xianyu_result.get('success') and not xianyu_result.get('skipped'):
-                        error_msg = xianyu_result.get('message', '未知错误')
-                        logger.error(f"Rental {rental.id} 闲鱼发货通知失败: {error_msg}")
-                        result_item = {
-                            'success': False,
-                            'rental_id': rental.id,
-                            'message': f'闲鱼发货失败: {error_msg}',
-                            'waybill_no': waybill_no
-                        }
-                        results.append(result_item)
-                        failed_rentals.append({
-                            'id': rental.id,
-                            'reason': f'闲鱼发货失败: {error_msg}',
-                            'waybill_no': waybill_no
-                        })
-                        continue
-
-                # 3. 更新租赁记录状态
                 rental.scheduled_ship_time = scheduled_time
-                rental.status = 'shipped'
-                rental.ship_out_time = datetime.utcnow()
+
+                # 2. 更新状态为'scheduled_for_shipping'（预约发货）
+                # 注意：不再立即调用闲鱼API，而是由定时任务在预约时间到达时处理
+                rental.status = 'scheduled_for_shipping'
+                # ship_out_time 保持原值不变，将由定时任务在实际发货时设置为当前时间
 
                 success_count += 1
                 result_item = {

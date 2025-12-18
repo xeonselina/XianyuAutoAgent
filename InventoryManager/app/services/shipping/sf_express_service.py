@@ -8,6 +8,7 @@ import logging
 import tempfile
 import requests
 import base64
+import time
 from typing import Dict, Optional
 from app.utils.sf.sf_sdk_wrapper import SFExpressSDK
 
@@ -88,7 +89,7 @@ class SFExpressService:
             # 构建订单数据
             order_data = {
                 'language': 'zh-CN',
-                'orderId': f"R{rental.id}_{int(time.time())}",  # 客户订单号（使用时间戳）
+                'orderId': f"R{rental.id}_{rental.customer_name}",  # 客户订单号（使用时间戳）
                 'cargoDetails': [
                     {
                         'name': rental.device.device_model.name if rental.device and rental.device.device_model else '租赁设备',

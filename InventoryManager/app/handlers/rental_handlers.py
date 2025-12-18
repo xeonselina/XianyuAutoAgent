@@ -479,12 +479,17 @@ class RentalHandlers:
             query_end_date = datetime.combine(end_date, datetime.max.time())
             query_start_date = datetime.combine(start_date, datetime.min.time())
 
+            # 查询已发货的订单（使用 ship_out_time）和预约发货的订单（使用 scheduled_ship_time）
+
             rentals = Rental.query.filter(
                 Rental.ship_out_time >= query_start_date,
                 Rental.ship_out_time <= query_end_date,
                 Rental.parent_rental_id.is_(None),
                 Rental.status != 'cancelled'
-            ).order_by(Rental.ship_out_time.asc()).all()
+            ).order_by(
+                # 按实际发货时间或预约时间排序
+                Rental.ship_out_time.asc()
+            ).all()
 
             # 构建响应数据
             rentals_data = [rental.to_dict() for rental in rentals]
