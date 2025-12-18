@@ -47,10 +47,10 @@
           <el-button
             @click="showScheduleDialog"
             type="warning"
-            :disabled="!hasWaybills"
+            :disabled="!hasUnshipped"
           >
             <el-icon><Clock /></el-icon>
-            预约发货 ({{ waybillCount }})
+            预约发货 ({{ unshippedCount }})
           </el-button>
         </div>
       </div>
@@ -68,9 +68,10 @@
           </template>
         </el-table-column>
         <el-table-column prop="destination" label="地址" min-width="260" show-overflow-tooltip />
-        <el-table-column label="状态" width="80">
+        <el-table-column label="状态" width="100">
           <template #default="{ row }">
             <el-tag v-if="row.status === 'shipped'" type="success">已发货</el-tag>
+            <el-tag v-else-if="row.status === 'scheduled_for_shipping'" type="warning">预约发货</el-tag>
             <el-tag v-else type="info">待发货</el-tag>
           </template>
         </el-table-column>
@@ -93,6 +94,20 @@
             {{ row.scheduled_ship_time ? formatDateTime(row.scheduled_ship_time) : '-' }}
           </template>
         </el-table-column>
+        <el-table-column label="操作" width="100">
+          <template #default="{ row }">
+            <el-button
+              v-if="row.status === 'scheduled_for_shipping' && row.ship_out_tracking_no"
+              @click="printSingle(row.id)"
+              type="primary"
+              size="small"
+              link
+            >
+              <el-icon><Printer /></el-icon>
+              打印
+            </el-button>
+          </template>
+        </el-table-column>
       </el-table>
 
     </el-card>
@@ -104,7 +119,7 @@
       width="500px"
     >
       <div class="schedule-form">
-        <p>将为 <strong>{{ waybillCount }}</strong> 个未发货的订单预约发货（运单号将自动生成）</p>
+        <p>将为 <strong>{{ unshippedCount }}</strong> 个未发货的订单预约发货（运单号将自动生成）</p>
         <el-form label-width="100px">
           <el-form-item label="发货时间:">
             <el-date-picker
@@ -193,9 +208,13 @@ const printProgress = ref(0)
 const printResults = ref<any>(null)
 
 // Computed
-// 统计未发货的订单（运单号将在预约时自动生成）
-const hasWaybills = computed(() => rentals.value.some(r => r.status !== 'shipped'))
-const waybillCount = computed(() => rentals.value.filter(r => r.status !== 'shipped').length)
+// 统计未发货的订单（用于预约发货）- 排除已发货和已预约发货的订单
+const hasUnshipped = computed(() => rentals.value.some(r => r.status !== 'shipped' && r.status !== 'scheduled_for_shipping'))
+const unshippedCount = computed(() => rentals.value.filter(r => r.status !== 'shipped' && r.status !== 'scheduled_for_shipping').length)
+
+// 统计预约发货状态且有运单号和预约时间的订单（用于打印面单）
+const hasWaybills = computed(() => rentals.value.some(r => r.status === 'scheduled_for_shipping' && r.ship_out_tracking_no && r.scheduled_ship_time))
+const waybillCount = computed(() => rentals.value.filter(r => r.status === 'scheduled_for_shipping' && r.ship_out_tracking_no && r.scheduled_ship_time).length)
 
 // Methods
 const goBack = () => {
@@ -313,13 +332,13 @@ const updateExpressType = async (rentalId: number, expressTypeId: number) => {
 
 // Waybill Printing Methods
 const showWaybillPrintDialog = async () => {
-  // 只打印未发货且有运单号的订单
+  // 只打印预约发货状态且有运单号和预约时间的订单
   const rentalIds = rentals.value
-    .filter(r => r.ship_out_tracking_no && r.status !== 'shipped')
+    .filter(r => r.status === 'scheduled_for_shipping' && r.ship_out_tracking_no && r.scheduled_ship_time)
     .map(r => r.id)
 
   if (rentalIds.length === 0) {
-    ElMessage.warning('没有可打印的订单')
+    ElMessage.warning('没有可打印的订单（需要先预约发货）')
     return
   }
 
@@ -370,6 +389,30 @@ const closeWaybillPrintDialog = () => {
   waybillPrintDialogVisible.value = false
   printResults.value = null
   printProgress.value = 0
+}
+
+// Individual Print Method
+const printSingle = async (rentalId: number) => {
+  try {
+    const response = await axios.post('/api/shipping-batch/print-waybills', {
+      rental_ids: [rentalId]
+    })
+
+    if (response.data.success) {
+      const result = response.data.data
+      if (result.failed_count === 0) {
+        ElMessage.success('面单打印成功')
+      } else {
+        const errorMsg = result.results[0]?.message || '打印失败'
+        ElMessage.error(`打印失败: ${errorMsg}`)
+      }
+    } else {
+      ElMessage.error(response.data.message || '打印失败')
+    }
+  } catch (error: any) {
+    console.error('打印失败:', error)
+    ElMessage.error('打印失败')
+  }
 }
 
 // Lifecycle hooks removed - no scanning needed

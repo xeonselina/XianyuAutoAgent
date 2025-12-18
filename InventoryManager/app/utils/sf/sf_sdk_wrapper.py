@@ -116,7 +116,9 @@ class SFExpressSDK:
         """
         response = self._call_sf_express_service('EXP_RECE_CREATE_ORDER', order_data)
 
-        #response 的格式类似: {"apiErrorMsg":"","apiResponseID":"00019B128030A93FEC2951DF3A5B903F","apiResultCode":"A1000","apiResultData":"{\"success\":true,\"waybillNoInfoList\":[{\"waybillType\":1,\"waybillNo\":\"SF1234567890\"}]}"}
+        # response 的格式:
+        # {"apiErrorMsg":"","apiResponseID":"xxx","apiResultCode":"A1000",
+        #  "apiResultData":"{\"success\":true,\"errorCode\":\"S0000\",\"msgData\":{\"waybillNoInfoList\":[{\"waybillType\":1,\"waybillNo\":\"SF1234567890\"}]}}"}
 
         # 检查API调用是否成功
         if response.get('apiResultCode') != 'A1000':
@@ -142,8 +144,9 @@ class SFExpressSDK:
                     'code': response.get('apiResultCode')
                 }
 
-            # 提取运单号
-            waybill_no_info_list = api_result_data.get('waybillNoInfoList', [])
+            # 提取运单号 - 从 msgData.waybillNoInfoList 中获取
+            msg_data = api_result_data.get('msgData', {})
+            waybill_no_info_list = msg_data.get('waybillNoInfoList', [])
             waybill_no = None
 
             if waybill_no_info_list and len(waybill_no_info_list) > 0:

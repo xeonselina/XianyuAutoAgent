@@ -184,11 +184,7 @@ class KuaimaiPrintService:
 
         try:
             # 构建XML字符串，将base64图像嵌入到<img>标签中
-            xml_str = f'''<page>
-  <render width="{width}" height="{height}">
-    <img x='1' y='1'>{base64_image}</img>
-  </render>
-</page>'''
+            xml_str = f'''<page><render width="{width}" height="{height}"><img x='1' y='1'>{base64_image}</img></render></page>'''
 
             logger.debug(f"XML长度: {len(xml_str)} 字符")
 

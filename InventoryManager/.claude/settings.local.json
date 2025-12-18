@@ -27,7 +27,9 @@
       "Bash(mysql:*)",
       "Bash(openspec archive batch-print-sf-waybills:*)",
       "Bash(grep:*)",
-      "SlashCommand(/openspec:apply simplify-batch-shipping-flow)"
+      "SlashCommand(/openspec:apply simplify-batch-shipping-flow)",
+      "SlashCommand(/openspec:proposal add-scheduled-shipping-status)",
+      "Bash(flask db revision:*)"
     ],
     "deny": [],
     "ask": [],

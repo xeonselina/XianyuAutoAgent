@@ -52,8 +52,13 @@ RUN unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY && \
     poppler-utils \
     curl \
     vim \
+    tzdata \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
+
+# 设置系统时区为东8区（北京时间）
+ENV TZ=Asia/Shanghai
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # 复制requirements文件并安装Python依赖
 COPY requirements.txt .

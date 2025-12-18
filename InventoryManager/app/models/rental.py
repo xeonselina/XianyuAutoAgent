@@ -41,7 +41,7 @@ class Rental(db.Model):
     
     # 状态信息
     status = db.Column(
-        db.Enum('not_shipped', 'shipped', 'returned', 'completed', 'cancelled', name='rental_status'),
+        db.Enum('not_shipped', 'scheduled_for_shipping', 'shipped', 'returned', 'completed', 'cancelled', name='rental_status'),
         default='not_shipped',
         comment='租赁状态'
     )
