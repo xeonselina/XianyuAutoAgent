@@ -275,11 +275,11 @@ class SFExpressService:
             receiver_address = destination_info.get('address', rental.destination)
 
             # 构建备注信息
-            remark_lines = [f"客户名：{rental.customer_name}"]
+            remark = f"客户名：{rental.customer_name}| "
 
             # 添加设备信息
             if rental.device:
-                remark_lines.append(f"设备号：{rental.device.name}")
+                remark+=f"设备号：{rental.device.name}| "
 
             # 添加附件信息
             if rental.child_rentals:
@@ -288,17 +288,15 @@ class SFExpressService:
                     if child_rental.device and child_rental.device.device_model:
                         accessories.append(child_rental.device.device_model.name)
                 if accessories:
-                    remark_lines.append(f"附件：{'、'.join(accessories)}")
+                    remark+=f"附件：{'、'.join(accessories)}| "
 
             # 添加寄出日期
             if rental.ship_out_time:
-                remark_lines.append(f"寄出日期：{rental.ship_out_time.strftime('%Y-%m-%d')}")
+                remark+=f"\n寄出日期：{rental.ship_out_time.strftime('%Y-%m-%d')}| "
 
             # 添加寄还时间
             if rental.ship_in_time:
-                remark_lines.append(f"寄还时间：{rental.ship_in_time.strftime('%Y-%m-%d')} 16:00前")
-
-            remark = '\n'.join(remark_lines)
+                remark+=f"寄还时间：{rental.ship_in_time.strftime('%Y-%m-%d')} 16:00前"
 
             # 构建面单打印请求数据
             waybill_data = {

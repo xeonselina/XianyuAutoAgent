@@ -3,186 +3,51 @@ import json
 import asyncio
 import time
 import os
-import websockets
 from loguru import logger
 from dotenv import load_dotenv
 from XianyuApis import XianyuApis
 import sys
+from typing import Optional
 
-
-from utils.xianyu_utils import generate_mid, generate_uuid, trans_cookies, generate_device_id, decrypt
+from utils.xianyu_utils import trans_cookies, decrypt
 from XianyuAgent import XianyuReplyBot
 from context_manager import ChatContextManager
+from messaging_core import MessageTransport, XianyuMessageCodec, MessageType, Message
+from transports import DirectWebSocketTransport, BrowserWebSocketTransport
+from browser_controller import BrowserConfig
 
 
 class XianyuLive:
-    def __init__(self, cookies_str):
+    def __init__(self, cookies_str: str, transport: MessageTransport, bot: XianyuReplyBot):
+        """
+        初始化闲鱼客服系统
+
+        Args:
+            cookies_str: Cookie 字符串
+            transport: 消息传输实现
+            bot: AI 回复机器人
+        """
         self.xianyu = XianyuApis()
-        self.base_url = 'wss://wss-goofish.dingtalk.com/'
         self.cookies_str = cookies_str
         self.cookies = trans_cookies(cookies_str)
-        self.xianyu.session.cookies.update(self.cookies)  # 直接使用 session.cookies.update
+        self.xianyu.session.cookies.update(self.cookies)
         self.myid = self.cookies['unb']
-        self.device_id = generate_device_id(self.myid)
         self.context_manager = ChatContextManager()
-        
-        # 心跳相关配置
-        self.heartbeat_interval = int(os.getenv("HEARTBEAT_INTERVAL", "15"))  # 心跳间隔，默认15秒
-        self.heartbeat_timeout = int(os.getenv("HEARTBEAT_TIMEOUT", "5"))     # 心跳超时，默认5秒
-        self.last_heartbeat_time = 0
-        self.last_heartbeat_response = 0
-        self.heartbeat_task = None
-        self.ws = None
-        
-        # Token刷新相关配置
-        self.token_refresh_interval = int(os.getenv("TOKEN_REFRESH_INTERVAL", "3600"))  # Token刷新间隔，默认1小时
-        self.token_retry_interval = int(os.getenv("TOKEN_RETRY_INTERVAL", "300"))       # Token重试间隔，默认5分钟
-        self.last_token_refresh_time = 0
-        self.current_token = None
-        self.token_refresh_task = None
-        self.connection_restart_flag = False  # 连接重启标志
-        
+
+        # 注入传输层和 AI 机器人
+        self.transport = transport
+        self.bot = bot
+
         # 人工接管相关配置
         self.manual_mode_conversations = set()  # 存储处于人工接管模式的会话ID
         self.manual_mode_timeout = int(os.getenv("MANUAL_MODE_TIMEOUT", "3600"))  # 人工接管超时时间，默认1小时
         self.manual_mode_timestamps = {}  # 记录进入人工模式的时间
-        
+
         # 消息过期时间配置
         self.message_expire_time = int(os.getenv("MESSAGE_EXPIRE_TIME", "300000"))  # 消息过期时间，默认5分钟
-        
+
         # 人工接管关键词，从环境变量读取
         self.toggle_keywords = os.getenv("TOGGLE_KEYWORDS", "。")
-
-    async def refresh_token(self):
-        """刷新token"""
-        try:
-            logger.info("开始刷新token...")
-            
-            # 获取新token（如果Cookie失效，get_token会直接退出程序）
-            token_result = self.xianyu.get_token(self.device_id)
-            if 'data' in token_result and 'accessToken' in token_result['data']:
-                new_token = token_result['data']['accessToken']
-                self.current_token = new_token
-                self.last_token_refresh_time = time.time()
-                logger.info("Token刷新成功")
-                return new_token
-            else:
-                logger.error(f"Token刷新失败: {token_result}")
-                return None
-                
-        except Exception as e:
-            logger.error(f"Token刷新异常: {str(e)}")
-            return None
-
-    async def token_refresh_loop(self):
-        """Token刷新循环"""
-        while True:
-            try:
-                current_time = time.time()
-                
-                # 检查是否需要刷新token
-                if current_time - self.last_token_refresh_time >= self.token_refresh_interval:
-                    logger.info("Token即将过期，准备刷新...")
-                    
-                    new_token = await self.refresh_token()
-                    if new_token:
-                        logger.info("Token刷新成功，准备重新建立连接...")
-                        # 设置连接重启标志
-                        self.connection_restart_flag = True
-                        # 关闭当前WebSocket连接，触发重连
-                        if self.ws:
-                            await self.ws.close()
-                        break
-                    else:
-                        logger.error("Token刷新失败，将在{}分钟后重试".format(self.token_retry_interval // 60))
-                        await asyncio.sleep(self.token_retry_interval)  # 使用配置的重试间隔
-                        continue
-                
-                # 每分钟检查一次
-                await asyncio.sleep(60)
-                
-            except Exception as e:
-                logger.error(f"Token刷新循环出错: {e}")
-                await asyncio.sleep(60)
-
-    async def send_msg(self, ws, cid, toid, text):
-        text = {
-            "contentType": 1,
-            "text": {
-                "text": text
-            }
-        }
-        text_base64 = str(base64.b64encode(json.dumps(text).encode('utf-8')), 'utf-8')
-        msg = {
-            "lwp": "/r/MessageSend/sendByReceiverScope",
-            "headers": {
-                "mid": generate_mid()
-            },
-            "body": [
-                {
-                    "uuid": generate_uuid(),
-                    "cid": f"{cid}@goofish",
-                    "conversationType": 1,
-                    "content": {
-                        "contentType": 101,
-                        "custom": {
-                            "type": 1,
-                            "data": text_base64
-                        }
-                    },
-                    "redPointPolicy": 0,
-                    "extension": {
-                        "extJson": "{}"
-                    },
-                    "ctx": {
-                        "appVersion": "1.0",
-                        "platform": "web"
-                    },
-                    "mtags": {},
-                    "msgReadStatusSetting": 1
-                },
-                {
-                    "actualReceivers": [
-                        f"{toid}@goofish",
-                        f"{self.myid}@goofish"
-                    ]
-                }
-            ]
-        }
-        await ws.send(json.dumps(msg))
-
-    async def init(self, ws):
-        # 如果没有token或者token过期，获取新token
-        if not self.current_token or (time.time() - self.last_token_refresh_time) >= self.token_refresh_interval:
-            logger.info("获取初始token...")
-            await self.refresh_token()
-        
-        if not self.current_token:
-            logger.error("无法获取有效token，初始化失败")
-            raise Exception("Token获取失败")
-            
-        msg = {
-            "lwp": "/reg",
-            "headers": {
-                "cache-header": "app-key token ua wv",
-                "app-key": "444e9908a51d1cb236a27862abc769c9",
-                "token": self.current_token,
-                "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 DingTalk(2.1.5) OS(Windows/10) Browser(Chrome/133.0.0.0) DingWeb/2.1.5 IMPaaS DingWeb/2.1.5",
-                "dt": "j",
-                "wv": "im:3,au:3,sy:6",
-                "sync": "0,0;0;0;",
-                "did": self.device_id,
-                "mid": generate_mid()
-            }
-        }
-        await ws.send(json.dumps(msg))
-        # 等待一段时间，确保连接注册完成
-        await asyncio.sleep(1)
-        msg = {"lwp": "/r/SyncStatus/ackDiff", "headers": {"mid": "5701741704675979 0"}, "body": [
-            {"pipeline": "sync", "tooLong2Tag": "PNM,1", "channel": "sync", "topic": "sync", "highPts": 0,
-             "pts": int(time.time() * 1000) * 1000, "seq": 0, "timestamp": int(time.time() * 1000)}]}
-        await ws.send(json.dumps(msg))
-        logger.info('连接注册完成')
 
     def is_chat_message(self, message):
         """判断是否为用户聊天消息"""
@@ -280,136 +145,109 @@ class XianyuLive:
             self.enter_manual_mode(chat_id)
             return "manual"
 
-    async def handle_message(self, message_data, websocket):
-        """处理所有类型的消息"""
+    async def handle_message(self, message_data: dict) -> None:
+        """
+        处理接收到的消息
+
+        Args:
+            message_data: 原始消息数据
+        """
         try:
+            # 使用消息编解码器解码消息
+            decoded_message = XianyuMessageCodec.decode_message(message_data)
+            if not decoded_message:
+                # 检查是否为订单消息 (需要特殊处理因为不会被 decode_message 解析)
+                if self.is_sync_package(message_data):
+                    sync_data = message_data["body"]["syncPushPackage"]["data"][0]
+                    if "data" in sync_data:
+                        try:
+                            data = sync_data["data"]
+                            try:
+                                data_decoded = base64.b64decode(data).decode("utf-8")
+                                message = json.loads(data_decoded)
+                                return
+                            except Exception:
+                                decrypted_data = decrypt(data)
+                                message = json.loads(decrypted_data)
 
-            try:
-                message = message_data
-                ack = {
-                    "code": 200,
-                    "headers": {
-                        "mid": message["headers"]["mid"] if "mid" in message["headers"] else generate_mid(),
-                        "sid": message["headers"]["sid"] if "sid" in message["headers"] else '',
-                    }
-                }
-                if 'app-key' in message["headers"]:
-                    ack["headers"]["app-key"] = message["headers"]["app-key"]
-                if 'ua' in message["headers"]:
-                    ack["headers"]["ua"] = message["headers"]["ua"]
-                if 'dt' in message["headers"]:
-                    ack["headers"]["dt"] = message["headers"]["dt"]
-                await websocket.send(json.dumps(ack))
-            except Exception as e:
-                pass
-
-            # 如果不是同步包消息，直接返回
-            if not self.is_sync_package(message_data):
+                                # 处理订单消息
+                                if '3' in message and 'redReminder' in message['3']:
+                                    user_id = message['1'].split('@')[0]
+                                    user_url = f'https://www.goofish.com/personal?userId={user_id}'
+                                    reminder = message['3']['redReminder']
+                                    if reminder == '等待买家付款':
+                                        logger.info(f'等待买家 {user_url} 付款')
+                                    elif reminder == '交易关闭':
+                                        logger.info(f'买家 {user_url} 交易关闭')
+                                    elif reminder == '等待卖家发货':
+                                        logger.info(f'交易成功 {user_url} 等待卖家发货')
+                                    return
+                        except Exception:
+                            pass
                 return
 
-            # 获取并解密数据
-            sync_data = message_data["body"]["syncPushPackage"]["data"][0]
-            
-            # 检查是否有必要的字段
-            if "data" not in sync_data:
-                logger.debug("同步包中无data字段")
+            # 提取标准化消息
+            std_message = XianyuMessageCodec.extract_message_data(decoded_message)
+            if not std_message:
                 return
 
-            # 解密数据
-            try:
-                data = sync_data["data"]
-                try:
-                    data = base64.b64decode(data).decode("utf-8")
-                    data = json.loads(data)
-                    # logger.info(f"无需解密 message: {data}")
-                    return
-                except Exception as e:
-                    # logger.info(f'加密数据: {data}')
-                    decrypted_data = decrypt(data)
-                    message = json.loads(decrypted_data)
-            except Exception as e:
-                logger.error(f"消息解密失败: {e}")
-                return
-
-            try:
-                # 判断是否为订单消息,需要自行编写付款后的逻辑
-                if message['3']['redReminder'] == '等待买家付款':
-                    user_id = message['1'].split('@')[0]
-                    user_url = f'https://www.goofish.com/personal?userId={user_id}'
-                    logger.info(f'等待买家 {user_url} 付款')
-                    return
-                elif message['3']['redReminder'] == '交易关闭':
-                    user_id = message['1'].split('@')[0]
-                    user_url = f'https://www.goofish.com/personal?userId={user_id}'
-                    logger.info(f'买家 {user_url} 交易关闭')
-                    return
-                elif message['3']['redReminder'] == '等待卖家发货':
-                    user_id = message['1'].split('@')[0]
-                    user_url = f'https://www.goofish.com/personal?userId={user_id}'
-                    logger.info(f'交易成功 {user_url} 等待卖家发货')
-                    return
-
-            except:
-                pass
-
-            # 判断消息类型
-            if self.is_typing_status(message):
+            # 处理不同类型的消息
+            if std_message.message_type == MessageType.TYPING:
                 logger.debug("用户正在输入")
                 return
-            elif not self.is_chat_message(message):
-                logger.debug("其他非聊天消息")
-                logger.debug(f"原始消息: {message}")
+            elif std_message.message_type == MessageType.SYSTEM:
+                logger.debug("系统消息，跳过处理")
+                return
+            elif std_message.message_type == MessageType.ORDER:
+                logger.info(f"订单消息: {std_message.content}")
+                return
+            elif std_message.message_type != MessageType.CHAT:
+                logger.debug(f"其他类型消息: {std_message.message_type}")
                 return
 
             # 处理聊天消息
-            create_time = int(message["1"]["5"])
-            send_user_name = message["1"]["10"]["reminderTitle"]
-            send_user_id = message["1"]["10"]["senderUserId"]
-            send_message = message["1"]["10"]["reminderContent"]
-            
-            # 时效性验证（过滤5分钟前消息）
-            if (time.time() * 1000 - create_time) > self.message_expire_time:
-                logger.debug("过期消息丢弃")
-                return
-                
-            # 获取商品ID和会话ID
-            url_info = message["1"]["10"]["reminderUrl"]
-            item_id = url_info.split("itemId=")[1].split("&")[0] if "itemId=" in url_info else None
-            chat_id = message["1"]["2"].split('@')[0]
-            
+            chat_id = std_message.chat_id
+            user_id = std_message.user_id
+            content = std_message.content
+            item_id = std_message.item_id
+
             if not item_id:
                 logger.warning("无法获取商品ID")
                 return
 
+            # 时效性验证（过滤5分钟前消息）
+            if std_message.timestamp and (time.time() * 1000 - std_message.timestamp) > self.message_expire_time:
+                logger.debug("过期消息丢弃")
+                return
+
             # 检查是否为卖家（自己）发送的控制命令
-            if send_user_id == self.myid:
+            if user_id == self.myid:
                 logger.debug("检测到卖家消息，检查是否为控制命令")
-                
+
                 # 检查切换命令
-                if self.check_toggle_keywords(send_message):
+                if self.check_toggle_keywords(content):
                     mode = self.toggle_manual_mode(chat_id)
                     if mode == "manual":
                         logger.info(f"🔴 已接管会话 {chat_id} (商品: {item_id})")
                     else:
                         logger.info(f"🟢 已恢复会话 {chat_id} 的自动回复 (商品: {item_id})")
                     return
-                
+
                 # 记录卖家人工回复
-                self.context_manager.add_message_by_chat(chat_id, self.myid, item_id, "assistant", send_message)
-                logger.info(f"卖家人工回复 (会话: {chat_id}, 商品: {item_id}): {send_message}")
+                self.context_manager.add_message_by_chat(chat_id, self.myid, item_id, "assistant", content)
+                logger.info(f"卖家人工回复 (会话: {chat_id}, 商品: {item_id}): {content}")
                 return
-            
-            logger.info(f"用户: {send_user_name} (ID: {send_user_id}), 商品: {item_id}, 会话: {chat_id}, 消息: {send_message}")
+
+            logger.info(f"用户 ID: {user_id}, 商品: {item_id}, 会话: {chat_id}, 消息: {content}")
+
             # 添加用户消息到上下文
-            self.context_manager.add_message_by_chat(chat_id, send_user_id, item_id, "user", send_message)
-            
+            self.context_manager.add_message_by_chat(chat_id, user_id, item_id, "user", content)
+
             # 如果当前会话处于人工接管模式，不进行自动回复
             if self.is_manual_mode(chat_id):
                 logger.info(f"🔴 会话 {chat_id} 处于人工接管模式，跳过自动回复")
                 return
-            if self.is_system_message(message):
-                logger.debug("系统消息，跳过处理")
-                return
+
             # 从数据库中获取商品信息，如果不存在则从API获取并保存
             item_info = self.context_manager.get_item_info(item_id)
             if not item_info:
@@ -424,192 +262,120 @@ class XianyuLive:
                     return
             else:
                 logger.info(f"从数据库获取商品信息: {item_id}")
-                
+
             item_description = f"{item_info['desc']};当前商品售卖价格为:{str(item_info['soldPrice'])}"
-            
+
             # 获取完整的对话上下文
             context = self.context_manager.get_context_by_chat(chat_id)
+
             # 生成回复
-            bot_reply = bot.generate_reply(
-                send_message,
+            bot_reply = self.bot.generate_reply(
+                content,
                 item_description,
                 context=context
             )
-            
+
             # 检查是否为价格意图，如果是则增加议价次数
-            if bot.last_intent == "price":
+            if self.bot.last_intent == "price":
                 self.context_manager.increment_bargain_count_by_chat(chat_id)
                 bargain_count = self.context_manager.get_bargain_count_by_chat(chat_id)
-                logger.info(f"用户 {send_user_name} 对商品 {item_id} 的议价次数: {bargain_count}")
-            
+                logger.info(f"用户 {user_id} 对商品 {item_id} 的议价次数: {bargain_count}")
+
             # 添加机器人回复到上下文
             self.context_manager.add_message_by_chat(chat_id, self.myid, item_id, "assistant", bot_reply)
-            
+
             logger.info(f"机器人回复: {bot_reply}")
-            await self.send_msg(websocket, chat_id, send_user_id, bot_reply)
-            
+
+            # 通过传输层发送回复
+            await self.transport.send_message(chat_id, user_id, bot_reply)
+
         except Exception as e:
             logger.error(f"处理消息时发生错误: {str(e)}")
-            logger.debug(f"原始消息: {message_data}")
+            import traceback
+            logger.debug(f"错误堆栈: {traceback.format_exc()}")
 
-    async def send_heartbeat(self, ws):
-        """发送心跳包并等待响应"""
-        try:
-            heartbeat_mid = generate_mid()
-            heartbeat_msg = {
-                "lwp": "/!",
-                "headers": {
-                    "mid": heartbeat_mid
-                }
-            }
-            await ws.send(json.dumps(heartbeat_msg))
-            self.last_heartbeat_time = time.time()
-            logger.debug("心跳包已发送")
-            return heartbeat_mid
-        except Exception as e:
-            logger.error(f"发送心跳包失败: {e}")
-            raise
+    async def run(self) -> None:
+        """
+        启动客服系统主循环（支持自动重连）
+        """
+        reconnect_delay = 5  # 重连延迟（秒）
 
-    async def heartbeat_loop(self, ws):
-        """心跳维护循环"""
         while True:
             try:
-                current_time = time.time()
-                
-                # 检查是否需要发送心跳
-                if current_time - self.last_heartbeat_time >= self.heartbeat_interval:
-                    await self.send_heartbeat(ws)
-                
-                # 检查上次心跳响应时间，如果超时则认为连接已断开
-                if (current_time - self.last_heartbeat_response) > (self.heartbeat_interval + self.heartbeat_timeout):
-                    logger.warning("心跳响应超时，可能连接已断开")
-                    break
-                
-                await asyncio.sleep(1)
-            except Exception as e:
-                logger.error(f"心跳循环出错: {e}")
+                # 建立传输连接
+                logger.info("正在建立连接...")
+                if not await self.transport.connect():
+                    logger.error(f"连接失败，{reconnect_delay}秒后重试...")
+                    await asyncio.sleep(reconnect_delay)
+                    continue
+
+                logger.info("连接建立成功，开始接收消息...")
+
+                # 开始接收消息
+                await self.transport.start_receiving(self.handle_message)
+
+                # 保持运行，定期检查连接状态
+                while await self.transport.is_connected():
+                    await asyncio.sleep(1)
+
+                logger.warning("传输连接已断开")
+
+            except KeyboardInterrupt:
+                logger.info("收到中断信号，正在关闭...")
                 break
 
-    async def handle_heartbeat_response(self, message_data):
-        """处理心跳响应"""
-        try:
-            if (
-                isinstance(message_data, dict)
-                and "headers" in message_data
-                and "mid" in message_data["headers"]
-                and "code" in message_data
-                and message_data["code"] == 200
-            ):
-                self.last_heartbeat_response = time.time()
-                logger.debug("收到心跳响应")
-                return True
-        except Exception as e:
-            logger.error(f"处理心跳响应出错: {e}")
-        return False
-
-    async def main(self):
-        while True:
-            try:
-                # 重置连接重启标志
-                self.connection_restart_flag = False
-                
-                headers = {
-                    "Cookie": self.cookies_str,
-                    "Host": "wss-goofish.dingtalk.com",
-                    "Connection": "Upgrade",
-                    "Pragma": "no-cache",
-                    "Cache-Control": "no-cache",
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-                    "Origin": "https://www.goofish.com",
-                    "Accept-Encoding": "gzip, deflate, br, zstd",
-                    "Accept-Language": "zh-CN,zh;q=0.9",
-                }
-
-                async with websockets.connect(self.base_url, extra_headers=headers) as websocket:
-                    self.ws = websocket
-                    await self.init(websocket)
-                    
-                    # 初始化心跳时间
-                    self.last_heartbeat_time = time.time()
-                    self.last_heartbeat_response = time.time()
-                    
-                    # 启动心跳任务
-                    self.heartbeat_task = asyncio.create_task(self.heartbeat_loop(websocket))
-                    
-                    # 启动token刷新任务
-                    self.token_refresh_task = asyncio.create_task(self.token_refresh_loop())
-                    
-                    async for message in websocket:
-                        try:
-                            # 检查是否需要重启连接
-                            if self.connection_restart_flag:
-                                logger.info("检测到连接重启标志，准备重新建立连接...")
-                                break
-                                
-                            message_data = json.loads(message)
-                            
-                            # 处理心跳响应
-                            if await self.handle_heartbeat_response(message_data):
-                                continue
-                            
-                            # 发送通用ACK响应
-                            if "headers" in message_data and "mid" in message_data["headers"]:
-                                ack = {
-                                    "code": 200,
-                                    "headers": {
-                                        "mid": message_data["headers"]["mid"],
-                                        "sid": message_data["headers"].get("sid", "")
-                                    }
-                                }
-                                # 复制其他可能的header字段
-                                for key in ["app-key", "ua", "dt"]:
-                                    if key in message_data["headers"]:
-                                        ack["headers"][key] = message_data["headers"][key]
-                                await websocket.send(json.dumps(ack))
-                            
-                            # 处理其他消息
-                            await self.handle_message(message_data, websocket)
-                                
-                        except json.JSONDecodeError:
-                            logger.error("消息解析失败")
-                        except Exception as e:
-                            logger.error(f"处理消息时发生错误: {str(e)}")
-                            logger.debug(f"原始消息: {message}")
-
-            except websockets.exceptions.ConnectionClosed:
-                logger.warning("WebSocket连接已关闭")
-                
             except Exception as e:
-                logger.error(f"连接发生错误: {e}")
-                
+                logger.error(f"运行时错误: {e}")
+                import traceback
+                logger.debug(f"错误堆栈: {traceback.format_exc()}")
+
             finally:
-                # 清理任务
-                if self.heartbeat_task:
-                    self.heartbeat_task.cancel()
-                    try:
-                        await self.heartbeat_task
-                    except asyncio.CancelledError:
-                        pass
-                        
-                if self.token_refresh_task:
-                    self.token_refresh_task.cancel()
-                    try:
-                        await self.token_refresh_task
-                    except asyncio.CancelledError:
-                        pass
-                
-                # 如果是主动重启，立即重连；否则等待5秒
-                if self.connection_restart_flag:
-                    logger.info("主动重启连接，立即重连...")
-                else:
-                    logger.info("等待5秒后重连...")
-                    await asyncio.sleep(5)
+                # 断开连接
+                try:
+                    await self.transport.disconnect()
+                except Exception as e:
+                    logger.error(f"断开连接时出错: {e}")
+
+            # 等待后重连
+            logger.info(f"等待 {reconnect_delay} 秒后重连...")
+            await asyncio.sleep(reconnect_delay)
+
+
+def create_transport(cookies_str: str) -> MessageTransport:
+    """
+    创建消息传输实例（工厂函数）
+
+    根据环境变量 USE_BROWSER_MODE 决定使用哪种传输模式。
+
+    Args:
+        cookies_str: Cookie 字符串
+
+    Returns:
+        MessageTransport: 传输实例
+    """
+    use_browser_mode = os.getenv("USE_BROWSER_MODE", "false").lower() == "true"
+
+    if use_browser_mode:
+        logger.info("使用浏览器模式 (BrowserWebSocketTransport)")
+
+        # 创建浏览器配置
+        browser_config = BrowserConfig()
+
+        # 创建浏览器传输
+        transport = BrowserWebSocketTransport(cookies_str, browser_config)
+    else:
+        logger.info("使用直接模式 (DirectWebSocketTransport)")
+
+        # 创建直接 WebSocket 传输
+        transport = DirectWebSocketTransport(cookies_str)
+
+    return transport
 
 
 if __name__ == '__main__':
     # 加载环境变量
     load_dotenv()
-    
+
     # 配置日志级别
     log_level = os.getenv("LOG_LEVEL", "DEBUG").upper()
     logger.remove()  # 移除默认handler
@@ -619,9 +385,21 @@ if __name__ == '__main__':
         format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
     )
     logger.info(f"日志级别设置为: {log_level}")
-    
+
+    # 获取 Cookie
     cookies_str = os.getenv("COOKIES_STR")
+    if not cookies_str:
+        logger.error("未设置 COOKIES_STR 环境变量")
+        sys.exit(1)
+
+    # 创建 AI 机器人
     bot = XianyuReplyBot()
-    xianyuLive = XianyuLive(cookies_str)
-    # 常驻进程
-    asyncio.run(xianyuLive.main())
+
+    # 创建传输层
+    transport = create_transport(cookies_str)
+
+    # 创建客服系统实例
+    xianyuLive = XianyuLive(cookies_str, transport, bot)
+
+    # 运行客服系统
+    asyncio.run(xianyuLive.run())
