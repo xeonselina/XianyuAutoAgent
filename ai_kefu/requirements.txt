@@ -4,7 +4,10 @@ loguru==0.7.3
 python-dotenv==1.0.1
 requests==2.32.3
 
-# 库存管理相关依赖
+# 浏览器自动化（用于浏览器模式）
+playwright>=1.40.0
+
+# 库存管理相关依赖（可选）
 pandas>=1.5.0
 openpyxl>=3.0.0
 

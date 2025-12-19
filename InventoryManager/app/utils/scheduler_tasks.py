@@ -3,6 +3,7 @@
 """
 
 import logging
+import fcntl
 from datetime import datetime, date, timedelta
 from typing import List, Dict
 from sqlalchemy import and_, or_
@@ -15,6 +16,9 @@ from app.utils.sf.sf_sdk_wrapper import create_sf_client, batch_query_tracking_i
 import os
 
 logger = logging.getLogger(__name__)
+
+# 任务锁文件路径
+TASK_LOCK_PATH = '/tmp/inventory_scheduled_shipping_task.lock'
 
 
 class RentalTrackingScheduler:
@@ -388,7 +392,18 @@ class ScheduledShippingProcessor:
         查找status='scheduled_for_shipping'且scheduled_ship_time <= now的订单
         将其状态改为'shipped'，设置ship_out_time，并调用闲鱼API同步发货信息
         """
-        logger.info("开始执行预约发货定时任务")
+        # 尝试获取任务锁，防止并发执行
+        try:
+            lock_file = open(TASK_LOCK_PATH, 'w')
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            logger.info(f"预约发货任务已在其他进程中运行，跳过本次执行 (PID: {os.getpid()})")
+            return
+        except Exception as e:
+            logger.error(f"获取任务锁失败: {e}")
+            return
+
+        logger.info(f"开始执行预约发货定时任务 (PID: {os.getpid()})")
         start_time = datetime.now()
 
         try:
@@ -396,7 +411,7 @@ class ScheduledShippingProcessor:
             xianyu_service = get_xianyu_service()
 
             # 查询到达预约时间的订单
-            now = datetime.utcnow()
+            now = datetime.now()
             due_rentals = Rental.query.filter(
                 Rental.status == 'scheduled_for_shipping',
                 Rental.scheduled_ship_time <= now
@@ -449,16 +464,39 @@ class ScheduledShippingProcessor:
             logger.error(f"预约发货定时任务执行失败: {e}")
             logger.error(f"完整堆栈:\\n{traceback.format_exc()}")
 
+        finally:
+            # 释放任务锁
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
+            except Exception as e:
+                logger.error(f"释放任务锁失败: {e}")
+
 
 # 全局调度器实例
 scheduled_shipping_processor = ScheduledShippingProcessor()
 
 
-def process_scheduled_shipments():
+def process_scheduled_shipments(app=None):
     """
     处理预约发货的入口函数
     供外部调用
+
+    Args:
+        app: Flask应用实例（可选，如果不提供则从flask.current_app获取）
     """
-    scheduled_shipping_processor.process_due_shipments()
+    # 如果没有提供app，尝试从flask获取
+    if app is None:
+        from flask import current_app
+        try:
+            app = current_app._get_current_object()
+        except RuntimeError:
+            # 如果没有应用上下文，返回错误
+            logger.error("process_scheduled_shipments: 没有Flask应用上下文，无法执行")
+            return
+
+    # 在应用上下文中执行任务
+    with app.app_context():
+        scheduled_shipping_processor.process_due_shipments()
 
 

@@ -21,6 +21,31 @@
 | 技术支持 | ✅ 网络搜索整合                | 🔄 RAG知识库增强              |
 | 运维监控 | ✅ 基础日志                    | 🔄 钉钉集成<br>🔄  Web管理界面 |
 
+## 🔌 传输模式
+
+系统支持两种消息传输模式，可通过配置灵活切换：
+
+### 🚀 直接模式 (Direct Mode)
+- **工作原理**：直接建立 WebSocket 连接到闲鱼服务器
+- **特点**：
+  - ✅ 无界面运行，资源占用低
+  - ✅ 适合服务器部署
+  - ✅ 传统模式，稳定可靠
+- **配置**：`.env` 文件中设置 `USE_BROWSER_MODE=false`
+
+### 🌐 浏览器模式 (Browser Mode)
+- **工作原理**：通过 Chromium 浏览器打开闲鱼网页，使用 CDP (Chrome DevTools Protocol) 拦截 WebSocket 消息
+- **特点**：
+  - ✅ 可视化界面，实时查看聊天
+  - ✅ 更接近真实用户行为
+  - ✅ 便于调试和监控
+  - ⚠️ 需要安装 Playwright 和浏览器驱动
+- **配置**：`.env` 文件中设置 `USE_BROWSER_MODE=true`
+
+**选择建议**：
+- 开发调试阶段 → 推荐使用**浏览器模式**（可视化）
+- 生产部署阶段 → 推荐使用**直接模式**（稳定高效）
+
 ## 🎨效果图
 <div align="center">
   <img src="./images/demo1.png" width="600" alt="客服">
@@ -54,30 +79,81 @@
 - Python 3.8+
 
 ### 安装步骤
+
+#### 1. 克隆仓库
 ```bash
-1. 克隆仓库
 git clone https://github.com/shaxiu/XianyuAutoAgent.git
-cd XianyuAutoAgent
-
-2. 安装依赖
-pip install -r requirements.txt
-
-3. 配置环境变量
-创建一个 `.env` 文件，包含以下内容，也可直接重命名 `.env.example` ：
-#必配配置
-API_KEY=apikey通过模型平台获取
-COOKIES_STR=填写网页端获取的cookie
-MODEL_BASE_URL=模型地址
-MODEL_NAME=模型名称
-#可选配置
-TOGGLE_KEYWORDS=接管模式切换关键词，默认为句号（输入句号切换为人工接管，再次输入则切换AI接管）
-
-注意：默认使用的模型是通义千问，如需使用其他API，请自行修改.env文件中的模型地址和模型名称；
-COOKIES_STR自行在闲鱼网页端获取cookies(网页端F12打开控制台，选择Network，点击Fetch/XHR,点击一个请求，查看cookies)
-
-4. 创建提示词文件prompts/*_prompt.txt（也可以直接将模板名称中的_example去掉）
-默认提供四个模板，可自行修改
+cd XianyuAutoAgent/ai_kefu
 ```
+
+#### 2. 安装 Python 依赖
+```bash
+pip install -r requirements.txt
+```
+
+#### 3. （可选）安装 Playwright 浏览器驱动
+> ⚠️ **仅在使用浏览器模式时需要安装**
+
+```bash
+# 安装 Playwright 浏览器
+playwright install chromium
+
+# 如果遇到权限问题，可能需要使用 sudo
+# sudo playwright install chromium
+```
+
+#### 4. 配置环境变量
+创建一个 `.env` 文件（可直接复制 `.env.example` 并重命名）：
+
+```bash
+cp .env.example .env
+```
+
+编辑 `.env` 文件，配置以下必填项：
+
+```ini
+# ========== 必配项 ==========
+# AI 模型配置
+API_KEY=your_api_key_here                    # 从模型平台获取
+MODEL_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+MODEL_NAME=qwen-max
+
+# 闲鱼账号
+COOKIES_STR=your_cookies_here                # 从闲鱼网页端获取
+
+# ========== 传输模式配置 ==========
+USE_BROWSER_MODE=false                       # true=浏览器模式, false=直接模式
+
+# ========== 浏览器模式配置（USE_BROWSER_MODE=true 时生效）==========
+BROWSER_HEADLESS=false                       # false=显示浏览器窗口
+BROWSER_VIEWPORT_WIDTH=1280
+BROWSER_VIEWPORT_HEIGHT=720
+
+# ========== 可选配置 ==========
+TOGGLE_KEYWORDS=。                           # 人工接管切换关键词
+LOG_LEVEL=INFO                               # 日志级别
+```
+
+**获取 Cookie 方法**：
+1. 在浏览器打开 https://www.goofish.com/
+2. 按 F12 打开开发者工具
+3. 切换到 Network 标签
+4. 点击 Fetch/XHR
+5. 刷新页面，点击任意请求
+6. 在 Headers 中找到 Cookie，复制完整值
+
+#### 5. 配置提示词（可选）
+系统默认提供四个提示词模板，位于 `prompts/` 目录：
+
+```bash
+# 可以直接将 _example 后缀去掉使用
+mv prompts/classify_prompt_example.txt prompts/classify_prompt.txt
+mv prompts/price_prompt_example.txt prompts/price_prompt.txt
+mv prompts/tech_prompt_example.txt prompts/tech_prompt.txt
+mv prompts/default_prompt_example.txt prompts/default_prompt.txt
+```
+
+也可以根据需求自定义修改各个提示词文件。
 
 ### 使用方法
 

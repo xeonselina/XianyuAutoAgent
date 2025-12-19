@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 # 全局调度器实例
 scheduler = None
+lock_file = None  # 保持锁文件打开，防止锁被释放
 
 
 def init_scheduler(app):
@@ -21,30 +22,26 @@ def init_scheduler(app):
         app: Flask应用实例
     """
     import os
+    import fcntl
 
-    global scheduler
+    global scheduler, lock_file
 
     if scheduler is not None:
         logger.warning('调度器已经初始化')
         return
 
-    # 在多worker环境下，只在第一个worker中运行定时任务
-    # 通过环境变量标记
-    worker_id = os.environ.get('GUNICORN_WORKER_ID')
-    if worker_id:
-        logger.info(f'当前Worker ID: {worker_id}')
-        # 只在worker 0或未设置worker_id时运行调度器
-        # 由于gunicorn不自动设置这个变量，我们用进程ID来判断
-        pass
-
     # 检查是否已经有其他进程启动了调度器
     # 使用文件锁机制确保只有一个调度器运行
-    import fcntl
     lock_file_path = '/tmp/inventory_scheduler.lock'
 
     try:
+        # 保持文件句柄在全局变量中，防止被垃圾回收导致锁释放
         lock_file = open(lock_file_path, 'w')
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+        # 写入进程ID到锁文件，便于调试
+        lock_file.write(f'{os.getpid()}\n')
+        lock_file.flush()
 
         logger.info(f'获取调度器锁成功，进程 {os.getpid()} 将启动调度器')
 
@@ -54,7 +51,7 @@ def init_scheduler(app):
         # 添加预约发货处理任务（每分钟执行一次）
         from app.utils.scheduler_tasks import process_scheduled_shipments
         scheduler.add_job(
-            func=process_scheduled_shipments,
+            func=lambda: process_scheduled_shipments(app),
             trigger=IntervalTrigger(minutes=1),
             id='process_scheduled_shipments',
             name='处理预约发货订单',
@@ -83,10 +80,20 @@ def init_scheduler(app):
 
 def shutdown_scheduler():
     """关闭调度器"""
-    global scheduler
+    global scheduler, lock_file
     if scheduler:
         scheduler.shutdown(wait=False)
         logger.info('定时调度器已关闭')
+
+    # 释放锁文件
+    if lock_file:
+        try:
+            import fcntl
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            lock_file.close()
+            logger.info('调度器锁已释放')
+        except Exception as e:
+            logger.error(f'释放调度器锁失败: {e}')
 
 
 def get_scheduler():

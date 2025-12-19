@@ -199,6 +199,7 @@ class RentalHandlers:
                 return bad_request('缺少更新数据')
 
             current_app.logger.info(f"更新租赁记录: {data}")
+            current_app.logger.info(f"accessories 字段内容: {data.get('accessories', '未提供')}, 类型: {type(data.get('accessories'))}")
 
             # 更新基本字段
             if 'device_id' in data:
@@ -283,10 +284,11 @@ class RentalHandlers:
                 current_app.logger.info(f"更新附件: {data['accessories']}")
                 RentalService.update_rental_accessories(rental, data['accessories'])
 
-            # 如果状态没有被单独更新，则提交其他更改
-            if 'status' not in data:
-                from app import db
-                current_app.logger.info(f"准备提交数据库事务")
+            # 确保所有更改都被提交到数据库
+            # 注意：update_rental_status 会自己提交，但附件更新需要额外提交
+            from app import db
+            if 'accessories' in data or 'status' not in data:
+                current_app.logger.info(f"准备提交数据库事务（附件或其他字段更新）")
                 db.session.commit()
                 current_app.logger.info(f"数据库事务已提交")
 

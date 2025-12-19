@@ -287,10 +287,15 @@ class RentalService:
     def update_rental_accessories(rental: Rental, new_accessory_ids: List[int]):
         """更新租赁附件"""
         try:
+            current_app.logger.info(f"开始更新附件 - rental_id: {rental.id}, new_accessory_ids: {new_accessory_ids}, 类型: {type(new_accessory_ids)}")
+
             # 获取当前附件租赁记录
             current_accessory_rentals = list(rental.child_rentals)
             current_accessories = {r.device_id for r in current_accessory_rentals}
             new_accessories = set(new_accessory_ids if new_accessory_ids else [])
+
+            current_app.logger.info(f"当前附件: {current_accessories}")
+            current_app.logger.info(f"新附件: {new_accessories}")
 
             # 找出需要删除和添加的附件
             to_remove = current_accessories - new_accessories
