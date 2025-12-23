@@ -354,40 +354,164 @@ class BrowserWebSocketTransport(MessageTransport):
     async def connect(self) -> bool:
         """建立连接"""
         try:
-            # 启动浏览器
+            # 启动浏览器（打开首页）
             if not await self.browser_controller.launch(self.cookies_str):
                 return False
 
-            # 获取 CDP 会话
-            cdp_session = await self.browser_controller.get_cdp_session()
+            context = self.browser_controller.context
 
-            # 创建 CDP 拦截器
-            self.cdp_interceptor = CDPInterceptor(cdp_session)
+            # 用于存储所有页面的拦截器
+            self.page_interceptors = {}
 
-            # 设置 CDP 监控
-            if not await self.cdp_interceptor.setup():
-                return False
+            # 设置页面监控的辅助函数
+            async def setup_page_monitoring(page, should_reload=False):
+                """为指定页面设置 CDP 监控"""
+                try:
+                    page_url = page.url
+                    logger.info(f"📄 设置页面监控: {page_url[:80]}...")
 
-            # 注入 WebSocket 拦截器
-            await self.cdp_interceptor.inject_websocket_interceptor()
+                    # 创建 CDP 会话
+                    cdp_session = await context.new_cdp_session(page)
+
+                    # 创建拦截器
+                    interceptor = CDPInterceptor(cdp_session)
+
+                    # 设置监控
+                    if await interceptor.setup():
+                        await interceptor.inject_websocket_interceptor()
+
+                        # 保存拦截器
+                        page_id = id(page)
+                        self.page_interceptors[page_id] = {
+                            'page': page,
+                            'interceptor': interceptor,
+                            'url': page_url
+                        }
+
+                        # 【已禁用】不自动刷新页面，避免触发风控
+                        # 用户需要手动点击进入消息中心以建立 WebSocket 连接
+                        # if should_reload:
+                        #     logger.info("🔄 刷新页面以重新建立 WebSocket 连接...")
+                        #     try:
+                        #         await page.reload(wait_until="networkidle", timeout=10000)
+                        #         await asyncio.sleep(2)  # 等待页面稳定
+                        #     except Exception as e:
+                        #         logger.warning(f"页面刷新失败（可能已关闭）: {e}")
+                        #         return
+
+                        # 检查是否已检测到 WebSocket
+                        await asyncio.sleep(1)
+                        if interceptor.is_connected():
+                            logger.info(f"✅ 在页面中检测到 WebSocket: {page_url[:80]}")
+                            self.cdp_interceptor = interceptor
+                            self.browser_controller.page = page
+
+                except Exception as e:
+                    logger.error(f"设置页面监控失败: {e}")
+
+            # 为所有已存在的页面设置监控（而不仅仅是首页）
+            all_existing_pages = context.pages
+            logger.info(f"📋 发现 {len(all_existing_pages)} 个已存在的页面，开始设置监控...")
+            for idx, page in enumerate(all_existing_pages):
+                logger.info(f"   正在为页面 {idx+1} 设置监控: {page.url[:80]}")
+                await setup_page_monitoring(page, should_reload=False)
+
+            # 监听所有新打开的页面
+            async def on_new_page(page):
+                logger.info(f"🆕 检测到新页面打开: {page.url[:80]}")
+                # 新页面需要刷新以重新触发 WebSocket
+                await setup_page_monitoring(page, should_reload=True)
+
+                # 监听页面导航事件（刷新、跳转等）
+                async def on_navigation(frame):
+                    if frame == page.main_frame:  # 只监听主 frame
+                        logger.info(f"🔄 页面导航: {page.url[:80]}")
+                        # 页面导航后重新设置监控（导航本身已经刷新了，不需要再刷新）
+                        await asyncio.sleep(1)  # 等待页面稳定
+                        await setup_page_monitoring(page, should_reload=False)
+
+                page.on("framenavigated", on_navigation)
+
+            context.on("page", on_new_page)
+
+            # 监听所有页面的 popup 事件
+            async def on_popup(popup):
+                logger.info(f"🪟 检测到弹出窗口: {popup.url[:80] if popup.url else 'about:blank'}")
+                await setup_page_monitoring(popup, should_reload=True)
+
+            for page in context.pages:
+                page.on("popup", on_popup)
+
+            # 每当有新页面时，也为它添加 popup 监听
+            original_on_new_page = on_new_page
+            async def on_new_page_with_popup(page):
+                await original_on_new_page(page)
+                page.on("popup", on_popup)
+
+            context.on("page", on_new_page_with_popup)
+
+            logger.info("📡 已启动全局页面监控（包括刷新检测和弹窗检测）")
 
             # 等待 WebSocket 连接建立
-            max_wait = 30  # 最多等待 30 秒
+            logger.info("=" * 60)
+            logger.info("💡 提示：请在浏览器中点击进入消息中心或任意聊天")
+            logger.info("   系统会自动监控所有页面（包括刷新后的页面和弹窗）")
+            logger.info("=" * 60)
+
+            max_wait = 120  # 最多等待 2 分钟
             for i in range(max_wait):
                 await asyncio.sleep(1)
-                if self.cdp_interceptor.is_connected():
+
+                # 检查所有拦截器，看是否有已连接的
+                for page_id, page_data in self.page_interceptors.items():
+                    interceptor = page_data['interceptor']
+
+                    # 被动检测：通过事件
+                    if interceptor.is_connected():
+                        self.cdp_interceptor = interceptor
+                        self.browser_controller.page = page_data['page']
+                        logger.info(f"✅ WebSocket 连接已建立（等待 {i+1} 秒）")
+                        logger.info(f"   活动页面: {page_data['url'][:80]}")
+                        break
+
+                    # 主动检测：每5秒检查一次页面中的 WebSocket
+                    if (i + 1) % 5 == 0:
+                        try:
+                            if await interceptor.check_websocket_in_page():
+                                self.cdp_interceptor = interceptor
+                                self.browser_controller.page = page_data['page']
+                                logger.info(f"✅ WebSocket 连接已建立（主动检测，等待 {i+1} 秒）")
+                                logger.info(f"   活动页面: {page_data['url'][:80]}")
+                                break
+                        except Exception as e:
+                            logger.debug(f"主动检测出错: {e}")
+
+                if self.cdp_interceptor and self.cdp_interceptor.is_connected():
                     break
 
-            if not self.cdp_interceptor.is_connected():
-                logger.error("超时：WebSocket 未建立连接")
+                if (i + 1) % 10 == 0:
+                    logger.info(f"⏳ 仍在等待 WebSocket 连接... ({i+1}/{max_wait}秒)")
+                    logger.info(f"   已监控 {len(self.page_interceptors)} 个页面")
+                    logger.info(f"   💡 提示: 主动检测每 5 秒运行一次")
+
+            if not self.cdp_interceptor or not self.cdp_interceptor.is_connected():
+                logger.error("❌ 超时：WebSocket 未建立连接")
+                logger.error("请检查：")
+                logger.error("  1. 浏览器是否已登录")
+                logger.error("  2. 是否已点击进入消息中心或聊天页面")
+                logger.error("  3. 如果已进入，尝试刷新页面（F5）")
                 return False
 
             self._is_connected = True
-            logger.info("浏览器 WebSocket 传输建立成功")
+            logger.info("=" * 60)
+            logger.info("🎉 浏览器 WebSocket 传输建立成功！")
+            logger.info("=" * 60)
             return True
 
         except Exception as e:
             logger.error(f"浏览器 WebSocket 传输连接失败: {e}")
+            import traceback
+            logger.debug(f"错误堆栈: {traceback.format_exc()}")
             return False
 
     async def disconnect(self) -> None:
