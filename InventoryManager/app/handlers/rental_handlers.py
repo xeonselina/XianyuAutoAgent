@@ -493,8 +493,29 @@ class RentalHandlers:
                 Rental.ship_out_time.asc()
             ).all()
 
-            # 构建响应数据
-            rentals_data = [rental.to_dict() for rental in rentals]
+            # 构建响应数据,包含上一单状态
+            rentals_data = []
+            for rental in rentals:
+                rental_dict = rental.to_dict()
+
+                # 查询该设备的上一单(当前订单发货时间之前的最近一单)
+                previous_rental = Rental.query.filter(
+                    Rental.device_id == rental.device_id,
+                    Rental.ship_out_time < rental.ship_out_time,
+                    Rental.parent_rental_id.is_(None)
+                ).order_by(Rental.ship_out_time.desc()).first()
+
+                if previous_rental:
+                    rental_dict['has_previous_rental'] = True
+                    rental_dict['previous_rental_status'] = previous_rental.status
+                    # 已结束状态: completed, cancelled, returned
+                    rental_dict['previous_rental_completed'] = previous_rental.status in ['completed', 'cancelled', 'returned']
+                else:
+                    rental_dict['has_previous_rental'] = False
+                    rental_dict['previous_rental_status'] = None
+                    rental_dict['previous_rental_completed'] = None
+
+                rentals_data.append(rental_dict)
 
             return success(data={
                 'rentals': rentals_data,

@@ -298,7 +298,7 @@ class XianyuLive:
         """
         启动客服系统主循环（支持自动重连）
         """
-        reconnect_delay = 5  # 重连延迟（秒）
+        reconnect_delay = 30  # 重连延迟（秒）
 
         while True:
             try:
@@ -379,12 +379,30 @@ if __name__ == '__main__':
     # 配置日志级别
     log_level = os.getenv("LOG_LEVEL", "DEBUG").upper()
     logger.remove()  # 移除默认handler
+
+    # 确保日志目录存在
+    os.makedirs("logs", exist_ok=True)
+
+    # 终端输出（彩色）
     logger.add(
         sys.stderr,
         level=log_level,
         format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
     )
+
+    # 文件输出（保留历史日志）
+    logger.add(
+        "logs/xianyu_{time:YYYY-MM-DD}.log",  # 按日期分割日志文件
+        level=log_level,
+        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}",
+        rotation="00:00",  # 每天午夜轮换
+        retention="30 days",  # 保留30天
+        encoding="utf-8",
+        enqueue=True  # 异步写入，避免阻塞
+    )
+
     logger.info(f"日志级别设置为: {log_level}")
+    logger.info(f"日志文件保存在: logs/ 目录")
 
     # 获取 Cookie
     cookies_str = os.getenv("COOKIES_STR")

@@ -47,15 +47,16 @@
           <el-button
             @click="showScheduleDialog"
             type="warning"
-            :disabled="!hasUnshipped"
+            :disabled="selectedRentals.length === 0"
           >
             <el-icon><Clock /></el-icon>
-            预约发货 ({{ unshippedCount }})
+            预约发货 ({{ selectedRentals.length }})
           </el-button>
         </div>
       </div>
 
-      <el-table :data="rentals" border stripe>
+      <el-table :data="rentals" border stripe @selection-change="handleSelectionChange" :row-key="(row: any) => row.id">
+        <el-table-column type="selection" width="55" :selectable="isSelectableRow" />
         <el-table-column label="设备名称" width="80">
           <template #default="{ row }">
             {{ row.device?.name || '-' }}
@@ -73,6 +74,17 @@
             <el-tag v-if="row.status === 'shipped'" type="success">已发货</el-tag>
             <el-tag v-else-if="row.status === 'scheduled_for_shipping'" type="warning">预约发货</el-tag>
             <el-tag v-else type="info">待发货</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="设备状态" width="130">
+          <template #default="{ row }">
+            <span v-if="!row.has_previous_rental">-</span>
+            <el-tag v-else-if="row.previous_rental_completed" type="success" size="small">
+              ✓ 设备在库
+            </el-tag>
+            <el-tag v-else type="danger" size="small">
+              ⚠ 上一单未结束
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="ship_out_tracking_no" label="运单号" width="180" />
@@ -119,7 +131,7 @@
       width="500px"
     >
       <div class="schedule-form">
-        <p>将为 <strong>{{ unshippedCount }}</strong> 个未发货的订单预约发货（运单号将自动生成）</p>
+        <p>将为 <strong>{{ selectedRentals.length }}</strong> 个选中的订单预约发货（运单号将自动生成）</p>
         <el-form label-width="100px">
           <el-form-item label="发货时间:">
             <el-date-picker
@@ -196,6 +208,7 @@ const router = useRouter()
 // State
 const dateRange = ref<[Date, Date] | null>(null)
 const rentals = ref<any[]>([])
+const selectedRentals = ref<any[]>([])
 const loading = ref(false)
 const scheduleDialogVisible = ref(false)
 const scheduledTime = ref<string>(dayjs().add(1, 'hour').format('YYYY-MM-DDTHH:mm:ss'))
@@ -208,10 +221,6 @@ const printProgress = ref(0)
 const printResults = ref<any>(null)
 
 // Computed
-// 统计未发货的订单（用于预约发货）- 排除已发货和已预约发货的订单
-const hasUnshipped = computed(() => rentals.value.some(r => r.status !== 'shipped' && r.status !== 'scheduled_for_shipping'))
-const unshippedCount = computed(() => rentals.value.filter(r => r.status !== 'shipped' && r.status !== 'scheduled_for_shipping').length)
-
 // 统计预约发货状态且有运单号和预约时间的订单（用于打印面单）
 const hasWaybills = computed(() => rentals.value.some(r => r.status === 'scheduled_for_shipping' && r.ship_out_tracking_no && r.scheduled_ship_time))
 const waybillCount = computed(() => rentals.value.filter(r => r.status === 'scheduled_for_shipping' && r.ship_out_tracking_no && r.scheduled_ship_time).length)
@@ -219,6 +228,15 @@ const waybillCount = computed(() => rentals.value.filter(r => r.status === 'sche
 // Methods
 const goBack = () => {
   router.push('/')
+}
+
+// Selection handlers
+const handleSelectionChange = (selection: any[]) => {
+  selectedRentals.value = selection
+}
+
+const isSelectableRow = (row: any) => {
+  return row.status !== 'shipped' && row.status !== 'scheduled_for_shipping'
 }
 
 const previewOrders = async () => {
@@ -269,13 +287,11 @@ const showScheduleDialog = () => {
 }
 
 const confirmSchedule = async () => {
-  // 只预约未发货的订单
-  const rentalIds = rentals.value
-    .filter(r => r.status !== 'shipped')
-    .map(r => r.id)
+  // 使用选中的订单
+  const rentalIds = selectedRentals.value.map(r => r.id)
 
   if (rentalIds.length === 0) {
-    ElMessage.warning('没有可预约的订单（已发货的订单不能重复预约）')
+    ElMessage.warning('请先选择要预约发货的订单')
     return
   }
 
