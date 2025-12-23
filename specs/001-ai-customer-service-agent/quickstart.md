@@ -298,6 +298,114 @@ with httpx.stream(
 python test_client.py
 ```
 
+### 5.3 测试 Human-in-the-Loop 功能
+
+创建 `test_human_loop.py`:
+
+```python
+import httpx
+import json
+import time
+from threading import Thread
+
+BASE_URL = "http://localhost:8000"
+
+def simulate_agent():
+    """模拟 Agent 请求人工协助"""
+    print("=== Agent 开始对话 ===")
+    response = httpx.post(
+        f"{BASE_URL}/chat",
+        json={
+            "query": "帮我查一下订单 #12345 的发货时间"
+        }
+    )
+    result = response.json()
+    session_id = result['session_id']
+    print(f"会话 ID: {session_id}")
+    print(f"Agent 状态: {result['status']}")
+    
+    # Agent 会调用 ask_human_agent，状态变为 waiting_for_human
+    if result['status'] == 'waiting_for_human':
+        print("Agent 正在等待人工回复...")
+        return session_id
+    return None
+
+def simulate_human_agent(session_id):
+    """模拟人工客服回复"""
+    print("\n=== 人工客服查看待处理请求 ===")
+    
+    # 查询待处理请求
+    response = httpx.get(f"{BASE_URL}/human-agent/pending-requests")
+    requests = response.json()
+    print(f"待处理请求数: {requests['total']}")
+    
+    if requests['total'] > 0:
+        req = requests['items'][0]
+        print(f"请求 ID: {req['request_id']}")
+        print(f"问题: {req['question']}")
+        print(f"类型: {req['question_type']}")
+        
+        # 查看详情
+        detail = httpx.get(
+            f"{BASE_URL}/sessions/{session_id}/pending-request"
+        ).json()
+        print(f"\n对话历史: {len(detail['conversation_history'])} 条消息")
+        
+        # 人工回复
+        print("\n=== 人工客服回复 ===")
+        response = httpx.post(
+            f"{BASE_URL}/sessions/{session_id}/human-response",
+            json={
+                "request_id": req['request_id'],
+                "human_agent_id": "agent_001",
+                "response": "订单已于 2025-12-20 发货，物流单号 SF123456"
+            }
+        )
+        result = response.json()
+        print(f"回复结果: {result['message']}")
+
+# 执行测试
+session_id = simulate_agent()
+if session_id:
+    time.sleep(2)  # 等待 Agent 暂停
+    simulate_human_agent(session_id)
+    
+    # 查看最终结果
+    time.sleep(1)
+    session = httpx.get(f"{BASE_URL}/sessions/{session_id}").json()
+    print(f"\n=== 最终会话状态 ===")
+    print(f"状态: {session['status']}")
+    print(f"最后消息: {session['messages'][-1]['content']}")
+```
+
+运行:
+```bash
+python test_human_loop.py
+```
+
+预期输出:
+```
+=== Agent 开始对话 ===
+会话 ID: 550e8400-e29b-41d4-a716-446655440000
+Agent 状态: waiting_for_human
+Agent 正在等待人工回复...
+
+=== 人工客服查看待处理请求 ===
+待处理请求数: 1
+请求 ID: req_abc123
+问题: 请帮我查询订单 #12345 的发货时间和物流单号
+类型: information_query
+
+对话历史: 2 条消息
+
+=== 人工客服回复 ===
+回复结果: Agent 已继续执行
+
+=== 最终会话状态 ===
+状态: completed
+最后消息: 您的订单已于 12 月 20 日发货，物流单号为 SF123456...
+```
+
 ---
 
 ## 第六步: 生产部署

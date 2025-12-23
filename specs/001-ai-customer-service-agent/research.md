@@ -15,7 +15,7 @@
 1. **内网部署友好**: 单进程嵌入式部署,无需复杂的分布式配置
 2. **Python 原生支持**: 优秀的 Python API,与 FastAPI 生态集成良好
 3. **轻量级**: 资源占用低,适合初期规模 (<10k 文档)
-4. **语义检索**: 原生支持向量相似度搜索,配合 Gemini Embeddings API
+4. **语义检索**: 原生支持向量相似度搜索,配合 Qwen Embeddings API (text-embedding-v3)
 5. **持久化简单**: 支持本地文件持久化,无需额外数据库
 
 ### 备选方案考虑
@@ -187,97 +187,231 @@ async def global_exception_handler(request, exc):
 
 ---
 
-## 4. Gemini API 使用建议
+## 4. Qwen API 使用建议
 
 ### 模型选择
-**gemini-2.0-flash-exp** (实验版)
+**qwen-plus** (推荐) / **qwen-turbo** (高性能)
 
 **特性**:
-- 多模态支持 (文本、图像)
+- 中文优化,客服场景表现优异
 - 原生 Function Calling (工具调用)
 - 流式响应
-- 思考链 (Thought) 能力
+- 长上下文支持 (最高 32K tokens)
 
 **推荐配置**:
 ```python
 generation_config = {
     "temperature": 0.7,        # 客服场景: 平衡创造性和准确性
-    "top_p": 0.95,
-    "top_k": 40,
-    "max_output_tokens": 2048,
+    "top_p": 0.9,
+    "max_tokens": 2048,
+    "enable_search": False,    # 禁用联网搜索,仅依赖知识库
 }
 ```
 
 ### 流式响应处理
 
 ```python
-import google.generativeai as genai
+from dashscope import Generation
+import json
 
-async def stream_response(prompt: str, tools: list):
-    model = genai.GenerativeModel(
-        'gemini-2.0-flash-exp',
-        tools=tools
+async def stream_response(messages: list, tools: list):
+    """Qwen 流式响应处理"""
+    responses = Generation.call(
+        model='qwen-plus',
+        messages=messages,
+        tools=tools,
+        result_format='message',
+        stream=True,
+        **generation_config
     )
     
-    response = model.generate_content(
-        prompt,
-        generation_config=generation_config,
-        stream=True
-    )
-    
-    for chunk in response:
-        if chunk.text:
-            yield chunk.text
-        # 处理 function_calls
-        if hasattr(chunk, 'function_calls'):
-            for fc in chunk.function_calls:
-                yield {"tool_call": fc.name, "args": fc.args}
+    for response in responses:
+        if response.status_code == 200:
+            # 处理文本内容
+            if response.output.choices[0].message.content:
+                yield response.output.choices[0].message.content
+            
+            # 处理工具调用
+            if response.output.choices[0].message.tool_calls:
+                for tool_call in response.output.choices[0].message.tool_calls:
+                    yield {
+                        "tool_call": tool_call.function.name,
+                        "args": json.loads(tool_call.function.arguments)
+                    }
+        else:
+            raise Exception(f"Qwen API Error: {response.message}")
 ```
 
 ### Function Calling 最佳实践
 
-参考 gemini-cli 的工具定义格式:
+**Qwen 工具定义格式** (兼容 OpenAI Function Calling):
 
 ```python
 tools = [
     {
-        "name": "knowledge_search",
-        "description": "搜索知识库获取相关信息",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "搜索关键词"
+        "type": "function",
+        "function": {
+            "name": "knowledge_search",
+            "description": "搜索知识库获取相关信息",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "搜索关键词"
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "返回结果数量",
+                        "default": 5
+                    }
                 },
-                "top_k": {
-                    "type": "integer",
-                    "description": "返回结果数量",
-                    "default": 5
-                }
-            },
-            "required": ["query"]
+                "required": ["query"]
+            }
         }
     },
     {
-        "name": "complete_task",
-        "description": "标记客服对话完成",
-        "parameters": {
+        "type": "function",
+        "function": {
+            "name": "ask_human_agent",
+            "description": """向人工客服请求帮助 (Human-in-the-Loop 模式)。
+
+**使用场景**:
+1. 需要访问外部系统数据 (订单、库存、物流等)
+2. 需要人工决策 (退款审批、特殊请求等)
+3. 知识库无相关信息，需要补充
+4. 高风险操作需要确认
+
+**重要**: 这不是转接人工，而是请求协助。你仍然负责回答用户。
+调用后应告知用户: "正在为您核实信息，请稍候..."
+            """,
+            "parameters": {
             "type": "object",
             "properties": {
-                "summary": {
+                "question": {
                     "type": "string",
-                    "description": "对话总结"
+                    "description": "向人工提出的具体问题或请求"
                 },
-                "resolved": {
-                    "type": "boolean",
-                    "description": "问题是否已解决"
+                "question_type": {
+                    "type": "string",
+                    "enum": [
+                        "information_query",
+                        "decision_required",
+                        "risk_confirmation",
+                        "knowledge_gap"
+                    ],
+                    "description": "问题类型"
+                },
+                "context": {
+                    "type": "object",
+                    "description": "提供给人工的上下文信息",
+                    "properties": {
+                        "user_question": {
+                            "type": "string",
+                            "description": "用户的原始问题"
+                        },
+                        "relevant_info": {
+                            "type": "string",
+                            "description": "已知的相关信息"
+                        }
+                    }
+                },
+                "options": {
+                    "type": "array",
+                    "description": "如果是选择题，提供选项列表",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "label": {"type": "string"},
+                            "description": {"type": "string"}
+                        }
+                    }
+                },
+                "urgency": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high"],
+                    "default": "medium",
+                    "description": "紧急程度"
                 }
             },
-            "required": ["summary", "resolved"]
+                "required": ["question", "question_type"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "complete_task",
+            "description": "标记客服对话完成",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "summary": {
+                        "type": "string",
+                        "description": "对话总结"
+                    },
+                    "resolved": {
+                        "type": "boolean",
+                        "description": "问题是否已解决"
+                    }
+                },
+                "required": ["summary", "resolved"]
+            }
         }
     }
 ]
+```
+
+**ask_human_agent 使用示例**:
+
+```python
+# 示例 1: 信息查询
+{
+    "name": "ask_human_agent",
+    "args": {
+        "question": "请帮我查询订单 #12345 的发货时间和物流单号",
+        "question_type": "information_query",
+        "context": {
+            "user_question": "我的订单什么时候发货?",
+            "order_id": "#12345"
+        },
+        "urgency": "medium"
+    }
+}
+
+# 示例 2: 决策请求
+{
+    "name": "ask_human_agent",
+    "args": {
+        "question": "用户要求退款拆封商品，请选择处理策略",
+        "question_type": "decision_required",
+        "context": {
+            "user_question": "我要退款，但商品已经拆封了",
+            "order_id": "#12345",
+            "product": "iPhone 15"
+        },
+        "options": [
+            {"id": "A", "label": "批准全额退款", "description": "100% 退款"},
+            {"id": "B", "label": "批准部分退款", "description": "50% 退款"},
+            {"id": "C", "label": "拒绝退款", "description": "已拆封不支持退款"}
+        ],
+        "urgency": "high"
+    }
+}
+
+# 示例 3: 知识补充
+{
+    "name": "ask_human_agent",
+    "args": {
+        "question": "用户咨询会员积分规则，知识库无相关内容，请提供信息",
+        "question_type": "knowledge_gap",
+        "context": {
+            "user_question": "你们的会员积分规则是什么?"
+        },
+        "urgency": "medium"
+    }
+}
 ```
 
 ### 速率限制和重试策略
@@ -289,23 +423,34 @@ from tenacity import (
     wait_exponential,
     retry_if_exception_type
 )
-from google.api_core.exceptions import ResourceExhausted
+from dashscope.common.error import (
+    RequestFailure,
+    ServiceUnavailableError
+)
 
 @retry(
-    retry=retry_if_exception_type(ResourceExhausted),
+    retry=retry_if_exception_type((RequestFailure, ServiceUnavailableError)),
     wait=wait_exponential(multiplier=1, min=2, max=60),
     stop=stop_after_attempt(5)
 )
-async def call_gemini_with_retry(prompt: str):
-    return await model.generate_content_async(prompt)
+def call_qwen_with_retry(messages: list, tools: list = None):
+    return Generation.call(
+        model='qwen-plus',
+        messages=messages,
+        tools=tools,
+        result_format='message'
+    )
 ```
 
-**速率限制** (gemini-2.0-flash-exp):
-- QPM (Queries Per Minute): 1000
-- TPM (Tokens Per Minute): 4,000,000
-- RPD (Requests Per Day): 1500
+**速率限制** (qwen-plus):
+- 免费版: 10 QPS
+- 付费版: 可申请更高限制 (联系阿里云客服)
+- Token 限制: 按实际使用量计费,无硬性限制
 
-**建议**: 实现客户端限流器,避免触发 API 配额
+**建议**: 
+- 实现客户端限流器,避免触发 QPS 限制
+- 使用连接池管理并发请求
+- 对高频问题实现缓存机制
 
 ---
 
@@ -313,7 +458,7 @@ async def call_gemini_with_retry(prompt: str):
 
 ### 基于参考架构的性能分析
 
-参考 gemini-cli 的循环检测和超时机制:
+参考循环检测和超时机制:
 - 单次对话最大轮次: 50 turns
 - 单轮超时: 2 分钟
 - 循环检测阈值: 5 次重复工具调用
@@ -428,7 +573,7 @@ logger.addHandler(handler)
    - POST /knowledge/search - 知识库检索 (管理接口)
 
 3. **快速开始指南** (quickstart.md):
-   - 环境搭建 (Python 3.11+, Redis, Gemini API Key)
+   - 环境搭建 (Python 3.11+, Redis, Qwen API Key)
    - 依赖安装
    - 配置说明
    - 启动服务
@@ -442,8 +587,9 @@ logger.addHandler(handler)
   - Redis: 7.x (非持久化配置)
 
 AI/ML:
-  - google-generativeai: Gemini SDK
+  - dashscope: 阿里云 DashScope SDK (Qwen 模型)
   - chromadb: 向量数据库
+  - openai: (可选) 使用 Qwen 兼容 OpenAI API
 
 工具:
   - uvicorn: ASGI 服务器
