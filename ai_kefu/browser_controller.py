@@ -66,8 +66,12 @@ class BrowserController:
             # 启动 Playwright
             self.playwright = await async_playwright().start()
 
-            # 配置浏览器启动参数
-            launch_args = []
+            # 配置浏览器启动参数（隐藏自动化特征）
+            launch_args = [
+                "--disable-blink-features=AutomationControlled",  # 禁用自动化控制特征
+                "--disable-dev-shm-usage",  # 解决共享内存不足问题
+                "--no-sandbox",  # 在某些环境下需要
+            ]
             if self.config.debug_port:
                 launch_args.append(f"--remote-debugging-port={self.config.debug_port}")
 
@@ -92,6 +96,9 @@ class BrowserController:
 
             self.context = await self.browser.new_context(**context_options)
 
+            # 注入脚本以隐藏自动化特征
+            await self._inject_stealth_scripts()
+
             # 注入 cookies
             if cookies_str:
                 await self._inject_cookies(cookies_str)
@@ -99,18 +106,155 @@ class BrowserController:
             # 创建新页面
             self.page = await self.context.new_page()
 
-            # 导航到闲鱼
-            logger.info("正在导航到闲鱼...")
+            # 导航到闲鱼首页
+            logger.info("正在导航到闲鱼首页...")
             await self.page.goto("https://www.goofish.com/", wait_until="networkidle")
+
+            # 等待页面加载
+            await asyncio.sleep(2)
 
             self._is_running = True
             logger.info("浏览器启动成功")
+            logger.info("=" * 60)
+            logger.info("🔔 请在浏览器中点击进入消息中心（或聊天页面）")
+            logger.info("   WebSocket 连接将在新页面中建立")
+            logger.info("=" * 60)
             return True
 
         except Exception as e:
             logger.error(f"浏览器启动失败: {e}")
             await self.close()
             return False
+
+    async def _inject_stealth_scripts(self) -> None:
+        """
+        注入脚本以隐藏浏览器自动化特征，并注入 WebSocket 拦截器
+        """
+        try:
+            # 隐藏 webdriver 特征 + WebSocket 拦截的 JavaScript 代码
+            stealth_js = """
+            // ========== 隐身脚本 ==========
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+
+            // 伪装 Chrome 对象
+            window.chrome = {
+                runtime: {}
+            };
+
+            // 伪装 permissions
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                    Promise.resolve({ state: Notification.permission }) :
+                    originalQuery(parameters)
+            );
+
+            // 伪装 plugins
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5]
+            });
+
+            // 伪装 languages
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['zh-CN', 'zh', 'en-US', 'en']
+            });
+
+            // ========== WebSocket 拦截器 ==========
+            (function() {
+                // 使用 Symbol 作为主要存储方式（更隐蔽）
+                const wsSymbol = Symbol.for('_ws_');
+                const wsArraySymbol = Symbol.for('_ws_array_');  // 保存所有 WebSocket
+                const injectedSymbol = Symbol.for('_inj_');
+
+                if (window[injectedSymbol]) return;
+
+                // 初始化 WebSocket 数组
+                if (!window[wsArraySymbol]) {
+                    window[wsArraySymbol] = [];
+                }
+
+                const OriginalWebSocket = window.WebSocket;
+
+                window.WebSocket = class extends OriginalWebSocket {
+                    constructor(...args) {
+                        super(...args);
+                        const url = args[0];
+
+                        // 闲鱼可能使用多个 WebSocket 服务器
+                        const isXianyuWs = url && (
+                            url.includes('wss-goofish.dingtalk.com') ||
+                            url.includes('msgacs.m.taobao.com') ||
+                            url.includes('wss.goofish.com')
+                        );
+
+                        if (isXianyuWs) {
+                            // 保存到数组中
+                            window[wsArraySymbol].push({
+                                ws: this,
+                                url: url,
+                                createdAt: Date.now()
+                            });
+
+                            // 优先保存 dingtalk 的 WebSocket（用于发送消息）
+                            if (url.includes('wss-goofish.dingtalk.com')) {
+                                window[wsSymbol] = this;
+                                window.__xianyuWebSocket = this;
+                                console.log('[WS_PRIMARY]', url);  // 标记为主 WebSocket
+                            } else if (!window[wsSymbol]) {
+                                // 如果还没有主 WebSocket，使用当前的
+                                window[wsSymbol] = this;
+                                window.__xianyuWebSocket = this;
+                            }
+
+                            console.log('[WS_CREATED]', url);
+
+                            // 拦截 onmessage（接收消息）
+                            const originalOnMessage = this.onmessage;
+                            Object.defineProperty(this, 'onmessage', {
+                                set: function(handler) {
+                                    this._onmessageHandler = function(event) {
+                                        // 输出接收到的消息
+                                        console.log('[WS_MESSAGE_RECEIVED]', event.data);
+                                        // 调用原始处理器
+                                        if (handler) handler.call(this, event);
+                                    };
+                                    OriginalWebSocket.prototype.__lookupSetter__('onmessage').call(this, this._onmessageHandler);
+                                },
+                                get: function() {
+                                    return this._onmessageHandler;
+                                }
+                            });
+
+                            // 拦截 send（发送消息）
+                            const originalSend = this.send;
+                            this.send = function(data) {
+                                console.log('[WS_MESSAGE_SENT]', data);
+                                return originalSend.call(this, data);
+                            };
+
+                            this.addEventListener('open', () => {
+                                console.log('[WS_OPENED]', url);
+                            });
+                        }
+
+                        return this;
+                    }
+                };
+
+                // 双重标记
+                window[injectedSymbol] = true;
+                window.__wsInterceptorInjected = true;  // 向后兼容检测代码
+                console.log('[WS_INTERCEPTOR_READY]');
+            })();
+            """
+
+            await self.context.add_init_script(stealth_js)
+            logger.info("隐身脚本和 WebSocket 拦截器注入成功")
+
+        except Exception as e:
+            logger.error(f"脚本注入失败: {e}")
 
     async def _inject_cookies(self, cookies_str: str) -> None:
         """
