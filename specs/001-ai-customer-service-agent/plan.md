@@ -14,7 +14,7 @@
 **语言/版本**: Python 3.11+  
 **主要依赖**: 
   - FastAPI (HTTP 服务框架)
-  - Google Generative AI SDK (gemini-2.0-flash-exp)
+  - Alibaba Cloud SDK (dashscope/qwen 系列模型)
   - Pydantic (数据验证)
   - ChromaDB (向量数据库)
   
@@ -25,7 +25,9 @@
   
 **测试**: pytest + httpx (API 测试)  
 
-**目标平台**: Linux 服务器 (内网部署)
+**目标平台**: 
+  - 开发环境: ARM Mac (Apple Silicon)
+  - 生产环境: Linux 服务器 (内网部署, Docker 容器化)
 
 **项目类型**: 单体应用 (web service)  
 
@@ -38,6 +40,9 @@
   - 内网部署 (无外网访问,无鉴权)
   - 敏感信息: 不需要脱敏
   - 日志: 结构化 JSON 日志,包含审计字段
+  - 跨平台兼容: 代码需在 ARM Mac 和 Linux 环境均可运行
+  - Docker 容器化: 生产环境统一使用 Docker 部署
+  - 构建自动化: 提供 Makefile 简化开发和部署流程
   
 **规模/范围**: 
   - 初期: 单一业务领域客服
@@ -84,6 +89,13 @@ specs/001-ai-customer-service-agent/
 ### 源代码 (仓库根目录)
 
 ```text
+# 根目录构建文件
+Dockerfile               # Docker 容器化配置
+Makefile                 # 构建和部署自动化
+docker-compose.yml       # 本地开发环境编排 (可选)
+requirements.txt         # Python 依赖
+.dockerignore           # Docker 构建忽略文件
+
 # Option 1: 单体应用结构 (选用)
 ai_kefu/
 ├── agent/                    # Agent 核心引擎
@@ -92,9 +104,8 @@ ai_kefu/
 │   └── types.py             # Agent 类型定义
 ├── tools/                   # 工具集
 │   ├── knowledge_search.py  # 知识库检索
-│   ├── user_query.py        # 用户信息查询
-│   ├── ticket_create.py     # 工单创建
-│   ├── transfer_human.py    # 转人工
+│   ├── ask_human_agent.py   # 请求人工协助 (Human-in-the-Loop)
+│   ├── complete_task.py     # 完成任务
 │   └── tool_registry.py     # 工具注册表
 ├── hooks/                   # Hooks 扩展系统
 │   ├── event_handler.py     # 事件处理器
@@ -136,6 +147,77 @@ docs/                        # 文档 (已存在)
 - `hooks/` 提供扩展点用于日志、过滤、监控等
 - `api/` 提供 HTTP 服务接口
 - 保持与现有 `ai_kefu/` 目录一致
+- **Docker 化部署**: 使用多阶段构建优化镜像大小
+- **跨平台支持**: 通过 Docker 解决 ARM Mac 和 Linux 环境差异
+
+## 部署和构建配置
+
+### Dockerfile 要求
+
+**目标**: 创建一个适用于生产环境的 Docker 镜像
+
+**关键要求**:
+- 基础镜像: `python:3.11-slim` (适配 Linux 生产环境)
+- 多阶段构建: 分离依赖安装和运行时环境
+- 非 root 用户运行: 安全性考虑
+- 暴露端口: 8000 (FastAPI 默认端口,可配置)
+- 环境变量: 支持通过环境变量配置 Qwen API key、Redis 连接等
+- 健康检查: 添加 HEALTHCHECK 指令确保容器状态
+- 工作目录: `/app`
+- 启动命令: `uvicorn ai_kefu.api.main:app --host 0.0.0.0 --port 8000`
+
+**优化点**:
+- 利用 Docker layer caching 加速构建
+- 仅复制必要文件 (通过 .dockerignore 排除测试、文档等)
+- 安装生产依赖 (不包含开发工具)
+
+### Makefile 要求
+
+**目标**: 简化常用开发和部署操作
+
+**必需目标 (targets)**:
+
+```makefile
+# 开发环境
+.PHONY: install          # 安装 Python 依赖到本地虚拟环境
+.PHONY: dev              # 启动本地开发服务器 (ARM Mac)
+.PHONY: test             # 运行所有测试
+.PHONY: lint             # 代码质量检查
+
+# Docker 相关
+.PHONY: docker-build     # 构建 Docker 镜像
+.PHONY: docker-run       # 运行 Docker 容器 (本地测试)
+.PHONY: docker-push      # 推送镜像到私有仓库 (可选)
+
+# 清理
+.PHONY: clean            # 清理临时文件、缓存
+.PHONY: clean-docker     # 清理 Docker 镜像和容器
+
+# 帮助
+.PHONY: help             # 显示所有可用命令
+```
+
+**变量配置**:
+- `IMAGE_NAME`: Docker 镜像名称 (默认: `ai-kefu-agent`)
+- `IMAGE_TAG`: 镜像标签 (默认: `latest` 或 git commit hash)
+- `CONTAINER_NAME`: 容器名称 (默认: `ai-kefu-agent`)
+- `PORT`: 映射端口 (默认: 8000)
+
+### 跨平台兼容性策略
+
+**开发环境 (ARM Mac)**:
+- 使用 Python 虚拟环境进行本地开发
+- 通过 `make dev` 启动本地服务器
+- 使用 Docker Desktop for Mac 进行容器测试
+
+**生产环境 (Linux)**:
+- 使用 Docker 运行应用,隔离系统依赖
+- 通过 `docker-compose` 或 Kubernetes 编排 (未来扩展)
+- 环境变量配置所有外部服务连接
+
+**CI/CD 考虑**:
+- Docker 镜像在 Linux CI 环境构建 (或使用 buildx 多架构支持)
+- 测试在 Docker 容器中运行,确保环境一致性
 
 ## 复杂度追踪
 

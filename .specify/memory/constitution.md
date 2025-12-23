@@ -1,50 +1,67 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# XianyuAutoAgent 项目宪法
+<!-- 定义项目的核心原则和开发规范 -->
 
-## Core Principles
+## 核心原则
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. API 优先
+所有功能首先设计为 API 接口；API 必须独立可测试、文档完整；明确的用途要求 - 避免仅为组织而存在的接口
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### II. 内网部署
+所有服务面向内网部署；不需要复杂的鉴权机制；优先考虑简单性和可维护性
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### III. 测试优先 (不可协商)
+TDD 强制执行: 测试编写 → 用户确认 → 测试失败 → 然后实现；严格执行红-绿-重构循环
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### IV. 集成测试
+需要集成测试的重点领域: 新 API 契约测试、契约变更、服务间通信、共享数据模型
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### V. 可观测性
+结构化日志必需 (JSON 格式)；所有关键操作必须记录审计日志；日志包含必要的上下文信息 (session_id, event_type, duration 等)
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+### VI. 简单性
+从简单开始，遵循 YAGNI 原则；避免过度设计；复杂性必须有充分理由
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+## 技术约束
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+### 语言和框架
+- **Python**: 3.11+ 作为主要开发语言
+- **Web 框架**: FastAPI 用于 HTTP 服务
+- **AI 模型**: ali qwen
+- **数据存储**: Redis (非持久化) + ChromaDB (持久化)
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### 性能标准
+- API 响应时间: P95 < 2s
+- 并发支持: 最少 100 req/s
+- 知识库检索: < 100ms
 
-## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
+### 部署要求
+- 内网部署，无需外网访问
+- 无需鉴权机制
+- 支持单进程和多进程部署
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+## 开发工作流
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+### 代码审查
+- 所有代码变更必须经过审查
+- 验证是否符合本宪法要求
+- 复杂度必须有充分理由
+
+### 质量门控
+- 单元测试必须通过
+- 集成测试必须通过
+- 代码符合项目规范
+
+### 文档要求
+- API 变更必须更新 OpenAPI 规范
+- 数据模型变更必须更新 data-model.md
+- 重大变更必须更新 README
+
+## 治理规则
+
+1. **宪法优先级**: 本宪法优先于所有其他实践
+2. **修正流程**: 修改需要文档说明、批准和迁移计划
+3. **合规性**: 所有 PR/审查必须验证合规性
+4. **复杂性**: 增加的复杂性必须有充分理由
+5. **运行时指导**: 开发过程中遵循项目规范和最佳实践
+
+**版本**: 1.0.0 | **批准日期**: 2025-12-22 | **最后修订**: 2025-12-22

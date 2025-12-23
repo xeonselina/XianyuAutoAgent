@@ -23,8 +23,12 @@ tags:
     description: 对话接口
   - name: session
     description: 会话管理
+  - name: human-agent
+    description: 人工客服接口 (Human-in-the-Loop)
   - name: knowledge
     description: 知识库管理
+  - name: system
+    description: 系统接口
 
 paths:
   /chat/stream:
@@ -163,6 +167,270 @@ paths:
           description: 删除成功
         '404':
           description: 会话不存在
+
+  /sessions/{session_id}/human-takeover:
+    post:
+      tags: [session]
+      summary: 人工接管会话
+      description: |
+        当 Agent 调用 transfer_to_human 后,人工客服通过此接口接管会话。
+        
+        **使用场景**: 
+        - Agent 自信度低于阈值
+        - 知识库无法回答的问题
+        - 需要人工判断的复杂场景
+      operationId: humanTakeover
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id]
+              properties:
+                agent_id:
+                  type: string
+                  description: 接管的人工客服 ID
+                  example: "agent_001"
+                notes:
+                  type: string
+                  description: 接管备注
+                  example: "用户咨询复杂退款问题"
+      responses:
+        '200':
+          description: 接管成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session_id:
+                    type: string
+                  status:
+                    type: string
+                    example: "human_handling"
+                  agent_id:
+                    type: string
+                  context:
+                    type: object
+                    description: Agent 提供的上下文信息
+        '404':
+          description: 会话不存在
+        '409':
+          description: 会话状态冲突 (例如已被其他人工接管)
+
+  /human-agent/pending-requests:
+    get:
+      tags: [human-agent]
+      summary: 查询待处理的人工协助请求
+      description: |
+        Human-in-the-Loop 模式: 查询所有等待人工回复的请求。
+        
+        Agent 调用 ask_human_agent 工具后会创建请求，人工客服通过此接口获取待处理列表。
+      operationId: getPendingRequests
+      parameters:
+        - name: urgency
+          in: query
+          schema:
+            type: string
+            enum: [low, medium, high]
+          description: 按紧急程度过滤
+        - name: question_type
+          in: query
+          schema:
+            type: string
+            enum: [information_query, decision_required, risk_confirmation, knowledge_gap]
+          description: 按问题类型过滤
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: 待处理请求列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HumanRequestSummary'
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  page_size:
+                    type: integer
+              examples:
+                pending_requests:
+                  summary: 待处理请求示例
+                  value:
+                    items:
+                      - request_id: "req_001"
+                        session_id: "550e8400-e29b-41d4-a716-446655440000"
+                        question: "请帮我查询订单 #12345 的发货时间"
+                        question_type: "information_query"
+                        urgency: "medium"
+                        created_at: "2025-12-22T10:35:00Z"
+                        waiting_seconds: 45
+                    total: 3
+                    page: 1
+                    page_size: 20
+
+  /sessions/{session_id}/pending-request:
+    get:
+      tags: [human-agent]
+      summary: 查看会话的待处理请求详情
+      description: |
+        获取指定会话的当前待处理人工协助请求及完整对话历史。
+        
+        用于人工客服了解上下文，准备回复。
+      operationId: getPendingRequestDetail
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 请求详情
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  request:
+                    $ref: '#/components/schemas/HumanRequest'
+                  conversation_history:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Message'
+              examples:
+                request_detail:
+                  summary: 请求详情示例
+                  value:
+                    request:
+                      request_id: "req_001"
+                      question: "请帮我查询订单 #12345 的发货时间"
+                      question_type: "information_query"
+                      context:
+                        user_question: "我的订单什么时候发货?"
+                        order_id: "#12345"
+                      urgency: "medium"
+                      status: "pending"
+                    conversation_history:
+                      - role: "user"
+                        content: "我的订单什么时候发货?"
+                        timestamp: "2025-12-22T10:34:00Z"
+                      - role: "assistant"
+                        content: "正在为您核实订单信息，请稍候..."
+                        timestamp: "2025-12-22T10:35:00Z"
+        '404':
+          description: 会话不存在或无待处理请求
+
+  /sessions/{session_id}/human-response:
+    post:
+      tags: [human-agent]
+      summary: 人工回复协助请求
+      description: |
+        Human-in-the-Loop 模式: 人工客服回复 Agent 的协助请求。
+        
+        回复后，Agent 会继续执行并基于此信息回答用户。
+      operationId: submitHumanResponse
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [request_id, human_agent_id]
+              properties:
+                request_id:
+                  type: string
+                  description: 请求 ID
+                  example: "req_001"
+                human_agent_id:
+                  type: string
+                  description: 人工客服 ID
+                  example: "agent_001"
+                response:
+                  type: string
+                  description: 文本回复 (用于 information_query 或 knowledge_gap)
+                  example: "订单已于 2025-12-20 发货，物流单号 SF123456"
+                selected_option:
+                  type: string
+                  description: 选择的选项 ID (用于 decision_required 或 risk_confirmation)
+                  example: "B"
+                notes:
+                  type: string
+                  description: 备注 (可选)
+            examples:
+              text_response:
+                summary: 文本回复
+                value:
+                  request_id: "req_001"
+                  human_agent_id: "agent_001"
+                  response: "订单已于 2025-12-20 发货，物流单号 SF123456"
+              option_selection:
+                summary: 选项选择
+                value:
+                  request_id: "req_002"
+                  human_agent_id: "agent_001"
+                  selected_option: "B"
+                  notes: "批准 50% 退款，符合拆封商品政策"
+      responses:
+        '200':
+          description: 回复成功，Agent 已继续执行
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  request_id:
+                    type: string
+                  session_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [answered]
+                  message:
+                    type: string
+              example:
+                success: true
+                request_id: "req_001"
+                session_id: "550e8400-e29b-41d4-a716-446655440000"
+                status: "answered"
+                message: "Agent 已继续执行"
+        '404':
+          description: 会话或请求不存在
+        '409':
+          description: 请求已被回复或超时
 
   /knowledge/search:
     post:
@@ -424,7 +692,7 @@ components:
           type: integer
         status:
           type: string
-          enum: [active, completed, aborted, error]
+          enum: [active, completed, aborted, waiting_for_human, error]
         context:
           type: object
           additionalProperties: true
@@ -432,6 +700,13 @@ components:
           type: string
           nullable: true
           enum: [goal, timeout, error, max_turns]
+        pending_human_request:
+          $ref: '#/components/schemas/HumanRequest'
+          nullable: true
+        human_request_history:
+          type: array
+          items:
+            $ref: '#/components/schemas/HumanRequest'
         metadata:
           type: object
           additionalProperties: true
@@ -560,6 +835,100 @@ components:
         details:
           type: object
           additionalProperties: true
+
+    HumanRequestOption:
+      type: object
+      required: [id, label]
+      properties:
+        id:
+          type: string
+          description: 选项 ID
+        label:
+          type: string
+          description: 选项标签
+        description:
+          type: string
+          description: 选项说明
+
+    HumanRequest:
+      type: object
+      required: [request_id, question, question_type]
+      properties:
+        request_id:
+          type: string
+          description: 请求唯一 ID
+        question:
+          type: string
+          description: 向人工提出的具体问题
+        question_type:
+          type: string
+          enum: [information_query, decision_required, risk_confirmation, knowledge_gap]
+          description: 问题类型
+        context:
+          type: object
+          additionalProperties: true
+          description: 提供给人工的上下文信息
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/HumanRequestOption'
+          nullable: true
+          description: 决策选项 (可选)
+        urgency:
+          type: string
+          enum: [low, medium, high]
+          default: medium
+          description: 紧急程度
+        status:
+          type: string
+          enum: [pending, answered, timeout]
+          description: 请求状态
+        created_at:
+          type: string
+          format: date-time
+        answered_at:
+          type: string
+          format: date-time
+          nullable: true
+        human_agent_id:
+          type: string
+          nullable: true
+          description: 处理该请求的人工客服 ID
+        response:
+          type: string
+          nullable: true
+          description: 人工的文本回复
+        selected_option:
+          type: string
+          nullable: true
+          description: 人工选择的选项 ID
+        metadata:
+          type: object
+          additionalProperties: true
+
+    HumanRequestSummary:
+      type: object
+      description: 人工协助请求摘要 (用于列表展示)
+      properties:
+        request_id:
+          type: string
+        session_id:
+          type: string
+          format: uuid
+        question:
+          type: string
+        question_type:
+          type: string
+          enum: [information_query, decision_required, risk_confirmation, knowledge_gap]
+        urgency:
+          type: string
+          enum: [low, medium, high]
+        created_at:
+          type: string
+          format: date-time
+        waiting_seconds:
+          type: integer
+          description: 等待时长 (秒)
 
   responses:
     BadRequest:

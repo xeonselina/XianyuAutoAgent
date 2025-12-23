@@ -48,13 +48,29 @@ class Session(BaseModel):
     
     # Agent 状态
     turn_counter: int = Field(default=0, description="当前轮次计数")
-    status: str = Field(default="active", description="会话状态: active, completed, aborted")
+    status: str = Field(
+        default="active", 
+        description="会话状态: active, completed, aborted, waiting_for_human, error"
+    )
     
     # 上下文信息
     context: Dict[str, Any] = Field(default_factory=dict, description="会话上下文 (业务自定义)")
     
     # 终止原因
-    terminate_reason: Optional[str] = Field(None, description="终止原因: goal, timeout, error, max_turns")
+    terminate_reason: Optional[str] = Field(
+        None, 
+        description="终止原因: goal, timeout, error, max_turns"
+    )
+    
+    # Human-in-the-Loop 相关
+    pending_human_request: Optional["HumanRequest"] = Field(
+        None, 
+        description="当前等待人工回复的请求"
+    )
+    human_request_history: List["HumanRequest"] = Field(
+        default_factory=list,
+        description="历史人工协助记录"
+    )
     
     # 元数据
     metadata: Dict[str, Any] = Field(
@@ -82,6 +98,9 @@ class Session(BaseModel):
 
 ```
 active (活跃) 
+  ├──> waiting_for_human (等待人工回复 - Human-in-the-Loop)
+  │      ├──> active (人工已回复，Agent 继续执行)
+  │      └──> error (超时或错误)
   ├──> completed (完成) - Agent 调用 complete_task
   ├──> aborted (中止) - 用户主动结束或超时
   └──> error (错误) - 系统异常
@@ -342,7 +361,172 @@ def search_knowledge(query_embedding: List[float], top_k: int = 5):
 
 ---
 
-## 5. AgentState (Agent 运行时状态)
+## 5. HumanRequest (人工协助请求)
+
+### 用途
+当 Agent 需要人工协助时（查询信息、做决策、确认风险等），创建此请求并暂停执行，等待人工回复后继续。
+
+### 存储位置
+- 当前待处理: 嵌套在 Session 的 `pending_human_request` 字段中
+- 历史记录: 嵌套在 Session 的 `human_request_history` 字段中
+
+### 数据结构
+
+```python
+from typing import Literal
+
+class HumanRequestOption(BaseModel):
+    """人工决策选项"""
+    id: str = Field(..., description="选项 ID")
+    label: str = Field(..., description="选项标签")
+    description: Optional[str] = Field(None, description="选项说明")
+
+class HumanRequest(BaseModel):
+    """人工协助请求 (Human-in-the-Loop)"""
+    
+    # 基本信息
+    request_id: str = Field(..., description="请求唯一 ID")
+    
+    # 请求内容
+    question: str = Field(..., description="向人工提出的具体问题")
+    question_type: Literal[
+        "information_query",      # 信息查询
+        "decision_required",      # 需要决策
+        "risk_confirmation",      # 风险确认
+        "knowledge_gap"           # 知识缺失
+    ] = Field(..., description="问题类型")
+    
+    # 上下文
+    context: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="提供给人工的上下文信息"
+    )
+    
+    # 决策选项 (可选，用于选择题)
+    options: Optional[List[HumanRequestOption]] = Field(
+        None,
+        description="如果是选择题，提供选项列表"
+    )
+    
+    # 紧急程度
+    urgency: Literal["low", "medium", "high"] = Field(
+        default="medium",
+        description="紧急程度"
+    )
+    
+    # 状态
+    status: Literal["pending", "answered", "timeout"] = Field(
+        default="pending",
+        description="请求状态"
+    )
+    
+    # 时间戳
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    answered_at: Optional[datetime] = None
+    
+    # 人工回复
+    human_agent_id: Optional[str] = Field(None, description="处理该请求的人工客服 ID")
+    response: Optional[str] = Field(None, description="人工的文本回复")
+    selected_option: Optional[str] = Field(None, description="人工选择的选项 ID")
+    
+    # 元数据
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="扩展元数据"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "request_id": "req_abc123",
+                "question": "请帮我查询订单 #12345 的发货时间和物流单号",
+                "question_type": "information_query",
+                "context": {
+                    "user_question": "我的订单什么时候发货?",
+                    "order_id": "#12345"
+                },
+                "urgency": "medium",
+                "status": "pending",
+                "created_at": "2025-12-22T10:35:00Z"
+            }
+        }
+```
+
+### 请求类型说明
+
+| 类型 | 说明 | 示例 |
+|------|------|------|
+| `information_query` | 查询外部系统信息 | "请查询订单 #12345 的发货时间" |
+| `decision_required` | 需要人工决策 | "用户退款拆封商品，选择处理策略 A/B/C" |
+| `risk_confirmation` | 高风险操作确认 | "用户要取消 5 个订单，是否执行？" |
+| `knowledge_gap` | 知识库缺失，需要补充 | "会员积分规则是什么？" |
+
+### 示例场景
+
+**场景 1: 信息查询**
+```python
+request = HumanRequest(
+    request_id="req_001",
+    question="请帮我查询订单 #12345 的发货时间和物流单号",
+    question_type="information_query",
+    context={
+        "user_question": "我的订单什么时候发货?",
+        "order_id": "#12345"
+    },
+    urgency="medium"
+)
+```
+
+**场景 2: 决策选择**
+```python
+request = HumanRequest(
+    request_id="req_002",
+    question="用户要求退款拆封商品，请选择处理策略",
+    question_type="decision_required",
+    context={
+        "user_question": "我要退款，但商品已经拆封了",
+        "order_id": "#12345",
+        "product": "iPhone 15"
+    },
+    options=[
+        HumanRequestOption(
+            id="A",
+            label="批准全额退款",
+            description="100% 退款"
+        ),
+        HumanRequestOption(
+            id="B",
+            label="批准部分退款",
+            description="50% 退款 (拆封折损)"
+        ),
+        HumanRequestOption(
+            id="C",
+            label="拒绝退款",
+            description="已拆封不支持退款"
+        )
+    ],
+    urgency="high"
+)
+```
+
+**场景 3: 风险确认**
+```python
+request = HumanRequest(
+    request_id="req_003",
+    question="用户请求取消 5 个订单，总金额 5000 元，是否执行?",
+    question_type="risk_confirmation",
+    context={
+        "user_question": "帮我取消所有待支付的订单",
+        "order_ids": ["#001", "#002", "#003", "#004", "#005"],
+        "total_amount": 5000
+    },
+    urgency="high"
+)
+```
+
+---
+
+## 6. AgentState (Agent 运行时状态)
 
 ### 用途
 跟踪 Agent 执行器的运行时状态,用于循环检测和恢复机制。
