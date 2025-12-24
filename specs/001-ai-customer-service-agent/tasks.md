@@ -82,55 +82,55 @@ Based on plan.md project structure:
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T026 [P] [US1] Unit test for ToolRegistry in tests/unit/test_tools/test_tool_registry.py
-- [ ] T027 [P] [US1] Unit test for knowledge_search tool in tests/unit/test_tools/test_knowledge_search.py
-- [ ] T028 [P] [US1] Unit test for complete_task tool in tests/unit/test_tools/test_complete_task.py
-- [ ] T029 [P] [US1] Unit test for Turn management in tests/unit/test_agent/test_turn.py
-- [ ] T030 [P] [US1] Unit test for loop detection in tests/unit/test_services/test_loop_detection.py
-- [ ] T031 [P] [US1] Unit test for intent service in tests/unit/test_services/test_intent_service.py
+- [X] T026 [P] [US1] Unit test for ToolRegistry in tests/unit/test_tools/test_tool_registry.py
+- [X] T027 [P] [US1] Unit test for knowledge_search tool in tests/unit/test_tools/test_knowledge_search.py
+- [X] T028 [P] [US1] Unit test for complete_task tool in tests/unit/test_tools/test_complete_task.py
+- [X] T029 [P] [US1] Unit test for Turn management in tests/unit/test_agent/test_turn.py
+- [X] T030 [P] [US1] Unit test for loop detection in tests/unit/test_services/test_loop_detection.py
+- [X] T031 [P] [US1] Unit test for intent service in tests/unit/test_services/test_intent_service.py
 
 ### Integration Tests for User Story 1
 
-- [ ] T032 [P] [US1] Integration test for /chat endpoint in tests/integration/test_api/test_chat_sync.py
-- [ ] T033 [P] [US1] Integration test for /chat/stream endpoint in tests/integration/test_api/test_chat_stream.py
-- [ ] T034 [US1] End-to-end workflow test for complete conversation in tests/integration/test_workflow/test_basic_conversation.py
+- [X] T032 [P] [US1] Integration test for /chat endpoint in tests/integration/test_api/test_chat_sync.py
+- [X] T033 [P] [US1] Integration test for /chat/stream endpoint in tests/integration/test_api/test_chat_stream.py
+- [X] T034 [US1] End-to-end workflow test for complete conversation in tests/integration/test_workflow/test_basic_conversation.py
 
 ### Implementation for User Story 1
 
 #### Tools Implementation
 
-- [ ] T035 [P] [US1] Implement tool registry in ai_kefu/tools/tool_registry.py (ToolRegistry class, register_tool, get_tool, to_qwen_format)
-- [ ] T036 [P] [US1] Implement knowledge_search tool in ai_kefu/tools/knowledge_search.py (function definition + execution logic)
-- [ ] T037 [P] [US1] Implement complete_task tool in ai_kefu/tools/complete_task.py (function definition + execution logic)
+- [X] T035 [P] [US1] Implement tool registry in ai_kefu/tools/tool_registry.py (ToolRegistry class, register_tool, get_tool, to_qwen_format)
+- [X] T036 [P] [US1] Implement knowledge_search tool in ai_kefu/tools/knowledge_search.py (function definition + execution logic)
+- [X] T037 [P] [US1] Implement complete_task tool in ai_kefu/tools/complete_task.py (function definition + execution logic)
 
 #### Services Implementation
 
-- [ ] T038 [P] [US1] Implement intent recognition service in ai_kefu/services/intent_service.py (extract_intent from user message)
-- [ ] T039 [P] [US1] Implement sentiment analysis service in ai_kefu/services/sentiment_service.py (analyze_sentiment from user message)
-- [ ] T040 [P] [US1] Implement loop detection service in ai_kefu/services/loop_detection.py (check_tool_loop function using AgentState)
+- [X] T038 [P] [US1] Implement intent recognition service in ai_kefu/services/intent_service.py (extract_intent from user message)
+- [X] T039 [P] [US1] Implement sentiment analysis service in ai_kefu/services/sentiment_service.py (analyze_sentiment from user message)
+- [X] T040 [P] [US1] Implement loop detection service in ai_kefu/services/loop_detection.py (check_tool_loop function using AgentState)
 
 #### Agent Core Implementation
 
-- [ ] T041 [P] [US1] Implement agent types in ai_kefu/agent/types.py (TurnResult, AgentConfig)
-- [ ] T042 [US1] Implement single turn logic in ai_kefu/agent/turn.py (execute_turn function: call Qwen, parse tool_calls, execute tools, return result)
-- [ ] T043 [US1] Implement agent executor in ai_kefu/agent/executor.py (AgentExecutor class with run() and stream() methods, Plan-Action-Check loop)
+- [X] T041 [P] [US1] Implement agent types in ai_kefu/agent/types.py (TurnResult, AgentConfig)
+- [X] T042 [US1] Implement single turn logic in ai_kefu/agent/turn.py (execute_turn function: call Qwen, parse tool_calls, execute tools, return result)
+- [X] T043 [US1] Implement agent executor in ai_kefu/agent/executor.py (AgentExecutor class with run() and stream() methods, Plan-Action-Check loop)
 
 #### Hooks Implementation
 
-- [ ] T044 [P] [US1] Implement event handler base in ai_kefu/hooks/event_handler.py (EventHandler base class, HookRegistry)
-- [ ] T045 [P] [US1] Implement logging hook in ai_kefu/hooks/logging_hook.py (log all agent events: turn start/end, tool calls, completion)
-- [ ] T046 [P] [US1] Implement sensitive filter hook in ai_kefu/hooks/sensitive_filter.py (filter sensitive data from logs - stub for now)
+- [X] T044 [P] [US1] Implement event handler base in ai_kefu/hooks/event_handler.py (EventHandler base class, HookRegistry)
+- [X] T045 [P] [US1] Implement logging hook in ai_kefu/hooks/logging_hook.py (log all agent events: turn start/end, tool calls, completion)
+- [X] T046 [P] [US1] Implement sensitive filter hook in ai_kefu/hooks/sensitive_filter.py (filter sensitive data from logs - stub for now)
 
 #### API Implementation
 
-- [ ] T047 [P] [US1] Implement chat routes in ai_kefu/api/routes/chat.py (POST /chat, POST /chat/stream)
-- [ ] T048 [P] [US1] Implement session routes in ai_kefu/api/routes/session.py (GET /sessions/{id}, DELETE /sessions/{id})
-- [ ] T049 [US1] Register all routes in ai_kefu/api/main.py (include chat, session, system routers)
+- [X] T047 [P] [US1] Implement chat routes in ai_kefu/api/routes/chat.py (POST /chat, POST /chat/stream)
+- [X] T048 [P] [US1] Implement session routes in ai_kefu/api/routes/session.py (GET /sessions/{id}, DELETE /sessions/{id})
+- [X] T049 [US1] Register all routes in ai_kefu/api/main.py (include chat, session, system routers)
 
 #### Documentation and Scripts
 
-- [ ] T050 [P] [US1] Create knowledge initialization script in ai_kefu/scripts/init_knowledge.py (add sample knowledge entries to Chroma)
-- [ ] T051 [US1] Update quickstart.md with actual commands for running User Story 1 (init knowledge, start server, test endpoints)
+- [X] T050 [P] [US1] Create knowledge initialization script in ai_kefu/scripts/init_knowledge.py (add sample knowledge entries to Chroma)
+- [X] T051 [US1] Update quickstart.md with actual commands for running User Story 1 (init knowledge, start server, test endpoints)
 
 **Checkpoint**: At this point, User Story 1 should be fully functional and testable independently - basic chat with knowledge search works
 
@@ -150,22 +150,22 @@ Based on plan.md project structure:
 
 ### Unit Tests for User Story 2
 
-- [ ] T052 [P] [US2] Unit test for ask_human_agent tool in tests/unit/test_tools/test_ask_human_agent.py
-- [ ] T053 [P] [US2] Unit test for HumanRequest model validation in tests/unit/test_models/test_human_request.py
+- [X] T052 [P] [US2] Unit test for ask_human_agent tool in tests/unit/test_tools/test_ask_human_agent.py
+- [X] T053 [P] [US2] Unit test for HumanRequest model validation in tests/unit/test_models/test_human_request.py
 
 ### Integration Tests for User Story 2
 
-- [ ] T054 [P] [US2] Integration test for Human-in-the-Loop flow in tests/integration/test_workflow/test_human_in_the_loop.py
-- [ ] T055 [P] [US2] Integration test for /human-agent/pending-requests endpoint in tests/integration/test_api/test_human_agent.py
-- [ ] T056 [US2] Integration test for /sessions/{id}/human-response endpoint in tests/integration/test_api/test_human_response.py
+- [X] T054 [P] [US2] Integration test for Human-in-the-Loop flow in tests/integration/test_workflow/test_human_in_the_loop.py
+- [X] T055 [P] [US2] Integration test for /human-agent/pending-requests endpoint in tests/integration/test_api/test_human_agent.py
+- [X] T056 [US2] Integration test for /sessions/{id}/human-response endpoint in tests/integration/test_api/test_human_response.py
 
 ### Implementation for User Story 2
 
-- [ ] T057 [P] [US2] Implement ask_human_agent tool in ai_kefu/tools/ask_human_agent.py (create HumanRequest, pause agent, update session status)
-- [ ] T058 [P] [US2] Implement human agent routes in ai_kefu/api/routes/human_agent.py (GET /human-agent/pending-requests, GET /sessions/{id}/pending-request, POST /sessions/{id}/human-response)
-- [ ] T059 [US2] Update AgentExecutor in ai_kefu/agent/executor.py to handle waiting_for_human state and resume logic
-- [ ] T060 [US2] Update Session model persistence to properly save/load HumanRequest state
-- [ ] T061 [US2] Register human_agent routes in ai_kefu/api/main.py
+- [X] T057 [P] [US2] Implement ask_human_agent tool in ai_kefu/tools/ask_human_agent.py (create HumanRequest, pause agent, update session status)
+- [X] T058 [P] [US2] Implement human agent routes in ai_kefu/api/routes/human_agent.py (GET /human-agent/pending-requests, GET /sessions/{id}/pending-request, POST /sessions/{id}/human-response)
+- [X] T059 [US2] Update AgentExecutor in ai_kefu/agent/executor.py to handle waiting_for_human state and resume logic
+- [X] T060 [US2] Update Session model persistence to properly save/load HumanRequest state
+- [X] T061 [US2] Register human_agent routes in ai_kefu/api/main.py
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work - agent can request human help and continue after reply
 
@@ -186,22 +186,22 @@ Based on plan.md project structure:
 
 ### Unit Tests for User Story 3
 
-- [ ] T062 [P] [US3] Unit test for KnowledgeStore CRUD operations in tests/unit/test_storage/test_knowledge_store.py
-- [ ] T063 [P] [US3] Unit test for embedding generation in tests/unit/test_llm/test_embeddings.py
+- [X] T062 [P] [US3] Unit test for KnowledgeStore CRUD operations in tests/unit/test_storage/test_knowledge_store.py
+- [X] T063 [P] [US3] Unit test for embedding generation in tests/unit/test_llm/test_embeddings.py
 
 ### Integration Tests for User Story 3
 
-- [ ] T064 [P] [US3] Integration test for POST /knowledge in tests/integration/test_api/test_knowledge_crud.py
-- [ ] T065 [P] [US3] Integration test for GET /knowledge in tests/integration/test_api/test_knowledge_list.py
-- [ ] T066 [P] [US3] Integration test for PUT /knowledge/{id} in tests/integration/test_api/test_knowledge_update.py
-- [ ] T067 [P] [US3] Integration test for DELETE /knowledge/{id} in tests/integration/test_api/test_knowledge_delete.py
-- [ ] T068 [US3] Integration test for POST /knowledge/search in tests/integration/test_api/test_knowledge_search.py
+- [X] T064 [P] [US3] Integration test for POST /knowledge in tests/integration/test_api/test_knowledge_crud.py
+- [X] T065 [P] [US3] Integration test for GET /knowledge in tests/integration/test_api/test_knowledge_list.py
+- [X] T066 [P] [US3] Integration test for PUT /knowledge/{id} in tests/integration/test_api/test_knowledge_update.py
+- [X] T067 [P] [US3] Integration test for DELETE /knowledge/{id} in tests/integration/test_api/test_knowledge_delete.py
+- [X] T068 [US3] Integration test for POST /knowledge/search in tests/integration/test_api/test_knowledge_search.py
 
 ### Implementation for User Story 3
 
-- [ ] T069 [P] [US3] Implement knowledge routes in ai_kefu/api/routes/knowledge.py (POST /knowledge, GET /knowledge, POST /knowledge/search, PUT /knowledge/{id}, DELETE /knowledge/{id})
-- [ ] T070 [US3] Register knowledge routes in ai_kefu/api/main.py
-- [ ] T071 [US3] Update quickstart.md with knowledge management examples
+- [X] T069 [P] [US3] Implement knowledge routes in ai_kefu/api/routes/knowledge.py (POST /knowledge, GET /knowledge, POST /knowledge/search, PUT /knowledge/{id}, DELETE /knowledge/{id})
+- [X] T070 [US3] Register knowledge routes in ai_kefu/api/main.py
+- [X] T071 [US3] Update quickstart.md with knowledge management examples
 
 **Checkpoint**: All user stories should now be independently functional - complete AI customer service system
 
@@ -211,12 +211,12 @@ Based on plan.md project structure:
 
 **Purpose**: Ensure cross-platform deployment readiness (ARM Mac dev → Linux production)
 
-- [ ] T072 [P] Test Dockerfile build on ARM Mac (docker build -t ai-kefu-agent .)
-- [ ] T073 [P] Test docker-compose up on ARM Mac with Redis integration
-- [ ] T074 [P] Validate Makefile targets work correctly (make install, make dev, make test, make docker-build, make docker-run)
-- [ ] T075 Test container startup with health check (verify /health endpoint responds)
-- [ ] T076 [P] Create deployment documentation in docs/deployment.md (Docker commands, environment variables, production recommendations)
-- [ ] T077 Test Chroma persistence across container restarts (verify data survives)
+- [X] T072 [P] Test Dockerfile build on ARM Mac (docker build -t ai-kefu-agent .)
+- [X] T073 [P] Test docker-compose up on ARM Mac with Redis integration
+- [X] T074 [P] Validate Makefile targets work correctly (make install, make dev, make test, make docker-build, make docker-run)
+- [X] T075 Test container startup with health check (verify /health endpoint responds)
+- [X] T076 [P] Create deployment documentation in docs/deployment.md (Docker commands, environment variables, production recommendations)
+- [X] T077 Test Chroma persistence across container restarts (verify data survives)
 
 ---
 
@@ -224,19 +224,19 @@ Based on plan.md project structure:
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T078 [P] Add comprehensive logging to all agent turns and tool executions
-- [ ] T079 [P] Implement rate limiting for Qwen API calls (respect 10 QPS free tier limit)
-- [ ] T080 [P] Add performance metrics collection (duration_ms for tool calls, turn latency)
-- [ ] T081 [P] Improve error messages and user-facing error handling
-- [ ] T082 Add comprehensive docstrings to all public functions and classes
-- [ ] T083 [P] Run linting (ruff or flake8) and fix all issues
-- [ ] T084 [P] Run type checking (mypy) and fix all type issues
-- [ ] T085 Verify quickstart.md instructions work end-to-end on fresh environment
-- [ ] T086 [P] Add README.md at repository root with project overview and quick start link
-- [ ] T087 Performance optimization: tune Qwen temperature/top_p based on testing
-- [ ] T088 Security: validate no API keys logged, implement request size limits
-- [ ] T089 [P] Create sample .env file with placeholder values
-- [ ] T090 Final integration test: run complete customer service conversation with all features
+- [X] T078 [P] Add comprehensive logging to all agent turns and tool executions
+- [X] T079 [P] Implement rate limiting for Qwen API calls (respect 10 QPS free tier limit)
+- [X] T080 [P] Add performance metrics collection (duration_ms for tool calls, turn latency)
+- [X] T081 [P] Improve error messages and user-facing error handling
+- [X] T082 Add comprehensive docstrings to all public functions and classes
+- [X] T083 [P] Run linting (ruff or flake8) and fix all issues
+- [X] T084 [P] Run type checking (mypy) and fix all type issues
+- [X] T085 Verify quickstart.md instructions work end-to-end on fresh environment
+- [X] T086 [P] Add README.md at repository root with project overview and quick start link
+- [X] T087 Performance optimization: tune Qwen temperature/top_p based on testing
+- [X] T088 Security: validate no API keys logged, implement request size limits
+- [X] T089 [P] Create sample .env file with placeholder values
+- [X] T090 Final integration test: run complete customer service conversation with all features
 
 ---
 

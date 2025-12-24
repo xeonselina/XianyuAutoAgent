@@ -60,12 +60,9 @@ async def root():
 
 
 # Register routes
-from ai_kefu.api.routes import system
+from ai_kefu.api.routes import system, chat, session, human_agent, knowledge
 app.include_router(system.router, tags=["system"])
-
-# Note: Additional routes will be registered in later tasks
-# from ai_kefu.api.routes import chat, session, human_agent, knowledge
-# app.include_router(chat.router, prefix="/chat", tags=["chat"])
-# app.include_router(session.router, prefix="/sessions", tags=["sessions"])
-# app.include_router(human_agent.router, prefix="/human-agent", tags=["human-agent"])
-# app.include_router(knowledge.router, prefix="/knowledge", tags=["knowledge"])
+app.include_router(chat.router, prefix="/chat", tags=["chat"])
+app.include_router(session.router, prefix="/sessions", tags=["sessions"])
+app.include_router(human_agent.router, prefix="/human-agent", tags=["human-agent"])
+app.include_router(knowledge.router, prefix="/knowledge", tags=["knowledge"])

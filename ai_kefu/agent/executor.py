@@ -67,6 +67,14 @@ class AgentExecutor:
             complete_task.get_tool_definition()
         )
         
+        # Register ask_human_agent
+        from ai_kefu.tools import ask_human_agent
+        self.tools_registry.register_tool(
+            "ask_human_agent",
+            ask_human_agent.ask_human_agent,
+            ask_human_agent.get_tool_definition()
+        )
+        
         logger.info(f"Registered {len(self.tools_registry.get_all_tools())} tools")
     
     def run(

@@ -2,6 +2,8 @@
 Custom exception classes for the AI customer service agent.
 """
 
+from typing import Optional
+
 
 class AIKefuError(Exception):
     """Base exception for AI Kefu errors."""
@@ -101,5 +103,3 @@ class ValidationError(AIKefuError):
         self.field = field
         super().__init__(f"Validation error for '{field}': {message}")
 
-
-from typing import Optional
