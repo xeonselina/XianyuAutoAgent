@@ -1,0 +1,861 @@
+"""
+CDP 拦截器模块
+
+使用 Chrome DevTools Protocol 拦截和注入 WebSocket 消息。
+"""
+
+import json
+import asyncio
+from typing import Optional, Callable, Dict, Any
+from loguru import logger
+
+
+class CDPInterceptor:
+    """
+    CDP WebSocket 拦截器
+
+    通过 Chrome DevTools Protocol 监控和拦截 WebSocket 通信。
+    """
+
+    def __init__(self, cdp_session):
+        """
+        初始化 CDP 拦截器
+
+        Args:
+            cdp_session: Chrome DevTools Protocol 会话
+        """
+        self.cdp_session = cdp_session
+        self.websocket_id: Optional[str] = None
+        self.message_callback: Optional[Callable[[Dict[str, Any]], None]] = None
+        self._is_monitoring = False
+        self._is_setup = False  # 防止重复设置监听器
+
+    async def setup(self) -> bool:
+        """
+        设置 CDP 监控
+
+        Returns:
+            bool: 设置是否成功
+        """
+        try:
+            # 防止重复设置
+            if self._is_setup:
+                logger.debug("CDP 监控已经设置过，跳过重复设置")
+                return True
+
+            logger.info("正在设置 CDP WebSocket 监控...")
+
+            # 启用 Network 域
+            await self.cdp_session.send("Network.enable")
+            logger.debug("Network 域已启用")
+
+            # 订阅 WebSocket 事件
+            self.cdp_session.on("Network.webSocketCreated", self._on_websocket_created)
+            self.cdp_session.on("Network.webSocketFrameReceived", self._on_frame_received)
+            self.cdp_session.on("Network.webSocketFrameSent", self._on_frame_sent)
+            self.cdp_session.on("Network.webSocketClosed", self._on_websocket_closed)
+            logger.debug("WebSocket 事件监听器已注册")
+
+            # 【新增】启用 Fetch 域进行更底层的网络拦截
+            try:
+                await self.cdp_session.send("Fetch.enable", {
+                    "patterns": [
+                        {
+                            "urlPattern": "*wss://*",  # 拦截所有 WSS 连接
+                            "requestStage": "Request"
+                        },
+                        {
+                            "urlPattern": "*ws://*",   # 拦截所有 WS 连接
+                            "requestStage": "Request"
+                        }
+                    ]
+                })
+                logger.info("✅ Fetch 域已启用（底层 WebSocket 拦截）")
+
+                # 监听 Fetch 请求暂停事件
+                self.cdp_session.on("Fetch.requestPaused", self._on_fetch_request_paused)
+                logger.debug("Fetch.requestPaused 监听器已注册")
+
+            except Exception as e:
+                logger.warning(f"启用 Fetch 域失败（非致命错误）: {e}")
+
+            # 监听控制台输出（捕获 JavaScript 的 console.log）
+            self.cdp_session.on("Runtime.consoleAPICalled", self._on_console_api)
+            logger.debug("Console API 监听器已注册")
+
+            # 测试：监听网络请求事件（验证 CDP 事件系统是否工作）
+            # 已禁用，避免大量日志影响性能
+            # async def on_request_will_be_sent(params):
+            #     url = params.get('request', {}).get('url', 'unknown')[:100]
+            #     logger.debug(f"CDP 事件测试: 捕获到网络请求 {url}")
+            # self.cdp_session.on("Network.requestWillBeSent", on_request_will_be_sent)
+            # logger.debug("测试网络请求监听器已注册")
+
+            # 启用 Runtime 域（用于执行 JavaScript）
+            await self.cdp_session.send("Runtime.enable")
+            logger.debug("Runtime 域已启用")
+
+            self._is_monitoring = True
+            self._is_setup = True  # 标记已设置完成
+            logger.info("CDP 监控设置成功")
+            return True
+
+        except Exception as e:
+            logger.error(f"CDP 监控设置失败: {e}")
+            return False
+
+    def set_message_callback(self, callback: Callable[[Dict[str, Any]], None]) -> None:
+        """
+        设置消息回调函数
+
+        Args:
+            callback: 收到 WebSocket 消息时调用的回调函数
+        """
+        self.message_callback = callback
+
+    async def _on_fetch_request_paused(self, params: Dict[str, Any]) -> None:
+        """
+        Fetch 请求暂停事件处理（底层网络拦截）
+
+        这个方法会拦截所有 WebSocket 握手请求，即使在跨域 iframe 中也能捕获。
+
+        Args:
+            params: 事件参数
+        """
+        try:
+            request_id = params.get("requestId")
+            request = params.get("request", {})
+            url = request.get("url", "")
+            resource_type = params.get("resourceType", "")
+
+            # 检查是否是 WebSocket 请求
+            if url.startswith("wss://") or url.startswith("ws://"):
+                logger.info(f"🚀 Fetch 域拦截到 WebSocket 请求: {url}")
+                logger.debug(f"   资源类型: {resource_type}")
+                logger.debug(f"   请求 ID: {request_id}")
+
+                # 检查是否是闲鱼的 WebSocket
+                is_xianyu = any(domain in url for domain in [
+                    "wss-goofish.dingtalk.com",
+                    "msgacs.m.taobao.com",
+                    "wss.goofish.com"
+                ])
+                if is_xianyu:
+                    self.websocket_id = f"fetch_{request_id}"
+                    logger.info(f"✅ 通过 Fetch 域检测到闲鱼 WebSocket: {url}")
+
+            # 继续请求（不阻止）
+            try:
+                await self.cdp_session.send("Fetch.continueRequest", {
+                    "requestId": request_id
+                })
+            except Exception as e:
+                logger.debug(f"继续 Fetch 请求失败: {e}")
+
+        except Exception as e:
+            logger.error(f"处理 Fetch 请求暂停事件失败: {e}")
+
+    async def _on_websocket_created(self, params: Dict[str, Any]) -> None:
+        """
+        WebSocket 创建事件处理
+
+        Args:
+            params: 事件参数
+        """
+        try:
+            request_id = params.get("requestId")
+            url = params.get("url")
+
+            logger.debug(f"捕获到 WebSocket 创建: {url}")
+
+            # 检查是否是闲鱼的 WebSocket
+            is_xianyu = any(domain in url for domain in [
+                "wss-goofish.dingtalk.com",
+                "msgacs.m.taobao.com",
+                "wss.goofish.com"
+            ])
+            if is_xianyu:
+                self.websocket_id = request_id
+                logger.info(f"✅ 检测到闲鱼 WebSocket 连接: {url}")
+                logger.info(f"WebSocket ID: {self.websocket_id}")
+            else:
+                logger.debug(f"非闲鱼 WebSocket，忽略: {url}")
+
+        except Exception as e:
+            logger.error(f"处理 WebSocket 创建事件失败: {e}")
+
+    async def _on_frame_received(self, params: Dict[str, Any]) -> None:
+        """
+        WebSocket 接收帧事件处理
+
+        Args:
+            params: 事件参数
+        """
+        try:
+            request_id = params.get("requestId")
+
+            # 只处理闲鱼的 WebSocket
+            if request_id != self.websocket_id:
+                return
+
+            response = params.get("response", {})
+            payload = response.get("payloadData")
+
+            if payload:
+                # 解析消息
+                try:
+                    message_data = json.loads(payload)
+                    logger.debug(f"收到 WebSocket 消息 (通过 CDP)")
+
+                    # 调用回调函数
+                    if self.message_callback:
+                        await asyncio.create_task(self._safe_callback(message_data))
+
+                except json.JSONDecodeError:
+                    logger.debug("非 JSON 格式的 WebSocket 消息")
+
+        except Exception as e:
+            logger.error(f"处理 WebSocket 接收帧失败: {e}")
+
+    async def _on_frame_sent(self, params: Dict[str, Any]) -> None:
+        """
+        WebSocket 发送帧事件处理（用于调试）
+
+        Args:
+            params: 事件参数
+        """
+        try:
+            request_id = params.get("requestId")
+
+            if request_id == self.websocket_id:
+                response = params.get("response", {})
+                payload = response.get("payloadData")
+                logger.debug(f"发送 WebSocket 消息 (通过 CDP)")
+
+        except Exception as e:
+            logger.debug(f"处理 WebSocket 发送帧失败: {e}")
+
+    async def _on_console_api(self, params: Dict[str, Any]) -> None:
+        """
+        Console API 事件处理（捕获 JavaScript console.log）
+
+        Args:
+            params: 事件参数
+        """
+        try:
+            console_type = params.get("type", "")
+            args = params.get("args", [])
+
+            # 处理 console.error
+            if console_type == "error" and len(args) > 0:
+                first_arg = args[0].get("value", "")
+                if first_arg == "[CDP_SEND_ERROR]" and len(args) > 1:
+                    error_msg = args[1].get("value", "") if len(args) > 1 else ""
+                    logger.error(f"❌ CDP发送错误: {error_msg}")
+                return
+
+            if console_type == "log" and len(args) > 0:
+                first_arg = args[0].get("value", "")
+
+                # 检测 WebSocket 拦截器输出
+                if first_arg == "[WS_INTERCEPTOR_READY]":
+                    logger.info("✅ JavaScript WebSocket 拦截器就绪（主窗口）")
+                elif first_arg == "[WS_PRIMARY]" and len(args) > 1:
+                    url = args[1].get("value", "")
+                    logger.info(f"⭐ 主 WebSocket 已设置: {url}")
+                elif first_arg == "[WS_CREATED]" and len(args) > 1:
+                    url = args[1].get("value", "")
+                    logger.info(f"📡 JavaScript 检测到 WebSocket 创建（主窗口）: {url}")
+
+                    # 如果是闲鱼的 WebSocket，标记为已连接
+                    is_xianyu = any(domain in url for domain in [
+                        "wss-goofish.dingtalk.com",
+                        "msgacs.m.taobao.com",
+                        "wss.goofish.com"
+                    ])
+                    if is_xianyu:
+                        self.websocket_id = "from_javascript"
+                        logger.info(f"✅ 通过 JavaScript 检测到闲鱼 WebSocket: {url}")
+                elif first_arg == "[WS_OPENED]" and len(args) > 1:
+                    url = args[1].get("value", "")
+                    logger.info(f"🔗 WebSocket 已连接（主窗口）: {url}")
+                elif first_arg == "[WS_MESSAGE_RECEIVED]" and len(args) > 1:
+                    # 接收到 WebSocket 消息
+                    message_data_str = args[1].get("value", "")
+                    logger.info(f"📥 收到消息: {message_data_str[:100]}...")  # 只显示前100字符
+
+                    # 解析并调用回调
+                    try:
+                        message_data = json.loads(message_data_str)
+                        if self.message_callback:
+                            await self._safe_callback(message_data)
+                    except json.JSONDecodeError:
+                        logger.debug("非 JSON 格式的 WebSocket 消息")
+                elif first_arg == "[WS_MESSAGE_SENT]" and len(args) > 1:
+                    # 发送的 WebSocket 消息
+                    message_data_str = args[1].get("value", "")
+                    logger.debug(f"📤 发送消息: {message_data_str[:100]}...")
+                elif first_arg.startswith("[CDP_SEND_"):
+                    # CDP 发送调试信息
+                    if len(args) > 1:
+                        logger.debug(f"🔧 {first_arg}: {args[1].get('value', '')}")
+                    else:
+                        logger.debug(f"🔧 {first_arg}")
+                elif first_arg == "[WS_CREATED_IN_IFRAME]" and len(args) > 2:
+                    iframe_name = args[1].get("value", "")
+                    url = args[2].get("value", "")
+                    logger.info(f"📡 JavaScript 检测到 WebSocket 创建（iframe: {iframe_name}）: {url}")
+
+                    # 如果是闲鱼的 WebSocket，标记为已连接
+                    is_xianyu = any(domain in url for domain in [
+                        "wss-goofish.dingtalk.com",
+                        "msgacs.m.taobao.com",
+                        "wss.goofish.com"
+                    ])
+                    if is_xianyu:
+                        self.websocket_id = f"from_javascript_iframe_{iframe_name}"
+                        logger.info(f"✅ 通过 JavaScript 在 iframe 中检测到闲鱼 WebSocket: {url}")
+                elif first_arg == "[WS_OPENED_IN_IFRAME]" and len(args) > 2:
+                    iframe_name = args[1].get("value", "")
+                    url = args[2].get("value", "")
+                    logger.info(f"🔗 WebSocket 已连接（iframe: {iframe_name}）: {url}")
+                else:
+                    # 其他 console.log
+                    logger.debug(f"Console: {first_arg}")
+
+        except Exception as e:
+            logger.error(f"处理 Console API 事件失败: {e}")
+
+    async def _on_websocket_closed(self, params: Dict[str, Any]) -> None:
+        """
+        WebSocket 关闭事件处理
+
+        Args:
+            params: 事件参数
+        """
+        try:
+            request_id = params.get("requestId")
+
+            if request_id == self.websocket_id:
+                logger.warning("WebSocket 连接已关闭")
+                self.websocket_id = None
+
+        except Exception as e:
+            logger.error(f"处理 WebSocket 关闭事件失败: {e}")
+
+    async def _safe_callback(self, message_data: Dict[str, Any]) -> None:
+        """
+        安全地调用回调函数
+
+        Args:
+            message_data: 消息数据
+        """
+        try:
+            if self.message_callback:
+                # 如果回调是协程函数
+                if asyncio.iscoroutinefunction(self.message_callback):
+                    await self.message_callback(message_data)
+                else:
+                    self.message_callback(message_data)
+        except Exception as e:
+            logger.error(f"消息回调执行失败: {e}")
+
+    async def send_message(self, message_data: Dict[str, Any]) -> bool:
+        """
+        通过浏览器的 WebSocket 连接发送消息
+
+        Args:
+            message_data: 要发送的消息数据
+
+        Returns:
+            bool: 发送是否成功
+        """
+        try:
+            if not self.websocket_id:
+                logger.error("WebSocket 未连接")
+                return False
+
+            # 将消息转换为 JSON 字符串
+            message_json = json.dumps(message_data, ensure_ascii=False)
+            logger.debug(f"准备发送消息: {message_json[:200]}...")
+
+            # 构造 JavaScript 代码来发送消息
+            # 使用 Symbol 访问保存的 WebSocket 实例
+            js_code = f"""
+            (function() {{
+                try {{
+                    // 使用 Symbol 获取 WebSocket 实例
+                    const wsSymbol = Symbol.for('_ws_');
+                    const wsArraySymbol = Symbol.for('_ws_array_');
+                    const wsInstance = window[wsSymbol];
+                    const wsArray = window[wsArraySymbol] || [];
+
+                    console.log('[CDP_SEND_DEBUG] WebSocket实例存在:', !!wsInstance);
+                    console.log('[CDP_SEND_DEBUG] WebSocket数组长度:', wsArray.length);
+
+                    if (wsInstance) {{
+                        console.log('[CDP_SEND_DEBUG] 主WebSocket readyState:', wsInstance.readyState);
+                        console.log('[CDP_SEND_DEBUG] 主WebSocket URL:', wsInstance.url);
+                    }}
+
+                    // 列出所有 WebSocket
+                    wsArray.forEach((item, idx) => {{
+                        console.log('[CDP_SEND_DEBUG] WS[' + idx + '] URL:', item.url);
+                        console.log('[CDP_SEND_DEBUG] WS[' + idx + '] readyState:', item.ws.readyState);
+                    }});
+
+                    // 使用已保存的实例发送
+                    if (wsInstance && wsInstance.readyState === 1) {{
+                        const messageToSend = {json.dumps(message_json)};
+                        console.log('[CDP_SEND_DEBUG] 准备发送消息:', messageToSend.substring(0, 100));
+                        wsInstance.send(messageToSend);
+                        console.log('[CDP_SEND_DEBUG] 消息已通过主WebSocket发送');
+                        return {{ success: true, message: 'sent_via_primary', url: wsInstance.url }};
+                    }}
+
+                    return {{
+                        success: false,
+                        message: wsInstance ? 'readyState=' + wsInstance.readyState : 'no instance'
+                    }};
+                }} catch(e) {{
+                    console.error('[CDP_SEND_ERROR]', e);
+                    return {{ success: false, message: e.toString() }};
+                }}
+            }})();
+            """
+
+            # 执行 JavaScript
+            result = await self.cdp_session.send("Runtime.evaluate", {
+                "expression": js_code,
+                "returnByValue": True
+            })
+
+            # 检查返回结果
+            js_result = result.get("result", {}).get("value", {})
+
+            if isinstance(js_result, dict) and js_result.get("success"):
+                ws_url = js_result.get('url', 'unknown')
+                logger.info(f"✅ 消息发送成功 (通过 CDP): {js_result.get('message')}")
+                logger.info(f"   使用的 WebSocket: {ws_url}")
+                return True
+            else:
+                error_msg = js_result.get("message", "unknown") if isinstance(js_result, dict) else str(js_result)
+                logger.error(f"❌ 消息发送失败: {error_msg}")
+                return False
+
+        except Exception as e:
+            logger.error(f"通过 CDP 发送消息失败: {e}")
+            return False
+
+    async def inject_websocket_interceptor(self) -> bool:
+        """
+        注入 WebSocket 拦截器（备用方案）
+
+        这个方法会在页面中注入 JavaScript 来拦截 WebSocket 实例。
+        使用 Page.addScriptToEvaluateOnNewDocument 确保在页面加载前就注入。
+
+        Returns:
+            bool: 注入是否成功
+        """
+        try:
+            # 使用更隐蔽的 JavaScript 注入方式
+            # - 主要使用 Symbol 存储（难以被检测）
+            # - 同时设置旧变量名（用于检测代码向后兼容）
+            # - 拦截消息收发
+            js_code = """
+(function() {
+    // 使用 Symbol 作为主要存储方式（更隐蔽）
+    const wsSymbol = Symbol.for('_ws_');
+    const injectedSymbol = Symbol.for('_inj_');
+
+    if (window[injectedSymbol]) return;
+
+    const OriginalWebSocket = window.WebSocket;
+
+    window.WebSocket = class extends OriginalWebSocket {
+        constructor(...args) {
+            super(...args);
+            const url = args[0];
+
+            // 保存 WebSocket 实例（双重存储：Symbol + 旧变量名）
+            window[wsSymbol] = this;
+            window.__xianyuWebSocket = this;  // 向后兼容检测代码
+
+            // 闲鱼可能使用多个 WebSocket 服务器
+            const isXianyuWs = url && (
+                url.includes('wss-goofish.dingtalk.com') ||
+                url.includes('msgacs.m.taobao.com') ||
+                url.includes('wss.goofish.com')
+            );
+
+            if (isXianyuWs) {
+                console.log('[WS_CREATED]', url);
+
+                // 拦截 onmessage（接收消息）
+                const originalOnMessage = this.onmessage;
+                Object.defineProperty(this, 'onmessage', {
+                    set: function(handler) {
+                        this._onmessageHandler = function(event) {
+                            // 输出接收到的消息
+                            console.log('[WS_MESSAGE_RECEIVED]', event.data);
+                            // 调用原始处理器
+                            if (handler) handler.call(this, event);
+                        };
+                        OriginalWebSocket.prototype.__lookupSetter__('onmessage').call(this, this._onmessageHandler);
+                    },
+                    get: function() {
+                        return this._onmessageHandler;
+                    }
+                });
+
+                // 拦截 send（发送消息）
+                const originalSend = this.send;
+                this.send = function(data) {
+                    console.log('[WS_MESSAGE_SENT]', data);
+                    return originalSend.call(this, data);
+                };
+
+                this.addEventListener('open', () => {
+                    console.log('[WS_OPENED]', url);
+                });
+            }
+
+            return this;
+        }
+    };
+
+    // 双重标记
+    window[injectedSymbol] = true;
+    window.__wsInterceptorInjected = true;  // 向后兼容检测代码
+    console.log('[WS_INTERCEPTOR_READY]');
+})();
+            """
+
+            # 使用 Page.addScriptToEvaluateOnNewDocument 确保脚本在页面加载前执行
+            # 这样可以捕获页面加载时创建的 WebSocket
+            await self.cdp_session.send("Page.enable")
+            result = await self.cdp_session.send("Page.addScriptToEvaluateOnNewDocument", {
+                "source": js_code
+            })
+            logger.debug(f"addScriptToEvaluateOnNewDocument 返回: {result}")
+
+            # 同时也在当前页面立即执行一次（处理已加载的页面）
+            try:
+                eval_result = await self.cdp_session.send("Runtime.evaluate", {
+                    "expression": js_code
+                })
+
+                # 检查是否有执行错误
+                if "exceptionDetails" in eval_result:
+                    logger.error(f"❌ JavaScript 注入失败: {eval_result['exceptionDetails']}")
+                    return False
+
+                logger.debug(f"Runtime.evaluate 执行结果: {eval_result}")
+
+                # 在所有 iframe 中也注入拦截器
+                inject_in_iframes_code = """
+(function() {
+    const iframes = document.querySelectorAll('iframe');
+    let injectedCount = 0;
+
+    for (let i = 0; i < iframes.length; i++) {
+        try {
+            const iframe = iframes[i];
+            const iframeWin = iframe.contentWindow;
+
+            if (iframeWin && !iframeWin.__wsInterceptorInjected) {
+                const originalWebSocket = iframeWin.WebSocket;
+
+                iframeWin.WebSocket = function(...args) {
+                    const ws = new originalWebSocket(...args);
+                    const url = args[0];
+
+                    iframeWin.__xianyuWebSocket = ws;
+                    console.log('[WS_CREATED_IN_IFRAME]', iframe.name || iframe.id || `iframe_${i}`, url);
+
+                    ws.addEventListener('open', () => {
+                        console.log('[WS_OPENED_IN_IFRAME]', iframe.name || iframe.id || `iframe_${i}`, url);
+                    });
+
+                    return ws;
+                };
+
+                iframeWin.WebSocket.prototype = originalWebSocket.prototype;
+                iframeWin.__wsInterceptorInjected = true;
+                injectedCount++;
+            }
+        } catch(e) {
+            // 跨域 iframe 无法访问
+        }
+    }
+
+    return { iframeCount: iframes.length, injectedCount: injectedCount };
+})();
+                """
+
+                iframe_inject_result = await self.cdp_session.send("Runtime.evaluate", {
+                    "expression": inject_in_iframes_code,
+                    "returnByValue": True
+                })
+                iframe_data = iframe_inject_result.get("result", {}).get("value", {})
+                if iframe_data.get("iframeCount", 0) > 0:
+                    logger.info(f"📝 在 {iframe_data.get('injectedCount', 0)}/{iframe_data.get('iframeCount', 0)} 个 iframe 中注入拦截器")
+
+                # 验证注入是否成功
+                verify_code = """
+(function() {
+    return {
+        interceptorInjected: window.__wsInterceptorInjected || false,
+        xianyuWsExists: !!window.__xianyuWebSocket,
+        webSocketConstructor: typeof window.WebSocket === 'function'
+    };
+})();
+                """
+                verify_result = await self.cdp_session.send("Runtime.evaluate", {
+                    "expression": verify_code,
+                    "returnByValue": True
+                })
+                verify_data = verify_result.get("result", {}).get("value", {})
+                logger.info(f"📝 主窗口拦截器验证: {verify_data}")
+
+            except Exception as e:
+                logger.warning(f"在当前页面执行拦截器失败: {e}")
+
+            logger.info("✅ WebSocket 拦截器注入成功")
+            return True
+
+        except Exception as e:
+            logger.error(f"注入 WebSocket 拦截器失败: {e}")
+            return False
+
+    def is_connected(self) -> bool:
+        """
+        检查 WebSocket 是否已连接
+
+        Returns:
+            bool: 是否已连接
+        """
+        return self.websocket_id is not None
+
+    async def check_websocket_in_page(self) -> bool:
+        """
+        主动检查页面中是否存在 WebSocket 连接
+
+        Returns:
+            bool: 是否检测到 WebSocket
+        """
+        try:
+            # 执行 JavaScript 检查页面中的 WebSocket（包括 iframe）
+            js_code = """
+(function() {
+    const result = {
+        found: false,
+        injectorPresent: window.__wsInterceptorInjected || false,
+        xianyuWsExists: !!window.__xianyuWebSocket,
+        performanceEntries: [],
+        debugInfo: {
+            iframeCount: 0,
+            iframeResults: []
+        }
+    };
+
+    // 辅助函数：在指定窗口中查找 WebSocket
+    function findWebSocketInWindow(win, frameName) {
+        const frameResult = {
+            frameName: frameName,
+            injectorPresent: false,
+            xianyuWsExists: false,
+            wsEntries: [],
+            windowWs: []
+        };
+
+        try {
+            // 检查注入的变量
+            frameResult.injectorPresent = win.__wsInterceptorInjected || false;
+            frameResult.xianyuWsExists = !!win.__xianyuWebSocket;
+
+            if (win.__xianyuWebSocket && win.__xianyuWebSocket.readyState !== undefined) {
+                return {
+                    found: true,
+                    url: win.__xianyuWebSocket.url,
+                    readyState: win.__xianyuWebSocket.readyState,
+                    method: 'injected',
+                    frameName: frameName
+                };
+            }
+
+            // 检查性能 API
+            try {
+                const entries = win.performance.getEntriesByType('resource');
+                for (const entry of entries) {
+                    if (entry.name.includes('wss://') || entry.name.includes('ws://')) {
+                        frameResult.wsEntries.push(entry.name);
+                    }
+                }
+
+                if (frameResult.wsEntries.length > 0) {
+                    return {
+                        found: true,
+                        url: frameResult.wsEntries[0],
+                        readyState: -1,
+                        method: 'performance',
+                        frameName: frameName
+                    };
+                }
+            } catch(e) {
+                // 性能 API 可能不可用
+            }
+
+            // 扫描 window 对象
+            for (const key in win) {
+                try {
+                    if (win[key] instanceof WebSocket) {
+                        frameResult.windowWs.push({
+                            key: key,
+                            url: win[key].url,
+                            readyState: win[key].readyState
+                        });
+                    }
+                } catch(e) {
+                    // 忽略
+                }
+            }
+
+            if (frameResult.windowWs.length > 0) {
+                return {
+                    found: true,
+                    url: frameResult.windowWs[0].url,
+                    readyState: frameResult.windowWs[0].readyState,
+                    method: 'window_scan',
+                    frameName: frameName
+                };
+            }
+        } catch(e) {
+            frameResult.error = e.message;
+        }
+
+        return frameResult;
+    }
+
+    // 检查主窗口
+    const mainResult = findWebSocketInWindow(window, 'main');
+    if (mainResult.found) {
+        return mainResult;
+    }
+    result.debugInfo.mainFrame = mainResult;
+
+    // 检查所有 iframe
+    const iframes = document.querySelectorAll('iframe');
+    result.debugInfo.iframeCount = iframes.length;
+
+    for (let i = 0; i < iframes.length; i++) {
+        try {
+            const iframe = iframes[i];
+            const iframeName = iframe.name || iframe.id || `iframe_${i}`;
+            const iframeWin = iframe.contentWindow;
+
+            if (iframeWin) {
+                const iframeResult = findWebSocketInWindow(iframeWin, iframeName);
+                if (iframeResult.found) {
+                    return iframeResult;
+                }
+                result.debugInfo.iframeResults.push(iframeResult);
+            }
+        } catch(e) {
+            // 跨域 iframe 无法访问
+            result.debugInfo.iframeResults.push({
+                frameName: `iframe_${i}`,
+                error: 'Cross-origin or access denied'
+            });
+        }
+    }
+
+    // 收集主窗口的性能数据（向后兼容）
+    const entries = performance.getEntriesByType('resource');
+    result.debugInfo.totalResources = entries.length;
+
+    for (const entry of entries) {
+        if (entry.name.includes('wss://') || entry.name.includes('ws://')) {
+            result.performanceEntries.push(entry.name);
+        }
+    }
+
+    return result;
+})();
+            """
+
+            result = await self.cdp_session.send("Runtime.evaluate", {
+                "expression": js_code,
+                "returnByValue": True
+            })
+
+            # 获取 JavaScript 返回的结果
+            js_result = result.get("result", {}).get("value", {})
+
+            # 记录详细的诊断信息
+            debug_info = js_result.get('debugInfo', {})
+            iframe_count = debug_info.get('iframeCount', 0)
+
+            logger.debug(f"🔍 WebSocket 主动检测结果:")
+            logger.debug(f"   - 主窗口拦截器是否注入: {js_result.get('injectorPresent', False)}")
+            logger.debug(f"   - 主窗口 __xianyuWebSocket 是否存在: {js_result.get('xianyuWsExists', False)}")
+            logger.debug(f"   - 页面中 iframe 数量: {iframe_count}")
+
+            # 如果有 iframe，显示 iframe 的检测结果
+            if iframe_count > 0:
+                iframe_results = debug_info.get('iframeResults', [])
+                logger.debug(f"   - iframe 检测结果:")
+                for iframe_result in iframe_results:
+                    frame_name = iframe_result.get('frameName', 'unknown')
+                    if 'error' in iframe_result:
+                        logger.debug(f"     * {frame_name}: {iframe_result['error']}")
+                    else:
+                        injected = iframe_result.get('injectorPresent', False)
+                        has_ws = iframe_result.get('xianyuWsExists', False)
+                        ws_count = len(iframe_result.get('wsEntries', []))
+                        logger.debug(f"     * {frame_name}: 注入={injected}, WS变量={has_ws}, 性能API找到={ws_count}个")
+
+            logger.debug(f"   - Performance API 发现的 WS: {js_result.get('performanceEntries', [])}")
+            logger.debug(f"   - 总资源数: {debug_info.get('totalResources', 0)}")
+
+            if js_result.get("found"):
+                url = js_result.get("url", "")
+                method = js_result.get("method", "unknown")
+                ready_state = js_result.get("readyState", -1)
+                frame_name = js_result.get("frameName", "unknown")
+
+                logger.info(f"🔍 主动检测到 WebSocket: {url}")
+                logger.info(f"   检测方法: {method}")
+                logger.info(f"   所在框架: {frame_name}")
+                logger.info(f"   连接状态: {ready_state} (0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED)")
+
+                # 如果是闲鱼的 WebSocket，标记为已连接
+                is_xianyu = any(domain in url for domain in [
+                    "wss-goofish.dingtalk.com",
+                    "msgacs.m.taobao.com",
+                    "wss.goofish.com"
+                ])
+                if is_xianyu:
+                    self.websocket_id = f"detected_{method}"
+                    logger.info(f"✅ 主动检测成功: {url}")
+                    return True
+                else:
+                    logger.debug(f"检测到 WebSocket 但不是闲鱼的: {url}")
+            else:
+                logger.debug("❌ 未检测到任何 WebSocket 连接")
+
+            return False
+
+        except Exception as e:
+            logger.error(f"主动检测 WebSocket 失败: {e}")
+            import traceback
+            logger.debug(f"错误堆栈: {traceback.format_exc()}")
+            return False
+
+    async def close(self) -> None:
+        """关闭 CDP 拦截器"""
+        try:
+            self._is_monitoring = False
+            logger.info("CDP 拦截器已关闭")
+        except Exception as e:
+            logger.error(f"关闭 CDP 拦截器失败: {e}")
