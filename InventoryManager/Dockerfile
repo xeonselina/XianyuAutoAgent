@@ -53,6 +53,7 @@ RUN unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY && \
     curl \
     vim \
     tzdata \
+    fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 

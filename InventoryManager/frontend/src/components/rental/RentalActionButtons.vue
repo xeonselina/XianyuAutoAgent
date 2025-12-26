@@ -20,6 +20,22 @@
         <el-icon><Box /></el-icon>
         发货单
       </el-button>
+      <el-tooltip
+        :content="canShipToXianyu ? '' : '缺少闲鱼订单号或快递单号'"
+        :disabled="canShipToXianyu"
+        placement="top"
+      >
+        <el-button
+          type="primary"
+          size="small"
+          @click="handleShipToXianyu"
+          :disabled="!canShipToXianyu || shippingToXianyu"
+          :loading="shippingToXianyu"
+        >
+          <el-icon><Van /></el-icon>
+          发货到闲鱼
+        </el-button>
+      </el-tooltip>
       <el-button
         type="danger"
         size="small"
@@ -46,7 +62,8 @@
 </template>
 
 <script setup lang="ts">
-import { Document, Box, Loading, Warning, Delete } from '@element-plus/icons-vue'
+import { ref, computed } from 'vue'
+import { Document, Box, Loading, Warning, Delete, Van } from '@element-plus/icons-vue'
 import type { Rental } from '@/stores/gantt'
 
 interface Props {
@@ -64,7 +81,16 @@ const emit = defineEmits<{
   'delete': []
   'close': []
   'submit': []
+  'ship-to-xianyu': []
 }>()
+
+// State
+const shippingToXianyu = ref(false)
+
+// Computed
+const canShipToXianyu = computed(() => {
+  return !!(props.rental?.xianyu_order_no && props.rental?.ship_out_tracking_no)
+})
 
 const openContract = () => {
   emit('open-contract')
@@ -84,6 +110,10 @@ const handleSubmit = () => {
 
 const handleDelete = () => {
   emit('delete')
+}
+
+const handleShipToXianyu = () => {
+  emit('ship-to-xianyu')
 }
 </script>
 

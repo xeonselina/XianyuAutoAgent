@@ -84,7 +84,17 @@
             </div>
           </div>
         </div>
-        
+
+        <!-- 档期冲突警告 -->
+        <div v-if="conflictInfo?.hasConflict" class="conflict-warning-section">
+          <div class="warning-header">⚠️ 档期冲突警告</div>
+          <div class="warning-details">
+            <p>下一个租赁距离本次结束仅 {{ conflictInfo.dayGap }} 天</p>
+            <p>目的地: {{ conflictInfo.currentDestination || '未知' }} → {{ conflictInfo.nextDestination || '未知' }}</p>
+            <p class="warning-suggestion">建议调整档期或确认物流时效</p>
+          </div>
+        </div>
+
         <div class="tooltip-footer">
           <div class="actions-hint">
             <span>单击编辑 · 双击删除</span>
@@ -100,10 +110,19 @@ import { computed } from 'vue'
 import type { Rental } from '../stores/gantt'
 import dayjs from 'dayjs'
 
+interface ConflictInfo {
+  hasConflict: boolean
+  nextRentalId?: number
+  dayGap?: number
+  currentDestination?: string
+  nextDestination?: string
+}
+
 interface Props {
   rental: Rental | null
   visible: boolean
   triggerRef?: HTMLElement
+  conflictInfo?: ConflictInfo
 }
 
 const emit = defineEmits<{
@@ -250,5 +269,33 @@ const getStatusText = (status: string) => {
 
 .accessory-tag {
   font-size: 11px;
+}
+
+/* 档期冲突警告样式 */
+.conflict-warning-section {
+  margin-top: 12px;
+  padding: 8px;
+  border-radius: 4px;
+  background-color: #FFF9E6;
+  border: 1px solid #FFC107;
+}
+
+.warning-header {
+  font-weight: 600;
+  color: #FF6F00;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.warning-details p {
+  margin: 4px 0;
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+}
+
+.warning-suggestion {
+  color: #E65100;
+  font-style: italic;
+  font-size: 12px !important;
 }
 </style>

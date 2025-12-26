@@ -688,10 +688,10 @@ const handleSubmit = async () => {
 
     const shipOutTime = availableSlot.value
       ? availableSlot.value.shipOutDate
-      : dayjs(form.value.startDate).subtract(form.value.logisticsDays, 'day').toDate()
+      : dayjs(form.value.startDate).startOf('day').subtract(form.value.logisticsDays, 'day').toDate()
     const shipInTime = availableSlot.value
       ? availableSlot.value.shipInDate
-      : dayjs(form.value.endDate).add(form.value.logisticsDays, 'day').toDate()
+      : dayjs(form.value.endDate).startOf('day').add(form.value.logisticsDays, 'day').toDate()
 
     const rentalData = {
       device_id: deviceId,

@@ -97,7 +97,7 @@
             >
               <el-option :value="1" label="特快" />
               <el-option :value="2" label="标快" />
-              <el-option :value="6" label="半日达" />
+              <el-option :value="263" label="半日达" />
             </el-select>
           </template>
         </el-table-column>

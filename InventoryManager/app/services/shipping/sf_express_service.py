@@ -123,7 +123,7 @@ class SFExpressService:
             }
 
             # 快递类型名称映射
-            express_type_names = {1: '特快', 2: '标快', 6: '半日达'}
+            express_type_names = {1: '特快', 2: '标快', 263: '半日达'}
             express_type_name = express_type_names.get(express_type_id, '未知')
 
             logger.info(f"顺丰下单: Rental {rental.id}, 快递类型: {express_type_id}({express_type_name}), 预约时间: {send_start_tm}")
