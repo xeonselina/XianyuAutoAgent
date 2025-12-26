@@ -529,3 +529,83 @@ class RentalHandlers:
         except Exception as e:
             current_app.logger.error(f"根据发货日期查询租赁记录失败: {e}")
             return server_error('查询租赁记录失败')
+
+    @staticmethod
+    def handle_ship_rental_to_xianyu(rental_id: str) -> ApiResponse:
+        """处理单个租赁发货到闲鱼请求"""
+        try:
+            from app.services.xianyu_order_service import get_xianyu_service
+            from app import db
+            import traceback
+
+            # 获取租赁记录
+            rental = RentalService.get_rental_by_id(rental_id)
+            if not rental:
+                return not_found('租赁记录不存在')
+
+            # 验证必填字段
+            if not rental.xianyu_order_no:
+                return bad_request('租赁记录缺少闲鱼订单号')
+
+            if not rental.ship_out_tracking_no:
+                return bad_request('租赁记录缺少快递单号')
+
+            # 记录发货操作开始
+            current_app.logger.info(
+                f"单个发货到闲鱼: Rental {rental_id}, "
+                f"Order {rental.xianyu_order_no}, "
+                f"Tracking {rental.ship_out_tracking_no}"
+            )
+
+            # 获取闲鱼服务并调用发货接口
+            xianyu_service = get_xianyu_service()
+            result = xianyu_service.ship_order(rental)
+
+            # 检查闲鱼API调用结果
+            if result.get('success'):
+                # 更新租赁状态为已发货（如果不是）
+                if rental.status != 'shipped':
+                    rental.status = 'shipped'
+
+                # 设置发货时间（如果没有）
+                if not rental.ship_out_time:
+                    rental.ship_out_time = datetime.utcnow()
+
+                # 提交数据库事务
+                db.session.commit()
+
+                current_app.logger.info(f"单个发货成功: Rental {rental_id}")
+
+                return success(
+                    message='已成功发货到闲鱼',
+                    data={
+                        'rental_id': rental.id,
+                        'xianyu_order_no': rental.xianyu_order_no,
+                        'ship_out_tracking_no': rental.ship_out_tracking_no,
+                        'status': rental.status
+                    }
+                )
+            else:
+                # 闲鱼API返回失败
+                error_message = result.get('message', '未知错误')
+
+                # 如果只是跳过（没有订单号），不算错误
+                if result.get('skipped'):
+                    current_app.logger.warning(f"单个发货跳过: Rental {rental_id}, 原因: {error_message}")
+                    return bad_request(error_message)
+
+                # 回滚事务
+                db.session.rollback()
+
+                current_app.logger.error(
+                    f"单个发货失败: Rental {rental_id}, 错误: {error_message}"
+                )
+
+                return server_error(f'闲鱼发货失败: {error_message}')
+
+        except Exception as e:
+            from app import db
+            db.session.rollback()
+            current_app.logger.error(f"单个发货异常: Rental {rental_id}, 错误: {e}")
+            current_app.logger.error(f"完整堆栈:\n{traceback.format_exc()}")
+            return server_error(f'发货操作失败: {str(e)}')

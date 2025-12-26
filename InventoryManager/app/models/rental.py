@@ -37,7 +37,7 @@ class Rental(db.Model):
     ship_out_tracking_no = db.Column(db.String(50), comment='寄出快递单号')
     ship_in_tracking_no = db.Column(db.String(50), comment='寄回快递单号')
     scheduled_ship_time = db.Column(db.DateTime, comment='预约发货时间')
-    express_type_id = db.Column(db.Integer, default=2, comment='顺丰快递类型ID (1=特快,2=标快,6=半日达)')
+    express_type_id = db.Column(db.Integer, default=2, comment='顺丰快递类型ID (1=特快,2=标快,263=半日达)')
     
     # 状态信息
     status = db.Column(

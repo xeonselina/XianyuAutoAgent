@@ -1,0 +1,6456 @@
+<!DOCTYPE html>
+<!-- saved from url=(0040)https://cloudprint.kuaimai.com/#/openDev -->
+<html lang="" style="font-size: 0.9px;"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="keywords" content="云打印,打印机云服务,云打印机,无线云打印机,云打印服务端,免驱动打印机,云服务打印,智能云打印服务,共享打印服务,云小票打印机,云标签打印机,云面单打印机,云热敏票据打印机,高速云打印机,热敏云打印机,快麦云打印,快麦云打印机,快麦云打印服务,快麦打印机云打印,快麦云服务,快麦云"><link rel="icon" href="https://cloudprint.kuaimai.com/favicon.ico"><title>快麦云打印官网</title><link href="./快麦云打印api文档_files/app.00ecb06c.css" rel="preload" as="style"><link href="./快麦云打印api文档_files/chunk-vendors.e10b0cae.css" rel="preload" as="style"><link href="./快麦云打印api文档_files/app.c9813992.js" rel="preload" as="script"><link href="./快麦云打印api文档_files/chunk-vendors.47447623.js" rel="preload" as="script"><link href="./快麦云打印api文档_files/chunk-vendors.e10b0cae.css" rel="stylesheet"><link href="./快麦云打印api文档_files/app.00ecb06c.css" rel="stylesheet"><style class="automa-element-selector">@font-face { font-family: "Inter var"; font-weight: 100 900; font-display: swap; font-style: normal; font-named-instance: "Regular"; src: url("chrome-extension://infppggnoaenmfagbfknfkancpbljcca/Inter-roman-latin.var.woff2") format("woff2") }
+.automa-element-selector { direction: ltr } 
+ [automa-isDragging] { user-select: none } 
+ [automa-el-list] {outline: 2px dashed #6366f1;}</style></head><body><noscript><strong>We're sorry but cloud-printing-official doesn't work properly without JavaScript enabled. Please enable it to continue.</strong></noscript><div data-v-377033ae="" id="app"><div data-v-2d6c6ee3="" data-v-377033ae="" class="header"><div data-v-2d6c6ee3="" class="logo_container"><img data-v-2d6c6ee3="" src="./快麦云打印api文档_files/logo.a0a2f37c.svg" alt="logo" class="logo_icon"><hr data-v-2d6c6ee3="" class="logo_split"><div data-v-2d6c6ee3="" class="logo_text">云打印</div></div><div data-v-2d6c6ee3="" class="menus"><div data-v-693684ee="" data-v-2d6c6ee3="" class="menus"><div data-v-693684ee="" class="menu-item"> 首页 </div><div data-v-693684ee="" class="menu-item"> 云打印 </div><div data-v-693684ee="" class="menu-item"> 云打印机 </div><div data-v-693684ee="" class="menu-item"> 客户案例 </div><div data-v-693684ee="" class="menu-item" style="display: none;"> 客户案例 </div><div data-v-693684ee="" class="menu-item actived"> 对接文档 </div><div data-v-693684ee="" class="menu-item" style="display: none;"> DP158小票机 </div><div data-v-693684ee="" class="menu-item" style="display: none;"> DP358小票机 </div><div data-v-693684ee="" class="menu-item" style="display: none;"> KM118系列云标签机 </div><div data-v-693684ee="" class="menu-item" style="display: none;"> E41W系列云标签机 </div><div data-v-693684ee="" class="menu-item" style="display: none;"> E41G系列云标签机 </div><div data-v-693684ee="" class="menu-item" style="display: none;"> E31W系列云标签机 </div><div data-v-693684ee="" class="menu-item" style="display: none;"> E31G系列云标签机 </div><div data-v-693684ee="" class="menu-item" style="display: none;"> DP458云小票机 </div><div data-v-693684ee="" class="menu-item" style="display: none;"> SX320系列云面单机 </div><div data-v-693684ee="" class="menu-item" style="display: none;"> UL410便携式热敏打印机 </div><div data-v-693684ee="" class="menu-item" style="display: none;"> SL410便携式热敏打印机 </div><div data-v-693684ee="" class="menu-item" style="display: none;"> E20W云标签打印机 </div><div data-v-693684ee="" class="menu-item" style="display: none;"> 菜鸟裹裹x快麦SC318云打印机 </div><div data-v-693684ee="" class="menu-item" style="display: none;"> 菜鸟裹裹x快麦SL310便携云打印机 </div><div data-v-693684ee="" class="menu-item" style="display: none;"> 拼多多x快麦KM-218MGD云打印机 </div><div data-v-693684ee="" class="menu-item" style="display: none;"> 快麦KM-202MG云标签机 </div><div data-v-693684ee="" class="menu-item" style="display: none;"> 饿么了x快麦DP058E云小票机 </div><div data-v-693684ee="" class="menu-item" style="display: none;"> 关于我们 </div></div></div><div data-v-2d6c6ee3="" class="right-btns"><a data-v-2d6c6ee3="" size="small" type="text" class="register"> 注册 </a><a data-v-2d6c6ee3="" size="small" class="login">登 录</a></div></div><div data-v-033dbed1="" data-v-377033ae="" class="open_dev"><div data-v-033dbed1="" class="banner"><div data-v-033dbed1="" class="main_content_1100"><div data-v-033dbed1="" class="banner_title">快麦云开放平台</div><div data-v-033dbed1="" class="banner_text">集成API快速对接 支持多端跨平台调用。</div><a data-v-033dbed1="" class="banner_btn">立即对接</a></div></div><div data-v-033dbed1="" class="open_dev_main"><div data-v-033dbed1="" class="main_content"><div data-v-033dbed1="" class="dev_tab"><div data-v-033dbed1="" class="dev_tab_item"> 对接指南 </div><div data-v-033dbed1="" class="dev_tab_item selected"> API对接 </div><div data-v-033dbed1="" class="dev_tab_item"> SDK下载 </div></div><div data-v-3b0f0bb3="" data-v-033dbed1="" class="document"><div data-v-3b0f0bb3="" class="main_content"><div data-v-3b0f0bb3="" class="document_menu"><div data-v-3b0f0bb3="" class="document_title">目录</div><div data-v-3b0f0bb3="" class="document_menu_list"><div data-v-3b0f0bb3="" class="document_menu_item"><div data-v-3b0f0bb3="" class="document_menu_first"> JS SDK <i data-v-3b0f0bb3="" class="el-icon-caret-right"></i></div><div data-v-3b0f0bb3="" class="document_menu_box" style="display: none;"><div data-v-3b0f0bb3="" data-url="https://kuaimai-public.oss-cn-shanghai.aliyuncs.com/public/document/CLOUD_PRINT.md" class="document_menu_second"> js-sdk </div></div></div><div data-v-3b0f0bb3="" class="document_menu_item"><div data-v-3b0f0bb3="" class="document_menu_first"> JAVA SDK <i data-v-3b0f0bb3="" class="el-icon-caret-right"></i></div><div data-v-3b0f0bb3="" class="document_menu_box" style="display: none;"><div data-v-3b0f0bb3="" data-url="https://kuaimai-public.oss-cn-shanghai.aliyuncs.com/public/document/java-sdk.md" class="document_menu_second"> java-sdk </div></div></div><div data-v-3b0f0bb3="" class="document_menu_item"><div data-v-3b0f0bb3="" class="document_menu_first"> 移动端 <i data-v-3b0f0bb3="" class="el-icon-caret-right"></i></div><div data-v-3b0f0bb3="" class="document_menu_box" style="display: none;"><div data-v-3b0f0bb3="" data-url="https://kuaimai-public.oss-cn-shanghai.aliyuncs.com/public/document/CLOUD_PRINT(iOS).md" class="document_menu_second"> iOS </div><div data-v-3b0f0bb3="" data-url="https://kuaimai-public.oss-cn-shanghai.aliyuncs.com/public/document/CLOUD_PRINT(安卓).md" class="document_menu_second"> Android </div></div></div><div data-v-3b0f0bb3="" class="document_menu_item"><div data-v-3b0f0bb3="" class="document_menu_first selected"> HTTP协议对接 <i data-v-3b0f0bb3="" class="el-icon-caret-right menu_icon_open"></i></div><div data-v-3b0f0bb3="" class="document_menu_box"><div data-v-3b0f0bb3="" data-url="https://kuaimai-public.oss-cn-shanghai.aliyuncs.com/public/document/快麦云打印对外开放接口.md" class="document_menu_second selected"> HTTP协议对接 </div></div></div><div data-v-3b0f0bb3="" class="document_menu_item"><div data-v-3b0f0bb3="" class="document_menu_first"> 常见问题 <i data-v-3b0f0bb3="" class="el-icon-caret-right"></i></div><div data-v-3b0f0bb3="" class="document_menu_box" style="display: none;"><div data-v-3b0f0bb3="" data-url="https://kuaimai-public.oss-cn-shanghai.aliyuncs.com/public/document/changjianwenti.md" class="document_menu_second"> 常见问题 </div></div></div><div data-v-3b0f0bb3="" class="document_menu_item"><div data-v-3b0f0bb3="" class="document_menu_first"> 调试工具 </div></div></div></div><div data-v-3b0f0bb3="" class="document_main markdown-body"><p><strong>对接流程图：</strong>  </p>
+<p><img src="./快麦云打印api文档_files/image20240222.png" alt=""></p>
+<p><strong>请求结构</strong></p>
+<p>协议：http或https</p>
+<p>域名：cloud.kuaimai.com</p>
+<p>请求方式：POST</p>
+<p>请求头：Content-Type:application/json</p>
+<p>响应：json</p>
+<p><strong>一、公共参数</strong><br><strong>1.公共请求参数</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>必传</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>appId</td>
+<td>应用ID</td>
+<td>String</td>
+<td>是</td>
+<td>"1100"</td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>当前时间</td>
+<td>String</td>
+<td>是</td>
+<td>"2020-08-14 15:29:29"</td>
+</tr>
+<tr>
+<td>sign</td>
+<td>签名值</td>
+<td>String</td>
+<td>是</td>
+<td>"ff9d58e9abcf50dcc423fad782636c21"</td>
+</tr>
+</tbody></table>
+<p><strong>2.公共响应参数</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>必传</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>status</td>
+<td>响应结果</td>
+<td>boolean</td>
+<td>是</td>
+<td>true为成功，false为失败</td>
+</tr>
+<tr>
+<td>data</td>
+<td>响应数据</td>
+<td>object</td>
+<td>否</td>
+<td>具体接口的返回数据</td>
+</tr>
+<tr>
+<td>message</td>
+<td>响应说明</td>
+<td>String</td>
+<td>否</td>
+<td>status为false时，返回信息</td>
+</tr>
+<tr>
+<td>code</td>
+<td>code码</td>
+<td>Number</td>
+<td>否</td>
+<td>详情见最下方code码说明</td>
+</tr>
+</tbody></table>
+<p><strong>二、签名规则 （可通过官网调试工具中的查看签名进行调试）</strong><br>将所有参数（sign除外，包含公共请求参数和私有请求参数，并且剔除value为空的参数），对参数的key进行ascii码升序排序，并组成如下字符串</p>
+<pre><code class="language-java">x={appId}{appId_val}{param1}{param1_val}{param2}{param2_val}{timestamp}{timestamp_val}...
+</code></pre>
+<p>将appSecret（接入方在快麦云的密钥）在上面的排序好的字符串前后都追加上，然后md5加密, md5之后的值取32位小写</p>
+<pre><code class="language-java">sign=MD5({secret}x{secret})
+</code></pre>
+<p><font style="color:#DF2A3F;">备注：appId和secret可通过页面右上角 注册\登录 按钮，登录注册后台在系统集成菜单页面获取；签名规则中的{ } 为占位符,其本身不参与字符串的拼接。</font></p>
+<p>sign值获取举例说明：</p>
+<p><strong>公共请求参数</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>示例值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>appId</td>
+<td>应用ID</td>
+<td>String</td>
+<td>"123456"</td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>当前时间</td>
+<td>String</td>
+<td>"2020-10-10 15:29:29"</td>
+</tr>
+<tr>
+<td>sign</td>
+<td>签名值</td>
+<td>String</td>
+<td>"9b7af7899fd1f7e1feebe8f4a0d4e15f"</td>
+</tr>
+</tbody></table>
+<p><strong>私有请求参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>示例值</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>sn</strong></td>
+<td><strong>序列号</strong></td>
+<td><strong>String</strong></td>
+<td><strong>"KM118MW"</strong></td>
+</tr>
+</tbody></table>
+<p>上面的参与签名的公共参数为：appId , timestamp ; 私有参数为：sn</p>
+<ol>
+<li>第一步升序排序拼接：appId123456snKM118MWtimestamp2020-10-10 15:29:29</li>
+<li>第二步前后拼接appSecret,这里假定你的secret是abc：abcappId123456snKM118MWtimestamp2020-10-10 15:29:29abc</li>
+<li>第三步对上面的字符串进行md5加密取32位小写：sign=MD5(abcappId123456snKM118MWtimestamp2020-10-10 15:29:29abc)</li>
+</ol>
+<p>JAVA签名示例代码：</p>
+<pre><code class="language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">static</span> String <span class="hljs-title function_">createSign</span><span class="hljs-params">(Map&lt;String,Object&gt; paramMap, String secret)</span> {
+    <span class="hljs-comment">// 第一步：检查参数是否已经排序</span>
+    String[] keys = paramMap.keySet().toArray(<span class="hljs-keyword">new</span> <span class="hljs-title class_">String</span>[<span class="hljs-number">0</span>]);
+    Arrays.sort(keys);
+    <span class="hljs-comment">// 第二步：把所有参数名和参数值串在一起</span>
+    <span class="hljs-type">StringBuilder</span> <span class="hljs-variable">query</span> <span class="hljs-operator">=</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">StringBuilder</span>();
+    query.append(secret);
+    <span class="hljs-keyword">for</span> (String key : keys) {
+        <span class="hljs-keyword">if</span> (key != <span class="hljs-literal">null</span> &amp;&amp; paramMap.get(key) != <span class="hljs-literal">null</span>) {
+            <span class="hljs-type">String</span> <span class="hljs-variable">keyString</span> <span class="hljs-operator">=</span> <span class="hljs-string">""</span> + key;
+            <span class="hljs-type">String</span> <span class="hljs-variable">valueString</span> <span class="hljs-operator">=</span> <span class="hljs-string">""</span> + paramMap.get(key);
+            <span class="hljs-keyword">if</span> (StringUtils.isNotBlank(keyString) &amp;&amp; StringUtils.isNotBlank(valueString)) {
+                query.append(keyString).append(valueString);
+            }
+        }
+    }
+    query.append(secret);
+    String sign;
+    <span class="hljs-comment">// 第三步：使用MD5加密,取32位小写</span>
+    <span class="hljs-keyword">return</span> DigestUtil.md5Hex(query.toString());
+}
+</code></pre>
+<p>JS/uni-app/微信小程序签名示例代码：</p>
+<pre><code class="language-javascript"><span class="hljs-keyword">import</span> md5 <span class="hljs-keyword">from</span> <span class="hljs-string">"md5"</span>;
+
+<span class="hljs-keyword">function</span> <span class="hljs-title function_">signStr</span>(<span class="hljs-params">{obj, secret}</span>) {
+  <span class="hljs-keyword">let</span> filteredObj = <span class="hljs-title class_">Object</span>.<span class="hljs-title function_">entries</span>(obj).<span class="hljs-title function_">filter</span>(<span class="hljs-function">(<span class="hljs-params">[key, value]</span>) =&gt;</span> value || value === <span class="hljs-number">0</span> || value === <span class="hljs-literal">false</span>).<span class="hljs-title function_">reduce</span>(<span class="hljs-function">(<span class="hljs-params">acc, [key, value]</span>) =&gt;</span> {
+    acc[key] = value;
+    <span class="hljs-keyword">return</span> acc;
+  }, {});
+
+  <span class="hljs-keyword">let</span> keysSorted = <span class="hljs-title class_">Object</span>.<span class="hljs-title function_">keys</span>(filteredObj).<span class="hljs-title function_">sort</span>();
+
+  <span class="hljs-keyword">let</span> str = keysSorted.<span class="hljs-title function_">map</span>(<span class="hljs-function"><span class="hljs-params">key</span> =&gt;</span> key + filteredObj[key]).<span class="hljs-title function_">join</span>(<span class="hljs-string">''</span>);
+
+  <span class="hljs-keyword">return</span> <span class="hljs-title function_">md5</span>(secret + str + secret);
+}
+</code></pre>
+<p><strong>API列表</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>api</strong></th>
+<th><strong>描述</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>bindDevice</td>
+<td>绑定设备 适用机型：所有机型</td>
+</tr>
+<tr>
+<td>unbindDevice</td>
+<td>解绑设备 适用机型：所有机型</td>
+</tr>
+<tr>
+<td>tsplTemplatePrint</td>
+<td>标签模板打印-间隙纸 适用机型:KM118系列,KME31系列,KME41系列，KME20系列，KMSX320,KMUL410</td>
+</tr>
+<tr>
+<td>tsplTemplateWrite</td>
+<td>小票模板打印-间隙纸 适用机型:KM118系列,KME31系列,KME41系列，KME20系列，KMSX320,KMUL410</td>
+</tr>
+<tr>
+<td>escTemplatePrint</td>
+<td>小票模板打印-连续纸 适用机型:KM118系列,KME31系列,KME41系列，KME20系列，KMDP系列</td>
+</tr>
+<tr>
+<td>tsplXmlWrite</td>
+<td>自定义xml打印-间隙纸 适用机型:KM118系列,KME31系列,KME41系列，KME20系列，KMSX320,KMUL410</td>
+</tr>
+<tr>
+<td>escXmlWrite</td>
+<td>自定义xml打印-连续纸 适用机型:KM118系列,KME31系列,KME41系列，KME20系列，KMDP系列</td>
+</tr>
+<tr>
+<td>deviceWrite</td>
+<td>TSPL/ESC指令打印 适用机型:KM118系列,KME31系列,KME41系列，KME20系列</td>
+</tr>
+<tr>
+<td>escWrite</td>
+<td>ESC指令打印 适用机型:KMDP系列,KMUP380C</td>
+</tr>
+<tr>
+<td>shareFilePrint</td>
+<td>共享云打印 适用机型：电脑安装番茄打印管家并开通共享打印USB连接的机器</td>
+</tr>
+<tr>
+<td>result</td>
+<td>打印任务结果查询 适用机型：KM118系列,KME31系列,KME41系列，KME20系列</td>
+</tr>
+<tr>
+<td>batchStatus</td>
+<td>打印机状态查询 适用机型：所有机型</td>
+</tr>
+<tr>
+<td>broadcast</td>
+<td>语言播报 适用机型: KM118MGL,KME31GP</td>
+</tr>
+</tbody></table>
+<p><font style="color:#D22D8D;">说明：</font></p>
+<ol>
+<li><font style="color:#D22D8D;">打印小票，常用实现接口为：escTemplatePrint 和 escXmlWrite</font></li>
+<li><font style="color:#D22D8D;">打印标签或者面单，常用实现接口为：tsplTemplatePrint 和 tsplXmlWrite</font></li>
+<li><font style="color:#D22D8D;">单设备打印，以设备为维度接口最大的QPS为6</font></li>
+</ol>
+<p><strong>三、具体接口</strong></p>
+<h4 id="1绑定打印机">1.绑定打印机</h4>
+<p><strong>url:</strong>/api/cloud/device/bindDevice<br><strong>公共请求参数</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>必传</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>appId</td>
+<td>应用ID</td>
+<td>String</td>
+<td>是</td>
+<td>"1100"</td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>当前时间</td>
+<td>String</td>
+<td>是</td>
+<td>"2020-08-14 15:29:29"</td>
+</tr>
+<tr>
+<td>sign</td>
+<td>签名值</td>
+<td>String</td>
+<td>是</td>
+<td>"ff9d58e9abcf50dcc423fad782636c21"</td>
+</tr>
+</tbody></table>
+<p><strong>私有请求参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>必传</strong></th>
+<th><strong>示例与说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>sn</strong></td>
+<td><strong>序列号</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"km789838899"</strong></td>
+</tr>
+<tr>
+<td><strong>deviceKey</strong></td>
+<td><strong>设备密钥</strong></td>
+<td><strong>String</strong></td>
+<td><strong>否</strong></td>
+<td><strong>如果设备机身贴有密钥，该参数就是必传</strong></td>
+</tr>
+<tr>
+<td><strong>bindName</strong></td>
+<td><strong>绑定名称</strong></td>
+<td><strong>String</strong></td>
+<td><strong>否</strong></td>
+<td><strong>应用方的绑定名称，例如用户名/用户id</strong></td>
+</tr>
+<tr>
+<td><strong>noteName</strong></td>
+<td><strong>备注名称</strong></td>
+<td><strong>String</strong></td>
+<td><strong>否</strong></td>
+<td><strong>备注名称，例如杭州分店</strong></td>
+</tr>
+</tbody></table>
+<p><strong>入参完整示例：</strong></p>
+<pre><code class="language-java">{
+<span class="hljs-string">"sn"</span>:<span class="hljs-string">"123"</span>,
+<span class="hljs-string">"deviceKey"</span>:<span class="hljs-string">"123456"</span>,
+<span class="hljs-string">"bindName"</span>:<span class="hljs-string">"18934769875"</span>,
+<span class="hljs-string">"noteName"</span>:<span class="hljs-string">"杭州分店"</span>,
+<span class="hljs-string">"appId"</span>:<span class="hljs-string">"100202"</span>,
+<span class="hljs-string">"timestamp"</span>:<span class="hljs-string">"2020-08-24 11:11:59"</span>,
+<span class="hljs-string">"sign"</span>:<span class="hljs-string">"testsignvalue"</span>
+}
+</code></pre>
+<p><strong>响应参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>status</strong></td>
+<td><strong>响应结果</strong></td>
+<td><strong>boolean</strong></td>
+<td><strong>true为成功，false为失败</strong></td>
+</tr>
+<tr>
+<td><strong>data</strong></td>
+<td><strong>响应数据</strong></td>
+<td><strong>object</strong></td>
+<td><strong>具体接口的返回数据</strong></td>
+</tr>
+<tr>
+<td><strong>message</strong></td>
+<td><strong>响应说明</strong></td>
+<td><strong>String</strong></td>
+<td><strong>status为false时，返回信息</strong></td>
+</tr>
+<tr>
+<td><strong>code</strong></td>
+<td><strong>code码</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>详情见最下方code码说明</strong></td>
+</tr>
+</tbody></table>
+<p>说明：<font style="color:#DF2A3F;">这里的绑定是对接方打印机和云平台之间的绑定，如果绑定成功了，只有该对接方可以调用该打印机打印，如果机器未绑定任何对接方，任何对接方都可以调用该打印机打印.</font></p>
+<p><font style="color:#DF2A3F;"></font></p>
+<p><font style="color:#000000;">错误码：</font></p>
+<table>
+<thead>
+<tr>
+<th>code</th>
+<th>描述</th>
+<th>处理方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>4001</td>
+<td>该序列号不存在或未激活</td>
+<td>检查序列号是否和底部或自检页上一致；如果是wifi机型检查是否蓝灯配网是否成功；如果是4G机型检查是否开机；</td>
+</tr>
+<tr>
+<td>4009</td>
+<td>设备密钥不正确</td>
+<td>设备密钥在机器底部，检查输入是否一致；</td>
+</tr>
+</tbody></table>
+<p><font style="color:#DF2A3F;"></font></p>
+<h4 id="2解绑打印机">2.解绑打印机</h4>
+<p><strong>url:</strong>/api/cloud/device/unbindDevice<br><strong>公共请求参数</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>必传</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>appId</td>
+<td>应用ID</td>
+<td>String</td>
+<td>是</td>
+<td>"1100"</td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>当前时间</td>
+<td>String</td>
+<td>是</td>
+<td>"2020-08-14 15:29:29"</td>
+</tr>
+<tr>
+<td>sign</td>
+<td>签名值</td>
+<td>String</td>
+<td>是</td>
+<td>"ff9d58e9abcf50dcc423fad782636c21"</td>
+</tr>
+</tbody></table>
+<p><strong>私有请求参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>必传</strong></th>
+<th><strong>示例与说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>sn</strong></td>
+<td><strong>序列号</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"km789838899"</strong></td>
+</tr>
+<tr>
+<td><strong>deviceKey</strong></td>
+<td><strong>设备密钥</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"112233"</strong></td>
+</tr>
+</tbody></table>
+<p><strong>入参完整示例：</strong></p>
+<pre><code class="language-java">{
+<span class="hljs-string">"sn"</span>:<span class="hljs-string">"123"</span>,
+<span class="hljs-string">"deviceKey"</span>:<span class="hljs-string">"123456"</span>,
+<span class="hljs-string">"appId"</span>:<span class="hljs-string">"100202"</span>,
+<span class="hljs-string">"timestamp"</span>:<span class="hljs-string">"2020-08-24 11:11:59"</span>,
+<span class="hljs-string">"sign"</span>:<span class="hljs-string">"testsignvalue"</span>
+}
+</code></pre>
+<p><strong>响应参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>status</strong></td>
+<td><strong>响应结果</strong></td>
+<td><strong>boolean</strong></td>
+<td><strong>true为成功，false为失败</strong></td>
+</tr>
+<tr>
+<td><strong>data</strong></td>
+<td><strong>响应数据</strong></td>
+<td><strong>object</strong></td>
+<td><strong>具体接口的返回数据</strong></td>
+</tr>
+<tr>
+<td><strong>message</strong></td>
+<td><strong>响应说明</strong></td>
+<td><strong>String</strong></td>
+<td><strong>status为false时，返回信息</strong></td>
+</tr>
+<tr>
+<td><strong>code</strong></td>
+<td><strong>code码</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>详情见最下方code码说明</strong></td>
+</tr>
+</tbody></table>
+<p><font style="color:#000000;">错误码：</font></p>
+<table>
+<thead>
+<tr>
+<th>code</th>
+<th>描述</th>
+<th>处理方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>4001</td>
+<td>该序列号不存在或未激活</td>
+<td>检查序列号是否和底部或自检页上一致；如果是wifi机型检查是否蓝灯配网是否成功；如果是4G机型检查是否开机；</td>
+</tr>
+<tr>
+<td>4009</td>
+<td>设备密钥不正确</td>
+<td>设备密钥在机器底部，检查输入是否一致；</td>
+</tr>
+</tbody></table>
+<p><font style="color:#DF2A3F;"></font></p>
+<h4 id="3标签模板打印-间隙纸-适用机型km118系列kme31系列kme41系列，kme20系列，kmsx320kmul410">3.标签模板打印-间隙纸 适用机型:KM118系列,KME31系列,KME41系列，KME20系列，KMSX320,KMUL410</h4>
+<p>url:/api/cloud/print/tsplTemplatePrint<br><strong>公共请求参数:</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>必传</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>appId</td>
+<td>应用ID</td>
+<td>String</td>
+<td>是</td>
+<td>"1100"</td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>当前时间</td>
+<td>String</td>
+<td>是</td>
+<td>"2020-08-14 15:29:29"</td>
+</tr>
+<tr>
+<td>sign</td>
+<td>签名值</td>
+<td>String</td>
+<td>是</td>
+<td>"ff9d58e9abcf50dcc423fad782636c21"</td>
+</tr>
+</tbody></table>
+<p><strong>私有请求参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>必传</strong></th>
+<th><strong>示例与说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>sn</strong></td>
+<td><strong>序列号</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"km789838899"</strong></td>
+</tr>
+<tr>
+<td><strong>templateId</strong></td>
+<td><strong>模版id</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>是</strong></td>
+<td><strong>1</strong></td>
+</tr>
+<tr>
+<td><strong>renderDataArray</strong></td>
+<td><strong>模版动态渲染数据(支持一次渲染多份数据,最大支持50份)</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"[{ "bindTable1":[ { "bindkey1":"value1" } ], "bindTable2":[ { "bindkey1":"value1", "bindkey2":"value2" } ] },{ "bindTable1":[ { "bindkey1":"value11" } ], "bindTable2":[ { "bindkey1":"value11", "bindkey2":"value21" } ] }]"</strong></td>
+</tr>
+<tr>
+<td><strong>printTimes</strong></td>
+<td><strong>打印份数</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>否</strong></td>
+<td><strong>需要打印相同内容的份数</strong></td>
+</tr>
+</tbody></table>
+<p>说明：参数renderDataArray为JSONArray字符串，该JSONArray里的元素类型为JSONObject,JSONObject里的key对应的value值是JSONArray数据结构,具体参考见示例;示例中的bindTable和bindKey对应了字段管理里的表名和字段名;如果有图片传图片的base64数据,图片数据在50KB以内最佳; 单设备打印机接口的QPS最大为6。</p>
+<p><a href="https://kuaimai-public.oss-cn-shanghai.aliyuncs.com/public/document/%E5%BF%AB%E9%BA%A6%E4%BA%91%E6%89%93%E5%8D%B0%E6%A8%A1%E7%89%88%E6%89%93%E5%8D%B0%E8%AF%B4%E6%98%8E.docx">模版打印说明下载链接</a></p>
+<p>补充说明: renderDataArray渲染多张的用法</p>
+<p><font style="color:rgb(31, 35, 40);">如果是渲染一张：[ {"t":[ { "bk":"val"} ] }]</font></p>
+<p><font style="color:rgb(31, 35, 40);">如果是渲染两张：[ {"t":[ { "bk":"val"} ] }, { "t":[ { "bk":"val2"} ] } ]</font></p>
+<p><font style="color:rgb(31, 35, 40);">多张就依此类推了</font></p>
+<p><strong>入参完整示例</strong>：</p>
+<pre><code class="language-java">{
+   <span class="hljs-string">"sn"</span>:<span class="hljs-string">"KM118933"</span>,
+   <span class="hljs-string">"templateId"</span>: <span class="hljs-number">11</span>,
+   <span class="hljs-string">"renderDataArray"</span>:<span class="hljs-string">"[{\"bindTable1\":[{\"bindkey1\":\"value1\"}],\"bindTable2\":[{\"bindkey1\":\"value1\",\"bindkey2\":\"value2\"}]},{\"bindTable1\":[{\"bindkey1\":\"value11\"}],\"bindTable2\":[{\"bindkey1\":\"value11\",\"bindkey2\":\"value22\"}]}]"</span>,
+   <span class="hljs-string">"appId"</span>:<span class="hljs-string">"1100"</span>,
+    <span class="hljs-string">"timestamp"</span>:<span class="hljs-string">"2020-08-24 11:11:59"</span>,
+    <span class="hljs-string">"sign"</span>:<span class="hljs-string">"testsignvalue"</span>
+}
+</code></pre>
+<p><strong>响应参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>status</strong></td>
+<td><strong>响应结果</strong></td>
+<td><strong>boolean</strong></td>
+<td><strong>true为成功，false为失败</strong></td>
+</tr>
+<tr>
+<td><strong>data</strong></td>
+<td><strong>响应数据</strong></td>
+<td><strong>object</strong></td>
+<td><strong>具体接口的返回数据</strong></td>
+</tr>
+<tr>
+<td><strong>-jobIds</strong></td>
+<td></td>
+<td><strong>Array</strong></td>
+<td><strong>打印任务id</strong></td>
+</tr>
+<tr>
+<td><strong>message</strong></td>
+<td><strong>响应说明</strong></td>
+<td><strong>String</strong></td>
+<td><strong>status为false时，返回信息</strong></td>
+</tr>
+<tr>
+<td><strong>code</strong></td>
+<td><strong>code码</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>详情见最下方code码说明</strong></td>
+</tr>
+</tbody></table>
+<p><strong>出参完整示例：</strong></p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"status"</span>: <span class="hljs-literal">true</span>,
+    <span class="hljs-string">"data"</span>: {
+        <span class="hljs-string">"jobIds"</span>: [
+        <span class="hljs-string">"1612514721477"</span>
+        ]
+    },
+    <span class="hljs-string">"message"</span>: <span class="hljs-literal">null</span>,
+    <span class="hljs-string">"code"</span>: <span class="hljs-literal">null</span>,
+    <span class="hljs-string">"exceptionMessage"</span>: <span class="hljs-literal">null</span>
+}
+</code></pre>
+<p><font style="color:#000000;">错误码：</font></p>
+<table>
+<thead>
+<tr>
+<th>code</th>
+<th>描述</th>
+<th>处理方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>4001</td>
+<td>该序列号不存在或未激活</td>
+<td>检查序列号是否和底部或自检页上一致；如果是wifi机型检查是否蓝灯配网是否成功；如果是4G机型检查是否开机；</td>
+</tr>
+<tr>
+<td>4005</td>
+<td>设备离线</td>
+<td>如果是wifi机型检查是否蓝灯配网是否成功；如果是4G机型检查是否开机</td>
+</tr>
+<tr>
+<td>6009</td>
+<td>动态渲染数据结构错误</td>
+<td>检查renderDataArray参数的数据结构</td>
+</tr>
+<tr>
+<td>6022</td>
+<td>动态批量渲染数量过大</td>
+<td>控制动态批量渲染数量小于等于50</td>
+</tr>
+<tr>
+<td>6015</td>
+<td>无权限模版访问</td>
+<td>检查模版id是否为接口调用appId下新建的</td>
+</tr>
+<tr>
+<td>6010</td>
+<td>模版类型不匹配</td>
+<td>检查模版id是否为标签模版，如果使用了小票模版id会出现该错误</td>
+</tr>
+</tbody></table>
+<p><font style="color:#DF2A3F;"></font></p>
+<h4 id="4小票模板打印-间隙纸-适用机型km118系列kme31系列kme41系列，kme20系列，kmsx320kmul410">4.小票模板打印-间隙纸 适用机型:KM118系列,KME31系列,KME41系列，KME20系列，KMSX320,KMUL410</h4>
+<p>url:/api/cloud/print/tsplTemplateWrite</p>
+<p><strong>公共请求参数:</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>必传</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>appId</td>
+<td>应用ID</td>
+<td>String</td>
+<td>是</td>
+<td>"1100"</td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>当前时间</td>
+<td>String</td>
+<td>是</td>
+<td>"2020-08-14 15:29:29"</td>
+</tr>
+<tr>
+<td>sign</td>
+<td>签名值</td>
+<td>String</td>
+<td>是</td>
+<td>"ff9d58e9abcf50dcc423fad782636c21"</td>
+</tr>
+</tbody></table>
+<p><strong>私有请求参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>必传</strong></th>
+<th><strong>示例与说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>sn</strong></td>
+<td><strong>序列号</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"km789838899"</strong></td>
+</tr>
+<tr>
+<td><strong>templateId</strong></td>
+<td><strong>模版id</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>是</strong></td>
+<td><strong>1</strong></td>
+</tr>
+<tr>
+<td><strong>renderData</strong></td>
+<td><strong>模版动态渲染数据</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"{ "bindTable1":[ { "bindkey1":"value1" } ], "bindTable2":[ { "bindkey1":"value1", "bindkey2":"value2" } ] }"</strong></td>
+</tr>
+<tr>
+<td><strong>printTimes</strong></td>
+<td><strong>打印份数</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>否</strong></td>
+<td><strong>1</strong></td>
+</tr>
+</tbody></table>
+<p>说明：参数renderData为JSONObject字符串，该JSONObject里的key对应的value值是JSONArray数据结构,具体参考见示例;示例中的bindTable和bindKey对应了字段管理里的表名和字段名;如果有图片传图片的base64数据,图片数据在50KB以内最佳,单设备打印机接口的QPS最大为6。<br><strong>入参完整示例</strong>：</p>
+<pre><code class="language-java">{
+   <span class="hljs-string">"sn"</span>:<span class="hljs-string">"KM118933"</span>,
+   <span class="hljs-string">"templateId"</span>: <span class="hljs-number">11</span>,
+   <span class="hljs-string">"renderData"</span>:<span class="hljs-string">"{\"bindTable1\":[{\"bindkey1\":\"value1\"}],\"bindTable2\":[{\"bindkey1\":\"value1\",\"bindkey2\":\"value2\"}]}"</span>,
+   <span class="hljs-string">"appId"</span>:<span class="hljs-string">"1100"</span>,
+    <span class="hljs-string">"timestamp"</span>:<span class="hljs-string">"2020-08-24 11:11:59"</span>,
+    <span class="hljs-string">"sign"</span>:<span class="hljs-string">"testsignvalue"</span>
+}
+</code></pre>
+<p><strong>响应参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>status</strong></td>
+<td><strong>响应结果</strong></td>
+<td><strong>boolean</strong></td>
+<td><strong>true为成功，false为失败</strong></td>
+</tr>
+<tr>
+<td><strong>data</strong></td>
+<td><strong>响应数据</strong></td>
+<td><strong>object</strong></td>
+<td><strong>具体接口的返回数据</strong></td>
+</tr>
+<tr>
+<td>** &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;-jobIds**</td>
+<td></td>
+<td><strong>Array</strong></td>
+<td><strong>打印任务id</strong></td>
+</tr>
+<tr>
+<td><strong>message</strong></td>
+<td><strong>响应说明</strong></td>
+<td><strong>String</strong></td>
+<td><strong>status为false时，返回信息</strong></td>
+</tr>
+<tr>
+<td><strong>code</strong></td>
+<td><strong>code码</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>详情见最下方code码说明</strong></td>
+</tr>
+</tbody></table>
+<p><strong>出参完整示例：</strong></p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"status"</span>: <span class="hljs-literal">true</span>,
+    <span class="hljs-string">"data"</span>: {
+        <span class="hljs-string">"jobIds"</span>: [
+        <span class="hljs-string">"1612514721477"</span>
+        ]
+    },
+    <span class="hljs-string">"message"</span>: <span class="hljs-literal">null</span>,
+    <span class="hljs-string">"code"</span>: <span class="hljs-literal">null</span>,
+    <span class="hljs-string">"exceptionMessage"</span>: <span class="hljs-literal">null</span>
+}
+</code></pre>
+<p><font style="color:#000000;">错误码：</font></p>
+<table>
+<thead>
+<tr>
+<th>code</th>
+<th>描述</th>
+<th>处理方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>4001</td>
+<td>该序列号不存在或未激活</td>
+<td>检查序列号是否和底部或自检页上一致；如果是wifi机型检查是否蓝灯配网是否成功；如果是4G机型检查是否开机；</td>
+</tr>
+<tr>
+<td>4005</td>
+<td>设备离线</td>
+<td>如果是wifi机型检查是否蓝灯配网是否成功；如果是4G机型检查是否开机</td>
+</tr>
+<tr>
+<td>6009</td>
+<td>动态渲染数据结构错误</td>
+<td>检查renderDataArray参数的数据结构</td>
+</tr>
+<tr>
+<td>6022</td>
+<td>动态批量渲染数量过大</td>
+<td>控制动态批量渲染数量小于等于50</td>
+</tr>
+<tr>
+<td>6015</td>
+<td>无权限模版访问</td>
+<td>检查模版id是否为接口调用appId下新建的</td>
+</tr>
+<tr>
+<td>6010</td>
+<td>模版类型不匹配</td>
+<td>检查模版id是否为标签模版，如果使用了小票模版id会出现该错误</td>
+</tr>
+</tbody></table>
+<p><font style="color:#DF2A3F;"></font></p>
+<h4 id="5小票模板打印-连续纸-适用机型km118系列kme31系列kme41系列，kme20系列，kmdp系列">5.小票模板打印-连续纸 适用机型:KM118系列,KME31系列,KME41系列，KME20系列，KMDP系列</h4>
+<p>url:/api/cloud/print/escTemplatePrint</p>
+<p><strong>公共请求参数:</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>必传</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>appId</td>
+<td>应用ID</td>
+<td>String</td>
+<td>是</td>
+<td>"1100"</td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>当前时间</td>
+<td>String</td>
+<td>是</td>
+<td>"2020-08-14 15:29:29"</td>
+</tr>
+<tr>
+<td>sign</td>
+<td>签名值</td>
+<td>String</td>
+<td>是</td>
+<td>"ff9d58e9abcf50dcc423fad782636c21"</td>
+</tr>
+</tbody></table>
+<p><strong>私有请求参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>必传</strong></th>
+<th><strong>示例与说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>sn</strong></td>
+<td><strong>序列号</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"km789838899"</strong></td>
+</tr>
+<tr>
+<td><strong>templateId</strong></td>
+<td><strong>模版id</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>是</strong></td>
+<td><strong>1</strong></td>
+</tr>
+<tr>
+<td><strong>renderData</strong></td>
+<td><strong>模版动态渲染数据</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"{ "bindTable1":[ { "bindkey1":"value1" } ], "bindTable2":[ { "bindkey1":"value1", "bindkey2":"value2" } ] }"</strong></td>
+</tr>
+<tr>
+<td><strong>volume</strong></td>
+<td><strong>音量大小（仅支持有语言的机器）</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>否</strong></td>
+<td><strong>80（音量大小范围为0～99）</strong></td>
+</tr>
+<tr>
+<td><strong>volumeIndex</strong></td>
+<td><strong>语言索引（仅支持有语言的机器）</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>否</strong></td>
+<td><strong>2051（</strong><a href="https://kuaimai-public.oss-cn-shanghai.aliyuncs.com/public/%E7%B4%A2%E5%BC%95%E8%AF%AD%E8%A8%80.xlsx"><strong>索引文件下载</strong></a><br><strong>）</strong></td>
+</tr>
+<tr>
+<td><strong>cut</strong></td>
+<td><strong>是否切刀(仅支持有切刀的机器）</strong></td>
+<td><strong>Boolean</strong></td>
+<td><strong>否</strong></td>
+<td><strong>true</strong></td>
+</tr>
+<tr>
+<td><strong>endFeed</strong></td>
+<td><strong>末尾走行</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>否</strong></td>
+<td>9</td>
+</tr>
+</tbody></table>
+<p>说明：参数renderData为JSONObject字符串，该JSONObject里的key对应的value值是JSONArray数据结构,具体参考见示例;示例中的bindTable和bindKey对应了字段管理里的表名和字段名;如果有图片传图片的base64数据,图片数据在50KB以内最佳,单设备打印机接口的QPS最大为6。</p>
+<p><a href="https://kuaimai-public.oss-cn-shanghai.aliyuncs.com/public/document/%E5%BF%AB%E9%BA%A6%E4%BA%91%E6%89%93%E5%8D%B0%E6%A8%A1%E7%89%88%E6%89%93%E5%8D%B0%E8%AF%B4%E6%98%8E.docx">模版打印说明下载链接</a></p>
+<p><strong>入参完整示例</strong>：</p>
+<pre><code class="language-java">{
+   <span class="hljs-string">"sn"</span>:<span class="hljs-string">"KM118933"</span>,
+   <span class="hljs-string">"templateId"</span>: <span class="hljs-number">11</span>,
+   <span class="hljs-string">"renderData"</span>:<span class="hljs-string">"{\"bindTable1\":[{\"bindkey1\":\"value1\"}],\"bindTable2\":[{\"bindkey1\":\"value1\",\"bindkey2\":\"value2\"}]}"</span>,
+   <span class="hljs-string">"appId"</span>:<span class="hljs-string">"1100"</span>,
+    <span class="hljs-string">"timestamp"</span>:<span class="hljs-string">"2020-08-24 11:11:59"</span>,
+    <span class="hljs-string">"sign"</span>:<span class="hljs-string">"testsignvalue"</span>
+}
+</code></pre>
+<p><strong>响应参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>status</strong></td>
+<td><strong>响应结果</strong></td>
+<td><strong>boolean</strong></td>
+<td><strong>true为成功，false为失败</strong></td>
+</tr>
+<tr>
+<td><strong>data</strong></td>
+<td><strong>响应数据</strong></td>
+<td><strong>object</strong></td>
+<td><strong>具体接口的返回数据</strong></td>
+</tr>
+<tr>
+<td><strong>message</strong></td>
+<td><strong>响应说明</strong></td>
+<td><strong>String</strong></td>
+<td><strong>status为false时，返回信息</strong></td>
+</tr>
+<tr>
+<td><strong>code</strong></td>
+<td><strong>code码</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>详情见最下方code码说明</strong></td>
+</tr>
+</tbody></table>
+<p><strong>出参完整示例：</strong></p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"status"</span>: <span class="hljs-literal">true</span>,
+    <span class="hljs-string">"data"</span>: {},
+    <span class="hljs-string">"message"</span>: <span class="hljs-literal">null</span>,
+    <span class="hljs-string">"code"</span>: <span class="hljs-literal">null</span>,
+    <span class="hljs-string">"exceptionMessage"</span>: <span class="hljs-literal">null</span>
+}
+</code></pre>
+<p><font style="color:#000000;">错误码：</font></p>
+<table>
+<thead>
+<tr>
+<th>code</th>
+<th>描述</th>
+<th>处理方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>4001</td>
+<td>该序列号不存在或未激活</td>
+<td>检查序列号是否和底部或自检页上一致；如果是wifi机型检查是否蓝灯配网是否成功；如果是4G机型检查是否开机；</td>
+</tr>
+<tr>
+<td>4005</td>
+<td>设备离线</td>
+<td>如果是wifi机型检查是否蓝灯配网是否成功；如果是4G机型检查是否开机</td>
+</tr>
+<tr>
+<td>6009</td>
+<td>动态渲染数据结构错误</td>
+<td>检查renderDataArray参数的数据结构</td>
+</tr>
+<tr>
+<td>6015</td>
+<td>无权限模版访问</td>
+<td>检查模版id是否为接口调用appId下新建的</td>
+</tr>
+<tr>
+<td>6010</td>
+<td>模版类型不匹配</td>
+<td>检查模版id是否为小票模版，如果使用了标签模版id会出现该错误</td>
+</tr>
+</tbody></table>
+<p><font style="color:#DF2A3F;"></font></p>
+<h4 id="6自定义xml打印-间隙纸-适用机型km118系列kme31系列kme41系列，kme20系列，kmsx320kmul410">6.自定义xml打印-间隙纸 适用机型:KM118系列,KME31系列,KME41系列，KME20系列，KMSX320,KMUL410</h4>
+<p><strong>url:</strong>/api/cloud/print/tsplXmlWrite</p>
+<p><strong>公共请求参数:</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>必传</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>appId</td>
+<td>应用ID</td>
+<td>String</td>
+<td>是</td>
+<td>"1100"</td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>当前时间</td>
+<td>String</td>
+<td>是</td>
+<td>"2020-08-14 15:29:29"</td>
+</tr>
+<tr>
+<td>sign</td>
+<td>签名值</td>
+<td>String</td>
+<td>是</td>
+<td>"ff9d58e9abcf50dcc423fad782636c21"</td>
+</tr>
+</tbody></table>
+<p><strong>私有请求参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>必传</strong></th>
+<th><strong>示例与说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>sn</strong></td>
+<td><strong>序列号</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"km789838899"</strong></td>
+</tr>
+<tr>
+<td><strong>xmlStr</strong></td>
+<td><strong>打印xml字符串</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>xml字符串,具体参考指令模版说明</strong></td>
+</tr>
+<tr>
+<td><strong>jobs</strong></td>
+<td><strong>批量打印xml</strong></td>
+<td><strong>Array</strong></td>
+<td><strong>否</strong></td>
+<td><strong><font style="color:rgb(31, 35, 40);">xmlStr和jobs传一个即可；jobs这边传的是数组结构；里面的值就是xmlStr组成；最多一次支持20单；KMSX320机型最多一次支持5单；</font></strong></td>
+</tr>
+<tr>
+<td><strong>printTimes</strong></td>
+<td><strong>打印份数</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>否</strong></td>
+<td><strong>1；若想相同的内容打印2次；即该参数传2</strong></td>
+</tr>
+</tbody></table>
+<p><strong>入参完整示例</strong>：</p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"sn"</span>:<span class="hljs-string">"KM110h45932"</span>,
+    <span class="hljs-string">"xmlStr"</span>:<span class="hljs-string">"&lt;page&gt;&lt;render&gt;&lt;t&gt;hello,word&lt;/t&gt;&lt;/render&gt;&lt;/page&gt;"</span>,
+    <span class="hljs-string">"appId"</span>:<span class="hljs-string">"100202"</span>,
+    <span class="hljs-string">"timestamp"</span>:<span class="hljs-string">"2020-08-24 11:11:59"</span>,
+    <span class="hljs-string">"sign"</span>:<span class="hljs-string">"testsignvalue"</span>
+}
+</code></pre>
+<p><strong>响应参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>status</strong></td>
+<td><strong>响应结果</strong></td>
+<td><strong>boolean</strong></td>
+<td><strong>true为成功，false为失败</strong></td>
+</tr>
+<tr>
+<td><strong>data</strong></td>
+<td><strong>响应数据</strong></td>
+<td><strong>object</strong></td>
+<td><strong>具体接口的返回数据</strong></td>
+</tr>
+<tr>
+<td><strong>message</strong></td>
+<td><strong>响应说明</strong></td>
+<td><strong>String</strong></td>
+<td><strong>status为false时，返回信息</strong></td>
+</tr>
+<tr>
+<td><strong>code</strong></td>
+<td><strong>code码</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>详情见最下方code码说明</strong></td>
+</tr>
+</tbody></table>
+<p><strong>出参完整示例：</strong></p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"status"</span>: <span class="hljs-literal">true</span>,
+    <span class="hljs-string">"data"</span>: {},
+    <span class="hljs-string">"message"</span>: <span class="hljs-literal">null</span>,
+    <span class="hljs-string">"code"</span>: <span class="hljs-literal">null</span>,
+    <span class="hljs-string">"exceptionMessage"</span>: <span class="hljs-literal">null</span>
+}
+</code></pre>
+<p>注：实际打印结果以打印任务结果查询接口为准<br><strong>xmlStr参数指令模版说明：</strong><br>1.指令整体模板</p>
+<pre><code class="language-plain">&lt;page&gt;
+    &lt;render&gt;
+        &lt;t&gt;hello&lt;/t&gt;
+        &lt;bc x='50'
+            y='50'
+            &gt;209490224913&lt;/bc&gt;
+        &lt;qrc x='100' y='100'&gt;529348520501&lt;/qrc&gt;
+  &lt;/render&gt;
+&lt;/page&gt;
+</code></pre>
+<p>2.各指令标签详情<br>页元素-page</p>
+<pre><code class="language-plain">&lt;page&gt;&lt;/page&gt;
+描述：定义打印纸张
+</code></pre>
+<p>根元素-render</p>
+<pre><code class="language-plain">&lt;render width='75' height='100'&gt;&lt;/render&gt;
+描述：定义渲染区域
+
+width:
+  渲染宽度，默认是75（单位毫米）
+height:
+  渲染高度，默认是100（单位毫米）,最大支持220mm
+direction:
+  出纸方向，可选值是0和180;默认是0
+</code></pre>
+<p>打印元素-t</p>
+<pre><code class="language-plain">&lt;t x='1' y='1'&gt;hello&lt;/t&gt;
+描述：定义打印文本
+
+x:
+ 起始x坐标，默认是1（单位像素，8像素为1毫米）
+y:
+ 起始y坐标，默认是1（单位像素，8像素为1毫米）
+font:
+ 字体名称；默认是TSS16.BF2
+
+TSS16.BF2: TSS 16*16点阵 ，该字体下中文是2mm宽；数字和英文是1mm宽
+TSS24.BF2: TSS 24*24点阵 ，该字体下中文是3mm宽；数字和英文是1.5mm宽
+
+textWidth:
+ 文本的展示宽度，单位mm；文本实际内容如果超过该设定值，会自动换行;
+ 换行不会改变下方元素的y坐标的值，如果需要换行
+ 需要在下方留足空白区域；否则会发生打印重叠，
+
+bold:
+ 是否加粗,0:不加粗；1:加粗,默认是0
+
+xMultiple:
+ 字体宽的倍数, 默认是1，该参数类型需要为整数
+yMultiple:
+ 字体高的倍数，默认是1，该参数类型需要为整数
+
+ rotate:
+ 旋转角度，取值：0,90,180,270; 默认是0
+
+</code></pre>
+<p>打印元素-bc</p>
+<pre><code class="language-plain">&lt;bc x='1' y='1'&gt;209490224913&lt;/bc&gt;
+描述：定义打印条形码
+
+x:
+ 起始x坐标，距离最左侧的距离，默认是1;单位dot 8dot=1mm
+y:
+ 起始y坐标，距离最上侧的距离，默认是1;单位dot 8dot=1mm
+ 
+codeType:
+ 条形码样式，默认是128
+128: Code 128
+
+bcWidth:
+ 条形码的总宽度，单位mm 
+
+bcHeight:
+ 条形码的高度，单位mm
+
+fontSize:
+  条形码对应文本的字体大小，单位mm 默认3mm
+
+style:
+  条形码对应文本内容样式,默认是2
+0:不显示；2:下方显示 4:上方显示
+
+rotate:
+ 旋转角度，取值：0,90,270; 默认是0
+</code></pre>
+<p>打印元素-qrc</p>
+<pre><code class="language-plain">&lt;qrc x='1' y='1'&gt;529348520501&lt;/qrc&gt;
+描述：定义打印二维码
+
+x:
+ 起始x坐标，默认是1，单位dot 8dot=1mm
+y:
+ 起始y坐标，默认是1，单位dot 8dot=1mm
+
+qrcWidth:
+ 二维码宽度和高度，单位mm
+</code></pre>
+<p>打印元素-img</p>
+<pre><code class="language-plain">&lt;img x='1' y='1' &gt;base64&lt;/img&gt;
+ 图片传图片的base64数据,图片数据在50KB以内最佳
+x:
+ 坐标x
+y:
+ 坐标y
+</code></pre>
+<p>打印元素-box</p>
+<pre><code class="language-plain">&lt;box x='1' y='1' xEnd='100' yEnd='50' thickness='1' radius='0' /&gt;
+描述：定义线框
+
+x:
+ 起始x坐标,默认是1
+y:
+ 起始y坐标,默认是1
+xEnd:
+ x结束点,默认是100
+yEnd:
+ y结束点,默认是100
+thickness:
+ 线条宽度,默认是1
+radius:
+ 弧度半径,默认是0
+</code></pre>
+<p>打印元素-circle</p>
+<pre><code class="language-plain">&lt;circle x='1' y='1' diameter='100' thickness='1'/&gt;
+描述：定义圆
+
+x:
+ 起始x坐标,默认是1
+y:
+ 起始y坐标,默认是1
+thickness:
+ 线条宽度,默认是1
+diameter:
+ 直径,默认是100
+</code></pre>
+<p>打印元素-ellipse</p>
+<pre><code class="language-plain">&lt;ellipse x='1' y='1' width='100' height='50' thickness='1'/&gt;
+描述：定义圆
+
+x:
+ 起始x坐标,默认是1
+y:
+ 起始y坐标,默认是1
+width:
+ 宽度,默认是100
+height:
+ 高度,默认是50
+thickness:
+ 线条宽度,默认是1
+</code></pre>
+<p>打印元素-bar</p>
+<pre><code class="language-plain">&lt;bar x='1' y='1' width='100' height='4'/&gt;
+描述：定义线条
+
+x:
+ 起始x坐标,默认是1
+y:
+ 起始y坐标,默认是1
+width:
+ 线条宽度,默认是10
+height:
+ 线条高度,默认是10
+</code></pre>
+<p><font style="color:#000000;">错误码：</font></p>
+<table>
+<thead>
+<tr>
+<th>code</th>
+<th>描述</th>
+<th>处理方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>4001</td>
+<td>该序列号不存在或未激活</td>
+<td>检查序列号是否和底部或自检页上一致；如果是wifi机型检查是否蓝灯配网是否成功；如果是4G机型检查是否开机；</td>
+</tr>
+<tr>
+<td>4005</td>
+<td>设备离线</td>
+<td>如果是wifi机型检查是否蓝灯配网是否成功；如果是4G机型检查是否开机</td>
+</tr>
+<tr>
+<td>6024</td>
+<td>xml数据过大</td>
+<td>如果是xml数组打印,数组长度控制在小于或等于20</td>
+</tr>
+</tbody></table>
+<p><font style="color:#DF2A3F;"></font></p>
+<h4 id="7自定义xml打印-连续纸-适用机型km118系列kme31系列kme41系列，kme20系列，kmdp系列">7.自定义xml打印-连续纸 适用机型:KM118系列,KME31系列,KME41系列，KME20系列，KMDP系列</h4>
+<p><strong>url:</strong>/api/cloud/print/escXmlWrite</p>
+<p><strong>公共请求参数:</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>必传</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>appId</td>
+<td>应用ID</td>
+<td>String</td>
+<td>是</td>
+<td>"1100"</td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>当前时间</td>
+<td>String</td>
+<td>是</td>
+<td>"2020-08-14 15:29:29"</td>
+</tr>
+<tr>
+<td>sign</td>
+<td>签名值</td>
+<td>String</td>
+<td>是</td>
+<td>"ff9d58e9abcf50dcc423fad782636c21"</td>
+</tr>
+</tbody></table>
+<p><strong>私有请求参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>必传</strong></th>
+<th><strong>示例与说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>sn</strong></td>
+<td><strong>序列号</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"km789838899"</strong></td>
+</tr>
+<tr>
+<td><strong>instructions</strong></td>
+<td><strong>打印指令内容</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>xml字符串，具体参考指令模版说明</strong></td>
+</tr>
+<tr>
+<td><strong>volume</strong></td>
+<td><strong>音量大小（仅支持有语言的机器）</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>否</strong></td>
+<td><strong>80（音量大小范围为0～99）</strong></td>
+</tr>
+<tr>
+<td><strong>volumeIndex</strong></td>
+<td><strong>语言索引（仅支持有语言的机器）</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>否</strong></td>
+<td><strong>2051（</strong><a href="https://kuaimai-public.oss-cn-shanghai.aliyuncs.com/public/%E7%B4%A2%E5%BC%95%E8%AF%AD%E8%A8%80.xlsx"><strong>索引文件下载</strong></a><br><strong>）</strong></td>
+</tr>
+<tr>
+<td><strong>cut</strong></td>
+<td><strong>是否切刀(仅支持有切刀的机器）</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>否</strong></td>
+<td><strong>0</strong></td>
+</tr>
+</tbody></table>
+<p><strong>入参完整示例：</strong></p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"sn"</span>:<span class="hljs-string">"KM110h45932"</span>,
+    <span class="hljs-string">"instructions"</span>:<span class="hljs-string">"&lt;page&gt;&lt;render&gt;&lt;t size='10'&gt;hello,word&lt;/t&gt;&lt;/render&gt;&lt;/page&gt;"</span>,
+    <span class="hljs-string">"appId"</span>:<span class="hljs-string">"100202"</span>,
+    <span class="hljs-string">"timestamp"</span>:<span class="hljs-string">"2020-08-24 11:11:59"</span>,
+    <span class="hljs-string">"sign"</span>:<span class="hljs-string">"testsignvalue"</span>
+}
+</code></pre>
+<p><strong>响应参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>status</strong></td>
+<td><strong>响应结果</strong></td>
+<td><strong>boolean</strong></td>
+<td><strong>true为成功，false为失败</strong></td>
+</tr>
+<tr>
+<td><strong>data</strong></td>
+<td><strong>响应数据</strong></td>
+<td><strong>object</strong></td>
+<td><strong>具体接口的返回数据</strong></td>
+</tr>
+<tr>
+<td><strong>message</strong></td>
+<td><strong>响应说明</strong></td>
+<td><strong>String</strong></td>
+<td><strong>status为false时，返回信息</strong></td>
+</tr>
+<tr>
+<td><strong>code</strong></td>
+<td><strong>code码</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>详情见最下方code码说明</strong></td>
+</tr>
+</tbody></table>
+<p><strong>xmlStr参数指令模版说明：</strong><br>1.指令整体模板</p>
+<pre><code class="language-plain">&lt;page&gt;
+    &lt;render&gt;
+        &lt;t size='10'&gt;hello&lt;/t&gt;
+        &lt;bc model='65'
+            height='80'
+            showT='down'
+            wide='8'&gt;209490224913&lt;/bc&gt;
+        &lt;qrc size='5'&gt;529348520501&lt;/qrc&gt;
+    &lt;/render&gt;
+&lt;/page&gt;
+</code></pre>
+<p>2.各指令标签详情<br>页元素-page</p>
+<pre><code class="language-plain">&lt;page&gt;&lt;/page&gt;
+描述：定义打印纸张
+</code></pre>
+<p>根元素-render</p>
+<pre><code class="language-plain">&lt;render width='70'&gt;&lt;/render&gt;
+描述：定义渲染区域, width定义打印宽度，单位毫米
+</code></pre>
+<p>打印元素-t</p>
+<pre><code class="language-plain">&lt;t size='10' align='center' feed='1' x='1'&gt;hello&lt;/t&gt;
+描述：定义打印文本
+
+size：
+ 字体大小，取值：
+ 00-默认 默认情况下中文是3mm，数字英文，标点符号是1.5mm
+ 10-2倍宽
+ 20-3倍宽
+ 11-2倍宽和2倍高... 第一个数字表示宽的倍数，第二个数字表示高的倍数
+
+align:
+ 对齐方式，取值：center-居中，left-左对齐，right-右对齐,默认居中
+feed:
+ 回车换行步数，默认是1
+bold:
+ 1:文本加粗，0或者不设置为不加粗
+</code></pre>
+<p>打印元素-bc</p>
+<pre><code class="language-plain">&lt;bc model='73' height='80' showT='down' wide='8' font='0' align='left' feed='1'&gt;209490224913&lt;/bc&gt;
+描述：定义打印条形码
+
+model：条形码类型，取值0～6，65～73，默认73
+0:UPC-A  1:UPC-E   2:JAN13  3:JAN8  4:CODE39  5:ITF  6:CODABAR  65:UPC-A 66:UPC-E  67:JAN13  68:JAN8  69:CODE39  70:ITF  71:CODABAR  72:CODE93  73:CODE128
+height：条形码的高度，单位点(dot) 取值：1～255
+showT：文字显示，取值down、up、false，非必填属性，默认down
+wide：条形码宽条的宽度，单位点(dot)取值：2～6
+font: 字体,0-标准,1-压缩
+align:
+ 对齐方式，取值：center-居中，left-左对齐，right-右对齐,默认左对齐
+feed:
+ 回车换行步数，默认是1
+</code></pre>
+<p>打印元素-qrc</p>
+<pre><code class="language-plain">&lt;qrc size='5' align='left' feed='1'&gt;529348520501&lt;/qrc&gt;
+描述：定义打印二维码
+
+size：二维码的大小序号，取值0~15，默认3
+align:
+ 对齐方式，取值：center-居中，left-左对齐，right-右对齐,默认左对齐
+feed:
+ 回车换行步数，默认是1
+</code></pre>
+<p>打印元素-img</p>
+<pre><code class="language-plain">&lt;img size='0' align='left' feed='1'&gt;base64&lt;/img&gt;
+描述：定义打印图片,图片传图片的base64数据,图片大小在50KB以内最佳
+
+size：图片的大小，0-正常大小，1-图片宽度扩大，2-图片高度扩大，3-图片宽度和高度同时扩大，默认是0
+align:
+ 对齐方式，取值：center-居中，left-左对齐，right-右对齐,默认左对齐
+feed:
+ 回车换行步数，默认是1
+</code></pre>
+<p>开启页模式-pm</p>
+<pre><code class="language-plain">&lt;pm width='70' height='30'&gt;&lt;/pm&gt;
+描述：定义页模式的宽度和高度，单位为毫米; 里面可以添加其他的组合元素;组合元素标签需要单独
+指定坐标x和y; 坐标单位为毫米。
+
+并排二维码示例：
+&lt;pm width='70' height='30'&gt;
+  &lt;qrc x='1' y='1'&gt;123456&lt;/qrc&gt;
+  &lt;qrc x='20' y='1'&gt;789324&lt;/qrc&gt;
+&lt;/pm&gt;
+</code></pre>
+<p><font style="color:#000000;">错误码：</font></p>
+<table>
+<thead>
+<tr>
+<th>code</th>
+<th>描述</th>
+<th>处理方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>4001</td>
+<td>该序列号不存在或未激活</td>
+<td>检查序列号是否和底部或自检页上一致；如果是wifi机型检查是否蓝灯配网是否成功；如果是4G机型检查是否开机；</td>
+</tr>
+<tr>
+<td>4005</td>
+<td>设备离线</td>
+<td>如果是wifi机型检查是否蓝灯配网是否成功；如果是4G机型检查是否开机</td>
+</tr>
+</tbody></table>
+<p><font style="color:#DF2A3F;"></font></p>
+<h4 id="8tsplesc指令打印-适用机型km118系列，kme31系列，kme41系列">8.TSPL/ESC指令打印 适用机型:KM118系列，KME31系列，KME41系列</h4>
+<p><strong>url:</strong>/api/cloud/print/deviceWrite</p>
+<p><strong>公共请求参数:</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>必传</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>appId</td>
+<td>应用ID</td>
+<td>String</td>
+<td>是</td>
+<td>"1100"</td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>当前时间</td>
+<td>String</td>
+<td>是</td>
+<td>"2020-08-14 15:29:29"</td>
+</tr>
+<tr>
+<td>sign</td>
+<td>签名值</td>
+<td>String</td>
+<td>是</td>
+<td>"ff9d58e9abcf50dcc423fad782636c21"</td>
+</tr>
+</tbody></table>
+<p><strong>私有请求参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>必传</strong></th>
+<th><strong>示例与说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>sn</strong></td>
+<td><strong>序列号</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"km789838899"</strong></td>
+</tr>
+<tr>
+<td><strong>instructs</strong></td>
+<td><strong>打印指令</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"</strong>"**</td>
+</tr>
+<tr>
+<td><strong>prereq</strong></td>
+<td><strong>指令格式，FFFF01:instructs里的指令为base64编码之后的字符串；</strong><br><strong>FFFFFF：instructs里的指令为明文指令；默认FFFFFF</strong></td>
+<td><strong>String</strong></td>
+<td><strong>否</strong></td>
+<td>****</td>
+</tr>
+<tr>
+<td><strong>extra</strong></td>
+<td><strong>指令类型，0为tspl；2为esc；默认为0</strong></td>
+<td><strong>String</strong></td>
+<td><strong>否</strong></td>
+<td>****</td>
+</tr>
+</tbody></table>
+<p><strong>备注:</strong></p>
+<p><a href="https://www.yuque.com/xiaozhongwang/kb/gg7hgpmf3slhwzv1?singleDoc#">指令说明文档链接，点击前往！</a></p>
+<p><strong>入参完整示例：</strong></p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"sn"</span>:<span class="hljs-string">"1609142313064"</span>,
+    <span class="hljs-string">"instructs"</span>:<span class="hljs-string">"Q0xTDQpTSVpFIDMwbW0sMzBtbQ0KRElSRUNUSU9OIDAsMA0KQk9MRCAwDQpURVhUIDQ3LDI5LCJUU1MyNC5CRjIiLDAsMSwxLCKy4srUtPLToc7Esb4iDQpQUklOVCAxLDENCg=="</span>,
+    <span class="hljs-string">"prereq"</span>:<span class="hljs-string">"FFFF01"</span>,
+    <span class="hljs-string">"extra"</span>:<span class="hljs-string">"0"</span>,
+    <span class="hljs-string">"appId"</span>:<span class="hljs-string">"100202"</span>,
+    <span class="hljs-string">"timestamp"</span>:<span class="hljs-string">"2020-08-24 11:11:59"</span>,
+    <span class="hljs-string">"sign"</span>:<span class="hljs-string">"testsignvalue"</span>
+}
+</code></pre>
+<p><strong>响应参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>status</strong></td>
+<td><strong>响应结果</strong></td>
+<td><strong>boolean</strong></td>
+<td><strong>true为成功，false为失败</strong></td>
+</tr>
+<tr>
+<td><strong>data</strong></td>
+<td><strong>响应数据</strong></td>
+<td><strong>object</strong></td>
+<td><strong>具体接口的返回数据</strong></td>
+</tr>
+<tr>
+<td>** &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;-jobIds**</td>
+<td></td>
+<td><strong>Array</strong></td>
+<td><strong>打印任务id</strong></td>
+</tr>
+<tr>
+<td><strong>message</strong></td>
+<td><strong>响应说明</strong></td>
+<td><strong>String</strong></td>
+<td><strong>status为false时，返回信息</strong></td>
+</tr>
+<tr>
+<td><strong>code</strong></td>
+<td><strong>code码</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>详情见最下方code码说明</strong></td>
+</tr>
+</tbody></table>
+<p><strong>出参完整示例：</strong></p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"status"</span>: <span class="hljs-literal">true</span>,
+    <span class="hljs-string">"data"</span>: {
+        <span class="hljs-string">"jobIds"</span>: [
+        <span class="hljs-string">"1612514721477"</span>
+        ]
+    },
+    <span class="hljs-string">"message"</span>: <span class="hljs-literal">null</span>,
+    <span class="hljs-string">"code"</span>: <span class="hljs-literal">null</span>,
+    <span class="hljs-string">"exceptionMessage"</span>: <span class="hljs-literal">null</span>
+}
+</code></pre>
+<p>注：实际打印结果以打印任务结果查询接口或打印结果推送为准</p>
+<p><font style="color:#000000;">错误码：</font></p>
+<table>
+<thead>
+<tr>
+<th>code</th>
+<th>描述</th>
+<th>处理方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>4001</td>
+<td>该序列号不存在或未激活</td>
+<td>检查序列号是否和底部或自检页上一致；如果是wifi机型检查是否蓝灯配网是否成功；如果是4G机型检查是否开机；</td>
+</tr>
+<tr>
+<td>4005</td>
+<td>设备离线</td>
+<td>如果是wifi机型检查是否蓝灯配网是否成功；如果是4G机型检查是否开机</td>
+</tr>
+<tr>
+<td>6019</td>
+<td>打印内容过大</td>
+<td>减少打印数据的大小,控制在100KB以内</td>
+</tr>
+</tbody></table>
+<p><font style="color:#DF2A3F;"></font></p>
+<h4 id="9esc指令打印-适用机型kmdp158kmdp358kmdp458kmup380c">9.ESC指令打印 适用机型:KMDP158,KMDP358,KMDP458,KMUP380C</h4>
+<p><strong>url:</strong>/api/cloud/print/escWrite<br><strong>公共请求参数:</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>必传</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>appId</td>
+<td>应用ID</td>
+<td>String</td>
+<td>是</td>
+<td>"1100"</td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>当前时间</td>
+<td>String</td>
+<td>是</td>
+<td>"2020-08-14 15:29:29"</td>
+</tr>
+<tr>
+<td>sign</td>
+<td>签名值</td>
+<td>String</td>
+<td>是</td>
+<td>"ff9d58e9abcf50dcc423fad782636c21"</td>
+</tr>
+</tbody></table>
+<p><strong>私有请求参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>必传</strong></th>
+<th><strong>示例与说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>sn</strong></td>
+<td><strong>序列号</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"km789838899"</strong></td>
+</tr>
+<tr>
+<td><strong>instructionsList</strong></td>
+<td><strong>打印指令内容</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>base64编码之后的esc指令</strong></td>
+</tr>
+<tr>
+<td><strong>copies</strong></td>
+<td><strong>复制打印次数（最大支持30次）</strong></td>
+<td><strong>number</strong></td>
+<td><strong>否</strong></td>
+<td>1</td>
+</tr>
+</tbody></table>
+<p><strong>备注:</strong></p>
+<p><a href="https://www.yuque.com/xiaozhongwang/kb/gg7hgpmf3slhwzv1?singleDoc#">指令说明文档链接，点击前往！</a></p>
+<p><strong>入参完整示例:</strong></p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"sn"</span>:<span class="hljs-string">"KM110h45932"</span>,
+    <span class="hljs-string">"instructionsList"</span>:<span class="hljs-string">"H3MCAAAAAAD/AAAdIQAbYQHJzLzSwaqjqLK5tPKjqQ0KHSERG2EBz7rB+tC3t++6o8/K1uDB+s+6KM3ytO"</span>,
+    <span class="hljs-string">"appId"</span>:<span class="hljs-string">"100202"</span>,
+    <span class="hljs-string">"timestamp"</span>:<span class="hljs-string">"2020-08-24 11:11:59"</span>,
+    <span class="hljs-string">"sign"</span>:<span class="hljs-string">"testsignvalue"</span>
+}
+</code></pre>
+<p><strong>响应参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>status</strong></td>
+<td><strong>响应结果</strong></td>
+<td><strong>boolean</strong></td>
+<td><strong>true为成功，false为失败</strong></td>
+</tr>
+<tr>
+<td><strong>data</strong></td>
+<td><strong>响应数据</strong></td>
+<td><strong>object</strong></td>
+<td><strong>具体接口的返回数据</strong></td>
+</tr>
+<tr>
+<td><strong>message</strong></td>
+<td><strong>响应说明</strong></td>
+<td><strong>String</strong></td>
+<td><strong>status为false时，返回信息</strong></td>
+</tr>
+<tr>
+<td><strong>code</strong></td>
+<td><strong>code码</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>详情见最下方code码说明</strong></td>
+</tr>
+</tbody></table>
+<p><font style="color:#000000;">错误码：</font></p>
+<table>
+<thead>
+<tr>
+<th>code</th>
+<th>描述</th>
+<th>处理方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>4001</td>
+<td>该序列号不存在或未激活</td>
+<td>检查序列号是否和底部或自检页上一致；如果是wifi机型检查是否蓝灯配网是否成功；如果是4G机型检查是否开机；</td>
+</tr>
+<tr>
+<td>4005</td>
+<td>设备离线</td>
+<td>如果是wifi机型检查是否蓝灯配网是否成功；如果是4G机型检查是否开机</td>
+</tr>
+<tr>
+<td>6019</td>
+<td>打印内容过大</td>
+<td>减少打印数据的大小,控制在100KB以内；UP系列控制在30KB以内</td>
+</tr>
+</tbody></table>
+<p><font style="color:#DF2A3F;"></font></p>
+<h4 id="10共享云打印-适用机型电脑安装番茄打印管家并开通共享打印usb连接的机器">10.共享云打印 适用机型:电脑安装番茄打印管家并开通共享打印USB连接的机器</h4>
+<p><strong>url:</strong>/api/cloud/print/shareFilePrint</p>
+<p><strong>content-type</strong>: form-data</p>
+<p><strong>公共请求参数:</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>必传</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>appId</td>
+<td>应用ID</td>
+<td>String</td>
+<td>是</td>
+<td>"1100"</td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>当前时间</td>
+<td>String</td>
+<td>是</td>
+<td>"2020-08-14 15:29:29"</td>
+</tr>
+<tr>
+<td>sign</td>
+<td>签名值</td>
+<td>String</td>
+<td>是</td>
+<td>"ff9d58e9abcf50dcc423fad782636c21"</td>
+</tr>
+</tbody></table>
+<p><strong>私有请求参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>必传</strong></th>
+<th><strong>示例与说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>sn</strong></td>
+<td><strong>序列号</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"share_789838899"</strong></td>
+</tr>
+<tr>
+<td><strong>file</strong></td>
+<td><strong>图片打印文件</strong></td>
+<td><strong>File</strong></td>
+<td><strong>是</strong></td>
+<td><strong>png图片文件通过zlib压缩后的数据文件，最大为150KB</strong></td>
+</tr>
+<tr>
+<td><strong>width</strong></td>
+<td><strong>打印宽度，单位mm</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>是</strong></td>
+<td><strong>76</strong></td>
+</tr>
+<tr>
+<td><strong>height</strong></td>
+<td><strong>打印高度，单位mm</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>是</strong></td>
+<td><strong>130</strong></td>
+</tr>
+</tbody></table>
+<p><strong>入参完整示例：</strong></p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"sn"</span>:<span class="hljs-string">"1609142313064"</span>,
+    <span class="hljs-string">"file"</span>:图片压缩文件,
+    <span class="hljs-string">"width"</span>:<span class="hljs-number">70</span>,
+    <span class="hljs-string">"height"</span>:<span class="hljs-number">130</span>,
+    <span class="hljs-string">"appId"</span>:<span class="hljs-string">"100202"</span>,
+    <span class="hljs-string">"timestamp"</span>:<span class="hljs-string">"2020-08-24 11:11:59"</span>,
+    <span class="hljs-string">"sign"</span>:<span class="hljs-string">"testsignvalue"</span>
+}
+</code></pre>
+<p><strong>响应参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>status</strong></td>
+<td><strong>响应结果</strong></td>
+<td><strong>boolean</strong></td>
+<td><strong>true为成功，false为失败</strong></td>
+</tr>
+<tr>
+<td><strong>data</strong></td>
+<td><strong>响应数据</strong></td>
+<td><strong>object</strong></td>
+<td><strong>具体接口的返回数据</strong></td>
+</tr>
+<tr>
+<td>** &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;-jobIds**</td>
+<td></td>
+<td><strong>Array</strong></td>
+<td><strong>打印任务id</strong></td>
+</tr>
+<tr>
+<td><strong>message</strong></td>
+<td><strong>响应说明</strong></td>
+<td><strong>String</strong></td>
+<td><strong>status为false时，返回信息</strong></td>
+</tr>
+<tr>
+<td><strong>code</strong></td>
+<td><strong>code码</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>详情见最下方code码说明</strong></td>
+</tr>
+</tbody></table>
+<p><strong>出参完整示例：</strong></p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"status"</span>: <span class="hljs-literal">true</span>,
+    <span class="hljs-string">"data"</span>: {
+        <span class="hljs-string">"jobIds"</span>: [
+        <span class="hljs-string">"1612514721477"</span>
+        ]
+    },
+    <span class="hljs-string">"message"</span>: <span class="hljs-literal">null</span>,
+    <span class="hljs-string">"code"</span>: <span class="hljs-literal">null</span>,
+    <span class="hljs-string">"exceptionMessage"</span>: <span class="hljs-literal">null</span>
+}
+</code></pre>
+<p><font style="color:#000000;">错误码：</font></p>
+<table>
+<thead>
+<tr>
+<th>code</th>
+<th>描述</th>
+<th>处理方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>4001</td>
+<td>该序列号不存在或未激活</td>
+<td>检查序列号是否和底部或自检页上一致；如果是wifi机型检查是否蓝灯配网是否成功；如果是4G机型检查是否开机；</td>
+</tr>
+<tr>
+<td>4005</td>
+<td>设备离线</td>
+<td>如果是wifi机型检查是否蓝灯配网是否成功；如果是4G机型检查是否开机</td>
+</tr>
+<tr>
+<td>6029</td>
+<td>文件大小过大</td>
+<td>控制打印文件在150KB以内</td>
+</tr>
+<tr>
+<td>6030</td>
+<td>当前设备不是共享云打印机</td>
+<td>使用打印管家里的共享云打印序列号打印</td>
+</tr>
+<tr>
+<td>6032</td>
+<td>打印量超过了当日打印上限</td>
+<td>第二天再进行打印，单设备该接口一天最多打印1000次</td>
+</tr>
+<tr>
+<td>6031</td>
+<td>设备正在打印中</td>
+<td>稍后再进行调用，设备正在处理打印文件中</td>
+</tr>
+</tbody></table>
+<p><font style="color:#DF2A3F;"></font></p>
+<h4 id="11打印任务结果查询-适用机型km118dwkm118mwkmsx320kme20wkmul410km118dg">11.打印任务结果查询 适用机型:KM118DW,KM118MW,KMSX320,KME20W,KMUL410,KM118DG</h4>
+<p><font style="color:#DF2A3F;">打印结果也可以在注册登录的后台配置打印回调地址，这边机器打印成功之后，会把结果推送到该地址（前提是该注册账号绑定了该打印机）</font></p>
+<p><strong>url:</strong>/api/cloud/print/result</p>
+<p><strong>公共请求参数:</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>必传</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>appId</td>
+<td>应用ID</td>
+<td>String</td>
+<td>是</td>
+<td>"1100"</td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>当前时间</td>
+<td>String</td>
+<td>是</td>
+<td>"2020-08-14 15:29:29"</td>
+</tr>
+<tr>
+<td>sign</td>
+<td>签名值</td>
+<td>String</td>
+<td>是</td>
+<td>"ff9d58e9abcf50dcc423fad782636c21"</td>
+</tr>
+</tbody></table>
+<p><strong>私有请求参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>必传</strong></th>
+<th><strong>示例与说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>sn</strong></td>
+<td><strong>序列号</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"km789838899"</strong></td>
+</tr>
+<tr>
+<td><strong>jobIdStr</strong></td>
+<td><strong>打印任务jobId</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"["111","222"]"</strong></td>
+</tr>
+</tbody></table>
+<p><font style="color:#DF2A3F;">说明:jobIdStr参数为数组结构字符串,同一个序列号，一秒钟最多只支持查询两次，单次最大支持50个jobId</font></p>
+<p><strong>入参完整示例:</strong></p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"sn"</span>: <span class="hljs-string">"KM111112222"</span>,
+    <span class="hljs-string">"jobIdStr"</span>: <span class="hljs-string">"[\"111\",\"222\"]"</span>
+}
+</code></pre>
+<p><strong>响应参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>status</strong></td>
+<td><strong>响应结果</strong></td>
+<td><strong>boolean</strong></td>
+<td><strong>true为成功，false为失败</strong></td>
+</tr>
+<tr>
+<td><strong>data</strong></td>
+<td><strong>响应数据</strong></td>
+<td><strong>object</strong></td>
+<td><strong>具体接口的返回数据</strong></td>
+</tr>
+<tr>
+<td><strong>-jobId</strong></td>
+<td><strong>打印任务id</strong></td>
+<td><strong>String</strong></td>
+<td><strong>打印任务id</strong></td>
+</tr>
+<tr>
+<td><strong>-desc</strong></td>
+<td><strong>结果描述</strong></td>
+<td><strong>String</strong></td>
+<td><strong>打印结果说明</strong></td>
+</tr>
+<tr>
+<td><strong>-code</strong></td>
+<td><strong>code码</strong></td>
+<td><strong>String</strong></td>
+<td><strong>code为3000 下发成功；code为2000 打印成功；code为2007 打印失败；code为2004 打印异常；</strong><br><strong>code为3001 打印机模式错误打印失败</strong></td>
+</tr>
+<tr>
+<td><strong>message</strong></td>
+<td><strong>响应说明</strong></td>
+<td><strong>String</strong></td>
+<td><strong>status为false时，返回信息</strong></td>
+</tr>
+<tr>
+<td><strong>code</strong></td>
+<td><strong>code码</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>详情见最下方code码说明</strong></td>
+</tr>
+</tbody></table>
+<p><strong>出参完整示例：</strong></p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"status"</span>: <span class="hljs-literal">true</span>,
+    <span class="hljs-string">"data"</span>: [
+    {
+        <span class="hljs-string">"code"</span>: <span class="hljs-number">2000</span>,
+        <span class="hljs-string">"desc"</span>: <span class="hljs-string">"打印成功"</span>,
+        <span class="hljs-string">"jobId"</span>: <span class="hljs-string">"1612514721477"</span>
+    }
+    ],
+    <span class="hljs-string">"message"</span>: <span class="hljs-literal">null</span>,
+    <span class="hljs-string">"code"</span>: <span class="hljs-literal">null</span>,
+    <span class="hljs-string">"exceptionMessage"</span>: <span class="hljs-literal">null</span>
+}
+</code></pre>
+<p><font style="color:#000000;"> 错误码：</font></p>
+<table>
+<thead>
+<tr>
+<th>code</th>
+<th>描述</th>
+<th>处理方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>6026</td>
+<td>打印结果查询超过了限制</td>
+<td>减少单次查询的jid的数量；控制在小于或等于50</td>
+</tr>
+<tr>
+<td>6021</td>
+<td>该序列号查询过于频繁</td>
+<td>该序列号的任务结果稍后再进行查询；同一个序列号每秒钟最多查询一次</td>
+</tr>
+</tbody></table>
+<p><font style="color:#DF2A3F;"></font></p>
+<h4 id="12打印机状态查询">12.打印机状态查询</h4>
+<p><strong>url:</strong><font style="color:#FA541C;">/api/cloud/device/batchStatus</font></p>
+<p>注: 一次请求最多查询100个设备</p>
+<p><strong>公共请求参数:</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>必传</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>appId</td>
+<td>应用ID</td>
+<td>String</td>
+<td>是</td>
+<td>"1100"</td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>当前时间</td>
+<td>String</td>
+<td>是</td>
+<td>"2020-08-14 15:29:29"</td>
+</tr>
+<tr>
+<td>sign</td>
+<td>签名值</td>
+<td>String</td>
+<td>是</td>
+<td>"ff9d58e9abcf50dcc423fad782636c21"</td>
+</tr>
+</tbody></table>
+<p><strong>私有请求参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>必传</strong></th>
+<th><strong>示例与说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>snsStr</strong></td>
+<td><strong>序列号</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"["222","444"]"</strong></td>
+</tr>
+</tbody></table>
+<p>说明:snsStr参数为数组结构字符串</p>
+<p><strong>入参完整示例：</strong></p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"snsStr"</span>:<span class="hljs-string">"[\"222\",\"444\"]"</span>,
+    <span class="hljs-string">"appId"</span>:<span class="hljs-string">"100202"</span>,
+    <span class="hljs-string">"timestamp"</span>:<span class="hljs-string">"2020-08-24 11:11:59"</span>,
+    <span class="hljs-string">"sign"</span>:<span class="hljs-string">"testsignvalue"</span>
+}
+</code></pre>
+<p><strong>响应参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>status</td>
+<td>响应结果</td>
+<td>boolean</td>
+<td>true为成功，false为失败</td>
+</tr>
+<tr>
+<td>data</td>
+<td>响应数据</td>
+<td>object</td>
+<td></td>
+</tr>
+<tr>
+<td>-sn</td>
+<td>序列号</td>
+<td>String</td>
+<td></td>
+</tr>
+<tr>
+<td>-status</td>
+<td>打印机在线状态值</td>
+<td>String</td>
+<td>ONLINE:在线; OFFLINE:离线;   UNACTIVE:未激活; DISABLE:已禁用</td>
+</tr>
+<tr>
+<td>-deviceStatus</td>
+<td>打印机设备状态</td>
+<td>Number</td>
+<td>0:正常;1:开盖；2:粘纸；3:缺纸</td>
+</tr>
+<tr>
+<td>message</td>
+<td>响应说明</td>
+<td>String</td>
+<td>status为false时，返回信息</td>
+</tr>
+<tr>
+<td>code</td>
+<td>code码</td>
+<td>Number</td>
+<td>详情见最下方code码说明</td>
+</tr>
+</tbody></table>
+<p><strong>出参完整示例:</strong></p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"status"</span>:<span class="hljs-literal">true</span>,
+    <span class="hljs-string">"data"</span>:[
+    {
+        <span class="hljs-string">"sn"</span>:<span class="hljs-string">"KM1111"</span>,
+        <span class="hljs-string">"status"</span>:<span class="hljs-string">"ONLINE"</span>,
+        <span class="hljs-string">"deviceStatus"</span>:<span class="hljs-number">0</span>
+    },
+    {
+        <span class="hljs-string">"sn"</span>:<span class="hljs-string">"KM2222"</span>,
+        <span class="hljs-string">"status"</span>:<span class="hljs-string">"ONLINE"</span>,
+        <span class="hljs-string">"deviceStatus"</span>:<span class="hljs-number">1</span>
+    }
+    ],
+    <span class="hljs-string">"message"</span>:<span class="hljs-literal">null</span>,
+    <span class="hljs-string">"code"</span>:<span class="hljs-literal">null</span>,
+    <span class="hljs-string">"exceptionMessage"</span>:<span class="hljs-literal">null</span>
+}
+</code></pre>
+<p><font style="color:#000000;">错误码：</font></p>
+<table>
+<thead>
+<tr>
+<th>code</th>
+<th>描述</th>
+<th>处理方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>6025</td>
+<td>查询设备数超过了限制</td>
+<td>减少单次查询的设备数量；控制在小于或等于100</td>
+</tr>
+</tbody></table>
+<p><font style="color:#DF2A3F;"></font></p>
+<h4 id="13语言播报（支持机型km118mglkme31gp">13.语言播报（支持机型:KM118MGL,KME31GP)</h4>
+<p><strong>url:</strong><font style="color:#FA541C;">/api/cloud/device/broadcast</font></p>
+<p><strong>公共请求参数:</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>必传</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>appId</td>
+<td>应用ID</td>
+<td>String</td>
+<td>是</td>
+<td>"1100"</td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>当前时间</td>
+<td>String</td>
+<td>是</td>
+<td>"2020-08-14 15:29:29"</td>
+</tr>
+<tr>
+<td>sign</td>
+<td>签名值</td>
+<td>String</td>
+<td>是</td>
+<td>"ff9d58e9abcf50dcc423fad782636c21"</td>
+</tr>
+</tbody></table>
+<p><strong>私有请求参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>必传</strong></th>
+<th><strong>示例与说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>sn</strong></td>
+<td><strong>序列号</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"KME31G"</strong></td>
+</tr>
+<tr>
+<td><strong>volume</strong></td>
+<td><strong>音量大小</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>是</strong></td>
+<td><strong>0～99 例如：80</strong></td>
+</tr>
+<tr>
+<td><strong>volumeContent</strong></td>
+<td><strong>语言内容</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"你好来单了"</strong></td>
+</tr>
+</tbody></table>
+<p>说明:volumeContent最大支持50个字符</p>
+<p><strong>入参完整示例：</strong></p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"sn"</span>:<span class="hljs-string">"KME31G"</span>,
+    <span class="hljs-string">"appId"</span>:<span class="hljs-string">"100202"</span>,
+    <span class="hljs-string">"timestamp"</span>:<span class="hljs-string">"2020-08-24 11:11:59"</span>,
+    <span class="hljs-string">"sign"</span>:<span class="hljs-string">"testsignvalue"</span>,
+    <span class="hljs-string">"volume"</span>:<span class="hljs-number">80</span>,
+    <span class="hljs-string">"volumeContent"</span>:<span class="hljs-string">"你好来单了"</span>
+}
+</code></pre>
+<p><strong>响应参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>status</td>
+<td>响应结果</td>
+<td>boolean</td>
+<td>true为成功，false为失败</td>
+</tr>
+<tr>
+<td>data</td>
+<td>响应数据</td>
+<td>object</td>
+<td></td>
+</tr>
+<tr>
+<td>message</td>
+<td>响应说明</td>
+<td>String</td>
+<td>status为false时，返回信息</td>
+</tr>
+<tr>
+<td>code</td>
+<td>code码</td>
+<td>Number</td>
+<td>详情见最下方code码说明</td>
+</tr>
+</tbody></table>
+<p><strong>出参完整示例:</strong></p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"status"</span>:<span class="hljs-literal">true</span>,
+    <span class="hljs-string">"data"</span>:<span class="hljs-string">"操作成功"</span>,
+    <span class="hljs-string">"message"</span>:<span class="hljs-literal">null</span>,
+    <span class="hljs-string">"code"</span>:<span class="hljs-literal">null</span>,
+    <span class="hljs-string">"exceptionMessage"</span>:<span class="hljs-literal">null</span>
+}
+</code></pre>
+<p><font style="color:#000000;">错误码：</font></p>
+<table>
+<thead>
+<tr>
+<th>code</th>
+<th>描述</th>
+<th>处理方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>6036</td>
+<td>语言播报内容超过了限制</td>
+<td>减少语言播报的内容长度；控制在小于或等于50个字符</td>
+</tr>
+<tr>
+<td>6035</td>
+<td>该机型不支持语言播报</td>
+<td>使用支持语言播报的机型</td>
+</tr>
+<tr>
+<td>4005</td>
+<td>设备离线</td>
+<td>如果是wifi机型检查是否蓝灯配网是否成功；如果是4G机型检查是否开机</td>
+</tr>
+</tbody></table>
+<p><font style="color:#DF2A3F;"></font></p>
+<h4 id="14取消队列任务">14.取消队列任务</h4>
+<p><strong>url:</strong><font style="color:#FA541C;">/api/cloud/print/cancelJob</font></p>
+<p><strong>公共请求参数:</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>必传</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>appId</td>
+<td>应用ID</td>
+<td>String</td>
+<td>是</td>
+<td>"1100"</td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>当前时间</td>
+<td>String</td>
+<td>是</td>
+<td>"2020-08-14 15:29:29"</td>
+</tr>
+<tr>
+<td>sign</td>
+<td>签名值</td>
+<td>String</td>
+<td>是</td>
+<td>"ff9d58e9abcf50dcc423fad782636c21"</td>
+</tr>
+</tbody></table>
+<p><strong>私有请求参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>必传</strong></th>
+<th><strong>示例与说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>sn</strong></td>
+<td><strong>序列号</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"KME31G"</strong></td>
+</tr>
+</tbody></table>
+<p><strong>入参完整示例：</strong></p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"sn"</span>:<span class="hljs-string">"KME31G"</span>,
+    <span class="hljs-string">"appId"</span>:<span class="hljs-string">"100202"</span>,
+    <span class="hljs-string">"timestamp"</span>:<span class="hljs-string">"2020-08-24 11:11:59"</span>,
+    <span class="hljs-string">"sign"</span>:<span class="hljs-string">"testsignvalue"</span>
+}
+</code></pre>
+<p><strong>响应参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>status</td>
+<td>响应结果</td>
+<td>boolean</td>
+<td>true为成功，false为失败</td>
+</tr>
+<tr>
+<td>data</td>
+<td>响应数据</td>
+<td>object</td>
+<td></td>
+</tr>
+<tr>
+<td>message</td>
+<td>响应说明</td>
+<td>String</td>
+<td>status为false时，返回信息</td>
+</tr>
+<tr>
+<td>code</td>
+<td>code码</td>
+<td>Number</td>
+<td>详情见最下方code码说明</td>
+</tr>
+</tbody></table>
+<p><strong>出参完整示例:</strong></p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"status"</span>:<span class="hljs-literal">true</span>,
+    <span class="hljs-string">"data"</span>:<span class="hljs-string">"操作成功"</span>,
+    <span class="hljs-string">"message"</span>:<span class="hljs-literal">null</span>,
+    <span class="hljs-string">"code"</span>:<span class="hljs-literal">null</span>,
+    <span class="hljs-string">"exceptionMessage"</span>:<span class="hljs-literal">null</span>
+}
+</code></pre>
+<p><font style="color:#000000;">错误码：</font></p>
+<table>
+<thead>
+<tr>
+<th>code</th>
+<th>描述</th>
+<th>处理方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>4012</td>
+<td>无权限设备，无法清空</td>
+<td>检查设备是否被你调用的appId所绑定</td>
+</tr>
+</tbody></table>
+<p><font style="color:#DF2A3F;"></font></p>
+<h4 id="15调节打印机浓度">15.调节打印机浓度</h4>
+<p><strong>url:</strong><font style="color:#FA541C;">/api/cloud/device/adjustDeviceDensity</font></p>
+<p><font style="color:#FA541C;"></font></p>
+<p><font style="color:#000000;">适用机型：KM118系列，KME31系列，KME41系列</font></p>
+<p><strong>公共请求参数:</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>必传</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>appId</td>
+<td>应用ID</td>
+<td>String</td>
+<td>是</td>
+<td>"1100"</td>
+</tr>
+<tr>
+<td>timestamp</td>
+<td>当前时间</td>
+<td>String</td>
+<td>是</td>
+<td>"2020-08-14 15:29:29"</td>
+</tr>
+<tr>
+<td>sign</td>
+<td>签名值</td>
+<td>String</td>
+<td>是</td>
+<td>"ff9d58e9abcf50dcc423fad782636c21"</td>
+</tr>
+</tbody></table>
+<p><strong>私有请求参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th><strong>参数名</strong></th>
+<th><strong>含义</strong></th>
+<th><strong>类型</strong></th>
+<th><strong>必传</strong></th>
+<th><strong>示例与说明</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>sn</strong></td>
+<td><strong>序列号</strong></td>
+<td><strong>String</strong></td>
+<td><strong>是</strong></td>
+<td><strong>"KME31G"</strong></td>
+</tr>
+<tr>
+<td><strong>density</strong></td>
+<td><strong>浓度值</strong></td>
+<td><strong>Number</strong></td>
+<td><strong>是</strong></td>
+<td><strong>浓度值为1～15</strong></td>
+</tr>
+</tbody></table>
+<p><strong>入参完整示例：</strong></p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"sn"</span>:<span class="hljs-string">"KME31G"</span>,
+    <span class="hljs-string">"appId"</span>:<span class="hljs-string">"100202"</span>,
+    <span class="hljs-string">"timestamp"</span>:<span class="hljs-string">"2020-08-24 11:11:59"</span>,
+    <span class="hljs-string">"density"</span>: <span class="hljs-number">8</span>,
+    <span class="hljs-string">"sign"</span>:<span class="hljs-string">"testsignvalue"</span>
+}
+</code></pre>
+<p><strong>响应参数：</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数名</th>
+<th>含义</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>status</td>
+<td>响应结果</td>
+<td>boolean</td>
+<td>true为成功，false为失败</td>
+</tr>
+<tr>
+<td>data</td>
+<td>响应数据</td>
+<td>object</td>
+<td></td>
+</tr>
+<tr>
+<td>message</td>
+<td>响应说明</td>
+<td>String</td>
+<td>status为false时，返回信息</td>
+</tr>
+<tr>
+<td>code</td>
+<td>code码</td>
+<td>Number</td>
+<td>详情见最下方code码说明</td>
+</tr>
+</tbody></table>
+<p><strong>出参完整示例:</strong></p>
+<pre><code class="language-java">{
+    <span class="hljs-string">"status"</span>:<span class="hljs-literal">true</span>,
+    <span class="hljs-string">"data"</span>:<span class="hljs-string">"操作成功"</span>,
+    <span class="hljs-string">"message"</span>:<span class="hljs-literal">null</span>,
+    <span class="hljs-string">"code"</span>:<span class="hljs-literal">null</span>,
+    <span class="hljs-string">"exceptionMessage"</span>:<span class="hljs-literal">null</span>
+}
+</code></pre>
+<p><font style="color:#000000;">错误码：</font></p>
+<table>
+<thead>
+<tr>
+<th>code</th>
+<th>描述</th>
+<th>处理方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>6039</td>
+<td>该机型不支持调节浓度</td>
+<td></td>
+</tr>
+</tbody></table>
+<p><font style="color:#DF2A3F;"></font></p>
+<p>其他错误码：</p>
+<table>
+<thead>
+<tr>
+<th>code码</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>4000</td>
+<td>序列号为空</td>
+</tr>
+<tr>
+<td>4015</td>
+<td>签名错误</td>
+</tr>
+<tr>
+<td>6006</td>
+<td>必传参数有为空</td>
+</tr>
+<tr>
+<td>6018</td>
+<td>图片base64数据错误</td>
+</tr>
+<tr>
+<td>6027</td>
+<td>打印接口调用过于频繁</td>
+</tr>
+<tr>
+<td>6034</td>
+<td>文件类型需要为zlib压缩文件</td>
+</tr>
+</tbody></table>
+</div></div></div></div></div></div><div data-v-1ddeb9ec="" data-v-377033ae="" class="footer"><div data-v-1ddeb9ec="" class="footer_container"><div data-v-1ddeb9ec="" class="main_content footer_row"><div data-v-1ddeb9ec="" class="footer_col"><div data-v-1ddeb9ec="" class="footer_col_title">快麦云打印机</div><div data-v-1ddeb9ec="" class="footer_col_text"> E41W云标签打印机 </div><div data-v-1ddeb9ec="" class="footer_col_text">E20W云面单机</div><div data-v-1ddeb9ec="" class="footer_col_text">DP158云小票打印机</div></div><div data-v-1ddeb9ec="" class="footer_col"><div data-v-1ddeb9ec="" class="footer_col_title">快麦产品与解决方案</div><div data-v-1ddeb9ec="" class="footer_col_text">快麦打印机</div><div data-v-1ddeb9ec="" class="footer_col_text">番茄标签</div><div data-v-1ddeb9ec="" class="footer_col_text">番茄打印解决方案</div><div data-v-1ddeb9ec="" class="footer_col_text">关于我们</div></div><div data-v-1ddeb9ec="" class="footer_col"><div data-v-1ddeb9ec="" class="footer_col_title">售后客服</div><div data-v-1ddeb9ec="" class="footer_col_phone">400-007-5533</div><div data-v-1ddeb9ec="" class="footer_col_text">工作时间：周一至周日 9:00 - 21：00</div></div><div data-v-1ddeb9ec="" class="footer_col"><div data-v-1ddeb9ec="" class="footer_col_title">技术支持</div><img data-v-1ddeb9ec="" src="./快麦云打印api文档_files/qrcode.8a18af73.png" alt="qrcode" class="footer_qrcode"></div><div data-v-1ddeb9ec="" class="footer_col"><img data-v-1ddeb9ec="" src="./快麦云打印api文档_files/footerLogo.a0589406.svg" alt="logo" class="footer_logo"></div></div></div><div data-v-1ddeb9ec="" class="footer_bottom"><div data-v-1ddeb9ec="" class="main_content"> 杭州淘云科技有限公司 版权所有 浙ICP备09083305号 浙公网安备 33010802003954号 </div></div><!----></div><div data-v-09939408="" data-v-377033ae="" class="kefu_box"><img data-v-09939408="" src="./快麦云打印api文档_files/kefu1.61035b5f.png" alt="kefu" class="kefu_img"><div data-v-09939408="" class="kefu_list"><div data-v-09939408="" class="kefu_item kefu_item1"><div data-v-09939408="" class="kefu_hover_box"><div data-v-09939408="" class="kefu_hover_title"> 售前咨询 </div><div data-v-09939408="" class="kefu_hover_text"><img data-v-09939408="" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAAAXNSR0IArs4c6QAACLZJREFUaEPVWn2MVNUV/533ZmCWFJWRml2xUbfYD8DUUEhtkxUIEYwGq7GQNmBtsIWUnbl3Bt1AGmunYpsCyw7vzu42FWtTAU3xo9YP+qFGtI2NqbVpaj+UsLSNFCTtrBW6u3R59/Sd9Q0ZYHZn3jAL9Sab/WPuPff87se5v/M7j1Bn6+7uvtT3/RUAlhPRx+sxw8x/BrDTdd0dqVTqb/XYKI2hqIONMZ8A8DUAtwBww/H9AF4A8LK19nUi6hscHDzc2tp6VH7v6+v7QFNT00XM3Oo4ziwAnwGwAMCUcLwP4DEA31ZK/T6qT9K/ZiD5fL7FcZxOIvpCOG6ImR+11v5w2rRpLyxbtkycqbnt2rXLPXDgwALHcW4jos8BSABgZn7YWntnNps9WLOxWoEYY5YDKIQrOASgx3Xdzvb29kNRJhutb09PT7Pv+3cCaA8ByQ6nlVI7a7U/5o7kcrkJyWSyG8BXRraPaPfQ0FCqo6Njf60TROm3efPmyxOJRDczXx+O21YsFlO5XO6/1eyMCmTjxo2Tm5qafhKe5UFmzmit76tmsBG/e57XTkRbAEyUuzc4OPjZdevWHRnLdkUgAiKRSDxLRJ8CcJCIbkyn0682wslabRQKhTnM/CSAFmZ+ZWho6NqxwJwGJDxOPwcwn5n/aq1dmM1m+2p1oJH98vm8RLnnieiywJ89xWJx8WjH7DQgxhg5PnIn/uH7ftu5AlFakEKhcDmAXzLzNADblFKrKi3WSUDC6LQDwJC19ppMJvObRq5wvba2bt0613GcFwE0AVhRKZqdACLvhOu6f5QQy8wprXVPvROPxzjP81YR0fcA9Pu+P/PUd+YEEGOM7MRyZt6ttb5hPJw5U5ue5z1DRBKadyqlhB6daCNA8vn8bNd1JSodI6IZ6XR6XN6JMwUi94WZ/yRh2XGcOalU6rWSzREgAX/6MYCbAHQppe440wnHc7wxphOA+PhEwMtuPgEkRLkXwLDv+61ROU74cN7DzNOJqFMpJZdy3FpIZ+TExInoitLpIWPMNwHcHTiyQ2t9axQPwgDxEoBLAPwz/C8cSWjNuDXP87YT0Qpm3qC1vlsmEiCSE3wMwLVKqeeizG6MEcp9HjMv6u/v35dMJr8DoMNauyiTyTwbxVaUvp7nLSSi55j5Da21+D4ChAEUm5ubL4pCxY0xQucfAjBbKfW7kiPGmJ8CmGutnZnJZN6O4mCtfSUFOHTo0OHgeicBTFdK7RsBwsyPaa0lJ6i5GWOeAPBRpdRJ2WFnZ+fUeDzeF/Cz15RS82s2GLGj53mPEpEkd7crpR4oAenQWks0qLkZY14BMBBcbsn0TmrGGBU8rN7x48cvWbt27YGajUboaIyRyNXJzL1a6/bS0VqslPpFBDsSsoWZzlVKtVQAIqnwvbFY7MI1a9ZIktTwZoxZBEDI7R5ZzNKOfERrLSG45maMychbCuBDSqm3yu7IVwH0EtG30un0XTUbjNixp6dnuu/74vN+pVRraUfOV0q9G8VWV1dXMhaLScjdoJT6RhkQofy7lVKpKPai9jXGnAfg3wCOKqUmjwBpbm6ORYlYZU7/CMCSgYGBlvXr14tROXK/DTjbXqXU56M6F6X/0qVL3ba2tuMAfKVU7EyBfBCA6FFPK6WWhUBWA/huQOyukLAYxbkofSsCCc565KNVtisrg3vyfWZerrWWd0V2ZS8zD2itRQMbl1bxaDFz5Mte7l2hUHjcWnuD67pXplKpN40xHw5Z6uNaa3k4G95Gu+yRw2+5Z7lcblIymZTXfZLjOFelUql/GWPaQvXxpSC6LC+RUWOMqCNfDv7eEn6XSCQ6V69ePRwV6WjhN/KDeOrEoRb8KhEdHhwcvFoUD2PM1QBEUprMzL8iIlETBeA2Zk6GL/ObzHxLwCxejwKm4oNYD0WpNGlAG0TXfVm034GBgXkSyYR2W2vvsNbeSkQitG0qsWPP8xYQ0Q8CFfNCa+3KTCbzSK1gKlKUekjjaBOGIrcI2m9baxdnMpm/h30liROCelKT9ygej29n5sUAblZKPVUNzGiksW4aPwaYGfIoBur6BABfqkZ/Vq1aFZ81a5aE6iNKqZnVgJRoPIA3lFLv0XjP8+4hoq/Xk1iNNWGhULjYWvswEV3DzJ7ruhskCIxyJK8LVE2h/w8opW6vBsQY8yAAOaob0un0e4lVearruu7ljVLYS86EC9UhTDm44MZa+1Q2mx0RDXK5XGzq1KkrrbUGwCHf96/KZrPvjAVk06ZNzYlE4vRUVwaViQ9blFIi7ze09fb2tg4PD28iIpGZEswstY99RDQdQLNUrohoSS1MYFTxQTzu7u6eba0ddzlIVnPixIlfdBxnHjNfQET/Yeani8Viby6XE940ZgtPj4iIshhztdbC60ba+1KgC5jIQ0HaIcWnE+19I5kaY0RYvy+o07xjrZ0xqmQa3hVB+X8nYoe1EpGdqovYpT0qlRWISHLttnMtn5aXFZj5fq31SBnw1FapPiLlrp9JoUfSSCJaeK7AhJf7eQBSI9kD4Dql1LGagEin8tJbGCqXlEeIatGlEb93dXXNicViQjgvrqv0VnbEJCcW7UrknsGgLqGVUtsa4WQ1G2ExVOQpYcvC226qpilULU9PmTKlh4gkf5D2zLFjx9LjWZ6eMGFCd1gDkfnuLxaL7WdUni5fNSnJMbNMcIGU5Yio23GcLY2iM6d+MCAhlohSDftgoBxMpU84ADwSlCIerPcTjoMHD84notsALD0rn3CUA/I875NEdBcz30hEjvzGzEU5y0T06+Bjmz8w8/7h4eH+o0ePvtvS0sJHjhw5Px6PTyEiiT5XMvOn5e4RkYjQMt4S0ZPMfG+9QaXmj2pOvaD5fP4y13VHPnMKyxLV7nCl3/8i9UDHcbaf9c+cKnkjqkmwI/MCfWsOAFHnLw3u1FQimhSu+EBw5kWVFA1MEjkhqC/WwnZrXZ26d6TWCc5Wv/8B6QFpb3+Cw48AAAAASUVORK5CYII=" alt="phone" class="kefu_icon"> 咨询电话：18621377135<br data-v-09939408=""> 18969120021<br data-v-09939408=""> （手机 / 微信同号） </div></div></div><div data-v-09939408="" class="kefu_item kefu_item2"><div data-v-09939408="" class="kefu_hover_box"><div data-v-09939408="" class="kefu_hover_title"> 技术支持 </div><div data-v-09939408="" class="kefu_hover_text"><img data-v-09939408="" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAYAAAAeP4ixAAAAAXNSR0IArs4c6QAACLZJREFUaEPVWn2MVNUV/533ZmCWFJWRml2xUbfYD8DUUEhtkxUIEYwGq7GQNmBtsIWUnbl3Bt1AGmunYpsCyw7vzu42FWtTAU3xo9YP+qFGtI2NqbVpaj+UsLSNFCTtrBW6u3R59/Sd9Q0ZYHZn3jAL9Sab/WPuPff87se5v/M7j1Bn6+7uvtT3/RUAlhPRx+sxw8x/BrDTdd0dqVTqb/XYKI2hqIONMZ8A8DUAtwBww/H9AF4A8LK19nUi6hscHDzc2tp6VH7v6+v7QFNT00XM3Oo4ziwAnwGwAMCUcLwP4DEA31ZK/T6qT9K/ZiD5fL7FcZxOIvpCOG6ImR+11v5w2rRpLyxbtkycqbnt2rXLPXDgwALHcW4jos8BSABgZn7YWntnNps9WLOxWoEYY5YDKIQrOASgx3Xdzvb29kNRJhutb09PT7Pv+3cCaA8ByQ6nlVI7a7U/5o7kcrkJyWSyG8BXRraPaPfQ0FCqo6Njf60TROm3efPmyxOJRDczXx+O21YsFlO5XO6/1eyMCmTjxo2Tm5qafhKe5UFmzmit76tmsBG/e57XTkRbAEyUuzc4OPjZdevWHRnLdkUgAiKRSDxLRJ8CcJCIbkyn0682wslabRQKhTnM/CSAFmZ+ZWho6NqxwJwGJDxOPwcwn5n/aq1dmM1m+2p1oJH98vm8RLnnieiywJ89xWJx8WjH7DQgxhg5PnIn/uH7ftu5AlFakEKhcDmAXzLzNADblFKrKi3WSUDC6LQDwJC19ppMJvObRq5wvba2bt0613GcFwE0AVhRKZqdACLvhOu6f5QQy8wprXVPvROPxzjP81YR0fcA9Pu+P/PUd+YEEGOM7MRyZt6ttb5hPJw5U5ue5z1DRBKadyqlhB6daCNA8vn8bNd1JSodI6IZ6XR6XN6JMwUi94WZ/yRh2XGcOalU6rWSzREgAX/6MYCbAHQppe440wnHc7wxphOA+PhEwMtuPgEkRLkXwLDv+61ROU74cN7DzNOJqFMpJZdy3FpIZ+TExInoitLpIWPMNwHcHTiyQ2t9axQPwgDxEoBLAPwz/C8cSWjNuDXP87YT0Qpm3qC1vlsmEiCSE3wMwLVKqeeizG6MEcp9HjMv6u/v35dMJr8DoMNauyiTyTwbxVaUvp7nLSSi55j5Da21+D4ChAEUm5ubL4pCxY0xQucfAjBbKfW7kiPGmJ8CmGutnZnJZN6O4mCtfSUFOHTo0OHgeicBTFdK7RsBwsyPaa0lJ6i5GWOeAPBRpdRJ2WFnZ+fUeDzeF/Cz15RS82s2GLGj53mPEpEkd7crpR4oAenQWks0qLkZY14BMBBcbsn0TmrGGBU8rN7x48cvWbt27YGajUboaIyRyNXJzL1a6/bS0VqslPpFBDsSsoWZzlVKtVQAIqnwvbFY7MI1a9ZIktTwZoxZBEDI7R5ZzNKOfERrLSG45maMychbCuBDSqm3yu7IVwH0EtG30un0XTUbjNixp6dnuu/74vN+pVRraUfOV0q9G8VWV1dXMhaLScjdoJT6RhkQofy7lVKpKPai9jXGnAfg3wCOKqUmjwBpbm6ORYlYZU7/CMCSgYGBlvXr14tROXK/DTjbXqXU56M6F6X/0qVL3ba2tuMAfKVU7EyBfBCA6FFPK6WWhUBWA/huQOyukLAYxbkofSsCCc565KNVtisrg3vyfWZerrWWd0V2ZS8zD2itRQMbl1bxaDFz5Mte7l2hUHjcWnuD67pXplKpN40xHw5Z6uNaa3k4G95Gu+yRw2+5Z7lcblIymZTXfZLjOFelUql/GWPaQvXxpSC6LC+RUWOMqCNfDv7eEn6XSCQ6V69ePRwV6WjhN/KDeOrEoRb8KhEdHhwcvFoUD2PM1QBEUprMzL8iIlETBeA2Zk6GL/ObzHxLwCxejwKm4oNYD0WpNGlAG0TXfVm034GBgXkSyYR2W2vvsNbeSkQitG0qsWPP8xYQ0Q8CFfNCa+3KTCbzSK1gKlKUekjjaBOGIrcI2m9baxdnMpm/h30liROCelKT9ygej29n5sUAblZKPVUNzGiksW4aPwaYGfIoBur6BABfqkZ/Vq1aFZ81a5aE6iNKqZnVgJRoPIA3lFLv0XjP8+4hoq/Xk1iNNWGhULjYWvswEV3DzJ7ruhskCIxyJK8LVE2h/w8opW6vBsQY8yAAOaob0un0e4lVearruu7ljVLYS86EC9UhTDm44MZa+1Q2mx0RDXK5XGzq1KkrrbUGwCHf96/KZrPvjAVk06ZNzYlE4vRUVwaViQ9blFIi7ze09fb2tg4PD28iIpGZEswstY99RDQdQLNUrohoSS1MYFTxQTzu7u6eba0ddzlIVnPixIlfdBxnHjNfQET/Yeani8Viby6XE940ZgtPj4iIshhztdbC60ba+1KgC5jIQ0HaIcWnE+19I5kaY0RYvy+o07xjrZ0xqmQa3hVB+X8nYoe1EpGdqovYpT0qlRWISHLttnMtn5aXFZj5fq31SBnw1FapPiLlrp9JoUfSSCJaeK7AhJf7eQBSI9kD4Dql1LGagEin8tJbGCqXlEeIatGlEb93dXXNicViQjgvrqv0VnbEJCcW7UrknsGgLqGVUtsa4WQ1G2ExVOQpYcvC226qpilULU9PmTKlh4gkf5D2zLFjx9LjWZ6eMGFCd1gDkfnuLxaL7WdUni5fNSnJMbNMcIGU5Yio23GcLY2iM6d+MCAhlohSDftgoBxMpU84ADwSlCIerPcTjoMHD84notsALD0rn3CUA/I875NEdBcz30hEjvzGzEU5y0T06+Bjmz8w8/7h4eH+o0ePvtvS0sJHjhw5Px6PTyEiiT5XMvOn5e4RkYjQMt4S0ZPMfG+9QaXmj2pOvaD5fP4y13VHPnMKyxLV7nCl3/8i9UDHcbaf9c+cKnkjqkmwI/MCfWsOAFHnLw3u1FQimhSu+EBw5kWVFA1MEjkhqC/WwnZrXZ26d6TWCc5Wv/8B6QFpb3+Cw48AAAAASUVORK5CYII=" alt="phone" class="kefu_icon"> 咨询电话：18969120021<br data-v-09939408=""> 18621377135<br data-v-09939408=""> （手机 / 微信同号）<br data-v-09939408=""></div></div></div><div data-v-09939408="" class="kefu_item kefu_item3"></div></div></div></div><script src="./快麦云打印api文档_files/hm.js"></script><script src="./快麦云打印api文档_files/hm(1).js"></script><script>var _hmt = _hmt || [];
+    (function () {
+        var hm = document.createElement("script");
+        hm.src = "https://hm.baidu.com/hm.js?412ce6be17d977ede7fc37c744895398";
+        var s = document.getElementsByTagName("script")[0];
+        s.parentNode.insertBefore(hm, s);
+    })();</script><script>var _hmt = _hmt || [];
+    (function () {
+        var hm = document.createElement("script");
+        hm.src = "https://hm.baidu.com/hm.js?fdce45a07a4ef2bca5292c47d0d8c475";
+        var s = document.getElementsByTagName("script")[0];
+        s.parentNode.insertBefore(hm, s);
+    })();</script><script src="./快麦云打印api文档_files/chunk-vendors.47447623.js"></script><script src="./快麦云打印api文档_files/app.c9813992.js"></script><div id="automa-palette"><template shadowrootmode="open"><style>.tippy-box[data-animation=shift-toward-subtle][data-state=hidden]{opacity:0}.tippy-box[data-animation=shift-toward-subtle][data-state=hidden][data-placement^=top][data-state=hidden]{transform:translateY(-5px)}.tippy-box[data-animation=shift-toward-subtle][data-state=hidden][data-placement^=bottom][data-state=hidden]{transform:translateY(5px)}.tippy-box[data-animation=shift-toward-subtle][data-state=hidden][data-placement^=left][data-state=hidden]{transform:translateX(-5px)}.tippy-box[data-animation=shift-toward-subtle][data-state=hidden][data-placement^=right][data-state=hidden]{transform:translateX(5px)}
+
+.input-ui input[type='color'] {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+
+.root {
+  font-size: 16px;
+  z-index: 99999;
+  line-height: 1.5 !important;
+  font-family: 'Inter var', sans-serif;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+.root-card:hover .drag-button {
+  transform: scale(1);
+}
+.drag-button {
+  transform: scale(0);
+  transition: transform 200ms ease-in-out;
+}
+.main-tab {
+  background-color: transparent !important;
+  padding: 0 !important;
+}
+.main-tab .ui-tab.is-active.fill {
+  --tw-bg-opacity: 1 !important;
+  background-color: rgb(var(--color-accent) / var(--tw-bg-opacity, 1)) !important;
+  --tw-text-opacity: 1 !important;
+  color: rgb(255 255 255 / var(--tw-text-opacity, 1)) !important;
+}
+
+
+.ui-tab[data-v-681b5d14] {
+  z-index: 1;
+  border-bottom-width: 2px;
+  border-color: transparent;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+.ui-tab.small[data-v-681b5d14] {
+  padding: 8px;
+}
+.ui-tab.fill[data-v-681b5d14] {
+  border-radius: 8px;
+  border-bottom-width: 0px;
+  padding-left: 16px;
+  padding-right: 16px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.ui-tab.fill.small[data-v-681b5d14] {
+  padding: 8px;
+}
+.ui-tab.is-active[data-v-681b5d14] {
+  --tw-border-opacity: 1;
+  border-color: rgb(var(--color-accent) / var(--tw-border-opacity, 1));
+  --tw-text-opacity: 1;
+  color: rgb(39 39 42 / var(--tw-text-opacity, 1));
+}
+.ui-tab.is-active[data-v-681b5d14]:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(244 244 245 / var(--tw-border-opacity, 1));
+  --tw-text-opacity: 1;
+  color: rgb(255 255 255 / var(--tw-text-opacity, 1));
+}
+.ui-tab.is-active.fill[data-v-681b5d14] {
+  background-color: rgb(0 0 0 / var(--tw-bg-opacity, 1));
+  --tw-bg-opacity: 0.05;
+}
+.ui-tab.is-active.fill[data-v-681b5d14]:is(.dark *) {
+  background-color: rgb(228 228 231 / var(--tw-bg-opacity, 1));
+  --tw-bg-opacity: 0.05;
+}
+.ui-tab.is-active[data-v-681b5d14] {
+  --tw-border-opacity: 1;
+  border-color: rgb(var(--color-accent) / var(--tw-border-opacity, 1));
+  --tw-text-opacity: 1;
+  color: rgb(39 39 42 / var(--tw-text-opacity, 1));
+}
+.ui-tab.is-active[data-v-681b5d14]:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(244 244 245 / var(--tw-border-opacity, 1));
+  --tw-text-opacity: 1;
+  color: rgb(255 255 255 / var(--tw-text-opacity, 1));
+}
+
+
+.ui-tabs__indicator {
+  min-height: 24px;
+  min-width: 50px;
+  transition-duration: 200ms;
+  transition-property: transform, width;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+
+.button-loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+
+.ui-select__arrow {
+  top: 50%;
+  transform: translateY(-50%) rotate(90deg);
+}
+.ui-select option,
+.ui-select optgroup {
+  --tw-bg-opacity: 1;
+  background-color: rgb(244 244 245 / var(--tw-bg-opacity, 1));
+}
+.ui-select option:is(.dark *),
+.ui-select optgroup:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(63 63 70 / var(--tw-bg-opacity, 1));
+}
+
+
+.ui-switch[data-v-cc5de7b2] {
+  overflow: hidden;
+  transition: all 250ms ease;
+}
+.ui-switch[data-v-cc5de7b2]:active {
+  transform: scale(0.93);
+}
+.ui-switch__ball[data-v-cc5de7b2] {
+  transition: all 250ms ease;
+  left: 6px;
+}
+.ui-switch__background[data-v-cc5de7b2] {
+  transition: all 250ms ease;
+  margin-left: -100%;
+}
+.ui-switch:hover .ui-switch__ball[data-v-cc5de7b2] {
+  transform: scale(1.1);
+}
+.ui-switch input:focus ~ .ui-switch__ball[data-v-cc5de7b2] {
+  transform: scale(1.1);
+}
+.ui-switch input:checked ~ .ui-switch__ball[data-v-cc5de7b2]:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(24 24 27 / var(--tw-bg-opacity, 1));
+}
+.ui-switch input:checked ~ .ui-switch__ball[data-v-cc5de7b2] {
+  background-color: white;
+  left: calc(100% - 21px);
+}
+.ui-switch input:checked ~ .ui-switch__background[data-v-cc5de7b2] {
+  margin-left: 0;
+}
+
+
+.checkbox-ui__input:checked ~ .checkbox-ui__mark .v-remixicon[data-v-32d46196],
+.checkbox-ui__input.indeterminate ~ .checkbox-ui__mark .v-remixicon[data-v-32d46196] {
+  transform: scale(1) !important;
+}
+.checkbox-ui .v-remixicon[data-v-32d46196] {
+  transform: scale(0);
+}
+.checkbox-ui__input:checked ~ .checkbox-ui__mark[data-v-32d46196],
+.checkbox-ui__input.indeterminate ~ .checkbox-ui__mark[data-v-32d46196] {
+  --tw-border-opacity: 1;
+  border-color: rgb(var(--color-accent) / var(--tw-border-opacity, 1));
+  background-color: rgb(var(--color-accent) / var(--tw-bg-opacity, 1));
+  --tw-bg-opacity: 1;
+}
+.checkbox-ui__mark[data-v-32d46196] {
+  width: 100%;
+  height: 100%;
+  transition-property: background-color, border-color;
+  transition-timing-function: ease;
+  transition-duration: 200ms;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.checkbox-ui__mark .v-remixicon[data-v-32d46196] {
+  transform: scale(0) !important;
+  transition: transform 200ms ease;
+}
+
+
+.expand-enter-active,
+.expand-leave-active {
+  transition: height 0.2s ease-in-out;
+  overflow: hidden;
+}
+.expand-enter,
+.expand-leave-to {
+  height: 0;
+}
+
+*, ::before, ::after {
+  --tw-border-spacing-x: 0;
+  --tw-border-spacing-y: 0;
+  --tw-translate-x: 0;
+  --tw-translate-y: 0;
+  --tw-rotate: 0;
+  --tw-skew-x: 0;
+  --tw-skew-y: 0;
+  --tw-scale-x: 1;
+  --tw-scale-y: 1;
+  --tw-pan-x:  ;
+  --tw-pan-y:  ;
+  --tw-pinch-zoom:  ;
+  --tw-scroll-snap-strictness: proximity;
+  --tw-gradient-from-position:  ;
+  --tw-gradient-via-position:  ;
+  --tw-gradient-to-position:  ;
+  --tw-ordinal:  ;
+  --tw-slashed-zero:  ;
+  --tw-numeric-figure:  ;
+  --tw-numeric-spacing:  ;
+  --tw-numeric-fraction:  ;
+  --tw-ring-inset:  ;
+  --tw-ring-offset-width: 0px;
+  --tw-ring-offset-color: #fff;
+  --tw-ring-color: rgb(59 130 246 / 0.5);
+  --tw-ring-offset-shadow: 0 0 #0000;
+  --tw-ring-shadow: 0 0 #0000;
+  --tw-shadow: 0 0 #0000;
+  --tw-shadow-colored: 0 0 #0000;
+  --tw-blur:  ;
+  --tw-brightness:  ;
+  --tw-contrast:  ;
+  --tw-grayscale:  ;
+  --tw-hue-rotate:  ;
+  --tw-invert:  ;
+  --tw-saturate:  ;
+  --tw-sepia:  ;
+  --tw-drop-shadow:  ;
+  --tw-backdrop-blur:  ;
+  --tw-backdrop-brightness:  ;
+  --tw-backdrop-contrast:  ;
+  --tw-backdrop-grayscale:  ;
+  --tw-backdrop-hue-rotate:  ;
+  --tw-backdrop-invert:  ;
+  --tw-backdrop-opacity:  ;
+  --tw-backdrop-saturate:  ;
+  --tw-backdrop-sepia:  ;
+  --tw-contain-size:  ;
+  --tw-contain-layout:  ;
+  --tw-contain-paint:  ;
+  --tw-contain-style:  ;
+}
+
+::backdrop {
+  --tw-border-spacing-x: 0;
+  --tw-border-spacing-y: 0;
+  --tw-translate-x: 0;
+  --tw-translate-y: 0;
+  --tw-rotate: 0;
+  --tw-skew-x: 0;
+  --tw-skew-y: 0;
+  --tw-scale-x: 1;
+  --tw-scale-y: 1;
+  --tw-pan-x:  ;
+  --tw-pan-y:  ;
+  --tw-pinch-zoom:  ;
+  --tw-scroll-snap-strictness: proximity;
+  --tw-gradient-from-position:  ;
+  --tw-gradient-via-position:  ;
+  --tw-gradient-to-position:  ;
+  --tw-ordinal:  ;
+  --tw-slashed-zero:  ;
+  --tw-numeric-figure:  ;
+  --tw-numeric-spacing:  ;
+  --tw-numeric-fraction:  ;
+  --tw-ring-inset:  ;
+  --tw-ring-offset-width: 0px;
+  --tw-ring-offset-color: #fff;
+  --tw-ring-color: rgb(59 130 246 / 0.5);
+  --tw-ring-offset-shadow: 0 0 #0000;
+  --tw-ring-shadow: 0 0 #0000;
+  --tw-shadow: 0 0 #0000;
+  --tw-shadow-colored: 0 0 #0000;
+  --tw-blur:  ;
+  --tw-brightness:  ;
+  --tw-contrast:  ;
+  --tw-grayscale:  ;
+  --tw-hue-rotate:  ;
+  --tw-invert:  ;
+  --tw-saturate:  ;
+  --tw-sepia:  ;
+  --tw-drop-shadow:  ;
+  --tw-backdrop-blur:  ;
+  --tw-backdrop-brightness:  ;
+  --tw-backdrop-contrast:  ;
+  --tw-backdrop-grayscale:  ;
+  --tw-backdrop-hue-rotate:  ;
+  --tw-backdrop-invert:  ;
+  --tw-backdrop-opacity:  ;
+  --tw-backdrop-saturate:  ;
+  --tw-backdrop-sepia:  ;
+  --tw-contain-size:  ;
+  --tw-contain-layout:  ;
+  --tw-contain-paint:  ;
+  --tw-contain-style:  ;
+}/*
+! tailwindcss v3.4.17 | MIT License | https://tailwindcss.com
+*//*
+1. Prevent padding and border from affecting element width. (https://github.com/mozdevs/cssremedy/issues/4)
+2. Allow adding a border to an element by just adding a border-width. (https://github.com/tailwindcss/tailwindcss/pull/116)
+*/
+
+*,
+::before,
+::after {
+  box-sizing: border-box; /* 1 */
+  border-width: 0; /* 2 */
+  border-style: solid; /* 2 */
+  border-color: #e4e4e7; /* 2 */
+}
+
+::before,
+::after {
+  --tw-content: '';
+}
+
+/*
+1. Use a consistent sensible line-height in all browsers.
+2. Prevent adjustments of font size after orientation changes in iOS.
+3. Use a more readable tab size.
+4. Use the user's configured `sans` font-family by default.
+5. Use the user's configured `sans` font-feature-settings by default.
+6. Use the user's configured `sans` font-variation-settings by default.
+7. Disable tap highlights on iOS
+*/
+
+html,
+:host {
+  line-height: 1.5; /* 1 */
+  -webkit-text-size-adjust: 100%; /* 2 */
+  -moz-tab-size: 4; /* 3 */
+  -o-tab-size: 4;
+     tab-size: 4; /* 3 */
+  font-family: Poppins, sans-serif; /* 4 */
+  font-feature-settings: normal; /* 5 */
+  font-variation-settings: normal; /* 6 */
+  -webkit-tap-highlight-color: transparent; /* 7 */
+}
+
+/*
+1. Remove the margin in all browsers.
+2. Inherit line-height from `html` so users can set them as a class directly on the `html` element.
+*/
+
+body {
+  margin: 0; /* 1 */
+  line-height: inherit; /* 2 */
+}
+
+/*
+1. Add the correct height in Firefox.
+2. Correct the inheritance of border color in Firefox. (https://bugzilla.mozilla.org/show_bug.cgi?id=190655)
+3. Ensure horizontal rules are visible by default.
+*/
+
+hr {
+  height: 0; /* 1 */
+  color: inherit; /* 2 */
+  border-top-width: 1px; /* 3 */
+}
+
+/*
+Add the correct text decoration in Chrome, Edge, and Safari.
+*/
+
+abbr:where([title]) {
+  -webkit-text-decoration: underline dotted;
+          text-decoration: underline dotted;
+}
+
+/*
+Remove the default font size and weight for headings.
+*/
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+/*
+Reset links to optimize for opt-in styling instead of opt-out.
+*/
+
+a {
+  color: inherit;
+  text-decoration: inherit;
+}
+
+/*
+Add the correct font weight in Edge and Safari.
+*/
+
+b,
+strong {
+  font-weight: bolder;
+}
+
+/*
+1. Use the user's configured `mono` font-family by default.
+2. Use the user's configured `mono` font-feature-settings by default.
+3. Use the user's configured `mono` font-variation-settings by default.
+4. Correct the odd `em` font sizing in all browsers.
+*/
+
+code,
+kbd,
+samp,
+pre {
+  font-family: Source Code Pro, monospace; /* 1 */
+  font-feature-settings: normal; /* 2 */
+  font-variation-settings: normal; /* 3 */
+  font-size: 1em; /* 4 */
+}
+
+/*
+Add the correct font size in all browsers.
+*/
+
+small {
+  font-size: 80%;
+}
+
+/*
+Prevent `sub` and `sup` elements from affecting the line height in all browsers.
+*/
+
+sub,
+sup {
+  font-size: 75%;
+  line-height: 0;
+  position: relative;
+  vertical-align: baseline;
+}
+
+sub {
+  bottom: -0.25em;
+}
+
+sup {
+  top: -0.5em;
+}
+
+/*
+1. Remove text indentation from table contents in Chrome and Safari. (https://bugs.chromium.org/p/chromium/issues/detail?id=999088, https://bugs.webkit.org/show_bug.cgi?id=201297)
+2. Correct table border color inheritance in all Chrome and Safari. (https://bugs.chromium.org/p/chromium/issues/detail?id=935729, https://bugs.webkit.org/show_bug.cgi?id=195016)
+3. Remove gaps between table borders by default.
+*/
+
+table {
+  text-indent: 0; /* 1 */
+  border-color: inherit; /* 2 */
+  border-collapse: collapse; /* 3 */
+}
+
+/*
+1. Change the font styles in all browsers.
+2. Remove the margin in Firefox and Safari.
+3. Remove default padding in all browsers.
+*/
+
+button,
+input,
+optgroup,
+select,
+textarea {
+  font-family: inherit; /* 1 */
+  font-feature-settings: inherit; /* 1 */
+  font-variation-settings: inherit; /* 1 */
+  font-size: 100%; /* 1 */
+  font-weight: inherit; /* 1 */
+  line-height: inherit; /* 1 */
+  letter-spacing: inherit; /* 1 */
+  color: inherit; /* 1 */
+  margin: 0; /* 2 */
+  padding: 0; /* 3 */
+}
+
+/*
+Remove the inheritance of text transform in Edge and Firefox.
+*/
+
+button,
+select {
+  text-transform: none;
+}
+
+/*
+1. Correct the inability to style clickable types in iOS and Safari.
+2. Remove default button styles.
+*/
+
+button,
+input:where([type='button']),
+input:where([type='reset']),
+input:where([type='submit']) {
+  -webkit-appearance: button; /* 1 */
+  background-color: transparent; /* 2 */
+  background-image: none; /* 2 */
+}
+
+/*
+Use the modern Firefox focus style for all focusable elements.
+*/
+
+:-moz-focusring {
+  outline: auto;
+}
+
+/*
+Remove the additional `:invalid` styles in Firefox. (https://github.com/mozilla/gecko-dev/blob/2f9eacd9d3d995c937b4251a5557d95d494c9be1/layout/style/res/forms.css#L728-L737)
+*/
+
+:-moz-ui-invalid {
+  box-shadow: none;
+}
+
+/*
+Add the correct vertical alignment in Chrome and Firefox.
+*/
+
+progress {
+  vertical-align: baseline;
+}
+
+/*
+Correct the cursor style of increment and decrement buttons in Safari.
+*/
+
+::-webkit-inner-spin-button,
+::-webkit-outer-spin-button {
+  height: auto;
+}
+
+/*
+1. Correct the odd appearance in Chrome and Safari.
+2. Correct the outline style in Safari.
+*/
+
+[type='search'] {
+  -webkit-appearance: textfield; /* 1 */
+  outline-offset: -2px; /* 2 */
+}
+
+/*
+Remove the inner padding in Chrome and Safari on macOS.
+*/
+
+::-webkit-search-decoration {
+  -webkit-appearance: none;
+}
+
+/*
+1. Correct the inability to style clickable types in iOS and Safari.
+2. Change font properties to `inherit` in Safari.
+*/
+
+::-webkit-file-upload-button {
+  -webkit-appearance: button; /* 1 */
+  font: inherit; /* 2 */
+}
+
+/*
+Add the correct display in Chrome and Safari.
+*/
+
+summary {
+  display: list-item;
+}
+
+/*
+Removes the default spacing and border for appropriate elements.
+*/
+
+blockquote,
+dl,
+dd,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+hr,
+figure,
+p,
+pre {
+  margin: 0;
+}
+
+fieldset {
+  margin: 0;
+  padding: 0;
+}
+
+legend {
+  padding: 0;
+}
+
+ol,
+ul,
+menu {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/*
+Reset default styling for dialogs.
+*/
+dialog {
+  padding: 0;
+}
+
+/*
+Prevent resizing textareas horizontally by default.
+*/
+
+textarea {
+  resize: vertical;
+}
+
+/*
+1. Reset the default placeholder opacity in Firefox. (https://github.com/tailwindlabs/tailwindcss/issues/3300)
+2. Set the default placeholder color to the user's configured gray 400 color.
+*/
+
+input::-moz-placeholder, textarea::-moz-placeholder {
+  opacity: 1; /* 1 */
+  color: #a1a1aa; /* 2 */
+}
+
+input::placeholder,
+textarea::placeholder {
+  opacity: 1; /* 1 */
+  color: #a1a1aa; /* 2 */
+}
+
+/*
+Set the default cursor for buttons.
+*/
+
+button,
+[role="button"] {
+  cursor: pointer;
+}
+
+/*
+Make sure disabled buttons don't get the pointer cursor.
+*/
+:disabled {
+  cursor: default;
+}
+
+/*
+1. Make replaced elements `display: block` by default. (https://github.com/mozdevs/cssremedy/issues/14)
+2. Add `vertical-align: middle` to align replaced elements more sensibly by default. (https://github.com/jensimmons/cssremedy/issues/14#issuecomment-634934210)
+   This can trigger a poorly considered lint error in some tools but is included by design.
+*/
+
+img,
+svg,
+video,
+canvas,
+audio,
+iframe,
+embed,
+object {
+  display: block; /* 1 */
+  vertical-align: middle; /* 2 */
+}
+
+/*
+Constrain images and videos to the parent width and preserve their intrinsic aspect ratio. (https://github.com/mozdevs/cssremedy/issues/14)
+*/
+
+img,
+video {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Make elements with the HTML hidden attribute stay hidden by default */
+[hidden]:where(:not([hidden="until-found"])) {
+  display: none;
+}
+.\!container {
+  width: 100% !important;
+  margin-right: auto !important;
+  margin-left: auto !important;
+  padding-right: 1rem !important;
+  padding-left: 1rem !important;
+}
+.container {
+  width: 100%;
+  margin-right: auto;
+  margin-left: auto;
+  padding-right: 1rem;
+  padding-left: 1rem;
+}
+@media (min-width: 640px) {
+
+  .\!container {
+    max-width: 640px !important;
+    padding-right: 2rem !important;
+    padding-left: 2rem !important;
+  }
+
+  .container {
+    max-width: 640px;
+    padding-right: 2rem;
+    padding-left: 2rem;
+  }
+}
+@media (min-width: 768px) {
+
+  .\!container {
+    max-width: 768px !important;
+  }
+
+  .container {
+    max-width: 768px;
+  }
+}
+@media (min-width: 1024px) {
+
+  .\!container {
+    max-width: 1024px !important;
+  }
+
+  .container {
+    max-width: 1024px;
+  }
+}
+@media (min-width: 1280px) {
+
+  .\!container {
+    max-width: 1280px !important;
+  }
+
+  .container {
+    max-width: 1280px;
+  }
+}
+@media (min-width: 1536px) {
+
+  .\!container {
+    max-width: 1536px !important;
+  }
+
+  .container {
+    max-width: 1536px;
+  }
+}
+.prose {
+  color: var(--tw-prose-body);
+  max-width: 65ch;
+}
+.prose :where(p):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-top: 1.25em;
+  margin-bottom: 1.25em;
+}
+.prose :where([class~="lead"]):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: var(--tw-prose-lead);
+  font-size: 1.25em;
+  line-height: 1.6;
+  margin-top: 1.2em;
+  margin-bottom: 1.2em;
+}
+.prose :where(a):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: var(--tw-prose-links);
+  text-decoration: underline;
+  font-weight: 500;
+}
+.prose :where(strong):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: var(--tw-prose-bold);
+  font-weight: 600;
+}
+.prose :where(a strong):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: inherit;
+}
+.prose :where(blockquote strong):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: inherit;
+}
+.prose :where(thead th strong):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: inherit;
+}
+.prose :where(ol):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  list-style-type: decimal;
+  margin-top: 1.25em;
+  margin-bottom: 1.25em;
+  padding-inline-start: 1.625em;
+}
+.prose :where(ol[type="A"]):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  list-style-type: upper-alpha;
+}
+.prose :where(ol[type="a"]):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  list-style-type: lower-alpha;
+}
+.prose :where(ol[type="A" s]):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  list-style-type: upper-alpha;
+}
+.prose :where(ol[type="a" s]):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  list-style-type: lower-alpha;
+}
+.prose :where(ol[type="I"]):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  list-style-type: upper-roman;
+}
+.prose :where(ol[type="i"]):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  list-style-type: lower-roman;
+}
+.prose :where(ol[type="I" s]):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  list-style-type: upper-roman;
+}
+.prose :where(ol[type="i" s]):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  list-style-type: lower-roman;
+}
+.prose :where(ol[type="1"]):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  list-style-type: decimal;
+}
+.prose :where(ul):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  list-style-type: disc;
+  margin-top: 1.25em;
+  margin-bottom: 1.25em;
+  padding-inline-start: 1.625em;
+}
+.prose :where(ol > li):not(:where([class~="not-prose"],[class~="not-prose"] *))::marker {
+  font-weight: 400;
+  color: var(--tw-prose-counters);
+}
+.prose :where(ul > li):not(:where([class~="not-prose"],[class~="not-prose"] *))::marker {
+  color: var(--tw-prose-bullets);
+}
+.prose :where(dt):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: var(--tw-prose-headings);
+  font-weight: 600;
+  margin-top: 1.25em;
+}
+.prose :where(hr):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  border-color: var(--tw-prose-hr);
+  border-top-width: 1px;
+  margin-top: 3em;
+  margin-bottom: 3em;
+}
+.prose :where(blockquote):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  font-weight: 500;
+  font-style: italic;
+  color: var(--tw-prose-quotes);
+  border-inline-start-width: 0.25rem;
+  border-inline-start-color: var(--tw-prose-quote-borders);
+  quotes: "\201C""\201D""\2018""\2019";
+  margin-top: 1.6em;
+  margin-bottom: 1.6em;
+  padding-inline-start: 1em;
+}
+.prose :where(blockquote p:first-of-type):not(:where([class~="not-prose"],[class~="not-prose"] *))::before {
+  content: open-quote;
+}
+.prose :where(blockquote p:last-of-type):not(:where([class~="not-prose"],[class~="not-prose"] *))::after {
+  content: close-quote;
+}
+.prose :where(h1):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: var(--tw-prose-headings);
+  font-weight: 800;
+  font-size: 2.25em;
+  margin-top: 0;
+  margin-bottom: 0.8888889em;
+  line-height: 1.1111111;
+}
+.prose :where(h1 strong):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  font-weight: 900;
+  color: inherit;
+}
+.prose :where(h2):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: var(--tw-prose-headings);
+  font-weight: 700;
+  font-size: 1.5em;
+  margin-top: 2em;
+  margin-bottom: 1em;
+  line-height: 1.3333333;
+}
+.prose :where(h2 strong):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  font-weight: 800;
+  color: inherit;
+}
+.prose :where(h3):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: var(--tw-prose-headings);
+  font-weight: 600;
+  font-size: 1.25em;
+  margin-top: 1.6em;
+  margin-bottom: 0.6em;
+  line-height: 1.6;
+}
+.prose :where(h3 strong):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  font-weight: 700;
+  color: inherit;
+}
+.prose :where(h4):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: var(--tw-prose-headings);
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  line-height: 1.5;
+}
+.prose :where(h4 strong):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  font-weight: 700;
+  color: inherit;
+}
+.prose :where(img):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-top: 2em;
+  margin-bottom: 2em;
+}
+.prose :where(picture):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  display: block;
+  margin-top: 2em;
+  margin-bottom: 2em;
+}
+.prose :where(video):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-top: 2em;
+  margin-bottom: 2em;
+}
+.prose :where(kbd):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--tw-prose-kbd);
+  box-shadow: 0 0 0 1px rgb(var(--tw-prose-kbd-shadows) / 10%), 0 3px 0 rgb(var(--tw-prose-kbd-shadows) / 10%);
+  font-size: 0.875em;
+  border-radius: 0.3125rem;
+  padding-top: 0.1875em;
+  padding-inline-end: 0.375em;
+  padding-bottom: 0.1875em;
+  padding-inline-start: 0.375em;
+}
+.prose :where(code):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: var(--tw-prose-code);
+  font-weight: 600;
+  font-size: 0.875em;
+}
+.prose :where(code):not(:where([class~="not-prose"],[class~="not-prose"] *))::before {
+  content: "`";
+}
+.prose :where(code):not(:where([class~="not-prose"],[class~="not-prose"] *))::after {
+  content: "`";
+}
+.prose :where(a code):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: inherit;
+}
+.prose :where(h1 code):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: inherit;
+}
+.prose :where(h2 code):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: inherit;
+  font-size: 0.875em;
+}
+.prose :where(h3 code):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: inherit;
+  font-size: 0.9em;
+}
+.prose :where(h4 code):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: inherit;
+}
+.prose :where(blockquote code):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: inherit;
+}
+.prose :where(thead th code):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: inherit;
+}
+.prose :where(pre):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: var(--tw-prose-pre-code);
+  background-color: var(--tw-prose-pre-bg);
+  overflow-x: auto;
+  font-weight: 400;
+  font-size: 0.875em;
+  line-height: 1.7142857;
+  margin-top: 1.7142857em;
+  margin-bottom: 1.7142857em;
+  border-radius: 0.375rem;
+  padding-top: 0.8571429em;
+  padding-inline-end: 1.1428571em;
+  padding-bottom: 0.8571429em;
+  padding-inline-start: 1.1428571em;
+}
+.prose :where(pre code):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  background-color: transparent;
+  border-width: 0;
+  border-radius: 0;
+  padding: 0;
+  font-weight: inherit;
+  color: inherit;
+  font-size: inherit;
+  font-family: inherit;
+  line-height: inherit;
+}
+.prose :where(pre code):not(:where([class~="not-prose"],[class~="not-prose"] *))::before {
+  content: none;
+}
+.prose :where(pre code):not(:where([class~="not-prose"],[class~="not-prose"] *))::after {
+  content: none;
+}
+.prose :where(table):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  width: 100%;
+  table-layout: auto;
+  margin-top: 2em;
+  margin-bottom: 2em;
+  font-size: 0.875em;
+  line-height: 1.7142857;
+}
+.prose :where(thead):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  border-bottom-width: 1px;
+  border-bottom-color: var(--tw-prose-th-borders);
+}
+.prose :where(thead th):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: var(--tw-prose-headings);
+  font-weight: 600;
+  vertical-align: bottom;
+  padding-inline-end: 0.5714286em;
+  padding-bottom: 0.5714286em;
+  padding-inline-start: 0.5714286em;
+}
+.prose :where(tbody tr):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  border-bottom-width: 1px;
+  border-bottom-color: var(--tw-prose-td-borders);
+}
+.prose :where(tbody tr:last-child):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  border-bottom-width: 0;
+}
+.prose :where(tbody td):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  vertical-align: baseline;
+}
+.prose :where(tfoot):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  border-top-width: 1px;
+  border-top-color: var(--tw-prose-th-borders);
+}
+.prose :where(tfoot td):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  vertical-align: top;
+}
+.prose :where(th, td):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  text-align: start;
+}
+.prose :where(figure > *):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.prose :where(figcaption):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  color: var(--tw-prose-captions);
+  font-size: 0.875em;
+  line-height: 1.4285714;
+  margin-top: 0.8571429em;
+}
+.prose {
+  --tw-prose-body: #374151;
+  --tw-prose-headings: #111827;
+  --tw-prose-lead: #4b5563;
+  --tw-prose-links: #111827;
+  --tw-prose-bold: #111827;
+  --tw-prose-counters: #6b7280;
+  --tw-prose-bullets: #d1d5db;
+  --tw-prose-hr: #e5e7eb;
+  --tw-prose-quotes: #111827;
+  --tw-prose-quote-borders: #e5e7eb;
+  --tw-prose-captions: #6b7280;
+  --tw-prose-kbd: #111827;
+  --tw-prose-kbd-shadows: 17 24 39;
+  --tw-prose-code: #111827;
+  --tw-prose-pre-code: #e5e7eb;
+  --tw-prose-pre-bg: #1f2937;
+  --tw-prose-th-borders: #d1d5db;
+  --tw-prose-td-borders: #e5e7eb;
+  --tw-prose-invert-body: #d1d5db;
+  --tw-prose-invert-headings: #fff;
+  --tw-prose-invert-lead: #9ca3af;
+  --tw-prose-invert-links: #fff;
+  --tw-prose-invert-bold: #fff;
+  --tw-prose-invert-counters: #9ca3af;
+  --tw-prose-invert-bullets: #4b5563;
+  --tw-prose-invert-hr: #374151;
+  --tw-prose-invert-quotes: #f3f4f6;
+  --tw-prose-invert-quote-borders: #374151;
+  --tw-prose-invert-captions: #9ca3af;
+  --tw-prose-invert-kbd: #fff;
+  --tw-prose-invert-kbd-shadows: 255 255 255;
+  --tw-prose-invert-code: #fff;
+  --tw-prose-invert-pre-code: #d1d5db;
+  --tw-prose-invert-pre-bg: rgb(0 0 0 / 50%);
+  --tw-prose-invert-th-borders: #4b5563;
+  --tw-prose-invert-td-borders: #374151;
+  font-size: 1rem;
+  line-height: 1.75;
+}
+.prose :where(picture > img):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.prose :where(li):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+.prose :where(ol > li):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  padding-inline-start: 0.375em;
+}
+.prose :where(ul > li):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  padding-inline-start: 0.375em;
+}
+.prose :where(.prose > ul > li p):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+}
+.prose :where(.prose > ul > li > p:first-child):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-top: 1.25em;
+}
+.prose :where(.prose > ul > li > p:last-child):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-bottom: 1.25em;
+}
+.prose :where(.prose > ol > li > p:first-child):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-top: 1.25em;
+}
+.prose :where(.prose > ol > li > p:last-child):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-bottom: 1.25em;
+}
+.prose :where(ul ul, ul ol, ol ul, ol ol):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+}
+.prose :where(dl):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-top: 1.25em;
+  margin-bottom: 1.25em;
+}
+.prose :where(dd):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-top: 0.5em;
+  padding-inline-start: 1.625em;
+}
+.prose :where(hr + *):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-top: 0;
+}
+.prose :where(h2 + *):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-top: 0;
+}
+.prose :where(h3 + *):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-top: 0;
+}
+.prose :where(h4 + *):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-top: 0;
+}
+.prose :where(thead th:first-child):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  padding-inline-start: 0;
+}
+.prose :where(thead th:last-child):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  padding-inline-end: 0;
+}
+.prose :where(tbody td, tfoot td):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  padding-top: 0.5714286em;
+  padding-inline-end: 0.5714286em;
+  padding-bottom: 0.5714286em;
+  padding-inline-start: 0.5714286em;
+}
+.prose :where(tbody td:first-child, tfoot td:first-child):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  padding-inline-start: 0;
+}
+.prose :where(tbody td:last-child, tfoot td:last-child):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  padding-inline-end: 0;
+}
+.prose :where(figure):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-top: 2em;
+  margin-bottom: 2em;
+}
+.prose :where(.prose > :first-child):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-top: 0;
+}
+.prose :where(.prose > :last-child):not(:where([class~="not-prose"],[class~="not-prose"] *)) {
+  margin-bottom: 0;
+}
+.prose-zinc {
+  --tw-prose-body: #3f3f46;
+  --tw-prose-headings: #18181b;
+  --tw-prose-lead: #52525b;
+  --tw-prose-links: #18181b;
+  --tw-prose-bold: #18181b;
+  --tw-prose-counters: #71717a;
+  --tw-prose-bullets: #d4d4d8;
+  --tw-prose-hr: #e4e4e7;
+  --tw-prose-quotes: #18181b;
+  --tw-prose-quote-borders: #e4e4e7;
+  --tw-prose-captions: #71717a;
+  --tw-prose-kbd: #18181b;
+  --tw-prose-kbd-shadows: 24 24 27;
+  --tw-prose-code: #18181b;
+  --tw-prose-pre-code: #e4e4e7;
+  --tw-prose-pre-bg: #27272a;
+  --tw-prose-th-borders: #d4d4d8;
+  --tw-prose-td-borders: #e4e4e7;
+  --tw-prose-invert-body: #d4d4d8;
+  --tw-prose-invert-headings: #fff;
+  --tw-prose-invert-lead: #a1a1aa;
+  --tw-prose-invert-links: #fff;
+  --tw-prose-invert-bold: #fff;
+  --tw-prose-invert-counters: #a1a1aa;
+  --tw-prose-invert-bullets: #52525b;
+  --tw-prose-invert-hr: #3f3f46;
+  --tw-prose-invert-quotes: #f4f4f5;
+  --tw-prose-invert-quote-borders: #3f3f46;
+  --tw-prose-invert-captions: #a1a1aa;
+  --tw-prose-invert-kbd: #fff;
+  --tw-prose-invert-kbd-shadows: 255 255 255;
+  --tw-prose-invert-code: #fff;
+  --tw-prose-invert-pre-code: #d4d4d8;
+  --tw-prose-invert-pre-bg: rgb(0 0 0 / 50%);
+  --tw-prose-invert-th-borders: #52525b;
+  --tw-prose-invert-td-borders: #3f3f46;
+}
+.pointer-events-none {
+  pointer-events: none;
+}
+.pointer-events-auto {
+  pointer-events: auto;
+}
+.visible {
+  visibility: visible;
+}
+.invisible {
+  visibility: hidden;
+}
+.static {
+  position: static;
+}
+.fixed {
+  position: fixed;
+}
+.absolute {
+  position: absolute;
+}
+.relative {
+  position: relative;
+}
+.sticky {
+  position: sticky;
+}
+.-right-2 {
+  right: -8px;
+}
+.-top-1 {
+  top: -4px;
+}
+.-top-2 {
+  top: -8px;
+}
+.bottom-0 {
+  bottom: 0px;
+}
+.bottom-2 {
+  bottom: 8px;
+}
+.bottom-5 {
+  bottom: 20px;
+}
+.bottom-8 {
+  bottom: 32px;
+}
+.left-0 {
+  left: 0px;
+}
+.left-1\/2 {
+  left: 50%;
+}
+.left-2 {
+  left: 8px;
+}
+.right-0 {
+  right: 0px;
+}
+.right-2 {
+  right: 8px;
+}
+.right-4 {
+  right: 16px;
+}
+.right-8 {
+  right: 32px;
+}
+.top-0 {
+  top: 0px;
+}
+.top-1\/2 {
+  top: 50%;
+}
+.top-2 {
+  top: 8px;
+}
+.top-4 {
+  top: 16px;
+}
+.top-8 {
+  top: 32px;
+}
+.top-full {
+  top: 100%;
+}
+.z-0 {
+  z-index: 0;
+}
+.z-10 {
+  z-index: 10;
+}
+.z-20 {
+  z-index: 20;
+}
+.z-40 {
+  z-index: 40;
+}
+.z-50 {
+  z-index: 50;
+}
+.z-\[1\] {
+  z-index: 1;
+}
+.col-span-1 {
+  grid-column: span 1 / span 1;
+}
+.col-span-2 {
+  grid-column: span 2 / span 2;
+}
+.col-span-3 {
+  grid-column: span 3 / span 3;
+}
+.col-span-4 {
+  grid-column: span 4 / span 4;
+}
+.col-span-5 {
+  grid-column: span 5 / span 5;
+}
+.col-span-6 {
+  grid-column: span 6 / span 6;
+}
+.m-4 {
+  margin: 16px;
+}
+.m-5 {
+  margin: 20px;
+}
+.mx-1 {
+  margin-left: 4px;
+  margin-right: 4px;
+}
+.mx-2 {
+  margin-left: 8px;
+  margin-right: 8px;
+}
+.mx-4 {
+  margin-left: 16px;
+  margin-right: 16px;
+}
+.mx-auto {
+  margin-left: auto;
+  margin-right: auto;
+}
+.my-1 {
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+.my-2 {
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+.my-4 {
+  margin-top: 16px;
+  margin-bottom: 16px;
+}
+.my-6 {
+  margin-top: 24px;
+  margin-bottom: 24px;
+}
+.my-8 {
+  margin-top: 32px;
+  margin-bottom: 32px;
+}
+.-ml-1 {
+  margin-left: -4px;
+}
+.-ml-2 {
+  margin-left: -8px;
+}
+.-ml-6 {
+  margin-left: -24px;
+}
+.-mr-1 {
+  margin-right: -4px;
+}
+.-mr-2 {
+  margin-right: -8px;
+}
+.-mt-1 {
+  margin-top: -4px;
+}
+.-mt-2 {
+  margin-top: -8px;
+}
+.mb-1 {
+  margin-bottom: 4px;
+}
+.mb-10 {
+  margin-bottom: 40px;
+}
+.mb-12 {
+  margin-bottom: 48px;
+}
+.mb-2 {
+  margin-bottom: 8px;
+}
+.mb-4 {
+  margin-bottom: 16px;
+}
+.mb-6 {
+  margin-bottom: 24px;
+}
+.mb-8 {
+  margin-bottom: 32px;
+}
+.ml-1 {
+  margin-left: 4px;
+}
+.ml-12 {
+  margin-left: 48px;
+}
+.ml-2 {
+  margin-left: 8px;
+}
+.ml-3 {
+  margin-left: 12px;
+}
+.ml-4 {
+  margin-left: 16px;
+}
+.ml-6 {
+  margin-left: 24px;
+}
+.mr-0\.5 {
+  margin-right: 2px;
+}
+.mr-1 {
+  margin-right: 4px;
+}
+.mr-12 {
+  margin-right: 48px;
+}
+.mr-2 {
+  margin-right: 8px;
+}
+.mr-3 {
+  margin-right: 12px;
+}
+.mr-4 {
+  margin-right: 16px;
+}
+.mr-6 {
+  margin-right: 24px;
+}
+.mr-8 {
+  margin-right: 32px;
+}
+.mt-1 {
+  margin-top: 4px;
+}
+.mt-10 {
+  margin-top: 40px;
+}
+.mt-12 {
+  margin-top: 48px;
+}
+.mt-2 {
+  margin-top: 8px;
+}
+.mt-3 {
+  margin-top: 12px;
+}
+.mt-4 {
+  margin-top: 16px;
+}
+.mt-5 {
+  margin-top: 20px;
+}
+.mt-6 {
+  margin-top: 24px;
+}
+.mt-8 {
+  margin-top: 32px;
+}
+.\!block {
+  display: block !important;
+}
+.block {
+  display: block;
+}
+.inline-block {
+  display: inline-block;
+}
+.inline {
+  display: inline;
+}
+.\!flex {
+  display: flex !important;
+}
+.flex {
+  display: flex;
+}
+.inline-flex {
+  display: inline-flex;
+}
+.\!table {
+  display: table !important;
+}
+.table {
+  display: table;
+}
+.grid {
+  display: grid;
+}
+.hidden {
+  display: none;
+}
+.\!h-8 {
+  height: 32px !important;
+}
+.h-10 {
+  height: 40px;
+}
+.h-12 {
+  height: 48px;
+}
+.h-28 {
+  height: 112px;
+}
+.h-3 {
+  height: 12px;
+}
+.h-32 {
+  height: 128px;
+}
+.h-4 {
+  height: 16px;
+}
+.h-40 {
+  height: 160px;
+}
+.h-48 {
+  height: 192px;
+}
+.h-5 {
+  height: 20px;
+}
+.h-56 {
+  height: 224px;
+}
+.h-6 {
+  height: 24px;
+}
+.h-7 {
+  height: 28px;
+}
+.h-72 {
+  height: 288px;
+}
+.h-8 {
+  height: 32px;
+}
+.h-\[105px\] {
+  height: 105px;
+}
+.h-\[1px\] {
+  height: 1px;
+}
+.h-\[22px\] {
+  height: 22px;
+}
+.h-full {
+  height: 100%;
+}
+.h-screen {
+  height: 100vh;
+}
+.max-h-56 {
+  max-height: 224px;
+}
+.max-h-60 {
+  max-height: 240px;
+}
+.max-h-80 {
+  max-height: 320px;
+}
+.max-h-96 {
+  max-height: 384px;
+}
+.w-10 {
+  width: 40px;
+}
+.w-11\/12 {
+  width: 91.666667%;
+}
+.w-12 {
+  width: 48px;
+}
+.w-14 {
+  width: 56px;
+}
+.w-16 {
+  width: 64px;
+}
+.w-2 {
+  width: 8px;
+}
+.w-2\/12 {
+  width: 16.666667%;
+}
+.w-20 {
+  width: 80px;
+}
+.w-24 {
+  width: 96px;
+}
+.w-3 {
+  width: 12px;
+}
+.w-3\/12 {
+  width: 25%;
+}
+.w-32 {
+  width: 128px;
+}
+.w-36 {
+  width: 144px;
+}
+.w-4 {
+  width: 16px;
+}
+.w-4\/12 {
+  width: 33.333333%;
+}
+.w-40 {
+  width: 160px;
+}
+.w-44 {
+  width: 176px;
+}
+.w-48 {
+  width: 192px;
+}
+.w-5 {
+  width: 20px;
+}
+.w-5\/12 {
+  width: 41.666667%;
+}
+.w-52 {
+  width: 208px;
+}
+.w-56 {
+  width: 224px;
+}
+.w-6\/12 {
+  width: 50%;
+}
+.w-60 {
+  width: 240px;
+}
+.w-64 {
+  width: 256px;
+}
+.w-72 {
+  width: 288px;
+}
+.w-8 {
+  width: 32px;
+}
+.w-8\/12 {
+  width: 66.666667%;
+}
+.w-80 {
+  width: 320px;
+}
+.w-96 {
+  width: 384px;
+}
+.w-full {
+  width: 100%;
+}
+.w-px {
+  width: 1px;
+}
+.min-w-\[52px\] {
+  min-width: 52px;
+}
+.min-w-\[90px\] {
+  min-width: 90px;
+}
+.max-w-2xl {
+  max-width: 672px;
+}
+.max-w-3xl {
+  max-width: 768px;
+}
+.max-w-4xl {
+  max-width: 896px;
+}
+.max-w-5xl {
+  max-width: 1024px;
+}
+.max-w-\[170px\] {
+  max-width: 170px;
+}
+.max-w-lg {
+  max-width: 512px;
+}
+.max-w-md {
+  max-width: 448px;
+}
+.max-w-none {
+  max-width: none;
+}
+.max-w-sm {
+  max-width: 384px;
+}
+.max-w-xl {
+  max-width: 576px;
+}
+.flex-1 {
+  flex: 1 1 0%;
+}
+.flex-shrink-0 {
+  flex-shrink: 0;
+}
+.shrink-0 {
+  flex-shrink: 0;
+}
+.grow {
+  flex-grow: 1;
+}
+.-translate-x-1\/2 {
+  --tw-translate-x: -50%;
+  transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y));
+}
+.-translate-y-1 {
+  --tw-translate-y: -4px;
+  transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y));
+}
+.-translate-y-1\/2 {
+  --tw-translate-y: -50%;
+  transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y));
+}
+.rotate-180 {
+  --tw-rotate: 180deg;
+  transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y));
+}
+.scale-0 {
+  --tw-scale-x: 0;
+  --tw-scale-y: 0;
+  transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y));
+}
+.transform {
+  transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y));
+}
+@keyframes ping {
+
+  75%, 100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+.animate-ping {
+  animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+@keyframes pulse {
+
+  50% {
+    opacity: .5;
+  }
+}
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@keyframes spin {
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+.cursor-default {
+  cursor: default;
+}
+.cursor-grab {
+  cursor: grab;
+}
+.cursor-grabbing {
+  cursor: grabbing;
+}
+.cursor-move {
+  cursor: move;
+}
+.cursor-pointer {
+  cursor: pointer;
+}
+.select-none {
+  -webkit-user-select: none;
+     -moz-user-select: none;
+          user-select: none;
+}
+.resize-none {
+  resize: none;
+}
+.resize {
+  resize: both;
+}
+.list-inside {
+  list-style-position: inside;
+}
+.list-decimal {
+  list-style-type: decimal;
+}
+.list-disc {
+  list-style-type: disc;
+}
+.appearance-none {
+  -webkit-appearance: none;
+     -moz-appearance: none;
+          appearance: none;
+}
+.grid-cols-1 {
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+}
+.grid-cols-12 {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+.grid-cols-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.grid-cols-5 {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.grid-cols-6 {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+.grid-cols-7 {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+.flex-col {
+  flex-direction: column;
+}
+.flex-col-reverse {
+  flex-direction: column-reverse;
+}
+.flex-wrap {
+  flex-wrap: wrap;
+}
+.items-start {
+  align-items: flex-start;
+}
+.items-end {
+  align-items: flex-end;
+}
+.items-center {
+  align-items: center;
+}
+.\!items-stretch {
+  align-items: stretch !important;
+}
+.justify-end {
+  justify-content: flex-end;
+}
+.justify-center {
+  justify-content: center;
+}
+.justify-between {
+  justify-content: space-between;
+}
+.justify-items-center {
+  justify-items: center;
+}
+.gap-1 {
+  gap: 4px;
+}
+.gap-2 {
+  gap: 8px;
+}
+.gap-3 {
+  gap: 12px;
+}
+.gap-4 {
+  gap: 16px;
+}
+.gap-x-2 {
+  -moz-column-gap: 8px;
+       column-gap: 8px;
+}
+.gap-x-4 {
+  -moz-column-gap: 16px;
+       column-gap: 16px;
+}
+.gap-y-2 {
+  row-gap: 8px;
+}
+.space-x-1 > :not([hidden]) ~ :not([hidden]) {
+  --tw-space-x-reverse: 0;
+  margin-right: calc(4px * var(--tw-space-x-reverse));
+  margin-left: calc(4px * calc(1 - var(--tw-space-x-reverse)));
+}
+.space-x-2 > :not([hidden]) ~ :not([hidden]) {
+  --tw-space-x-reverse: 0;
+  margin-right: calc(8px * var(--tw-space-x-reverse));
+  margin-left: calc(8px * calc(1 - var(--tw-space-x-reverse)));
+}
+.space-x-3 > :not([hidden]) ~ :not([hidden]) {
+  --tw-space-x-reverse: 0;
+  margin-right: calc(12px * var(--tw-space-x-reverse));
+  margin-left: calc(12px * calc(1 - var(--tw-space-x-reverse)));
+}
+.space-x-4 > :not([hidden]) ~ :not([hidden]) {
+  --tw-space-x-reverse: 0;
+  margin-right: calc(16px * var(--tw-space-x-reverse));
+  margin-left: calc(16px * calc(1 - var(--tw-space-x-reverse)));
+}
+.space-x-6 > :not([hidden]) ~ :not([hidden]) {
+  --tw-space-x-reverse: 0;
+  margin-right: calc(24px * var(--tw-space-x-reverse));
+  margin-left: calc(24px * calc(1 - var(--tw-space-x-reverse)));
+}
+.space-y-1 > :not([hidden]) ~ :not([hidden]) {
+  --tw-space-y-reverse: 0;
+  margin-top: calc(4px * calc(1 - var(--tw-space-y-reverse)));
+  margin-bottom: calc(4px * var(--tw-space-y-reverse));
+}
+.space-y-2 > :not([hidden]) ~ :not([hidden]) {
+  --tw-space-y-reverse: 0;
+  margin-top: calc(8px * calc(1 - var(--tw-space-y-reverse)));
+  margin-bottom: calc(8px * var(--tw-space-y-reverse));
+}
+.space-y-4 > :not([hidden]) ~ :not([hidden]) {
+  --tw-space-y-reverse: 0;
+  margin-top: calc(16px * calc(1 - var(--tw-space-y-reverse)));
+  margin-bottom: calc(16px * var(--tw-space-y-reverse));
+}
+.divide-y > :not([hidden]) ~ :not([hidden]) {
+  --tw-divide-y-reverse: 0;
+  border-top-width: calc(1px * calc(1 - var(--tw-divide-y-reverse)));
+  border-bottom-width: calc(1px * var(--tw-divide-y-reverse));
+}
+.overflow-auto {
+  overflow: auto;
+}
+.overflow-hidden {
+  overflow: hidden;
+}
+.overflow-x-auto {
+  overflow-x: auto;
+}
+.overflow-y-auto {
+  overflow-y: auto;
+}
+.overflow-y-hidden {
+  overflow-y: hidden;
+}
+.whitespace-nowrap {
+  white-space: nowrap;
+}
+.whitespace-pre-wrap {
+  white-space: pre-wrap;
+}
+.rounded {
+  border-radius: 4px;
+}
+.rounded-full {
+  border-radius: 9999px;
+}
+.rounded-lg {
+  border-radius: 8px;
+}
+.rounded-md {
+  border-radius: 6px;
+}
+.rounded-sm {
+  border-radius: 2px;
+}
+.rounded-b-2xl {
+  border-bottom-right-radius: 16px;
+  border-bottom-left-radius: 16px;
+}
+.rounded-l-lg {
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+}
+.rounded-l-none {
+  border-top-left-radius: 0px;
+  border-bottom-left-radius: 0px;
+}
+.rounded-r-lg {
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+.rounded-r-none {
+  border-top-right-radius: 0px;
+  border-bottom-right-radius: 0px;
+}
+.rounded-t-none {
+  border-top-left-radius: 0px;
+  border-top-right-radius: 0px;
+}
+.rounded-bl-\[22px\] {
+  border-bottom-left-radius: 22px;
+}
+.rounded-bl-lg {
+  border-bottom-left-radius: 8px;
+}
+.rounded-br-lg {
+  border-bottom-right-radius: 8px;
+}
+.rounded-tr-lg {
+  border-top-right-radius: 8px;
+}
+.border {
+  border-width: 1px;
+}
+.border-2 {
+  border-width: 2px;
+}
+.border-x {
+  border-left-width: 1px;
+  border-right-width: 1px;
+}
+.border-b {
+  border-bottom-width: 1px;
+}
+.border-b-0 {
+  border-bottom-width: 0px;
+}
+.border-b-2 {
+  border-bottom-width: 2px;
+}
+.border-l {
+  border-left-width: 1px;
+}
+.border-r {
+  border-right-width: 1px;
+}
+.border-r-0 {
+  border-right-width: 0px;
+}
+.border-t {
+  border-top-width: 1px;
+}
+.border-dashed {
+  border-style: dashed;
+}
+.border-none {
+  border-style: none;
+}
+.border-accent {
+  --tw-border-opacity: 1;
+  border-color: rgb(var(--color-accent) / var(--tw-border-opacity, 1));
+}
+.border-blue-200 {
+  --tw-border-opacity: 1;
+  border-color: rgb(191 219 254 / var(--tw-border-opacity, 1));
+}
+.border-blue-500 {
+  --tw-border-opacity: 1;
+  border-color: rgb(59 130 246 / var(--tw-border-opacity, 1));
+}
+.border-cyan-200 {
+  --tw-border-opacity: 1;
+  border-color: rgb(165 243 252 / var(--tw-border-opacity, 1));
+}
+.border-gray-100 {
+  --tw-border-opacity: 1;
+  border-color: rgb(244 244 245 / var(--tw-border-opacity, 1));
+}
+.border-gray-200 {
+  --tw-border-opacity: 1;
+  border-color: rgb(228 228 231 / var(--tw-border-opacity, 1));
+}
+.border-gray-300 {
+  --tw-border-opacity: 1;
+  border-color: rgb(212 212 216 / var(--tw-border-opacity, 1));
+}
+.border-green-200 {
+  --tw-border-opacity: 1;
+  border-color: rgb(187 247 208 / var(--tw-border-opacity, 1));
+}
+.border-lime-200 {
+  --tw-border-opacity: 1;
+  border-color: rgb(217 249 157 / var(--tw-border-opacity, 1));
+}
+.border-orange-200 {
+  --tw-border-opacity: 1;
+  border-color: rgb(254 215 170 / var(--tw-border-opacity, 1));
+}
+.border-red-200 {
+  --tw-border-opacity: 1;
+  border-color: rgb(254 202 202 / var(--tw-border-opacity, 1));
+}
+.border-red-500 {
+  --tw-border-opacity: 1;
+  border-color: rgb(239 68 68 / var(--tw-border-opacity, 1));
+}
+.border-transparent {
+  border-color: transparent;
+}
+.border-yellow-200 {
+  --tw-border-opacity: 1;
+  border-color: rgb(254 240 138 / var(--tw-border-opacity, 1));
+}
+.bg-\[\#79FFEB\] {
+  --tw-bg-opacity: 1;
+  background-color: rgb(121 255 235 / var(--tw-bg-opacity, 1));
+}
+.bg-\[\#e4e4e7\] {
+  --tw-bg-opacity: 1;
+  background-color: rgb(228 228 231 / var(--tw-bg-opacity, 1));
+}
+.bg-\[\#f2f2f2\] {
+  --tw-bg-opacity: 1;
+  background-color: rgb(242 242 242 / var(--tw-bg-opacity, 1));
+}
+.bg-accent {
+  --tw-bg-opacity: 1;
+  background-color: rgb(var(--color-accent) / var(--tw-bg-opacity, 1));
+}
+.bg-amber-200 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(253 230 138 / var(--tw-bg-opacity, 1));
+}
+.bg-black {
+  --tw-bg-opacity: 1;
+  background-color: rgb(0 0 0 / var(--tw-bg-opacity, 1));
+}
+.bg-blue-200 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(191 219 254 / var(--tw-bg-opacity, 1));
+}
+.bg-blue-300 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(147 197 253 / var(--tw-bg-opacity, 1));
+}
+.bg-blue-500 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(59 130 246 / var(--tw-bg-opacity, 1));
+}
+.bg-blue-600 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(37 99 235 / var(--tw-bg-opacity, 1));
+}
+.bg-cyan-200 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(165 243 252 / var(--tw-bg-opacity, 1));
+}
+.bg-gray-100 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(244 244 245 / var(--tw-bg-opacity, 1));
+}
+.bg-gray-300 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(212 212 216 / var(--tw-bg-opacity, 1));
+}
+.bg-gray-50 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(250 250 250 / var(--tw-bg-opacity, 1));
+}
+.bg-gray-700 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(63 63 70 / var(--tw-bg-opacity, 1));
+}
+.bg-gray-900 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(24 24 27 / var(--tw-bg-opacity, 1));
+}
+.bg-green-200 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(187 247 208 / var(--tw-bg-opacity, 1));
+}
+.bg-green-300 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(134 239 172 / var(--tw-bg-opacity, 1));
+}
+.bg-indigo-200 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(199 210 254 / var(--tw-bg-opacity, 1));
+}
+.bg-indigo-500 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(99 102 241 / var(--tw-bg-opacity, 1));
+}
+.bg-lime-200 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(217 249 157 / var(--tw-bg-opacity, 1));
+}
+.bg-orange-200 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(254 215 170 / var(--tw-bg-opacity, 1));
+}
+.bg-primary {
+  --tw-bg-opacity: 1;
+  background-color: rgb(var(--color-primary) / var(--tw-bg-opacity, 1));
+}
+.bg-red-200 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(254 202 202 / var(--tw-bg-opacity, 1));
+}
+.bg-red-300 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(252 165 165 / var(--tw-bg-opacity, 1));
+}
+.bg-red-400 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(248 113 113 / var(--tw-bg-opacity, 1));
+}
+.bg-sky-200 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(186 230 253 / var(--tw-bg-opacity, 1));
+}
+.bg-transparent {
+  background-color: transparent;
+}
+.bg-white {
+  --tw-bg-opacity: 1;
+  background-color: rgb(255 255 255 / var(--tw-bg-opacity, 1));
+}
+.bg-yellow-200 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(254 240 138 / var(--tw-bg-opacity, 1));
+}
+.bg-opacity-10 {
+  --tw-bg-opacity: 0.1;
+}
+.bg-opacity-20 {
+  --tw-bg-opacity: 0.2;
+}
+.bg-opacity-30 {
+  --tw-bg-opacity: 0.3;
+}
+.bg-opacity-5 {
+  --tw-bg-opacity: 0.05;
+}
+.bg-opacity-50 {
+  --tw-bg-opacity: 0.5;
+}
+.bg-opacity-75 {
+  --tw-bg-opacity: 0.75;
+}
+.bg-scroll {
+  background-attachment: scroll;
+}
+.bg-center {
+  background-position: center;
+}
+.bg-no-repeat {
+  background-repeat: no-repeat;
+}
+.fill-blue-200 {
+  fill: #bfdbfe;
+}
+.fill-cyan-200 {
+  fill: #a5f3fc;
+}
+.fill-green-200 {
+  fill: #bbf7d0;
+}
+.fill-lime-200 {
+  fill: #d9f99d;
+}
+.fill-orange-200 {
+  fill: #fed7aa;
+}
+.fill-red-200 {
+  fill: #fecaca;
+}
+.fill-yellow-200 {
+  fill: #fef08a;
+}
+.\!p-0 {
+  padding: 0px !important;
+}
+.p-0 {
+  padding: 0px;
+}
+.p-0\.5 {
+  padding: 2px;
+}
+.p-1 {
+  padding: 4px;
+}
+.p-2 {
+  padding: 8px;
+}
+.p-3 {
+  padding: 12px;
+}
+.p-4 {
+  padding: 16px;
+}
+.p-5 {
+  padding: 20px;
+}
+.p-6 {
+  padding: 24px;
+}
+.\!px-3 {
+  padding-left: 12px !important;
+  padding-right: 12px !important;
+}
+.\!py-2 {
+  padding-top: 8px !important;
+  padding-bottom: 8px !important;
+}
+.px-1 {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+.px-2 {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+.px-3 {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.px-4 {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+.px-5 {
+  padding-left: 20px;
+  padding-right: 20px;
+}
+.py-1 {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.py-12 {
+  padding-top: 48px;
+  padding-bottom: 48px;
+}
+.py-16 {
+  padding-top: 64px;
+  padding-bottom: 64px;
+}
+.py-2 {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.py-3 {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+.py-4 {
+  padding-top: 16px;
+  padding-bottom: 16px;
+}
+.py-6 {
+  padding-top: 24px;
+  padding-bottom: 24px;
+}
+.py-8 {
+  padding-top: 32px;
+  padding-bottom: 32px;
+}
+.py-px {
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+.pb-1 {
+  padding-bottom: 4px;
+}
+.pb-2 {
+  padding-bottom: 8px;
+}
+.pb-4 {
+  padding-bottom: 16px;
+}
+.pb-5 {
+  padding-bottom: 20px;
+}
+.pb-8 {
+  padding-bottom: 32px;
+}
+.pl-1 {
+  padding-left: 4px;
+}
+.pl-10 {
+  padding-left: 40px;
+}
+.pl-14 {
+  padding-left: 56px;
+}
+.pl-16 {
+  padding-left: 64px;
+}
+.pl-2 {
+  padding-left: 8px;
+}
+.pl-4 {
+  padding-left: 16px;
+}
+.pl-6 {
+  padding-left: 24px;
+}
+.pl-8 {
+  padding-left: 32px;
+}
+.pl-\[28px\] {
+  padding-left: 28px;
+}
+.pr-10 {
+  padding-right: 40px;
+}
+.pr-4 {
+  padding-right: 16px;
+}
+.pt-1 {
+  padding-top: 4px;
+}
+.pt-2 {
+  padding-top: 8px;
+}
+.pt-24 {
+  padding-top: 96px;
+}
+.pt-4 {
+  padding-top: 16px;
+}
+.pt-8 {
+  padding-top: 32px;
+}
+.text-left {
+  text-align: left;
+}
+.text-center {
+  text-align: center;
+}
+.text-right {
+  text-align: right;
+}
+.align-baseline {
+  vertical-align: baseline;
+}
+.align-middle {
+  vertical-align: middle;
+}
+.align-bottom {
+  vertical-align: bottom;
+}
+.align-text-top {
+  vertical-align: text-top;
+}
+.align-text-bottom {
+  vertical-align: text-bottom;
+}
+.align-sub {
+  vertical-align: sub;
+}
+.font-mono {
+  font-family: Source Code Pro, monospace;
+}
+.text-2xl {
+  font-size: 24px;
+  line-height: 32px;
+}
+.text-3xl {
+  font-size: 30px;
+  line-height: 36px;
+}
+.text-\[14px\] {
+  font-size: 14px;
+}
+.text-\[16px\] {
+  font-size: 16px;
+}
+.text-base {
+  font-size: 16px;
+  line-height: 24px;
+}
+.text-lg {
+  font-size: 18px;
+  line-height: 28px;
+}
+.text-sm {
+  font-size: 14px;
+  line-height: 20px;
+}
+.text-xl {
+  font-size: 20px;
+  line-height: 28px;
+}
+.text-xs {
+  font-size: 12px;
+  line-height: 16px;
+}
+.font-semibold {
+  font-weight: 600;
+}
+.uppercase {
+  text-transform: uppercase;
+}
+.lowercase {
+  text-transform: lowercase;
+}
+.\!capitalize {
+  text-transform: capitalize !important;
+}
+.capitalize {
+  text-transform: capitalize;
+}
+.italic {
+  font-style: italic;
+}
+.tabular-nums {
+  --tw-numeric-spacing: tabular-nums;
+  font-variant-numeric: var(--tw-ordinal) var(--tw-slashed-zero) var(--tw-numeric-figure) var(--tw-numeric-spacing) var(--tw-numeric-fraction);
+}
+.leading-\[24px\] {
+  line-height: 24px;
+}
+.leading-none {
+  line-height: 1;
+}
+.leading-normal {
+  line-height: 1.5;
+}
+.leading-tight {
+  line-height: 1.25;
+}
+.text-accent {
+  --tw-text-opacity: 1;
+  color: rgb(var(--color-accent) / var(--tw-text-opacity, 1));
+}
+.text-black {
+  --tw-text-opacity: 1;
+  color: rgb(0 0 0 / var(--tw-text-opacity, 1));
+}
+.text-blue-300 {
+  --tw-text-opacity: 1;
+  color: rgb(147 197 253 / var(--tw-text-opacity, 1));
+}
+.text-blue-400 {
+  --tw-text-opacity: 1;
+  color: rgb(96 165 250 / var(--tw-text-opacity, 1));
+}
+.text-gray-100 {
+  --tw-text-opacity: 1;
+  color: rgb(244 244 245 / var(--tw-text-opacity, 1));
+}
+.text-gray-200 {
+  --tw-text-opacity: 1;
+  color: rgb(228 228 231 / var(--tw-text-opacity, 1));
+}
+.text-gray-300 {
+  --tw-text-opacity: 1;
+  color: rgb(212 212 216 / var(--tw-text-opacity, 1));
+}
+.text-gray-400 {
+  --tw-text-opacity: 1;
+  color: rgb(161 161 170 / var(--tw-text-opacity, 1));
+}
+.text-gray-500 {
+  --tw-text-opacity: 1;
+  color: rgb(113 113 122 / var(--tw-text-opacity, 1));
+}
+.text-gray-600 {
+  --tw-text-opacity: 1;
+  color: rgb(82 82 91 / var(--tw-text-opacity, 1));
+}
+.text-gray-700 {
+  --tw-text-opacity: 1;
+  color: rgb(63 63 70 / var(--tw-text-opacity, 1));
+}
+.text-gray-800 {
+  --tw-text-opacity: 1;
+  color: rgb(39 39 42 / var(--tw-text-opacity, 1));
+}
+.text-green-400 {
+  --tw-text-opacity: 1;
+  color: rgb(74 222 128 / var(--tw-text-opacity, 1));
+}
+.text-green-500 {
+  --tw-text-opacity: 1;
+  color: rgb(34 197 94 / var(--tw-text-opacity, 1));
+}
+.text-green-600 {
+  --tw-text-opacity: 1;
+  color: rgb(22 163 74 / var(--tw-text-opacity, 1));
+}
+.text-primary {
+  --tw-text-opacity: 1;
+  color: rgb(var(--color-primary) / var(--tw-text-opacity, 1));
+}
+.text-red-400 {
+  --tw-text-opacity: 1;
+  color: rgb(248 113 113 / var(--tw-text-opacity, 1));
+}
+.text-red-500 {
+  --tw-text-opacity: 1;
+  color: rgb(239 68 68 / var(--tw-text-opacity, 1));
+}
+.text-white {
+  --tw-text-opacity: 1;
+  color: rgb(255 255 255 / var(--tw-text-opacity, 1));
+}
+.text-yellow-400 {
+  --tw-text-opacity: 1;
+  color: rgb(250 204 21 / var(--tw-text-opacity, 1));
+}
+.text-yellow-500 {
+  --tw-text-opacity: 1;
+  color: rgb(234 179 8 / var(--tw-text-opacity, 1));
+}
+.underline {
+  text-decoration-line: underline;
+}
+.opacity-0 {
+  opacity: 0;
+}
+.opacity-25 {
+  opacity: 0.25;
+}
+.opacity-50 {
+  opacity: 0.5;
+}
+.opacity-70 {
+  opacity: 0.7;
+}
+.opacity-75 {
+  opacity: 0.75;
+}
+.shadow {
+  --tw-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --tw-shadow-colored: 0 1px 3px 0 var(--tw-shadow-color), 0 1px 2px -1px var(--tw-shadow-color);
+  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+.shadow-2xl {
+  --tw-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+  --tw-shadow-colored: 0 25px 50px -12px var(--tw-shadow-color);
+  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+.shadow-lg {
+  --tw-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --tw-shadow-colored: 0 10px 15px -3px var(--tw-shadow-color), 0 4px 6px -4px var(--tw-shadow-color);
+  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+.shadow-md {
+  --tw-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --tw-shadow-colored: 0 4px 6px -1px var(--tw-shadow-color), 0 2px 4px -2px var(--tw-shadow-color);
+  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+.shadow-xl {
+  --tw-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --tw-shadow-colored: 0 20px 25px -5px var(--tw-shadow-color), 0 8px 10px -6px var(--tw-shadow-color);
+  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+.outline {
+  outline-style: solid;
+}
+.ring {
+  --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
+  --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(3px + var(--tw-ring-offset-width)) var(--tw-ring-color);
+  box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+}
+.ring-2 {
+  --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
+  --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(2px + var(--tw-ring-offset-width)) var(--tw-ring-color);
+  box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+}
+.ring-accent {
+  --tw-ring-opacity: 1;
+  --tw-ring-color: rgb(var(--color-accent) / var(--tw-ring-opacity, 1));
+}
+.ring-red-400 {
+  --tw-ring-opacity: 1;
+  --tw-ring-color: rgb(248 113 113 / var(--tw-ring-opacity, 1));
+}
+.blur {
+  --tw-blur: blur(8px);
+  filter: var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow);
+}
+.invert {
+  --tw-invert: invert(100%);
+  filter: var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow);
+}
+.filter {
+  filter: var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow);
+}
+.backdrop-blur {
+  --tw-backdrop-blur: blur(8px);
+  -webkit-backdrop-filter: var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia);
+  backdrop-filter: var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia);
+}
+.backdrop-filter {
+  -webkit-backdrop-filter: var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia);
+  backdrop-filter: var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia);
+}
+.transition {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, -webkit-backdrop-filter;
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter, -webkit-backdrop-filter;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+.transition-colors {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+.transition-transform {
+  transition-property: transform;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+.duration-200 {
+  transition-duration: 200ms;
+}
+.ease-out {
+  transition-timing-function: cubic-bezier(0, 0, 0.2, 1);
+}
+.hoverable:hover {
+  background-color: rgb(39 39 42 / var(--tw-bg-opacity, 1));
+  --tw-bg-opacity: 0.05;
+}
+.hoverable:hover:is(.dark *) {
+  background-color: rgb(228 228 231 / var(--tw-bg-opacity, 1));
+  --tw-bg-opacity: 0.05;
+}
+.bg-input {
+  background-color: rgb(0 0 0 / var(--tw-bg-opacity, 1));
+  --tw-bg-opacity: 0.05;
+}
+.bg-input:hover {
+  --tw-bg-opacity: 0.1;
+}
+.bg-input:is(.dark *) {
+  background-color: rgb(228 228 231 / var(--tw-bg-opacity, 1));
+  --tw-bg-opacity: 0.05;
+}
+.bg-input:hover:is(.dark *) {
+  --tw-bg-opacity: 0.1;
+}
+.bg-box-transparent {
+  background-color: rgb(0 0 0 / var(--tw-bg-opacity, 1));
+  --tw-bg-opacity: 0.05;
+}
+.bg-box-transparent:is(.dark *) {
+  background-color: rgb(228 228 231 / var(--tw-bg-opacity, 1));
+  --tw-bg-opacity: 0.05;
+}
+.bg-box-transparent-2 {
+  background-color: rgb(0 0 0 / var(--tw-bg-opacity, 1));
+  --tw-bg-opacity: 0.1;
+}
+.bg-box-transparent-2:is(.dark *) {
+  background-color: rgb(228 228 231 / var(--tw-bg-opacity, 1));
+  --tw-bg-opacity: 0.1;
+}
+
+:host, :root {
+  --color-primary: 59 130 246;
+  --color-secondary: 96 165 250;
+  --color-accent: 24 24 27;
+}
+.dark {
+  --color-primary: 96 165 250;
+  --color-secondary: 59 130 246;
+  --color-accent: 244 244 245;
+}
+
+*:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(63 63 70 / var(--tw-border-opacity, 1));
+}
+
+html.dark {
+  --tw-bg-opacity: 1;
+  background-color: rgb(24 24 27 / var(--tw-bg-opacity, 1));
+}
+
+body, :host {
+  font-family: 'Inter var', sans-serif !important;
+  font-size: 16px !important;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  --tw-bg-opacity: 1;
+  background-color: rgb(250 250 250 / var(--tw-bg-opacity, 1));
+  line-height: 1.5;
+}
+
+body:is(.dark *), :host:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(24 24 27 / var(--tw-bg-opacity, 1));
+}
+table th,
+table td {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 16px;
+  padding-right: 16px;
+}
+input:focus,
+button:focus,
+textarea:focus,
+select:focus,
+[role='button']:focus {
+  outline: none;
+  --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
+  --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(2px + var(--tw-ring-offset-width)) var(--tw-ring-color);
+  box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+  --tw-ring-opacity: 1;
+  --tw-ring-color: rgb(var(--color-accent) / var(--tw-ring-opacity, 1));
+}
+input:focus:is(.dark *),
+button:focus:is(.dark *),
+textarea:focus:is(.dark *),
+select:focus:is(.dark *),
+[role='button']:focus:is(.dark *) {
+  --tw-ring-opacity: 1;
+  --tw-ring-color: rgb(228 228 231 / var(--tw-ring-opacity, 1));
+}
+
+.text-overflow {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.line-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+.custom-table thead {
+  background-color: rgb(0 0 0 / var(--tw-bg-opacity, 1));
+  --tw-bg-opacity: 0.05;
+}
+
+
+.custom-table thead:is(.dark *) {
+  background-color: rgb(228 228 231 / var(--tw-bg-opacity, 1));
+  --tw-bg-opacity: 0.05;
+}
+.custom-table thead th {
+  font-weight: 600;
+}
+.custom-table thead th:first-child {
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+}
+.custom-table thead th:last-child {
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+.custom-table tbody > :not([hidden]) ~ :not([hidden]) {
+  --tw-divide-y-reverse: 0;
+  border-top-width: calc(1px * calc(1 - var(--tw-divide-y-reverse)));
+  border-bottom-width: calc(1px * var(--tw-divide-y-reverse));
+}
+
+
+
+pre {
+  font-size: 15px;
+}
+
+.scroll::-webkit-scrollbar, .scroll .cm-scroller::-webkit-scrollbar {
+    width: 7px;
+    height: 9px;
+  }
+
+.scroll::-webkit-scrollbar-thumb, .scroll .cm-scroller::-webkit-scrollbar-thumb {
+  --tw-bg-opacity: 1;
+  background-color: rgb(212 212 216 / var(--tw-bg-opacity, 1));
+}
+
+.scroll:is(.dark *)::-webkit-scrollbar-thumb, .scroll .cm-scroller:is(.dark *)::-webkit-scrollbar-thumb {
+  --tw-bg-opacity: 1;
+  background-color: rgb(63 63 70 / var(--tw-bg-opacity, 1));
+}
+
+.scroll::-webkit-scrollbar-thumb, .scroll .cm-scroller::-webkit-scrollbar-thumb {
+    border-radius: 8px;
+  }
+
+.scroll::-webkit-scrollbar-track, .scroll .cm-scroller::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+.scroll.scroll-xs::-webkit-scrollbar, .scroll .cm-scroller.scroll-xs::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+
+.tippy-box[data-theme~='tooltip-theme'] {
+  border-radius: 6px;
+  --tw-bg-opacity: 1;
+  background-color: rgb(24 24 27 / var(--tw-bg-opacity, 1));
+  padding-left: 8px;
+  padding-right: 8px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  font-size: 14px;
+  line-height: 20px;
+  --tw-text-opacity: 1;
+  color: rgb(228 228 231 / var(--tw-text-opacity, 1));
+}
+
+
+.tippy-box[data-theme~='tooltip-theme']:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(228 228 231 / var(--tw-bg-opacity, 1));
+  --tw-text-opacity: 1;
+  color: rgb(0 0 0 / var(--tw-text-opacity, 1));
+}
+.Vue-Toastification__toast {
+  font-family: inherit !important;
+}
+.ProseMirror > * + * {
+  margin-top: 0.75em;
+}
+.ProseMirror img {
+  max-width: 100%;
+  height: auto;
+}
+.ProseMirror img.ProseMirror-selectednode {
+  outline: 3px solid #68CEF8;
+}
+
+.input-label {
+  margin-left: 4px;
+  font-size: 14px;
+  line-height: 20px;
+  --tw-text-opacity: 1;
+  color: rgb(82 82 91 / var(--tw-text-opacity, 1));
+}
+
+.input-label:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(228 228 231 / var(--tw-text-opacity, 1));
+}
+
+.dark\:prose-invert:is(.dark *) {
+  --tw-prose-body: var(--tw-prose-invert-body);
+  --tw-prose-headings: var(--tw-prose-invert-headings);
+  --tw-prose-lead: var(--tw-prose-invert-lead);
+  --tw-prose-links: var(--tw-prose-invert-links);
+  --tw-prose-bold: var(--tw-prose-invert-bold);
+  --tw-prose-counters: var(--tw-prose-invert-counters);
+  --tw-prose-bullets: var(--tw-prose-invert-bullets);
+  --tw-prose-hr: var(--tw-prose-invert-hr);
+  --tw-prose-quotes: var(--tw-prose-invert-quotes);
+  --tw-prose-quote-borders: var(--tw-prose-invert-quote-borders);
+  --tw-prose-captions: var(--tw-prose-invert-captions);
+  --tw-prose-kbd: var(--tw-prose-invert-kbd);
+  --tw-prose-kbd-shadows: var(--tw-prose-invert-kbd-shadows);
+  --tw-prose-code: var(--tw-prose-invert-code);
+  --tw-prose-pre-code: var(--tw-prose-invert-pre-code);
+  --tw-prose-pre-bg: var(--tw-prose-invert-pre-bg);
+  --tw-prose-th-borders: var(--tw-prose-invert-th-borders);
+  --tw-prose-td-borders: var(--tw-prose-invert-td-borders);
+}
+
+.placeholder\:text-black::-moz-placeholder {
+  --tw-text-opacity: 1;
+  color: rgb(0 0 0 / var(--tw-text-opacity, 1));
+}
+
+.placeholder\:text-black::placeholder {
+  --tw-text-opacity: 1;
+  color: rgb(0 0 0 / var(--tw-text-opacity, 1));
+}
+
+.focus-within\:ring-2:focus-within {
+  --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
+  --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(2px + var(--tw-ring-offset-width)) var(--tw-ring-color);
+  box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+}
+
+.focus-within\:ring-accent:focus-within {
+  --tw-ring-opacity: 1;
+  --tw-ring-color: rgb(var(--color-accent) / var(--tw-ring-opacity, 1));
+}
+
+.focus-within\:bg-box-transparent-2:focus-within {
+  background-color: rgb(0 0 0 / var(--tw-bg-opacity, 1));
+  --tw-bg-opacity: 0.1;
+}
+
+.focus-within\:bg-box-transparent-2:focus-within:is(.dark *) {
+  background-color: rgb(228 228 231 / var(--tw-bg-opacity, 1));
+  --tw-bg-opacity: 0.1;
+}
+
+.hover\:-translate-y-1:hover {
+  --tw-translate-y: -4px;
+  transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y));
+}
+
+.hover\:bg-gray-100:hover {
+  --tw-bg-opacity: 1;
+  background-color: rgb(244 244 245 / var(--tw-bg-opacity, 1));
+}
+
+.hover\:bg-gray-700:hover {
+  --tw-bg-opacity: 1;
+  background-color: rgb(63 63 70 / var(--tw-bg-opacity, 1));
+}
+
+.hover\:bg-red-400:hover {
+  --tw-bg-opacity: 1;
+  background-color: rgb(248 113 113 / var(--tw-bg-opacity, 1));
+}
+
+.hover\:bg-secondary:hover {
+  --tw-bg-opacity: 1;
+  background-color: rgb(var(--color-secondary) / var(--tw-bg-opacity, 1));
+}
+
+.hover\:text-black:hover {
+  --tw-text-opacity: 1;
+  color: rgb(0 0 0 / var(--tw-text-opacity, 1));
+}
+
+.hover\:shadow-xl:hover {
+  --tw-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --tw-shadow-colored: 0 20px 25px -5px var(--tw-shadow-color), 0 8px 10px -6px var(--tw-shadow-color);
+  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+.hover\:ring-2:hover {
+  --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
+  --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(2px + var(--tw-ring-offset-width)) var(--tw-ring-color);
+  box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+}
+
+.hover\:ring-accent:hover {
+  --tw-ring-opacity: 1;
+  --tw-ring-color: rgb(var(--color-accent) / var(--tw-ring-opacity, 1));
+}
+
+.hover\:ring-gray-900:hover {
+  --tw-ring-opacity: 1;
+  --tw-ring-color: rgb(24 24 27 / var(--tw-ring-opacity, 1));
+}
+
+.focus\:outline-none:focus {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+.focus\:ring-0:focus {
+  --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
+  --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(0px + var(--tw-ring-offset-width)) var(--tw-ring-color);
+  box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+}
+
+.focus\:ring-2:focus {
+  --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
+  --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(2px + var(--tw-ring-offset-width)) var(--tw-ring-color);
+  box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+}
+
+.focus\:ring-red-400:focus {
+  --tw-ring-opacity: 1;
+  --tw-ring-color: rgb(248 113 113 / var(--tw-ring-opacity, 1));
+}
+
+.group:hover .group-hover\:visible {
+  visibility: visible;
+}
+
+.group:hover .group-hover\:invisible {
+  visibility: hidden;
+}
+
+.group:hover .group-hover\:scale-100 {
+  --tw-scale-x: 1;
+  --tw-scale-y: 1;
+  transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y));
+}
+
+.dark\:divide-gray-700:is(.dark *) > :not([hidden]) ~ :not([hidden]) {
+  --tw-divide-opacity: 1;
+  border-color: rgb(63 63 70 / var(--tw-divide-opacity, 1));
+}
+
+.dark\:divide-gray-800:is(.dark *) > :not([hidden]) ~ :not([hidden]) {
+  --tw-divide-opacity: 1;
+  border-color: rgb(39 39 42 / var(--tw-divide-opacity, 1));
+}
+
+.dark\:border-accent:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(var(--color-accent) / var(--tw-border-opacity, 1));
+}
+
+.dark\:border-blue-300:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(147 197 253 / var(--tw-border-opacity, 1));
+}
+
+.dark\:border-blue-400:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(96 165 250 / var(--tw-border-opacity, 1));
+}
+
+.dark\:border-cyan-300:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(103 232 249 / var(--tw-border-opacity, 1));
+}
+
+.dark\:border-gray-100:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(244 244 245 / var(--tw-border-opacity, 1));
+}
+
+.dark\:border-gray-700:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(63 63 70 / var(--tw-border-opacity, 1));
+}
+
+.dark\:border-gray-800:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(39 39 42 / var(--tw-border-opacity, 1));
+}
+
+.dark\:border-green-300:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(134 239 172 / var(--tw-border-opacity, 1));
+}
+
+.dark\:border-lime-300:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(190 242 100 / var(--tw-border-opacity, 1));
+}
+
+.dark\:border-orange-300:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(253 186 116 / var(--tw-border-opacity, 1));
+}
+
+.dark\:border-red-300:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(252 165 165 / var(--tw-border-opacity, 1));
+}
+
+.dark\:border-transparent:is(.dark *) {
+  border-color: transparent;
+}
+
+.dark\:border-yellow-300:is(.dark *) {
+  --tw-border-opacity: 1;
+  border-color: rgb(253 224 71 / var(--tw-border-opacity, 1));
+}
+
+.dark\:border-opacity-40:is(.dark *) {
+  --tw-border-opacity: 0.4;
+}
+
+.dark\:border-opacity-50:is(.dark *) {
+  --tw-border-opacity: 0.5;
+}
+
+.dark\:bg-\[\#2DD4BF\]:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(45 212 191 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-amber-300:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(252 211 77 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-blue-300:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(147 197 253 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-cyan-300:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(103 232 249 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-gray-100:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(244 244 245 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-gray-200:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(228 228 231 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-gray-600:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(82 82 91 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-gray-700:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(63 63 70 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-gray-800:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(39 39 42 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-gray-900:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(24 24 27 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-green-200:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(187 247 208 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-green-300:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(134 239 172 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-indigo-300:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(165 180 252 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-indigo-400:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(129 140 248 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-lime-300:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(190 242 100 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-orange-300:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(253 186 116 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-red-200:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(254 202 202 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-red-300:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(252 165 165 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-red-400:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(248 113 113 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-red-500:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(239 68 68 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-secondary:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(var(--color-secondary) / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-sky-300:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(125 211 252 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-yellow-300:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(253 224 71 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:bg-opacity-10:is(.dark *) {
+  --tw-bg-opacity: 0.1;
+}
+
+.dark\:bg-opacity-60:is(.dark *) {
+  --tw-bg-opacity: 0.6;
+}
+
+.dark\:bg-none:is(.dark *) {
+  background-image: none;
+}
+
+.dark\:fill-blue-300:is(.dark *) {
+  fill: #93c5fd;
+}
+
+.dark\:fill-cyan-300:is(.dark *) {
+  fill: #67e8f9;
+}
+
+.dark\:fill-green-300:is(.dark *) {
+  fill: #86efac;
+}
+
+.dark\:fill-lime-300:is(.dark *) {
+  fill: #bef264;
+}
+
+.dark\:fill-orange-300:is(.dark *) {
+  fill: #fdba74;
+}
+
+.dark\:fill-red-300:is(.dark *) {
+  fill: #fca5a5;
+}
+
+.dark\:fill-yellow-300:is(.dark *) {
+  fill: #fde047;
+}
+
+.dark\:text-black:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(0 0 0 / var(--tw-text-opacity, 1));
+}
+
+.dark\:text-gray-100:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(244 244 245 / var(--tw-text-opacity, 1));
+}
+
+.dark\:text-gray-200:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(228 228 231 / var(--tw-text-opacity, 1));
+}
+
+.dark\:text-gray-300:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(212 212 216 / var(--tw-text-opacity, 1));
+}
+
+.dark\:text-gray-400:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(161 161 170 / var(--tw-text-opacity, 1));
+}
+
+.dark\:text-gray-600:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(82 82 91 / var(--tw-text-opacity, 1));
+}
+
+.dark\:text-gray-900:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(24 24 27 / var(--tw-text-opacity, 1));
+}
+
+.dark\:text-green-400:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(74 222 128 / var(--tw-text-opacity, 1));
+}
+
+.dark\:text-red-300:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(252 165 165 / var(--tw-text-opacity, 1));
+}
+
+.dark\:text-red-400:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(248 113 113 / var(--tw-text-opacity, 1));
+}
+
+.dark\:text-red-500:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(239 68 68 / var(--tw-text-opacity, 1));
+}
+
+.dark\:text-red-600:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(220 38 38 / var(--tw-text-opacity, 1));
+}
+
+.dark\:text-secondary:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(var(--color-secondary) / var(--tw-text-opacity, 1));
+}
+
+.dark\:text-yellow-300:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(253 224 71 / var(--tw-text-opacity, 1));
+}
+
+.dark\:invert:is(.dark *) {
+  --tw-invert: invert(100%);
+  filter: var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow);
+}
+
+.dark\:hover\:bg-gray-200:hover:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(228 228 231 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:hover\:bg-gray-700:hover:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(63 63 70 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:hover\:bg-primary:hover:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(var(--color-primary) / var(--tw-bg-opacity, 1));
+}
+
+.dark\:hover\:bg-red-500:hover:is(.dark *) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(239 68 68 / var(--tw-bg-opacity, 1));
+}
+
+.dark\:hover\:text-gray-100:hover:is(.dark *) {
+  --tw-text-opacity: 1;
+  color: rgb(244 244 245 / var(--tw-text-opacity, 1));
+}
+
+.dark\:hover\:ring-gray-200:hover:is(.dark *) {
+  --tw-ring-opacity: 1;
+  --tw-ring-color: rgb(228 228 231 / var(--tw-ring-opacity, 1));
+}
+
+@media (min-width: 768px) {
+
+  .md\:relative {
+    position: relative;
+  }
+
+  .md\:-ml-1 {
+    margin-left: -4px;
+  }
+
+  .md\:mb-0 {
+    margin-bottom: 0px;
+  }
+
+  .md\:ml-0 {
+    margin-left: 0px;
+  }
+
+  .md\:ml-4 {
+    margin-left: 16px;
+  }
+
+  .md\:mt-0 {
+    margin-top: 0px;
+  }
+
+  .md\:block {
+    display: block;
+  }
+
+  .md\:flex {
+    display: flex;
+  }
+
+  .md\:hidden {
+    display: none;
+  }
+
+  .md\:w-auto {
+    width: auto;
+  }
+
+  .md\:flex-1 {
+    flex: 1 1 0%;
+  }
+
+  .md\:grid-cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .md\:items-center {
+    align-items: center;
+  }
+
+  .md\:justify-between {
+    justify-content: space-between;
+  }
+
+  .md\:space-x-4 > :not([hidden]) ~ :not([hidden]) {
+    --tw-space-x-reverse: 0;
+    margin-right: calc(16px * var(--tw-space-x-reverse));
+    margin-left: calc(16px * calc(1 - var(--tw-space-x-reverse)));
+  }
+
+  .md\:px-4 {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .md\:pr-60 {
+    padding-right: 240px;
+  }
+
+  .md\:text-left {
+    text-align: left;
+  }
+}
+
+@media (min-width: 1024px) {
+
+  .lg\:mb-0 {
+    margin-bottom: 0px;
+  }
+
+  .lg\:ml-8 {
+    margin-left: 32px;
+  }
+
+  .lg\:mt-0 {
+    margin-top: 0px;
+  }
+
+  .lg\:block {
+    display: block;
+  }
+
+  .lg\:inline-block {
+    display: inline-block;
+  }
+
+  .lg\:flex {
+    display: flex;
+  }
+
+  .lg\:hidden {
+    display: none;
+  }
+
+  .lg\:w-4\/12 {
+    width: 33.333333%;
+  }
+
+  .lg\:w-auto {
+    width: auto;
+  }
+
+  .lg\:flex-1 {
+    flex: 1 1 0%;
+  }
+
+  .lg\:grid-cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .lg\:flex-row {
+    flex-direction: row;
+  }
+
+  .lg\:items-center {
+    align-items: center;
+  }
+
+  .lg\:justify-between {
+    justify-content: space-between;
+  }
+}
+
+@media (min-width: 1536px) {
+
+  .\32xl\:grid-cols-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+</style><style>.list-item-active svg { visibility: visible }</style><div id="app" data-v-app=""><!----></div></template></div><div data-v-3b0f0bb3="" tabindex="-1" class="el-image-viewer__wrapper" style="z-index: 2000; display: none;"><div class="el-image-viewer__mask"></div><span class="el-image-viewer__btn el-image-viewer__close"><i class="el-icon-close"></i></span><!----><div class="el-image-viewer__btn el-image-viewer__actions"><div class="el-image-viewer__actions__inner"><i class="el-icon-zoom-out"></i><i class="el-icon-zoom-in"></i><i class="el-image-viewer__actions__divider"></i><i class="el-icon-full-screen"></i><i class="el-image-viewer__actions__divider"></i><i class="el-icon-refresh-left"></i><i class="el-icon-refresh-right"></i></div></div><div class="el-image-viewer__canvas"><img src="https://cloudprint.kuaimai.com/" class="el-image-viewer__img" alt="加载失败" style="transform: scale(1) rotate(0deg); margin-left: 0px; margin-top: 0px; max-height: 100%; max-width: 100%;"></div></div></body></html>

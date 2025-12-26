@@ -16,6 +16,7 @@
       @delete="handleDelete"
       @close="handleClose"
       @submit="handleSubmit"
+      @ship-to-xianyu="handleShipToXianyu"
     />
 
     <el-form
@@ -390,6 +391,21 @@ const openShippingOrder = () => {
   if (props.rental) {
     const url = router.resolve({ path: `/shipping/${props.rental.id}` })
     window.open(url.href, '_blank')
+  }
+}
+
+const handleShipToXianyu = async () => {
+  if (!props.rental) return
+
+  try {
+    submitting.value = true
+    await ganttStore.shipRentalToXianyu(props.rental.id)
+    ElMessage.success('已成功发货到闲鱼')
+    await loadLatestRentalData()
+  } catch (error: any) {
+    ElMessage.error('发货失败：' + (error.message || '未知错误'))
+  } finally {
+    submitting.value = false
   }
 }
 

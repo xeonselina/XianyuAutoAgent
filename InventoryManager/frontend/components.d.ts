@@ -49,6 +49,7 @@ declare module 'vue' {
     RentalTooltip: typeof import('./src/components/RentalTooltip.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    SimplifiedShippingSlip: typeof import('./src/components/printing/SimplifiedShippingSlip.vue')['default']
   }
   export interface GlobalDirectives {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']

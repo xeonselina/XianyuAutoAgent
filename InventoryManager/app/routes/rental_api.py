@@ -55,6 +55,13 @@ def update_rental_status(rental_id):
     return RentalHandlers.handle_update_rental_status(rental_id)
 
 
+@bp.route('/api/rentals/<rental_id>/ship-to-xianyu', methods=['POST'])
+@handle_response
+def ship_rental_to_xianyu(rental_id):
+    """单个租赁发货到闲鱼"""
+    return RentalHandlers.handle_ship_rental_to_xianyu(rental_id)
+
+
 # ===================== 租赁检查API =====================
 
 @bp.route('/api/rentals/check-conflict', methods=['POST'])
