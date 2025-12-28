@@ -3,6 +3,7 @@ Qwen API client wrapper with retry logic.
 Uses Alibaba Cloud DashScope SDK.
 """
 
+import dashscope
 from dashscope import Generation
 from dashscope.common.error import RequestFailure, ServiceUnavailableError
 from tenacity import (
@@ -17,8 +18,13 @@ from ai_kefu.config.constants import QWEN_API_RETRY_ATTEMPTS, QWEN_API_RETRY_DEL
 import os
 
 
-# Configure DashScope API key
-os.environ["DASHSCOPE_API_KEY"] = settings.qwen_api_key
+def _ensure_api_key():
+    """Ensure DASHSCOPE_API_KEY is set."""
+    if not dashscope.api_key:
+        api_key = settings.api_key
+        if not api_key:
+            raise ValueError(f"API key not found in settings. Please check your .env file.")
+        dashscope.api_key = api_key
 
 
 @retry(
@@ -35,23 +41,24 @@ def call_qwen(
 ) -> Dict[str, Any]:
     """
     Call Qwen API with retry logic (synchronous).
-    
+
     Args:
         messages: Conversation messages
         tools: Tool definitions (Function Calling)
         temperature: Sampling temperature
         top_p: Nucleus sampling parameter
         max_tokens: Maximum tokens to generate
-        
+
     Returns:
         Response dict from Qwen API
-        
+
     Raises:
         RequestFailure: API request failed
         ServiceUnavailableError: Service unavailable
     """
+    _ensure_api_key()
     response = Generation.call(
-        model=settings.qwen_model,
+        model=settings.model_name,
         messages=messages,
         tools=tools,
         result_format='message',
@@ -81,22 +88,23 @@ def stream_qwen(
 ):
     """
     Call Qwen API with streaming (generator).
-    
+
     Args:
         messages: Conversation messages
         tools: Tool definitions
         temperature: Sampling temperature
         top_p: Nucleus sampling parameter
         max_tokens: Maximum tokens to generate
-        
+
     Yields:
         Response chunks from Qwen API
-        
+
     Raises:
         RequestFailure: API request failed
     """
+    _ensure_api_key()
     responses = Generation.call(
-        model=settings.qwen_model,
+        model=settings.model_name,
         messages=messages,
         tools=tools,
         result_format='message',

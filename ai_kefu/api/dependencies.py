@@ -2,15 +2,15 @@
 FastAPI dependency injection providers.
 """
 
-from typing import Generator
+from typing import Generator, Optional
 from ai_kefu.storage.session_store import SessionStore
 from ai_kefu.storage.knowledge_store import KnowledgeStore
 from ai_kefu.config.settings import settings
 
 
 # Singleton instances (created once per application lifecycle)
-_session_store: SessionStore | None = None
-_knowledge_store: KnowledgeStore | None = None
+_session_store: Optional[SessionStore] = None
+_knowledge_store: Optional[KnowledgeStore] = None
 
 
 def get_session_store() -> SessionStore:

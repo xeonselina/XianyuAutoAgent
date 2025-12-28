@@ -22,7 +22,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     """
     # Startup
     logger.info("Starting AI Customer Service Agent...")
-    logger.info(f"Configuration: Model={settings.qwen_model}, Port={settings.api_port}")
+    logger.info(f"Configuration: Model={settings.model_name}, Port={settings.api_port}")
     
     yield
     

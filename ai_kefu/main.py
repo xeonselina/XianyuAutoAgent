@@ -13,25 +13,32 @@ from utils.xianyu_utils import trans_cookies, decrypt
 from XianyuAgent import XianyuReplyBot
 from context_manager import ChatContextManager
 from messaging_core import MessageTransport, XianyuMessageCodec, MessageType, Message
-from transports import DirectWebSocketTransport, BrowserWebSocketTransport
+from transports import BrowserWebSocketTransport
 from browser_controller import BrowserConfig
 
 
 class XianyuLive:
-    def __init__(self, cookies_str: str, transport: MessageTransport, bot: XianyuReplyBot):
+    def __init__(self, cookies_str: Optional[str], transport: MessageTransport, bot: XianyuReplyBot):
         """
         初始化闲鱼客服系统
 
         Args:
-            cookies_str: Cookie 字符串
+            cookies_str: Cookie 字符串（浏览器模式下可选）
             transport: 消息传输实现
             bot: AI 回复机器人
         """
         self.xianyu = XianyuApis()
         self.cookies_str = cookies_str
-        self.cookies = trans_cookies(cookies_str)
-        self.xianyu.session.cookies.update(self.cookies)
-        self.myid = self.cookies['unb']
+
+        # 只有在提供了 cookies_str 时才解析和设置
+        if cookies_str:
+            self.cookies = trans_cookies(cookies_str)
+            self.xianyu.session.cookies.update(self.cookies)
+            self.myid = self.cookies['unb']
+        else:
+            self.cookies = None
+            self.myid = None  # 浏览器模式下会在运行时获取
+
         self.context_manager = ChatContextManager()
 
         # 注入传输层和 AI 机器人
@@ -341,33 +348,29 @@ class XianyuLive:
             await asyncio.sleep(reconnect_delay)
 
 
-def create_transport(cookies_str: str) -> MessageTransport:
+def create_transport(cookies_str: Optional[str]) -> MessageTransport:
     """
-    创建消息传输实例（工厂函数）
+    创建消息传输实例
 
-    根据环境变量 USE_BROWSER_MODE 决定使用哪种传输模式。
+    使用浏览器模式通过 CDP 拦截 WebSocket 消息。
 
     Args:
-        cookies_str: Cookie 字符串
+        cookies_str: Cookie 字符串（可选，如果不提供则使用浏览器保存的会话）
 
     Returns:
         MessageTransport: 传输实例
     """
-    use_browser_mode = os.getenv("USE_BROWSER_MODE", "false").lower() == "true"
-
-    if use_browser_mode:
-        logger.info("使用浏览器模式 (BrowserWebSocketTransport)")
-
-        # 创建浏览器配置
-        browser_config = BrowserConfig()
-
-        # 创建浏览器传输
-        transport = BrowserWebSocketTransport(cookies_str, browser_config)
+    logger.info("使用浏览器模式 (BrowserWebSocketTransport)")
+    if cookies_str:
+        logger.info("将注入提供的 Cookie")
     else:
-        logger.info("使用直接模式 (DirectWebSocketTransport)")
+        logger.info("将使用浏览器保存的会话（需要手动登录）")
 
-        # 创建直接 WebSocket 传输
-        transport = DirectWebSocketTransport(cookies_str)
+    # 创建浏览器配置
+    browser_config = BrowserConfig()
+
+    # 创建浏览器传输
+    transport = BrowserWebSocketTransport(cookies_str, browser_config)
 
     return transport
 
@@ -404,11 +407,11 @@ if __name__ == '__main__':
     logger.info(f"日志级别设置为: {log_level}")
     logger.info(f"日志文件保存在: logs/ 目录")
 
-    # 获取 Cookie
+    # 获取 Cookie（可选）
     cookies_str = os.getenv("COOKIES_STR")
     if not cookies_str:
-        logger.error("未设置 COOKIES_STR 环境变量")
-        sys.exit(1)
+        logger.warning("未设置 COOKIES_STR，将使用浏览器保存的会话")
+        logger.info("首次使用需要手动在浏览器中登录闲鱼网站")
 
     # 创建 AI 机器人
     bot = XianyuReplyBot()

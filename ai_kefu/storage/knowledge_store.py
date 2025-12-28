@@ -4,7 +4,6 @@ Handles knowledge base CRUD and semantic search.
 """
 
 import chromadb
-from chromadb.config import Settings as ChromaSettings
 from typing import List, Optional, Dict, Any
 from ai_kefu.models.knowledge import KnowledgeEntry
 from ai_kefu.config.settings import settings
@@ -24,10 +23,8 @@ class KnowledgeStore:
         self.persist_path = persist_path or settings.chroma_persist_path
         
         # Initialize Chroma client with persistence
-        self.client = chromadb.PersistentClient(
-            path=self.persist_path,
-            settings=ChromaSettings(anonymized_telemetry=False)
-        )
+        # chromadb 1.4.0: PersistentClient accepts path directly
+        self.client = chromadb.PersistentClient(path=self.persist_path)
         
         # Get or create collection
         self.collection = self.client.get_or_create_collection(
