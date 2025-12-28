@@ -2,6 +2,7 @@
 Embedding service using Qwen text-embedding-v3 model.
 """
 
+import dashscope
 from dashscope import TextEmbedding
 from dashscope.common.error import RequestFailure
 from tenacity import (
@@ -16,8 +17,13 @@ from ai_kefu.config.constants import QWEN_API_RETRY_ATTEMPTS, QWEN_API_RETRY_DEL
 import os
 
 
-# Configure DashScope API key
-os.environ["DASHSCOPE_API_KEY"] = settings.qwen_api_key
+def _ensure_api_key():
+    """Ensure DASHSCOPE_API_KEY is set."""
+    if not dashscope.api_key:
+        api_key = settings.api_key
+        if not api_key:
+            raise ValueError(f"API key not found in settings. Please check your .env file.")
+        dashscope.api_key = api_key
 
 
 @retry(
@@ -28,17 +34,18 @@ os.environ["DASHSCOPE_API_KEY"] = settings.qwen_api_key
 def generate_embedding(text: str, task_type: str = "retrieval_document") -> List[float]:
     """
     Generate vector embedding for text using Qwen text-embedding-v3.
-    
+
     Args:
         text: Input text to embed
         task_type: Task type - "retrieval_query" for queries, "retrieval_document" for documents
-        
+
     Returns:
         Vector embedding as list of floats
-        
+
     Raises:
         RequestFailure: API request failed
     """
+    _ensure_api_key()
     response = TextEmbedding.call(
         model="text-embedding-v3",
         input=text,

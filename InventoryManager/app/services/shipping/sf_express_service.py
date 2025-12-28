@@ -119,11 +119,15 @@ class SFExpressService:
                 'sendStartTm': send_start_tm,  # 预约发货时间
                 'waybillNoInfoList': [{'waybillType': 1}],  # 运单号
                 'isGenWaybillNo': 1,
-                'isUnifiedWaybillNo': 1
+                'isUnifiedWaybillNo': 1,
+                'isDocall': 1
             }
+            if express_type_id == 263:
+                order_data['specialDeliveryTypeCode'] = 263
+            
 
             # 快递类型名称映射
-            express_type_names = {1: '特快', 2: '标快', 6: '半日达'}
+            express_type_names = {1: '特快', 2: '标快', 263: '半日达'}
             express_type_name = express_type_names.get(express_type_id, '未知')
 
             logger.info(f"顺丰下单: Rental {rental.id}, 快递类型: {express_type_id}({express_type_name}), 预约时间: {send_start_tm}")
