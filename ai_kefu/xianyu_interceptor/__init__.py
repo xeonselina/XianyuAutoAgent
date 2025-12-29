@@ -20,6 +20,8 @@ from .session_mapper import SessionMapper, MemorySessionMapper, RedisSessionMapp
 from .manual_mode import ManualModeManager
 from .http_client import AgentClient
 from .message_handler import MessageHandler
+from .conversation_models import ConversationMessage, MessageType, ConversationSummary
+from .conversation_store import ConversationStore
 from .exceptions import (
     XianyuInterceptorError,
     AgentAPIError,
@@ -34,14 +36,15 @@ from .main_integration import (
     run_interceptor,
     setup_agent_client,
     setup_session_mapper,
-    setup_manual_mode_manager
+    setup_manual_mode_manager,
+    setup_conversation_store
 )
 
 __all__ = [
     # Config
     "config",
     "XianyuInterceptorConfig",
-    
+
     # Models
     "XianyuMessage",
     "XianyuMessageType",
@@ -51,25 +54,33 @@ __all__ = [
     "AgentClientConfig",
     "HTTPClientMetrics",
     "ManualModeState",
-    
+
+    # Conversation Models
+    "ConversationMessage",
+    "MessageType",
+    "ConversationSummary",
+
     # Converters
     "convert_xianyu_to_agent",
     "convert_agent_to_xianyu",
-    
+
     # Session Management
     "SessionMapper",
     "MemorySessionMapper",
     "RedisSessionMapper",
-    
+
     # Manual Mode
     "ManualModeManager",
-    
+
     # HTTP Client
     "AgentClient",
-    
+
     # Message Handler
     "MessageHandler",
-    
+
+    # Conversation Store
+    "ConversationStore",
+
     # Exceptions
     "XianyuInterceptorError",
     "AgentAPIError",
@@ -77,7 +88,7 @@ __all__ = [
     "MessageConversionError",
     "BrowserControlError",
     "InterceptorConfigError",
-    
+
     # Setup
     "setup_logging",
     "initialize_interceptor",
@@ -85,4 +96,5 @@ __all__ = [
     "setup_agent_client",
     "setup_session_mapper",
     "setup_manual_mode_manager",
+    "setup_conversation_store",
 ]
