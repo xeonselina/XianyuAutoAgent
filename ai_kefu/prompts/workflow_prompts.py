@@ -2,22 +2,6 @@
 Workflow-specific prompts and templates.
 """
 
-# Prompt for extracting user intent
-INTENT_EXTRACTION_PROMPT = """分析以下用户消息，提取用户意图。
-
-用户消息：{user_message}
-
-请识别以下意图类别之一：
-- 咨询（consultation）：询问产品信息、政策、流程等
-- 投诉（complaint）：对产品或服务不满
-- 退款（refund）：申请退款退货
-- 物流（logistics）：查询订单发货、物流信息
-- 售后（after_sales）：产品使用问题、维修等
-- 其他（other）：无法归类的问题
-
-只返回意图类别的英文代码，不要解释。
-"""
-
 # Prompt for sentiment analysis
 SENTIMENT_ANALYSIS_PROMPT = """分析以下用户消息的情绪倾向。
 

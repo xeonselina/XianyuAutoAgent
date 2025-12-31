@@ -87,7 +87,7 @@ Based on plan.md project structure:
 - [X] T028 [P] [US1] Unit test for complete_task tool in tests/unit/test_tools/test_complete_task.py
 - [X] T029 [P] [US1] Unit test for Turn management in tests/unit/test_agent/test_turn.py
 - [X] T030 [P] [US1] Unit test for loop detection in tests/unit/test_services/test_loop_detection.py
-- [X] T031 [P] [US1] Unit test for intent service in tests/unit/test_services/test_intent_service.py
+- [REMOVED] T031 [P] [US1] Unit test for intent service (removed - LLM handles intent implicitly)
 
 ### Integration Tests for User Story 1
 
@@ -105,7 +105,7 @@ Based on plan.md project structure:
 
 #### Services Implementation
 
-- [X] T038 [P] [US1] Implement intent recognition service in ai_kefu/services/intent_service.py (extract_intent from user message)
+- [REMOVED] T038 [P] [US1] Intent recognition service (removed - LLM with Function Calling handles intent implicitly, following Gemini CLI architecture)
 - [X] T039 [P] [US1] Implement sentiment analysis service in ai_kefu/services/sentiment_service.py (analyze_sentiment from user message)
 - [X] T040 [P] [US1] Implement loop detection service in ai_kefu/services/loop_detection.py (check_tool_loop function using AgentState)
 
@@ -293,9 +293,9 @@ Task T037: "Implement complete_task tool in ai_kefu/tools/complete_task.py"
 
 ```bash
 # Launch all service implementations for User Story 1 together:
-Task T038: "Implement intent recognition service in ai_kefu/services/intent_service.py"
 Task T039: "Implement sentiment analysis service in ai_kefu/services/sentiment_service.py"
 Task T040: "Implement loop detection service in ai_kefu/services/loop_detection.py"
+# Note: T038 (intent service) was removed - LLM handles intent implicitly
 ```
 
 ## Parallel Example: Cross-Story Development

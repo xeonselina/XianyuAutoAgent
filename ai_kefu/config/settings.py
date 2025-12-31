@@ -25,7 +25,14 @@ class Settings(BaseSettings):
     
     # Chroma Configuration
     chroma_persist_path: str = str(Path(__file__).parent.parent / "chroma_data")
-    
+
+    # MySQL Configuration (for knowledge entries and conversations)
+    mysql_host: str = "localhost"
+    mysql_port: int = 3306
+    mysql_user: str = ""
+    mysql_password: str = ""
+    mysql_database: str = "xianyu_conversations"
+
     # API Service Configuration
     api_host: str = "0.0.0.0"
     api_port: int = 8000
