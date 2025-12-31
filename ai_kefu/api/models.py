@@ -156,6 +156,38 @@ class KnowledgeSearchResponse(BaseModel):
     total: int
 
 
+class KnowledgeBulkEntry(BaseModel):
+    """Single knowledge entry for bulk import."""
+    kb_id: str = Field(..., description="Knowledge base ID (e.g., kb_001)")
+    title: str = Field(..., min_length=1, max_length=500)
+    content: str = Field(..., min_length=10, max_length=10000)
+    category: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    source: Optional[str] = None
+    priority: int = Field(default=0, ge=0, le=100)
+    active: bool = Field(default=True)
+
+
+class KnowledgeBulkImportRequest(BaseModel):
+    """Bulk import knowledge entries request."""
+    entries: List[KnowledgeBulkEntry] = Field(..., min_items=1, max_items=1000)
+    overwrite_existing: bool = Field(default=False, description="Whether to overwrite existing entries")
+
+
+class KnowledgeBulkImportResponse(BaseModel):
+    """Bulk import response."""
+    imported: int = Field(..., description="Number of entries imported")
+    skipped: int = Field(..., description="Number of entries skipped")
+    errors: List[str] = Field(default_factory=list, description="List of errors")
+
+
+class KnowledgeInitDefaultsResponse(BaseModel):
+    """Initialize defaults response."""
+    initialized: int = Field(..., description="Number of entries initialized")
+    skipped: int = Field(..., description="Number of entries skipped (already existed)")
+    message: str = Field(..., description="Result message")
+
+
 # ============================================================
 # System Endpoints
 # ============================================================

@@ -9,7 +9,8 @@
       "Bash(curl:*)",
       "Bash(python3:*)",
       "Bash(openspec list:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(npm run build:*)"
     ]
   }
 }

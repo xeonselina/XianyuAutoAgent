@@ -4,10 +4,12 @@ FastAPI application main entry point.
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from ai_kefu.config.settings import settings
 from ai_kefu.utils.logging import setup_logging, logger
 from typing import AsyncGenerator
+from pathlib import Path
 
 
 # Setup logging
@@ -66,3 +68,14 @@ app.include_router(chat.router, prefix="/chat", tags=["chat"])
 app.include_router(session.router, prefix="/sessions", tags=["sessions"])
 app.include_router(human_agent.router, prefix="/human-agent", tags=["human-agent"])
 app.include_router(knowledge.router, prefix="/knowledge", tags=["knowledge"])
+
+
+# Mount static files for Knowledge Management UI
+ui_dist_path = Path(__file__).parent.parent / "ui" / "knowledge" / "dist"
+if ui_dist_path.exists():
+    app.mount(
+        "/ui/knowledge",
+        StaticFiles(directory=str(ui_dist_path), html=True),
+        name="knowledge-ui"
+    )
+    logger.info(f"Knowledge Management UI mounted at /ui/knowledge")

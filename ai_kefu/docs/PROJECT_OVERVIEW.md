@@ -50,7 +50,6 @@ AI客服 (ai_kefu) 是一个**智能客服系统**，整合了两大核心功能
 **技术**: 基于阿里云通义千问 (Qwen) 大语言模型
 
 **功能**:
-- 理解用户意图
 - 生成自然语言回复
 - 支持工具调用 (Function Calling)
 - 流式响应和同步响应两种模式
@@ -199,7 +198,7 @@ AI客服 (ai_kefu) 是一个**智能客服系统**，整合了两大核心功能
 
 **工作流程**:
 ```
-1. Plan: 分析用户意图
+1. Plan: 分析用户问题
 2. Action: 调用Qwen API，可能触发工具调用
 3. Check: 验证工具执行结果
 4. Repeat: 继续下一轮或结束
@@ -259,7 +258,6 @@ AI客服 (ai_kefu) 是一个**智能客服系统**，整合了两大核心功能
 
 #### 1.6 服务层 (ai_kefu/services/)
 
-- `intent_service.py`: 意图识别
 - `sentiment_service.py`: 情感分析
 - `loop_detection.py`: 循环检测（防止工具重复调用）
 
@@ -423,7 +421,6 @@ XianyuAutoAgent/
 │   │
 │   ├── services/                     # 业务服务
 │   │   ├── __init__.py
-│   │   ├── intent_service.py        # 意图识别
 │   │   ├── sentiment_service.py     # 情感分析
 │   │   └── loop_detection.py        # 循环检测
 │   │
