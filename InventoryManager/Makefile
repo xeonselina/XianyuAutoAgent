@@ -190,19 +190,39 @@ run-gunicorn: ## 使用Gunicorn运行（生产模式）
 
 .PHONY: frontend-install
 frontend-install: ## 安装前端依赖
-	@echo "安装前端依赖..."
+	@echo "安装PC端前端依赖..."
 	cd frontend && npm install
 
+.PHONY: frontend-mobile-install
+frontend-mobile-install: ## 安装移动端前端依赖
+	@echo "安装移动端前端依赖..."
+	cd frontend-mobile && npm install
+
 .PHONY: frontend-build
-frontend-build: frontend-install ## 构建前端应用
-	@echo "构建前端Vue应用..."
+frontend-build: frontend-install ## 构建PC端前端应用
+	@echo "构建PC端Vue应用..."
 	cd frontend && npm run build
-	@echo "前端构建完成，输出到: static/vue-dist/"
+	@echo "PC端前端构建完成，输出到: static/vue-dist/"
+
+.PHONY: frontend-mobile-build
+frontend-mobile-build: frontend-mobile-install ## 构建移动端前端应用
+	@echo "构建移动端Vue应用..."
+	cd frontend-mobile && npm run build
+	@echo "移动端前端构建完成，输出到: static/mobile-dist/"
+
+.PHONY: frontend-build-all
+frontend-build-all: frontend-build frontend-mobile-build ## 构建所有前端应用（PC端+移动端）
+	@echo "所有前端应用构建完成"
 
 .PHONY: frontend-dev
-frontend-dev: frontend-install ## 启动前端开发服务器
-	@echo "启动前端开发服务器..."
+frontend-dev: frontend-install ## 启动PC端前端开发服务器
+	@echo "启动PC端前端开发服务器..."
 	cd frontend && npm run dev
+
+.PHONY: frontend-mobile-dev
+frontend-mobile-dev: frontend-mobile-install ## 启动移动端前端开发服务器
+	@echo "启动移动端前端开发服务器..."
+	cd frontend-mobile && npm run dev
 
 # =============================================================================
 # Docker 构建和部署命令
@@ -251,24 +271,26 @@ docker-build-arm64-local: ## 构建ARM64镜像并加载到本地
 # =============================================================================
 
 .PHONY: build
-build: frontend-build docker-build-multiplatform ## 完整构建：前端+后端多平台Docker镜像
+build: frontend-build-all docker-build-multiplatform ## 完整构建：前端(PC+移动)+后端多平台Docker镜像
 	@echo "==============================================="
 	@echo "完整构建完成！"
 	@echo "==============================================="
-	@echo "前端：已构建到 static/vue-dist/"
+	@echo "前端："
+	@echo "  - PC端：已构建到 static/vue-dist/"
+	@echo "  - 移动端：已构建到 static/mobile-dist/"
 	@echo "Docker镜像："
 	@echo "  - $(DOCKER_IMAGE):arm64-local (ARM64)"
 	@echo "  - $(DOCKER_IMAGE):x86-local (AMD64)"
 	@echo "==============================================="
 
 .PHONY: build-arm
-build-arm: frontend-build ## 构建ARM64版本（前端+Docker）
+build-arm: frontend-build-all ## 构建ARM64版本（前端+Docker）
 	@echo "构建ARM64版本..."
 	docker build --platform linux/arm64 -t $(DOCKER_IMAGE):arm64-local .
 	@echo "ARM64构建完成: $(DOCKER_IMAGE):arm64-local"
 
 .PHONY: build-x86
-build-x86: frontend-build ## 构建x86版本（前端+Docker）
+build-x86: frontend-build-all ## 构建x86版本（前端+Docker）
 	@echo "构建x86版本..."
 	docker build --platform linux/amd64 -t $(DOCKER_IMAGE):x86-local .
 	@echo "x86构建完成: $(DOCKER_IMAGE):x86-local"

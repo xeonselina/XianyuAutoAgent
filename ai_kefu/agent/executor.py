@@ -75,6 +75,38 @@ class AgentExecutor:
             ask_human_agent.get_tool_definition()
         )
         
+        # Register rental tools
+        from ai_kefu.tools import (
+            check_availability,
+            calculate_logistics,
+            calculate_price,
+            collect_rental_info
+        )
+        
+        self.tools_registry.register_tool(
+            "check_availability",
+            check_availability.check_availability,
+            check_availability.get_tool_definition()
+        )
+        
+        self.tools_registry.register_tool(
+            "calculate_logistics",
+            calculate_logistics.calculate_logistics,
+            calculate_logistics.get_tool_definition()
+        )
+        
+        self.tools_registry.register_tool(
+            "calculate_price",
+            calculate_price.calculate_price,
+            calculate_price.get_tool_definition()
+        )
+        
+        self.tools_registry.register_tool(
+            "collect_rental_info",
+            collect_rental_info.collect_rental_info,
+            collect_rental_info.get_tool_definition()
+        )
+        
         logger.info(f"Registered {len(self.tools_registry.get_all_tools())} tools")
     
     def run(
