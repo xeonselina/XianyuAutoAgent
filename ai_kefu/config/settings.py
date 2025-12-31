@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     max_turns: int = 50
     turn_timeout_seconds: int = 120
     loop_detection_threshold: int = 5
+    enable_loop_detection: bool = True
+    
+    # Rental Business API Configuration
+    rental_api_base_url: str
+    rental_find_slot_endpoint: str
     
     # Logging Configuration
     log_level: str = "INFO"
