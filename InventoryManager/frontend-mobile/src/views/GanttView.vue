@@ -20,13 +20,27 @@
         下周
         <van-icon name="arrow" />
       </van-button>
+      <van-button size="small" @click="showDatePicker = true">
+        <van-icon name="calendar-o" />
+        跳转
+      </van-button>
     </div>
 
-    <!-- 日期范围显示 -->
-    <div class="date-range">
-      {{ formatDateRange(ganttStore.currentStartDate, ganttStore.currentEndDate) }}
-    </div>
-    
+    <!-- 日期选择器弹窗 -->
+    <van-popup v-model:show="showDatePicker" position="bottom">
+      <van-date-picker
+        v-model="selectedDate"
+        title="选择日期"
+        :min-date="minDate"
+        :max-date="maxDate"
+        @confirm="onDatePickerConfirm"
+        @cancel="showDatePicker = false"
+      />
+    </van-popup>
+
+    <!-- 日期标题行 (新增) -->
+    <MobileDateHeader />
+
     <!-- 设备列表 -->
     <van-pull-refresh v-model="refreshing" @refresh="onRefresh">
       <div v-if="ganttStore.loading && !refreshing" class="loading-container">
@@ -144,6 +158,7 @@ import { useGanttStore } from '@/stores/gantt'
 import dayjs from 'dayjs'
 import type { Rental, GanttDevice, TimelineBlock, RentalStatus } from '@/types'
 import { showToast } from 'vant'
+import MobileDateHeader from '@/components/MobileDateHeader.vue'
 
 const ganttStore = useGanttStore()
 
@@ -151,8 +166,16 @@ const ganttStore = useGanttStore()
 const refreshing = ref(false)
 const showSearch = ref(false)
 const showDetail = ref(false)
+const showDatePicker = ref(false)
 const searchText = ref('')
 const selectedRental = ref<Rental | null>(null)
+const selectedDate = ref<string[]>([
+  dayjs().format('YYYY'),
+  dayjs().format('MM'),
+  dayjs().format('DD')
+])
+const minDate = ref(new Date(2020, 0, 1))
+const maxDate = ref(new Date(2030, 11, 31))
 
 // 生命周期
 onMounted(() => {
@@ -195,6 +218,15 @@ const navigateWeek = (direction: number) => {
  */
 const goToToday = () => {
   ganttStore.goToToday()
+}
+
+/**
+ * 日期选择器确认
+ */
+const onDatePickerConfirm = ({ selectedValues }: { selectedValues: string[] }) => {
+  const dateStr = `${selectedValues[0]}-${selectedValues[1]}-${selectedValues[2]}`
+  ganttStore.jumpToDate(dateStr)
+  showDatePicker.value = false
 }
 
 /**

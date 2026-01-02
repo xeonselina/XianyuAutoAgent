@@ -90,6 +90,7 @@ export const useGanttStore = defineStore('gantt', () => {
   const devices = ref<Device[]>([])
   const rentals = ref<Rental[]>([])
   const currentDate = ref(getCurrentDate().toDate())
+  const selectedDate = ref<Date | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
 
@@ -160,6 +161,16 @@ export const useGanttStore = defineStore('gantt', () => {
   const goToToday = () => {
     currentDate.value = getCurrentDate().toDate()
     loadData()
+  }
+
+  const jumpToDate = (date: Date) => {
+    currentDate.value = date
+    selectedDate.value = date
+    loadData()
+  }
+
+  const setSelectedDate = (date: Date | null) => {
+    selectedDate.value = date
   }
 
   const findAvailableSlot = async (startDate: string, endDate: string, logisticsDays: number, model: string | number, isAccessory: boolean = false) => {
@@ -339,6 +350,7 @@ export const useGanttStore = defineStore('gantt', () => {
     devices,
     rentals,
     currentDate,
+    selectedDate,
     loading,
     error,
 
@@ -353,6 +365,8 @@ export const useGanttStore = defineStore('gantt', () => {
     navigateWeek,
     navigateToMonth,
     goToToday,
+    jumpToDate,
+    setSelectedDate,
     findAvailableSlot,
     createRental,
     updateRental,

@@ -19,11 +19,14 @@ export const useGanttStore = defineStore('gantt', () => {
   const rentals = ref<Rental[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
-  
+
   // 当前查看的日期范围
   const currentStartDate = ref(dayjs().format('YYYY-MM-DD'))
   const currentEndDate = ref(dayjs().add(14, 'day').format('YYYY-MM-DD'))
-  
+
+  // 选中的日期 (用于高亮显示)
+  const selectedDate = ref<string | null>(null)
+
   // 搜索关键词
   const searchKeyword = ref('')
 
@@ -183,6 +186,23 @@ export const useGanttStore = defineStore('gantt', () => {
   }
 
   /**
+   * 跳转到指定日期
+   */
+  const jumpToDate = (date: string) => {
+    currentStartDate.value = date
+    currentEndDate.value = dayjs(date).add(14, 'day').format('YYYY-MM-DD')
+    selectedDate.value = date
+    loadGanttData()
+  }
+
+  /**
+   * 设置选中的日期
+   */
+  const setSelectedDate = (date: string | null) => {
+    selectedDate.value = date
+  }
+
+  /**
    * 设置搜索关键词
    */
   const setSearchKeyword = (keyword: string) => {
@@ -205,11 +225,12 @@ export const useGanttStore = defineStore('gantt', () => {
     error,
     currentStartDate,
     currentEndDate,
+    selectedDate,
     searchKeyword,
-    
+
     // Computed
     filteredDevices,
-    
+
     // Actions
     loadGanttData,
     loadDevices,
@@ -219,6 +240,8 @@ export const useGanttStore = defineStore('gantt', () => {
     goToToday,
     navigatePreviousWeek,
     navigateNextWeek,
+    jumpToDate,
+    setSelectedDate,
     setSearchKeyword,
     clearSearch
   }

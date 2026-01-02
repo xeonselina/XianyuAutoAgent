@@ -18,16 +18,21 @@
       </div>
     </div>
 
-    <div 
-      v-for="date in dates" 
+    <div
+      v-for="date in dates"
       :key="date.toString()"
       class="date-cell"
-      :class="{ 'is-today': isToday(date) }"
+      :class="{
+        'is-today': isToday(date),
+        'is-weekend': isWeekend(date),
+        'is-empty': isDateEmpty(date)
+      }"
     >
       <!-- 原有的rental时间段标记（棕色） -->
-      <div 
+      <div
         v-for="rental in getRentalsForDate(date)"
         :key="`rental-${rental.id}`"
+        v-show="shouldShowRentalBar(rental, date)"
         class="rental-bar rental-period"
         :style="getRentalStyle(rental, date)"
         @click="$emit('edit-rental', rental)"
@@ -47,7 +52,11 @@
               <Tools />
             </el-icon>
           </div>
-          <span class="rental-phone">{{ rental.customer_phone }}</span>
+          <div v-if="isRentalFirstVisibleDay(rental, date)" class="rental-dates">
+            <span class="rental-date-range">{{ formatRentalDateRange(rental) }}</span>
+            <span v-if="getRentalDuration(rental) > 3" class="rental-duration">{{ getRentalDuration(rental) }}天</span>
+          </div>
+          <span v-else class="rental-phone">{{ rental.customer_phone }}</span>
         </div>
 
         <!-- 档期冲突警告图标 -->
@@ -62,9 +71,10 @@
       </div>
       
       <!-- 新的ship_out_time到ship_in_time时间段标记（随机颜色） -->
-      <div 
+      <div
         v-for="rental in getShipTimeRentalsForDate(date)"
         :key="`ship-${rental.id}`"
+        v-show="shouldShowShipTimeBar(rental, date)"
         class="rental-bar ship-time-period"
         :style="getShipTimeStyle(rental, date)"
         @click="$emit('edit-rental', rental)"
@@ -116,6 +126,12 @@ import {
 } from '@/utils/dateUtils'
 import dayjs from 'dayjs'
 import { Tools } from '@element-plus/icons-vue'
+
+// Weekend detection function
+const isWeekend = (date: Date) => {
+  const day = date.getDay()
+  return day === 0 || day === 6
+}
 
 const RentalTooltip = defineAsyncComponent(() => import('./RentalTooltip.vue'))
 
@@ -359,18 +375,24 @@ const getRentalStyle = (rental: Rental, date: Date) => {
   const startDate = parseDate(rental.start_date)
   const endDate = parseDate(rental.end_date)
   const currentDate = parseDate(toDateString(date))
-  
+
+  // 找到可见范围内的第一天
+  const firstVisibleDate = props.dates.length > 0 ? parseDate(toDateString(props.dates[0])) : currentDate
+
   // 计算在当前日期格子中的显示样式
   let width = '100%'
   let marginLeft = '0%'
-  
-  // 如果是租赁的第一天
-  if (currentDate.isSame(startDate, 'day')) {
-    const totalDays = endDate.diff(startDate, 'day') + 1
-    // 移除宽度限制，让rental条目能够显示完整的时间范围
-    width = `${totalDays * 100}%`
+
+  // 如果是租赁的第一天，或者是可见范围内的第一天（当rental开始日期在可见范围之前）
+  const isRentalStart = currentDate.isSame(startDate, 'day')
+  const isFirstVisible = currentDate.isSame(firstVisibleDate, 'day') && startDate.isBefore(firstVisibleDate)
+
+  if (isRentalStart || isFirstVisible) {
+    // 计算从当前日期到结束日期的天数
+    const daysToEnd = endDate.diff(currentDate, 'day') + 1
+    width = `${daysToEnd * 100}%`
   }
-  
+
   return {
     width,
     marginLeft,
@@ -384,20 +406,26 @@ const getShipTimeStyle = (rental: Rental, date: Date) => {
   const shipOutDateStr = toDateString(rental.ship_out_time!)
   const shipInDateStr = toDateString(rental.ship_in_time!)
   const currentDateStr = toDateString(date)
-  
+
+  const shipOutDate = parseDate(shipOutDateStr)
+  const shipInDate = parseDate(shipInDateStr)
+  const currentDate = parseDate(currentDateStr)
+  const firstVisibleDate = props.dates.length > 0 ? parseDate(toDateString(props.dates[0])) : currentDate
+
   // 计算在当前日期格子中的显示样式
   let width = '100%'
   let marginLeft = '0%'
-  
-  // 如果是物流的第一天
-  if (currentDateStr === shipOutDateStr) {
-    const shipOutDate = parseDate(shipOutDateStr)
-    const shipInDate = parseDate(shipInDateStr)
-    const totalDays = shipInDate.diff(shipOutDate, 'day') + 1
-    // 移除宽度限制，让物流时间段能够显示完整的时间范围
-    width = `${totalDays * 100}%`
+
+  // 如果是物流的第一天，或者是可见范围内的第一天（当ship开始日期在可见范围之前）
+  const isShipStart = currentDateStr === shipOutDateStr
+  const isFirstVisible = currentDate.isSame(firstVisibleDate, 'day') && shipOutDate.isBefore(firstVisibleDate)
+
+  if (isShipStart || isFirstVisible) {
+    // 计算从当前日期到结束日期的天数
+    const daysToEnd = shipInDate.diff(currentDate, 'day') + 1
+    width = `${daysToEnd * 100}%`
   }
-  
+
   return {
     width,
     marginLeft,
@@ -449,6 +477,83 @@ const getRentalOpacity = (rental: Rental) => {
     return '0.7'
   }
   return '0.5'
+}
+
+// Check if this date is the first day of rental
+const isRentalFirstDay = (rental: Rental, date: Date) => {
+  const startDate = parseDate(rental.start_date)
+  const currentDate = parseDate(toDateString(date))
+  return currentDate.isSame(startDate, 'day')
+}
+
+// Check if this is the first visible day for the rental (either actual start or first visible date)
+const isRentalFirstVisibleDay = (rental: Rental, date: Date) => {
+  const startDate = parseDate(rental.start_date)
+  const currentDate = parseDate(toDateString(date))
+  const firstVisibleDate = props.dates.length > 0 ? parseDate(toDateString(props.dates[0])) : currentDate
+
+  // 如果是实际开始日期
+  if (currentDate.isSame(startDate, 'day')) {
+    return true
+  }
+
+  // 如果开始日期在可见范围之前，且当前是可见范围的第一天
+  if (startDate.isBefore(firstVisibleDate) && currentDate.isSame(firstVisibleDate, 'day')) {
+    return true
+  }
+
+  return false
+}
+
+// Check if rental bar should be shown on this date (only show on first visible day)
+const shouldShowRentalBar = (rental: Rental, date: Date) => {
+  return isRentalFirstVisibleDay(rental, date)
+}
+
+// Check if ship time bar should be shown on this date (only show on first visible day)
+const shouldShowShipTimeBar = (rental: Rental, date: Date) => {
+  if (!rental.ship_out_time || !rental.ship_in_time) {
+    return false
+  }
+
+  const shipOutDateStr = toDateString(rental.ship_out_time)
+  const currentDateStr = toDateString(date)
+  const shipOutDate = parseDate(shipOutDateStr)
+  const currentDate = parseDate(currentDateStr)
+  const firstVisibleDate = props.dates.length > 0 ? parseDate(toDateString(props.dates[0])) : currentDate
+
+  // 如果是实际物流开始日期
+  if (currentDateStr === shipOutDateStr) {
+    return true
+  }
+
+  // 如果物流开始日期在可见范围之前，且当前是可见范围的第一天
+  if (shipOutDate.isBefore(firstVisibleDate) && currentDate.isSame(firstVisibleDate, 'day')) {
+    return true
+  }
+
+  return false
+}
+
+// Calculate rental duration in days
+const getRentalDuration = (rental: Rental) => {
+  const startDate = parseDate(rental.start_date)
+  const endDate = parseDate(rental.end_date)
+  return endDate.diff(startDate, 'day') + 1
+}
+
+// Format rental date range for display
+const formatRentalDateRange = (rental: Rental) => {
+  const start = dayjs(rental.start_date)
+  const end = dayjs(rental.end_date)
+  return `${start.format('M/D')}-${end.format('M/D')}`
+}
+
+// Check if date has no rentals for this device
+const isDateEmpty = (date: Date) => {
+  const rentalsForDate = getRentalsForDate(date)
+  const shipTimeRentalsForDate = getShipTimeRentalsForDate(date)
+  return rentalsForDate.length === 0 && shipTimeRentalsForDate.length === 0
 }
 
 </script>
@@ -535,6 +640,46 @@ const getRentalOpacity = (rental: Rental) => {
 
 .date-cell.is-today {
   background: var(--el-color-primary-light-9);
+}
+
+.date-cell.is-weekend {
+  background: #fffbf0;
+}
+
+.date-cell.is-today.is-weekend {
+  background: linear-gradient(135deg, var(--el-color-primary-light-9) 50%, #fffbf0 50%);
+}
+
+.date-cell.is-empty {
+  background-image:
+    linear-gradient(45deg, #f9f9f9 25%, transparent 25%),
+    linear-gradient(-45deg, #f9f9f9 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #f9f9f9 75%),
+    linear-gradient(-45deg, transparent 75%, #f9f9f9 75%);
+  background-size: 8px 8px;
+  background-position: 0 0, 0 4px, 4px -4px, -4px 0px;
+}
+
+.date-cell.is-empty.is-today {
+  background-color: var(--el-color-primary-light-9);
+  background-image:
+    linear-gradient(45deg, rgba(249, 249, 249, 0.6) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(249, 249, 249, 0.6) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(249, 249, 249, 0.6) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(249, 249, 249, 0.6) 75%);
+  background-size: 8px 8px;
+  background-position: 0 0, 0 4px, 4px -4px, -4px 0px;
+}
+
+.date-cell.is-empty.is-weekend {
+  background-color: #fffbf0;
+  background-image:
+    linear-gradient(45deg, rgba(249, 249, 249, 0.6) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(249, 249, 249, 0.6) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(249, 249, 249, 0.6) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(249, 249, 249, 0.6) 75%);
+  background-size: 8px 8px;
+  background-position: 0 0, 0 4px, 4px -4px, -4px 0px;
 }
 
 .rental-bar {
@@ -636,6 +781,32 @@ const getRentalOpacity = (rental: Rental) => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.rental-dates {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  margin-top: 2px;
+}
+
+.rental-date-range {
+  font-size: 9px;
+  opacity: 0.85;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.rental-duration {
+  font-size: 9px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.3);
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
 }
 
 .status-icon {

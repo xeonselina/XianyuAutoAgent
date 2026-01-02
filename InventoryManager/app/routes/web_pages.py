@@ -9,10 +9,12 @@ from app.models.rental import Rental
 bp = Blueprint('web_pages', __name__)
 
 
-@bp.route('/')
-def index():
-    """主页 - 甘特图界面"""
-    return render_template('index.html')
+# 注意：'/' 路由已迁移到 vue_app.py 的统一设备检测路由
+# 旧路由已注释，使用新的自动设备检测功能
+# @bp.route('/')
+# def index():
+#     """主页 - 甘特图界面"""
+#     return render_template('index.html')
 
 
 @bp.route('/gantt')

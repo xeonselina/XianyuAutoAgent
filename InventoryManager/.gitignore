@@ -93,6 +93,7 @@ frontend/.nuxt/
 frontend/.next/
 frontend/.svelte-kit/
 static/vue-dist/
+static/mobile-dist/
 
 # Vue.js
 frontend/.DS_Store
