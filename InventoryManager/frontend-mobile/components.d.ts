@@ -12,6 +12,7 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     HelloWorld: typeof import('./src/components/HelloWorld.vue')['default']
+    MobileDateHeader: typeof import('./src/components/MobileDateHeader.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     VanButton: typeof import('vant/es')['Button']

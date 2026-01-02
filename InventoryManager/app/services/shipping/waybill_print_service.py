@@ -9,6 +9,7 @@ from app.models import Rental
 from app.services.shipping.pdf_conversion_service import PDFConversionService, PDFConversionError
 from app.services.shipping.sf_express_service import get_sf_express_service
 from app.services.printing.kuaimai_service import KuaimaiPrintService
+from app.services.printing.shipping_slip_image_service import shipping_slip_image_service, SlipGenerationError
 
 logger = logging.getLogger(__name__)
 
@@ -158,25 +159,73 @@ class WaybillPrintService:
                 'message': f'打印异常: {str(e)}'
             }
 
+    def _print_single_shipping_slip(self, rental_id: int) -> Dict:
+        """
+        打印单个发货单
+
+        Args:
+            rental_id: 租赁记录ID
+
+        Returns:
+            Dict: {
+                'success': bool,
+                'job_id': str (可选),
+                'error': str (可选)
+            }
+        """
+        try:
+            logger.info(f"Rental {rental_id}: 开始生成发货单图像")
+
+            # 生成发货单图像
+            image_base64 = shipping_slip_image_service.generate_slip_image(rental_id)
+
+            logger.info(f"Rental {rental_id}: 发货单图像生成成功, 大小: {len(image_base64)} bytes")
+
+            # 发送到快麦打印 (使用实际纸张尺寸76×130mm)
+            result = self.kuaimai_service.print_image(
+                base64_image=image_base64,
+                copies=1,
+                width=76,
+                height=130
+            )
+
+            if result.get('success'):
+                logger.info(f"Rental {rental_id}: 发货单打印成功, JobID: {result.get('job_id')}")
+            else:
+                logger.error(f"Rental {rental_id}: 发货单打印失败, 错误: {result.get('error')}")
+
+            return result
+
+        except SlipGenerationError as e:
+            logger.error(f"Rental {rental_id}: 发货单生成失败: {str(e)}")
+            return {'success': False, 'error': str(e)}
+
+        except Exception as e:
+            logger.exception(f"Rental {rental_id}: 发货单打印异常")
+            return {'success': False, 'error': f'打印异常: {str(e)}'}
+
     def batch_print_waybills(
         self,
-        rental_ids: List[int]
+        rental_ids: List[int],
+        include_shipping_slips: bool = True
     ) -> Dict:
         """
-        批量打印面单（顺序打印）
+        批量打印面单（顺序打印，可选交替打印发货单）
 
         Args:
             rental_ids: 租赁记录ID列表
+            include_shipping_slips: 是否同时打印发货单（交替打印）
 
         Returns:
             Dict: {
                 'total': int,
-                'success_count': int,
+                'waybill_success_count': int,
+                'slip_success_count': int (可选),
                 'failed_count': int,
                 'results': List[Dict]
             }
         """
-        logger.info(f"开始批量打印面单: {len(rental_ids)}个订单")
+        logger.info(f"开始批量打印面单: {len(rental_ids)}个订单, 交替打印发货单: {include_shipping_slips}")
 
         results = []
 
@@ -184,29 +233,65 @@ class WaybillPrintService:
         for idx, rental_id in enumerate(rental_ids, 1):
             logger.info(f"处理第 {idx}/{len(rental_ids)} 个订单: Rental {rental_id}")
             try:
-                result = self.print_single_waybill(rental_id)
-                results.append(result)
-                if result.get('success'):
-                    logger.info(f"Rental {rental_id} 打印成功")
-                else:
-                    logger.error(f"Rental {rental_id} 打印失败: {result.get('message')}")
-            except Exception as e:
-                logger.error(f"Rental {rental_id} 打印任务异常: {e}", exc_info=True)
+                # 1. 打印面单
+                logger.info(f"Rental {rental_id}: 开始打印面单")
+                waybill_result = self.print_single_waybill(rental_id)
+
+                # 如果面单打印失败,跳过发货单
+                if not waybill_result.get('success'):
+                    logger.error(f"Rental {rental_id}: 面单打印失败,跳过发货单")
+                    results.append({
+                        'rental_id': rental_id,
+                        'waybill_success': False,
+                        'slip_success': False,
+                        'error': waybill_result.get('message', '面单打印失败')
+                    })
+                    continue
+
+                logger.info(f"Rental {rental_id}: 面单打印成功")
+
+                # 2. 打印发货单(如果启用)
+                slip_result = {'success': True, 'job_id': None}
+                if include_shipping_slips:
+                    logger.info(f"Rental {rental_id}: 开始打印发货单")
+                    slip_result = self._print_single_shipping_slip(rental_id)
+
+                    if slip_result['success']:
+                        logger.info(f"Rental {rental_id}: 发货单打印成功")
+                    else:
+                        logger.error(f"Rental {rental_id}: 发货单打印失败: {slip_result.get('error')}")
+
                 results.append({
-                    'success': False,
                     'rental_id': rental_id,
-                    'message': f'任务异常: {str(e)}'
+                    'waybill_success': True,
+                    'slip_success': slip_result['success'],
+                    'slip_error': slip_result.get('error'),
+                    'job_ids': {
+                        'waybill': waybill_result.get('job_ids'),
+                        'slip': slip_result.get('job_id')
+                    }
+                })
+
+            except Exception as e:
+                logger.exception(f"Rental {rental_id}: 打印任务异常")
+                results.append({
+                    'rental_id': rental_id,
+                    'waybill_success': False,
+                    'slip_success': False,
+                    'error': f'任务异常: {str(e)}'
                 })
 
         # 统计结果
-        success_count = sum(1 for r in results if r.get('success'))
-        failed_count = len(results) - success_count
+        waybill_success_count = sum(1 for r in results if r.get('waybill_success'))
+        slip_success_count = sum(1 for r in results if r.get('slip_success'))
+        failed_count = len(results) - waybill_success_count
 
-        logger.info(f"批量打印完成: 总数 {len(results)}, 成功 {success_count}, 失败 {failed_count}")
+        logger.info(f"批量打印完成: 总数 {len(results)}, 面单成功 {waybill_success_count}, 发货单成功 {slip_success_count}, 失败 {failed_count}")
 
         return {
             'total': len(results),
-            'success_count': success_count,
+            'waybill_success_count': waybill_success_count,
+            'slip_success_count': slip_success_count if include_shipping_slips else 0,
             'failed_count': failed_count,
             'results': results
         }

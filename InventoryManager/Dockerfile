@@ -11,7 +11,7 @@ ARG http_proxy
 ARG https_proxy
 ARG no_proxy
 
-FROM python:3.10-slim
+FROM python:3.10-slim-bookworm
 
 # 设置代理环境变量
 ENV HTTP_PROXY=$HTTP_PROXY
@@ -53,6 +53,7 @@ RUN unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY && \
     curl \
     vim \
     tzdata \
+    fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 

@@ -29,7 +29,10 @@
       "Bash(grep:*)",
       "SlashCommand(/openspec:apply simplify-batch-shipping-flow)",
       "SlashCommand(/openspec:proposal add-scheduled-shipping-status)",
-      "Bash(flask db revision:*)"
+      "Bash(flask db revision:*)",
+      "Bash(npm install:*)",
+      "Bash(pip3 install:*)",
+      "Bash(kill:*)"
     ],
     "deny": [],
     "ask": [],

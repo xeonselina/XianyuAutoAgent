@@ -266,6 +266,22 @@ export const useGanttStore = defineStore('gantt', () => {
     }
   }
 
+  // 发货到闲鱼
+  const shipRentalToXianyu = async (rentalId: number) => {
+    try {
+      const response = await axios.post(`/api/rentals/${rentalId}/ship-to-xianyu`)
+      if (response.data.success) {
+        await loadData()
+        return response.data
+      } else {
+        throw new Error(response.data.message || '发货到闲鱼失败')
+      }
+    } catch (err: any) {
+      console.error('发货到闲鱼失败:', err)
+      throw new Error(err.response?.data?.message || err.message || '发货到闲鱼失败')
+    }
+  }
+
   // 更新设备状态
   const updateDeviceStatus = async (deviceId: number, status: string) => {
     try {
@@ -325,12 +341,12 @@ export const useGanttStore = defineStore('gantt', () => {
     currentDate,
     loading,
     error,
-    
+
     // 计算属性
     dateRange,
     currentPeriod,
     availableDevices,
-    
+
     // 方法
     getRentalsForDevice,
     loadData,
@@ -342,6 +358,7 @@ export const useGanttStore = defineStore('gantt', () => {
     updateRental,
     deleteRental,
     getRentalById,
+    shipRentalToXianyu,
     updateDeviceStatus,
     addDevice
   }
