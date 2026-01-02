@@ -1011,12 +1011,11 @@ onUnmounted(() => {
 <style scoped>
 .gantt-container {
   padding: 20px;
-  height: 100vh;
+  min-height: 100vh;
   width: 100%;
   display: flex;
   flex-direction: column;
   background: white;
-  overflow: hidden;
 }
 
 .toolbar {
@@ -1046,12 +1045,11 @@ onUnmounted(() => {
 
 .gantt-main {
   flex: 1;
-  overflow: hidden;
   border: 1px solid var(--el-border-color);
   border-radius: 8px;
   background: white;
   width: 100%;
-  height: 100%;
+  min-height: 400px;
 }
 
 .gantt-header {
@@ -1062,6 +1060,8 @@ onUnmounted(() => {
   background: var(--el-bg-color);
   border-bottom: 2px solid var(--el-border-color);
   flex-shrink: 0;
+  width: fit-content;
+  min-width: 100%;
 }
 
 .device-header {
@@ -1197,22 +1197,21 @@ onUnmounted(() => {
 
 .gantt-scroll-container {
   width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-  max-height: calc(100vh - 200px);
   position: relative;
-  height: 100%;
   display: flex;
   flex-direction: column;
+  overflow-x: auto;
 }
 
 .gantt-body {
   min-height: 400px;
-  width: 100%;
+  max-height: calc(100vh - 300px);
+  width: fit-content;
+  min-width: 100%;
   flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
   position: relative;
+  overflow-y: auto;
+  overflow-x: visible;
 }
 
 .virtual-container {
@@ -1234,9 +1233,27 @@ onUnmounted(() => {
   min-width: max-content;
 }
 
-/* 调试样式 - 确保滚动容器可见 */
-.gantt-scroll-container::-webkit-scrollbar {
+/* 垂直滚动条样式 */
+.gantt-body::-webkit-scrollbar {
   width: 8px;
+}
+
+.gantt-body::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.gantt-body::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.gantt-body::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* 横向滚动条样式 */
+.gantt-scroll-container::-webkit-scrollbar {
   height: 8px;
 }
 

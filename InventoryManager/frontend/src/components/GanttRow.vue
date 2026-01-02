@@ -52,11 +52,7 @@
               <Tools />
             </el-icon>
           </div>
-          <div v-if="isRentalFirstVisibleDay(rental, date)" class="rental-dates">
-            <span class="rental-date-range">{{ formatRentalDateRange(rental) }}</span>
-            <span v-if="getRentalDuration(rental) > 3" class="rental-duration">{{ getRentalDuration(rental) }}天</span>
-          </div>
-          <span v-else class="rental-phone">{{ rental.customer_phone }}</span>
+          <span class="rental-phone">{{ rental.customer_phone }}</span>
         </div>
 
         <!-- 档期冲突警告图标 -->
@@ -688,6 +684,7 @@ const isDateEmpty = (date: Date) => {
   left: 2px;
   right: 2px;
   height: 44px;
+  min-width: 120px;
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s;
@@ -781,32 +778,6 @@ const isDateEmpty = (date: Date) => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.rental-dates {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 10px;
-  margin-top: 2px;
-}
-
-.rental-date-range {
-  font-size: 9px;
-  opacity: 0.85;
-  font-weight: 500;
-  background: rgba(255, 255, 255, 0.2);
-  padding: 1px 4px;
-  border-radius: 3px;
-}
-
-.rental-duration {
-  font-size: 9px;
-  font-weight: 600;
-  background: rgba(255, 255, 255, 0.3);
-  padding: 1px 4px;
-  border-radius: 3px;
-  border: 1px solid rgba(255, 255, 255, 0.4);
 }
 
 .status-icon {
