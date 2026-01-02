@@ -384,3 +384,81 @@ def print_waybills():
             'success': False,
             'message': f'服务器错误: {str(e)}'
         }), 500
+
+
+@bp.route('/ship-to-xianyu/<int:rental_id>', methods=['POST'])
+def ship_to_xianyu(rental_id):
+    """
+    发货到闲鱼
+
+    接收单个租赁ID，调用闲鱼API通知发货，并更新租赁状态为已发货
+    """
+    try:
+        # 查询租赁记录
+        rental = Rental.query.get(rental_id)
+
+        if not rental:
+            return jsonify({
+                'success': False,
+                'message': '租赁记录不存在'
+            }), 404
+
+        # 验证必要字段
+        if not rental.xianyu_order_no:
+            return jsonify({
+                'success': False,
+                'message': '缺少闲鱼订单号'
+            }), 400
+
+        if not rental.ship_out_tracking_no:
+            return jsonify({
+                'success': False,
+                'message': '缺少发货单号'
+            }), 400
+
+        # 检查状态
+        if rental.status not in ('not_shipped', 'scheduled_for_shipping'):
+            return jsonify({
+                'success': False,
+                'message': f'当前状态不允许发货: {rental.status}'
+            }), 400
+
+        # 获取闲鱼服务实例
+        from app.services.xianyu_order_service import get_xianyu_service
+        xianyu_service = get_xianyu_service()
+
+        # 调用闲鱼API
+        logger.info(f"手动发货到闲鱼: Rental {rental_id}, Order {rental.xianyu_order_no}")
+        xianyu_result = xianyu_service.ship_order(rental)
+
+        if not xianyu_result.get('success'):
+            error_msg = xianyu_result.get('message', '未知错误')
+            logger.error(f"Rental {rental_id} 闲鱼发货失败: {error_msg}")
+            return jsonify({
+                'success': False,
+                'message': f'闲鱼发货失败: {error_msg}'
+            }), 400
+
+        # 更新租赁状态
+        rental.status = 'shipped'
+        if not rental.ship_out_time:
+            rental.ship_out_time = datetime.utcnow()
+
+        db.session.commit()
+        logger.info(f"Rental {rental_id} 发货到闲鱼成功")
+
+        return jsonify({
+            'success': True,
+            'message': '发货到闲鱼成功',
+            'data': xianyu_result.get('data')
+        }), 200
+
+    except Exception as e:
+        import traceback
+        logger.error(f"发货到闲鱼失败: {e}")
+        logger.error(f"完整堆栈:\n{traceback.format_exc()}")
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'message': f'服务器错误: {str(e)}'
+        }), 500

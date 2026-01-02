@@ -60,3 +60,6 @@ alibabacloud-tea-util>=0.3.0
 # Word文档处理和HTML解析
 python-docx==1.2.0
 beautifulsoup4==4.13.4
+
+# User-Agent检测库
+user-agents==2.2.0

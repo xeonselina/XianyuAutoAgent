@@ -3,9 +3,23 @@
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
+### I. 中文文档规范 (Chinese Documentation Standard)
+所有项目文档、规格说明、任务描述、代码注释等必须使用中文书写。这包括但不限于:
+- 功能规格说明 (spec.md)
+- 实施计划 (plan.md)
+- 任务清单 (tasks.md)
+- 检查清单 (checklists)
+- 代码注释和文档字符串
+- 提交信息和变更日志
+
+例外情况:
+- 代码本身(变量名、函数名、类名等)使用英文
+- 技术术语可保留英文原文,但需提供中文解释
+- 引用外部文档或API时可保留原文
+
+### [PRINCIPLE_2_NAME]
+<!-- Example: II. Library-First -->
+[PRINCIPLE_2_DESCRIPTION]
 <!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
 
 ### [PRINCIPLE_2_NAME]

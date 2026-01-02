@@ -15,6 +15,15 @@
               <el-icon><ArrowRight /></el-icon>
             </el-button>
           </el-button-group>
+          <el-date-picker
+            v-model="selectedDatePicker"
+            type="date"
+            placeholder="跳转到日期"
+            size="default"
+            style="margin-left: 12px; width: 160px;"
+            @change="handleDateJump"
+            :clearable="false"
+          />
         </el-col>
         
         <el-col :span="8" class="text-center">
@@ -136,11 +145,17 @@
       <div class="gantt-scroll-container">
         <div class="gantt-header">
           <div class="device-header">设备</div>
-          <div 
-            v-for="date in dateArray" 
+          <div
+            v-for="date in dateArray"
             :key="date.toString()"
             class="date-header"
-            :class="{ 'is-today': isToday(date) }"
+            :class="{
+              'is-today': isToday(date),
+              'is-weekend': isWeekend(date),
+              'is-selected': isSelected(date)
+            }"
+            @click="handleDateClick(date)"
+            style="cursor: pointer;"
           >
             <div class="date-day">{{ formatDay(date) }}</div>
             <div class="date-weekday">{{ formatWeekday(date) }}</div>
@@ -348,6 +363,7 @@ const searchKeyword = ref<string>('')
 const selectedDeviceModel = ref<string>('')
 const selectedDeviceType = ref<string[]>([])
 const selectedStatus = ref('')
+const selectedDatePicker = ref<Date>(ganttStore.currentDate)
 const dailyStats = ref<Record<string, {available_count: number, ship_out_count: number, accessory_ship_out_count: number}>>({})
 
 // 虚拟滚动相关
@@ -498,6 +514,20 @@ const formatWeekday = (date: Date) => {
   return weekdays[date.getDay()]
 }
 
+const isWeekend = (date: Date) => {
+  const day = date.getDay()
+  return day === 0 || day === 6
+}
+
+const isSelected = (date: Date) => {
+  if (!ganttStore.selectedDate) return false
+  return dayjs(date).isSame(dayjs(ganttStore.selectedDate), 'day')
+}
+
+const handleDateClick = (date: Date) => {
+  ganttStore.setSelectedDate(date)
+}
+
 const applyFilters = () => {
   // 过滤逻辑在计算属性中处理
 }
@@ -527,6 +557,13 @@ const clearSearch = () => {
   searchKeyword.value = ''
   if (searchTimer) {
     clearTimeout(searchTimer)
+  }
+}
+
+// Date picker handler
+const handleDateJump = (value: Date) => {
+  if (value) {
+    ganttStore.jumpToDate(value)
   }
 }
 
@@ -1058,6 +1095,24 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
+.date-header.is-weekend {
+  background: #fff7e6;
+}
+
+.date-header.is-weekend .date-day {
+  color: #f57c00;
+}
+
+.date-header.is-today.is-weekend {
+  background: linear-gradient(135deg, var(--el-color-primary-light-9) 50%, #fff7e6 50%);
+}
+
+.date-header.is-selected {
+  outline: 3px solid var(--el-color-primary);
+  outline-offset: -3px;
+  box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.2);
+}
+
 .date-day {
   font-size: 14px;
   font-weight: 600;
@@ -1162,12 +1217,14 @@ onUnmounted(() => {
 
 .virtual-container {
   position: relative;
-  width: 100%;
+  min-width: max-content;
+  width: fit-content;
 }
 
 .visible-items {
   position: relative;
-  width: 100%;
+  min-width: max-content;
+  width: fit-content;
 }
 
 /* 确保甘特图行使用正确的布局 */

@@ -153,11 +153,15 @@ def _calculate_rental_value(rental):
             'value': 0
         }
 
+
     # 计算租赁天数
     rental_days = (rental.end_date - rental.start_date).days
 
-    # 计算租金: 199 + (租赁天数 - 1) * 30
-    rent = 199 + (rental_days - 1) * 30
+    if rental.order_amount is not None:
+        rent = rental.order_amount
+    else:
+        # 计算租金: 199 + (租赁天数 - 1) * 30
+        rent = 178 + (rental_days - 1) * 30
 
     # 计算收入价值: 租金 - 15
     value = rent - 15
