@@ -18,7 +18,7 @@ depends_on = None
 
 def upgrade():
     # Add express_type_id column to rentals table
-    op.add_column('rentals', sa.Column('express_type_id', sa.Integer(), nullable=True, comment='顺丰快递类型ID (1=特快,2=标快,6=半日达)'))
+    op.add_column('rentals', sa.Column('express_type_id', sa.Integer(), nullable=True, comment='顺丰快递类型ID (1=特快,2=标快,263=半日达)'))
 
     # Set default value for existing rows
     op.execute("UPDATE rentals SET express_type_id = 2 WHERE express_type_id IS NULL")

@@ -49,6 +49,16 @@
           </div>
           <span class="rental-phone">{{ rental.customer_phone }}</span>
         </div>
+
+        <!-- 档期冲突警告图标 -->
+        <span
+          v-if="rentalConflicts.get(rental.id)?.hasConflict"
+          class="conflict-warning-icon"
+          @click.stop="showConflictDetails(rental)"
+          title="档期冲突警告"
+        >
+          ⚠️
+        </span>
       </div>
       
       <!-- 新的ship_out_time到ship_in_time时间段标记（随机颜色） -->
@@ -85,10 +95,11 @@
     </div>
     
     <!-- Tooltip组件 -->
-    <RentalTooltip 
+    <RentalTooltip
       :rental="hoveredRental"
       :visible="tooltipVisible"
       :trigger-ref="tooltipTriggerRef"
+      :conflict-info="currentRentalConflictInfo"
       @tooltip-enter="handleTooltipEnter"
       @tooltip-leave="handleTooltipLeave"
     />
@@ -96,7 +107,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, defineAsyncComponent, onUnmounted } from 'vue'
+import { ref, computed, defineAsyncComponent, onUnmounted } from 'vue'
 import type { Device, Rental } from '../stores/gantt'
 import {
   toDateString,
@@ -112,6 +123,14 @@ interface Props {
   device: Device
   rentals: Rental[]
   dates: Date[]
+}
+
+interface ConflictInfo {
+  hasConflict: boolean
+  nextRentalId?: number
+  dayGap?: number
+  currentDestination?: string
+  nextDestination?: string
 }
 
 const props = defineProps<Props>()
@@ -202,6 +221,16 @@ const handleTooltipLeave = () => {
   hoveredRental.value = null
 }
 
+// 显示冲突详情
+const showConflictDetails = (rental: Rental) => {
+  // 清除所有定时器
+  clearAllTimers()
+
+  // 设置当前租赁信息
+  hoveredRental.value = rental
+  tooltipVisible.value = true
+}
+
 // 组件卸载时清理定时器和缓存
 onUnmounted(() => {
   clearAllTimers()
@@ -210,6 +239,51 @@ onUnmounted(() => {
 })
 
 // 计算属性
+// 冲突检测 - 检测相邻租赁之间的档期冲突
+const rentalConflicts = computed(() => {
+  const conflicts = new Map<number, ConflictInfo>()
+
+  // 过滤掉已取消的租赁并按开始日期排序
+  const sortedRentals = [...props.rentals]
+    .filter(r => r.status !== 'cancelled')
+    .sort((a, b) => dayjs(a.start_date).diff(dayjs(b.start_date)))
+
+  // 检查每对相邻租赁
+  for (let i = 0; i < sortedRentals.length - 1; i++) {
+    const current = sortedRentals[i]
+    const next = sortedRentals[i + 1]
+
+    // 计算时间间隔（天数）
+    const endDate = dayjs(current.end_date)
+    const nextStartDate = dayjs(next.start_date)
+    const hourGap = nextStartDate.diff(endDate, 'hour')
+
+    // 检查位置要求：至少有一方不在广东
+    const currentHasGuangdong = current.destination?.includes('广东') ?? false
+    const nextHasGuangdong = next.destination?.includes('广东') ?? false
+    const locationConflict = !currentHasGuangdong || !nextHasGuangdong
+
+    // 如果时间间隔 ≤ 4天 且位置要求满足，标记为冲突
+    if ((hourGap <= 5*24 && locationConflict) || (hourGap <= 3*24)) {
+      conflicts.set(current.id, {
+        hasConflict: true,
+        nextRentalId: next.id,
+        dayGap: hourGap/24-1,
+        currentDestination: current.destination,
+        nextDestination: next.destination
+      })
+    }
+  }
+
+  return conflicts
+})
+
+// 当前悬停租赁的冲突信息
+const currentRentalConflictInfo = computed(() => {
+  if (!hoveredRental.value) return undefined
+  return rentalConflicts.value.get(hoveredRental.value.id)
+})
+
 // 缓存租赁数据计算结果
 const rentalDateCache = new Map<string, Rental[]>()
 const shipTimeCache = new Map<string, Rental[]>()
@@ -498,6 +572,24 @@ const getRentalOpacity = (rental: Rental) => {
   transform: translateY(-1px);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   z-index: 10;
+}
+
+/* 档期冲突警告图标 */
+.conflict-warning-icon {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font-size: 16px;
+  cursor: pointer;
+  z-index: 10;
+  filter: drop-shadow(0 0 2px rgba(255, 193, 7, 0.6));
+  transition: transform 0.2s;
+  line-height: 1;
+}
+
+.conflict-warning-icon:hover {
+  transform: scale(1.2);
+  filter: drop-shadow(0 0 4px rgba(255, 193, 7, 0.9));
 }
 
 .rental-content {

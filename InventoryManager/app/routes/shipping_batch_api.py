@@ -245,7 +245,7 @@ def update_express_type():
             }), 400
 
         # 验证快递类型ID
-        if express_type_id not in [1, 2, 6]:
+        if express_type_id not in [1, 2, 263]:
             return jsonify({
                 'success': False,
                 'message': '快递类型无效'
@@ -326,13 +326,15 @@ def get_printers():
 @bp.route('/print-waybills', methods=['POST'])
 def print_waybills():
     """
-    批量打印快递面单
+    批量打印快递面单（可选交替打印发货单）
 
     接收租赁ID列表，使用环境变量中配置的默认打印机打印所有面单
+    可选参数 include_shipping_slips 控制是否同时打印发货单（默认为True）
     """
     try:
         data = request.get_json()
         rental_ids = data.get('rental_ids', [])
+        include_shipping_slips = data.get('include_shipping_slips', True)  # 默认启用发货单打印
 
         # 验证参数
         if not rental_ids:
@@ -348,23 +350,30 @@ def print_waybills():
                 'message': '批量打印数量不能超过100个'
             }), 400
 
-        logger.info(f"批量打印快递面单: {len(rental_ids)}个订单")
+        logger.info(f"批量打印快递面单: {len(rental_ids)}个订单, 交替打印发货单: {include_shipping_slips}")
 
         # 调用面单打印服务（使用默认打印机）
         waybill_service = get_waybill_print_service()
         result = waybill_service.batch_print_waybills(
-            rental_ids=rental_ids
+            rental_ids=rental_ids,
+            include_shipping_slips=include_shipping_slips
         )
 
         # 返回结果
+        response_data = {
+            'total': result['total'],
+            'waybill_success_count': result['waybill_success_count'],
+            'failed_count': result['failed_count'],
+            'results': result['results']
+        }
+
+        # 如果启用了发货单打印，添加发货单统计
+        if include_shipping_slips:
+            response_data['slip_success_count'] = result['slip_success_count']
+
         return jsonify({
             'success': True,
-            'data': {
-                'total': result['total'],
-                'success_count': result['success_count'],
-                'failed_count': result['failed_count'],
-                'results': result['results']
-            }
+            'data': response_data
         }), 200
 
     except Exception as e:
