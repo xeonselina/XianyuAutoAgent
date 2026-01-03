@@ -1045,7 +1045,7 @@ onUnmounted(() => {
 
 .gantt-main {
   flex: 1;
-  border: 1px solid var(--el-border-color);
+  border: 2px solid #c0c0c0;
   border-radius: 8px;
   background: white;
   width: 100%;
@@ -1058,7 +1058,7 @@ onUnmounted(() => {
   top: 0;
   z-index: 10;
   background: var(--el-bg-color);
-  border-bottom: 2px solid var(--el-border-color);
+  border-bottom: 3px solid #b0b0b0;
   flex-shrink: 0;
   width: fit-content;
   min-width: 100%;
@@ -1069,7 +1069,7 @@ onUnmounted(() => {
   width: 200px;
   padding: 12px 16px;
   background: var(--el-fill-color-light);
-  border-right: 1px solid var(--el-border-color);
+  border-right: 2px solid #d0d0d0;
   font-weight: 600;
   color: var(--el-text-color-primary);
   position: sticky;
@@ -1083,7 +1083,7 @@ onUnmounted(() => {
   width: 80px;
   padding: 8px 4px;
   text-align: center;
-  border-right: 1px solid var(--el-border-color-lighter);
+  border-right: 1px solid #d0d0d0;
   background: var(--el-fill-color-lighter);
   color: #1890ff;
   font-weight: 600;

@@ -40,7 +40,10 @@ class XianyuInterceptorConfig(BaseSettings):
     browser_headless: bool = False
     browser_viewport_width: int = 1280
     browser_viewport_height: int = 720
-    
+
+    # Image Handling
+    image_save_dir: str = "./xianyu_images"
+
     # Session Mapping
     session_mapper_type: str = "memory"  # "memory" or "redis"
     redis_url: str = "redis://localhost:6379"

@@ -389,10 +389,21 @@ const getRentalStyle = (rental: Rental, date: Date) => {
     width = `${daysToEnd * 100}%`
   }
 
+  const bgColor = getRentalColor(rental.status)
   return {
     width,
     marginLeft,
-    backgroundColor: getRentalColor(rental.status),
+    background: `
+      repeating-linear-gradient(
+        to right,
+        transparent,
+        transparent 79px,
+        rgba(255, 255, 255, 0.6) 79px,
+        rgba(255, 255, 255, 0.6) 80px
+      ),
+      ${bgColor}
+    `,
+    backgroundPosition: '-2px 0',
     opacity: getRentalOpacity(rental)
   }
 }
@@ -422,10 +433,21 @@ const getShipTimeStyle = (rental: Rental, date: Date) => {
     width = `${daysToEnd * 100}%`
   }
 
+  const bgColor = generateRandomColor(rental.id)
   return {
     width,
     marginLeft,
-    backgroundColor: generateRandomColor(rental.id),
+    background: `
+      repeating-linear-gradient(
+        to right,
+        transparent,
+        transparent 79px,
+        rgba(255, 255, 255, 0.6) 79px,
+        rgba(255, 255, 255, 0.6) 80px
+      ),
+      ${bgColor}
+    `,
+    backgroundPosition: '-2px 0',
     opacity: '0.8'
   }
 }
@@ -557,7 +579,7 @@ const isDateEmpty = (date: Date) => {
 <style scoped>
 .gantt-row {
   display: flex;
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  border-bottom: 2px solid #e0e0e0;
   min-height: 60px;
   position: relative;
   width: 100%;
@@ -568,7 +590,7 @@ const isDateEmpty = (date: Date) => {
   min-width: 200px;
   width: 200px;
   padding: 12px 16px;
-  border-right: 1px solid var(--el-border-color);
+  border-right: 2px solid #d0d0d0;
   background: #f5f5f5;
   position: sticky;
   left: 0;
@@ -628,7 +650,7 @@ const isDateEmpty = (date: Date) => {
 .date-cell {
   min-width: 80px;
   width: 80px;
-  border-right: 1px solid var(--el-border-color-lighter);
+  border-right: 1px solid #d0d0d0;
   position: relative;
   padding: 4px 2px;
   background: white;
