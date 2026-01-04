@@ -147,6 +147,11 @@ const form = ref({
   shipOutTime: null as Date | null,
   shipInTime: null as Date | null,
   status: 'not_shipped',
+  // 新：分离配套附件和库存附件
+  bundledAccessories: [] as ('handle' | 'lens_mount')[],
+  phoneHolderId: null as number | null,
+  tripodId: null as number | null,
+  // 保留accessories为了兼容性（用于RentalAccessorySelector）
   accessories: [] as number[],
   xianyuOrderNo: '',
   orderAmount: '',
@@ -210,6 +215,10 @@ const handleSubmit = async () => {
     await formRef.value?.validate()
     submitting.value = true
 
+    // 转换UI格式到API格式
+    const accessoryIds = [form.value.phoneHolderId, form.value.tripodId]
+      .filter((id): id is number => id !== null)
+
     const updateData = {
       device_id: form.value.deviceId,
       end_date: dayjs(form.value.endDate).format('YYYY-MM-DD'),
@@ -224,7 +233,11 @@ const handleSubmit = async () => {
         ? dayjs(form.value.shipInTime).format('YYYY-MM-DD HH:mm:ss')
         : null,
       status: form.value.status,
-      accessories: form.value.accessories,
+      // 新：配套附件使用布尔值
+      includes_handle: form.value.bundledAccessories.includes('handle'),
+      includes_lens_mount: form.value.bundledAccessories.includes('lens_mount'),
+      // 新：库存附件使用ID数组
+      accessories: accessoryIds,
       xianyu_order_no: form.value.xianyuOrderNo,
       order_amount: form.value.orderAmount ? parseFloat(form.value.orderAmount) : undefined,
       buyer_id: form.value.buyerId
@@ -453,6 +466,29 @@ const initForm = async () => {
     const latestRental = await loadLatestRentalData()
     const rentalData = latestRental || props.rental
 
+    // 从 API 响应转换为 UI 格式
+    const bundledAccessories: ('handle' | 'lens_mount')[] = []
+    if (rentalData.includes_handle) {
+      bundledAccessories.push('handle')
+    }
+    if (rentalData.includes_lens_mount) {
+      bundledAccessories.push('lens_mount')
+    }
+
+    // 从 accessories数组中提取库存附件
+    const accessories = rentalData.accessories || []
+    const phoneHolder = accessories.find((a: any) => 
+      a.type === 'phone_holder' || a.name?.includes('手机支架')
+    )
+    const tripod = accessories.find((a: any) => 
+      a.type === 'tripod' || a.name?.includes('三脚架')
+    )
+
+    // 也从 child_rentals中提取（兼容旧数据）
+    const childAccessoryIds = (rentalData.child_rentals || [])
+      .map((child: any) => child.device_id)
+      .filter(Boolean)
+
     form.value = {
       deviceId: rentalData.device_id,
       endDate: new Date(rentalData.end_date),
@@ -463,9 +499,12 @@ const initForm = async () => {
       shipOutTime: rentalData.ship_out_time ? new Date(rentalData.ship_out_time) : null,
       shipInTime: rentalData.ship_in_time ? new Date(rentalData.ship_in_time) : null,
       status: rentalData.status || 'not_shipped',
-      accessories: (rentalData.child_rentals || [])
-        .map((child: any) => child.device_id)
-        .filter(Boolean),
+      // 新字段
+      bundledAccessories,
+      phoneHolderId: phoneHolder?.id || null,
+      tripodId: tripod?.id || null,
+      // 兼容字段（用于RentalAccessorySelector）
+      accessories: childAccessoryIds,
       xianyuOrderNo: rentalData.xianyu_order_no || '',
       orderAmount: rentalData.order_amount ? String(rentalData.order_amount) : '',
       buyerId: rentalData.buyer_id || ''

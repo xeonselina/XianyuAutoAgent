@@ -79,6 +79,12 @@ class RentalHandlers:
             for field in required_fields:
                 if not data.get(field):
                     return bad_request(f'缺少必填字段: {field}')
+            
+            # 提取配套附件标记（新功能）
+            data['includes_handle'] = data.get('includes_handle', False)
+            data['includes_lens_mount'] = data.get('includes_lens_mount', False)
+            
+            current_app.logger.info(f"创建租赁: includes_handle={data['includes_handle']}, includes_lens_mount={data['includes_lens_mount']}")
 
             # 创建租赁记录
             main_rental, accessory_rentals = RentalService.create_rental_with_accessories(data)
@@ -283,6 +289,15 @@ class RentalHandlers:
             if 'accessories' in data:
                 current_app.logger.info(f"更新附件: {data['accessories']}")
                 RentalService.update_rental_accessories(rental, data['accessories'])
+            
+            # 处理配套附件标记更新（新功能）
+            if 'includes_handle' in data:
+                rental.includes_handle = data['includes_handle']
+                current_app.logger.info(f"更新includes_handle: {data['includes_handle']}")
+            
+            if 'includes_lens_mount' in data:
+                rental.includes_lens_mount = data['includes_lens_mount']
+                current_app.logger.info(f"更新includes_lens_mount: {data['includes_lens_mount']}")
 
             # 确保所有更改都被提交到数据库
             # 注意：update_rental_status 会自己提交，但附件更新需要额外提交

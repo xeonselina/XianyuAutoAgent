@@ -253,21 +253,29 @@ const handlePrint = () => {
   }, 200)
 }
 
-// 获取默认附件列表
+// 获取默认附件列表（包括配套附件）
 const getDefaultAccessories = () => {
-  if (!rental.value?.device?.device_model?.default_accessories) {
-    return ""
+  const accessories: string[] = []
+  
+  // 1. 添加设备型号的默认附件
+  if (rental.value?.device?.device_model?.default_accessories) {
+    const defaultAcc = rental.value.device.device_model.default_accessories
+    if (Array.isArray(defaultAcc)) {
+      accessories.push(...defaultAcc)
+    } else if (typeof defaultAcc === 'string') {
+      accessories.push(defaultAcc)
+    }
   }
-
-  const accessories = rental.value.device.device_model.default_accessories
-
-  // 如果是数组，转换为字符串
-  if (Array.isArray(accessories)) {
-    return accessories.join('、')
+  
+  // 2. 添加配套附件（手柄、镜头支架）
+  if (rental.value?.includes_handle) {
+    accessories.push('手柄 (配套)')
   }
-
-  // 如果是字符串，直接返回
-  return accessories
+  if (rental.value?.includes_lens_mount) {
+    accessories.push('镜头支架 (配套)')
+  }
+  
+  return accessories.length > 0 ? accessories.join('、') : ''
 }
 
 // 获取个性化附件列表（从租赁记录的子租赁中获取）
