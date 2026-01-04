@@ -25,6 +25,7 @@ from xianyu_interceptor.cdp_interceptor import CDPInterceptor
 from xianyu_interceptor.messaging_core import XianyuMessageCodec
 from xianyu_interceptor.models import XianyuMessage, XianyuMessageType
 from xianyu_interceptor.image_handler import get_image_handler
+from xianyu_interceptor.history_message_parser import HistoryMessageParser
 import json
 
 
@@ -129,6 +130,36 @@ async def main():
                     logger.info(f"   消息长度: {len(message_str)} 字节")
                 else:
                     logger.info(f"   完整消息: {message_str}")
+
+            # ============================================================
+            # 【历史消息处理】检查是否是历史消息API响应
+            # ============================================================
+            if HistoryMessageParser.is_history_message_response(message_data):
+                logger.info(f"📜 检测到历史消息API响应，开始解析...")
+
+                # 解析历史消息列表
+                history_messages = HistoryMessageParser.parse_history_messages(message_data)
+
+                if history_messages:
+                    logger.info(f"✅ 解析到 {len(history_messages)} 条历史消息，正在保存到数据库...")
+
+                    # 保存每条历史消息到数据库
+                    saved_count = 0
+                    for xianyu_message in history_messages:
+                        try:
+                            # 传递给消息处理器（会自动保存到数据库并处理去重）
+                            await message_handler.handle_message(xianyu_message)
+                            saved_count += 1
+                        except Exception as e:
+                            logger.warning(f"保存历史消息失败 (chat_id={xianyu_message.chat_id}): {e}")
+                            continue
+
+                    logger.success(f"🎉 成功保存 {saved_count}/{len(history_messages)} 条历史消息")
+                else:
+                    logger.warning("未能从历史消息响应中解析到消息")
+
+                # 历史消息已处理完成，不再继续解码流程
+                return
 
             # 步骤 1: 解码消息
             # 只有 syncPushPackage 格式的消息（别人发给你的）才能被解码
