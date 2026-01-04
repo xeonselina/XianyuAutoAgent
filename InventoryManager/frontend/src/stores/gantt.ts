@@ -71,7 +71,19 @@ export interface Rental {
   ship_in_time?: string
   parent_rental_id?: number
   child_rentals?: Rental[]
-  accessories?: { id: number; name: string; model: string; is_accessory: boolean; value?: number }[]
+  accessories?: { 
+    id?: number
+    name: string
+    model?: string
+    type?: string
+    is_accessory?: boolean
+    is_bundled: boolean
+    serial_number?: string
+    value?: number 
+  }[]
+  // 新字段：配套附件标记
+  includes_handle: boolean
+  includes_lens_mount: boolean
   xianyu_order_no?: string
   order_amount?: number
   buyer_id?: string

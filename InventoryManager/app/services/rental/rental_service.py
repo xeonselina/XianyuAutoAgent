@@ -80,7 +80,20 @@ class RentalService:
 
     @staticmethod
     def create_rental_with_accessories(data: Dict[str, Any]) -> Tuple[Rental, List[Rental]]:
-        """创建租赁记录及其附件"""
+        """创建租赁记录及其附件
+        
+        Args:
+            data: 租赁数据，包含:
+                - device_id: 设备ID
+                - customer_name: 客户姓名
+                - start_date/end_date: 租赁日期
+                - includes_handle: 是否包含手柄（配套附件）
+                - includes_lens_mount: 是否包含镜头支架（配套附件）
+                - accessories: 库存附件ID列表（手机支架、三脚架）
+        
+        Returns:
+            Tuple[Rental, List[Rental]]: (主租赁, 附件租赁列表)
+        """
         try:
             # 验证设备存在性
             device = Device.query.get(data['device_id'])
@@ -115,7 +128,7 @@ class RentalService:
                     # 回退到原格式
                     ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d %H:%M:%S')
 
-            # 创建主租赁记录
+            # 创建主租赁记录（包含配套附件标记）
             main_rental = Rental(
                 device_id=data['device_id'],
                 customer_name=data['customer_name'],
@@ -130,18 +143,27 @@ class RentalService:
                 xianyu_order_no=data.get('xianyu_order_no'),
                 order_amount=data.get('order_amount'),
                 buyer_id=data.get('buyer_id'),
-                status='not_shipped'
+                status='not_shipped',
+                # 新：配套附件标记
+                includes_handle=data.get('includes_handle', False),
+                includes_lens_mount=data.get('includes_lens_mount', False)
             )
 
             db.session.add(main_rental)
             db.session.flush()  # 获取主租赁记录的ID
 
-            # 创建附件租赁记录
+            # 创建附件租赁记录（仅针对库存附件，不包括手柄和镜头支架）
             accessory_rentals = []
             if data.get('accessories'):
                 for accessory_id in data['accessories']:
                     accessory_device = Device.query.get(accessory_id)
                     if accessory_device and accessory_device.is_accessory:
+                        # 跳过配套附件（手柄和镜头支架）
+                        if '手柄' in accessory_device.name or '镜头支架' in accessory_device.name:
+                            current_app.logger.info(f"跳过配套附件: {accessory_device.name}")
+                            continue
+                        
+                        # 仅为库存附件（手机支架、三脚架）创建子租赁
                         accessory_rental = Rental(
                             device_id=accessory_id,
                             customer_name=data['customer_name'],
@@ -285,7 +307,15 @@ class RentalService:
 
     @staticmethod
     def update_rental_accessories(rental: Rental, new_accessory_ids: List[int]):
-        """更新租赁附件"""
+        """更新租赁附件（仅库存附件，不包括配套附件）
+        
+        Args:
+            rental: 租赁记录对象
+            new_accessory_ids: 新的库存附件ID列表（手机支架、三脚架）
+        
+        Note:
+            手柄和镜头支架通过 includes_handle/includes_lens_mount 字段管理
+        """
         try:
             current_app.logger.info(f"开始更新附件 - rental_id: {rental.id}, new_accessory_ids: {new_accessory_ids}, 类型: {type(new_accessory_ids)}")
 
@@ -314,10 +344,15 @@ class RentalService:
                     db.session.delete(accessory_rental_to_remove)
                     current_app.logger.info(f"删除附件租赁记录: {accessory_rental_to_remove.id}")
 
-            # 添加新的附件租赁记录
+            # 添加新的附件租赁记录（跳过配套附件）
             for accessory_id in to_add:
                 accessory_device = Device.query.get(accessory_id)
                 if accessory_device and accessory_device.is_accessory:
+                    # 跳过配套附件
+                    if '手柄' in accessory_device.name or '镜头支架' in accessory_device.name:
+                        current_app.logger.info(f"跳过配套附件: {accessory_device.name}")
+                        continue
+                    
                     new_accessory_rental = Rental(
                         device_id=accessory_id,
                         customer_name=rental.customer_name,
@@ -339,4 +374,59 @@ class RentalService:
 
         except Exception as e:
             current_app.logger.error(f"更新租赁附件失败: {e}")
+            raise
+    
+    @staticmethod
+    def update_rental_with_accessories(rental_id: int, data: Dict[str, Any]) -> Rental:
+        """更新租赁记录及其附件（包括配套附件标记）
+        
+        Args:
+            rental_id: 租赁记录ID
+            data: 更新数据，可包含：
+                - customer_name, customer_phone, destination: 客户信息
+                - start_date, end_date: 日期
+                - includes_handle, includes_lens_mount: 配套附件标记
+                - accessories: 库存附件ID列表
+        
+        Returns:
+            Rental: 更新后的租赁记录
+        """
+        try:
+            rental = Rental.query.get(rental_id)
+            if not rental:
+                raise ValueError('租赁记录不存在')
+            
+            # 更新基本信息
+            if 'customer_name' in data:
+                rental.customer_name = data['customer_name']
+            if 'customer_phone' in data:
+                rental.customer_phone = data['customer_phone']
+            if 'destination' in data:
+                rental.destination = data['destination']
+            
+            # 更新日期
+            if 'start_date' in data:
+                start_date, _ = parse_date_strings(data['start_date'], data.get('end_date', rental.end_date))
+                rental.start_date = start_date
+            if 'end_date' in data:
+                _, end_date = parse_date_strings(data.get('start_date', rental.start_date), data['end_date'])
+                rental.end_date = end_date
+            
+            # 更新配套附件标记
+            if 'includes_handle' in data:
+                rental.includes_handle = data['includes_handle']
+            if 'includes_lens_mount' in data:
+                rental.includes_lens_mount = data['includes_lens_mount']
+            
+            # 更新库存附件（如果提供）
+            if 'accessories' in data:
+                RentalService.update_rental_accessories(rental, data['accessories'])
+            
+            db.session.commit()
+            current_app.logger.info(f"成功更新租赁记录: {rental_id}")
+            return rental
+            
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"更新租赁记录失败: {e}")
             raise

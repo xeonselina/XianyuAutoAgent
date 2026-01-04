@@ -172,81 +172,99 @@
         <div class="form-tip">从订单信息自动获取</div>
       </el-form-item>
 
-      <!-- 附件选择 -->
-      <el-form-item label="附件选择" prop="selectedAccessoryIds">
-        <div class="device-selection">
-          <el-select
-            v-model="form.selectedAccessoryIds"
-            placeholder="选择附件(可多选)"
-            clearable
-            filterable
-            multiple
-            collapse-tags
-            collapse-tags-tooltip
-            style="flex: 1"
-            @focus="handleAccessoryFocus"
-          >
-            <el-option
-              v-for="accessory in deviceManagement.accessories.value"
-              :key="accessory.id"
-              :label="accessory.name"
-              :value="accessory.id"
-            >
-              <div class="device-option">
-                <span>{{ accessory.name }}</span>
-                <div class="device-status">
-                  <span class="device-model">{{ accessory.model }}</span>
-                  <el-tag
-                    v-if="availability.accessoryAvailability.value.checked && availability.isAccessoryAvailable(accessory.id)"
-                    type="success"
-                    size="small"
-                    effect="dark"
-                  >
-                    可用
-                  </el-tag>
-                  <el-tag
-                    v-else-if="availability.accessoryAvailability.value.checked"
-                    type="danger"
-                    size="small"
-                    effect="dark"
-                  >
-                    档期不可用
-                  </el-tag>
-                </div>
-              </div>
-            </el-option>
-          </el-select>
-          <el-button
-            type="info"
-            @click="findAvailableAccessory"
-            :loading="searchingAccessory"
-            :disabled="!canSearchSlot"
-            style="margin-left: 8px"
-          >
-            查找附件
-          </el-button>
-        </div>
-        <div class="form-tip">可选择多个附件或点击查找附件自动匹配可用附件</div>
+      <!-- 配套附件 - 复选框 -->
+      <el-form-item label="配套附件">
+        <el-checkbox-group v-model="form.bundledAccessories">
+          <el-checkbox label="handle">手柄</el-checkbox>
+          <el-checkbox label="lens_mount">镜头支架</el-checkbox>
+        </el-checkbox-group>
+        <div class="form-tip">手柄和镜头支架已与设备配齐，无需选择具体编号</div>
+      </el-form-item>
 
-        <!-- 查找到的附件信息 -->
-        <div v-if="availableAccessorySlot" class="slot-info" style="margin-top: 12px">
-          <div class="slot-device">
-            <el-icon><Monitor /></el-icon>
-            已找到可用附件: {{ availableAccessorySlot.accessory?.name || '未知附件' }}
-          </div>
-          <div class="slot-times">
-            <div>寄出时间: {{ formatDateTime(availableAccessorySlot.shipOutDate) }}</div>
-            <div>收回时间: {{ formatDateTime(availableAccessorySlot.shipInDate) }}</div>
-          </div>
-          <el-button
-            type="primary"
-            size="small"
-            @click="addFoundAccessory"
-            style="margin-top: 8px"
+      <!-- 库存附件 - 手机支架 -->
+      <el-form-item label="手机支架">
+        <el-select 
+          v-model="form.phoneHolderId" 
+          placeholder="选择手机支架(可选)" 
+          clearable
+          filterable
+          @focus="handleAccessoryFocus"
+        >
+          <el-option
+            v-for="holder in phoneHolders"
+            :key="holder.id"
+            :label="holder.name"
+            :value="holder.id"
+            :disabled="availability.accessoryAvailability.value.checked && !availability.isAccessoryAvailable(holder.id)"
           >
-            添加此附件
-          </el-button>
-        </div>
+            <div class="device-option">
+              <span>{{ holder.name }}</span>
+              <div class="device-status">
+                <span class="device-model">{{ holder.model }}</span>
+                <el-tag
+                  v-if="availability.accessoryAvailability.value.checked && availability.isAccessoryAvailable(holder.id)"
+                  type="success"
+                  size="small"
+                  effect="dark"
+                >
+                  可用
+                </el-tag>
+                <el-tag
+                  v-else-if="availability.accessoryAvailability.value.checked"
+                  type="danger"
+                  size="small"
+                  effect="dark"
+                >
+                  档期不可用
+                </el-tag>
+              </div>
+            </div>
+          </el-option>
+        </el-select>
+        <div class="form-tip">手机支架为库存附件，需选择具体编号</div>
+      </el-form-item>
+
+      <!-- 库存附件 - 三脚架 -->
+      <el-form-item label="三脚架">
+        <el-select 
+          v-model="form.tripodId" 
+          placeholder="选择三脚架(可选)" 
+          clearable
+          filterable
+          @focus="handleAccessoryFocus"
+        >
+          <el-option
+            v-for="tripod in tripods"
+            :key="tripod.id"
+            :label="tripod.name"
+            :value="tripod.id"
+            :disabled="availability.accessoryAvailability.value.checked && !availability.isAccessoryAvailable(tripod.id)"
+          >
+            <div class="device-option">
+              <span>{{ tripod.name }}</span>
+              <div class="device-status">
+                <span class="device-model">{{ tripod.model }}</span>
+                <el-tag
+                  v-if="availability.accessoryAvailability.value.checked && availability.isAccessoryAvailable(tripod.id)"
+                  type="success"
+                  size="small"
+                  effect="dark"
+                >
+                  可用
+                </el-tag>
+                <el-tag
+                  v-else-if="availability.accessoryAvailability.value.checked"
+                  type="danger"
+                  size="small"
+                  effect="dark"
+                >
+                  档期不可用
+                </el-tag>
+              </div>
+            </div>
+          </el-option>
+        </el-select>
+        <div class="form-tip">三脚架为库存附件，需选择具体编号</div>
       </el-form-item>
 
       <!-- 查找到的档期信息 -->
@@ -328,7 +346,10 @@ const form = ref({
   customerName: '',
   customerPhone: '',
   destination: '',
-  selectedAccessoryIds: [] as number[],
+  // 新：分离配套附件和库存附件
+  bundledAccessories: [] as ('handle' | 'lens_mount')[],
+  phoneHolderId: null as number | null,
+  tripodId: null as number | null,
   xianyuOrderNo: '',
   orderAmount: '',
   buyerId: ''
@@ -348,6 +369,20 @@ const rules = getCreateRentalRules()
 // Computed
 const canSearchSlot = computed(() => {
   return form.value.startDate && form.value.endDate && form.value.logisticsDays >= 0
+})
+
+// 过滤出手机支架
+const phoneHolders = computed(() => {
+  return deviceManagement.accessories.value.filter(a => 
+    a.name.includes('手机支架') || a.name.toLowerCase().includes('phone')
+  )
+})
+
+// 过滤出三脚架
+const tripods = computed(() => {
+  return deviceManagement.accessories.value.filter(a => 
+    a.name.includes('三脚架') || a.name.toLowerCase().includes('tripod')
+  )
 })
 
 // Date Methods
@@ -532,13 +567,20 @@ const findAvailableAccessory = async () => {
 // Add Found Accessory
 const addFoundAccessory = () => {
   if (availableAccessorySlot.value?.accessory) {
-    const accessoryId = availableAccessorySlot.value.accessory.id
-    if (!form.value.selectedAccessoryIds.includes(accessoryId)) {
-      form.value.selectedAccessoryIds.push(accessoryId)
-      ElMessage.success(`已添加附件: ${availableAccessorySlot.value.accessory.name}`)
+    const accessory = availableAccessorySlot.value.accessory
+    const accessoryName = accessory.name.toLowerCase()
+    
+    // 根据附件名称分配到相应字段
+    if (accessoryName.includes('手机支架') || accessoryName.includes('phone')) {
+      form.value.phoneHolderId = accessory.id
+      ElMessage.success(`已添加手机支架: ${accessory.name}`)
+    } else if (accessoryName.includes('三脚架') || accessoryName.includes('tripod')) {
+      form.value.tripodId = accessory.id
+      ElMessage.success(`已添加三脚架: ${accessory.name}`)
     } else {
-      ElMessage.warning('该附件已经添加过了')
+      ElMessage.warning('不支持的附件类型')
     }
+    
     availableAccessorySlot.value = null
   }
 }
@@ -693,6 +735,10 @@ const handleSubmit = async () => {
       ? availableSlot.value.shipInDate
       : dayjs(form.value.endDate).startOf('day').add(form.value.logisticsDays, 'day').toDate()
 
+    // 转换UI格式到API格式
+    const accessoryIds = [form.value.phoneHolderId, form.value.tripodId]
+      .filter((id): id is number => id !== null)
+    
     const rentalData = {
       device_id: deviceId,
       start_date: dayjs(form.value.startDate).format('YYYY-MM-DD'),
@@ -702,7 +748,11 @@ const handleSubmit = async () => {
       destination: form.value.destination,
       ship_out_time: dayjs(shipOutTime).format('YYYY-MM-DD HH:mm:ss'),
       ship_in_time: dayjs(shipInTime).format('YYYY-MM-DD HH:mm:ss'),
-      accessories: form.value.selectedAccessoryIds,
+      // 新：配套附件使用布尔值
+      includes_handle: form.value.bundledAccessories.includes('handle'),
+      includes_lens_mount: form.value.bundledAccessories.includes('lens_mount'),
+      // 新：库存附件使用ID数组
+      accessories: accessoryIds,
       xianyu_order_no: form.value.xianyuOrderNo,
       order_amount: form.value.orderAmount ? parseFloat(form.value.orderAmount) : undefined,
       buyer_id: form.value.buyerId
@@ -730,7 +780,9 @@ const handleClose = () => {
     customerName: '',
     customerPhone: '',
     destination: '',
-    selectedAccessoryIds: [],
+    bundledAccessories: [],
+    phoneHolderId: null,
+    tripodId: null,
     xianyuOrderNo: '',
     orderAmount: '',
     buyerId: ''

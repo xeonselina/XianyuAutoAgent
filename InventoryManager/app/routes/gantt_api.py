@@ -111,18 +111,8 @@ def gantt_data():
         
         # 处理所有租赁记录
         for rental in rentals:
-            # 获取子租赁（附件）信息
-            child_rentals = Rental.query.filter_by(parent_rental_id=rental.id).all()
-            accessories_info = []
-
-            for child_rental in child_rentals:
-                if child_rental.device:
-                    accessories_info.append({
-                        'id': child_rental.device.id,
-                        'name': child_rental.device.name,
-                        'model': child_rental.device.model or '',
-                        'is_accessory': child_rental.device.is_accessory
-                    })
+            # 使用新的统一方法获取所有附件信息（包括配套和库存附件）
+            accessories_info = rental.get_all_accessories_for_display()
 
             rental_data = {
                 'id': rental.id,
@@ -138,7 +128,7 @@ def gantt_data():
                 'status': rental.status,
                 'ship_out_time': rental.ship_out_time.isoformat() if rental.ship_out_time else None,
                 'ship_in_time': rental.ship_in_time.isoformat() if rental.ship_in_time else None,
-                'accessories': accessories_info  # 新增附件信息
+                'accessories': accessories_info  # 包含is_bundled标记的附件信息
             }
             gantt_data['rentals'].append(rental_data)
         

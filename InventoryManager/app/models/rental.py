@@ -53,6 +53,10 @@ class Rental(db.Model):
     # 租赁关联（主租赁ID，用于关联主设备和附件设备的租赁记录）
     parent_rental_id = db.Column(db.Integer, db.ForeignKey('rentals.id', ondelete='CASCADE'), nullable=True, comment='父租赁记录ID（用于关联主设备和附件）')
     
+    # 配套附件标记（手柄和镜头支架已与设备1:1配齐）
+    includes_handle = db.Column(db.Boolean, default=False, nullable=False, comment='是否包含手柄（配套附件）')
+    includes_lens_mount = db.Column(db.Boolean, default=False, nullable=False, comment='是否包含镜头支架（配套附件）')
+    
     # 关系
     audit_logs = db.relationship('AuditLog', backref='rental', lazy='dynamic')
     # 子租赁记录（附件租赁）
@@ -132,7 +136,10 @@ class Rental(db.Model):
             'device_info': device_dict,  # 保留向后兼容
             'accessories': accessories,
             'parent_rental_id': self.parent_rental_id,
-            'child_rentals': child_rentals_list
+            'child_rentals': child_rentals_list,
+            # 配套附件标记
+            'includes_handle': self.includes_handle,
+            'includes_lens_mount': self.includes_lens_mount
         }
     
     def get_duration_days(self):
@@ -222,6 +229,70 @@ class Rental(db.Model):
         if main_rental:
             return [main_rental] + list(main_rental.child_rentals)
         return [self]
+    
+    def get_all_accessories_for_display(self):
+        """获取所有附件信息，用于打印和展示
+        
+        返回统一格式的附件列表，包含配套附件（手柄、镜头支架）和库存附件（手机支架、三脚架）
+        
+        Returns:
+            list: 附件信息列表，每项包含:
+                - name: 附件名称
+                - type: 附件类型 (handle/lens_mount/phone_holder/tripod)
+                - is_bundled: 是否为配套附件（True表示配套，False表示库存附件）
+                - id: 设备ID（仅库存附件有）
+                - serial_number: 序列号（仅库存附件有）
+        """
+        accessories = []
+        
+        # 1. 添加配套附件（基于boolean字段）
+        if self.includes_handle:
+            accessories.append({
+                'name': '手柄',
+                'type': 'handle',
+                'is_bundled': True
+            })
+        
+        if self.includes_lens_mount:
+            accessories.append({
+                'name': '镜头支架',
+                'type': 'lens_mount',
+                'is_bundled': True
+            })
+        
+        # 2. 添加库存附件（基于child_rentals）
+        for child in self.child_rentals:
+            if child.device:
+                accessory_type = self._infer_accessory_type(child.device.name)
+                accessories.append({
+                    'id': child.device.id,
+                    'name': child.device.name,
+                    'serial_number': child.device.serial_number,
+                    'type': accessory_type,
+                    'is_bundled': False
+                })
+        
+        return accessories
+    
+    def _infer_accessory_type(self, device_name):
+        """根据设备名称推断附件类型
+        
+        Args:
+            device_name: 设备名称
+            
+        Returns:
+            str: 附件类型 (phone_holder/tripod/other)
+        """
+        if '手机支架' in device_name or 'phone' in device_name.lower():
+            return 'phone_holder'
+        elif '三脚架' in device_name or 'tripod' in device_name.lower():
+            return 'tripod'
+        elif '手柄' in device_name:
+            return 'handle'
+        elif '镜头支架' in device_name:
+            return 'lens_mount'
+        else:
+            return 'other'
     
     @classmethod
     def get_active_rentals(cls, date_range=None, include_accessories=False):

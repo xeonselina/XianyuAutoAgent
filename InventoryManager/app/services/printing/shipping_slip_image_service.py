@@ -335,22 +335,22 @@ class ShippingSlipImageService:
             device_name = rental.device.name if rental.device else '未知设备'
             y = self._draw_info_row(draw, y, "设备:", device_name)
 
-            # 附件信息（从child_rentals获取）
-            child_rentals = list(rental.child_rentals.all()) if hasattr(rental, 'child_rentals') else []
-            if child_rentals:
+            # 附件信息（使用新的统一方法获取配套和库存附件）
+            all_accessories = rental.get_all_accessories_for_display()
+            if all_accessories:
                 accessories_list = []
-                for child in child_rentals:
-                    if child.device:
-                        # 获取附件名称和型号
-                        acc_name = child.device.name
-                        acc_model = ''
-                        if child.device.device_model:
-                            acc_model = child.device.device_model.name
-                        elif child.device.model:
-                            acc_model = child.device.model
-
-                        accessories_list.append(f"{acc_name}{(' ' + acc_model) if acc_model else ''}")
-
+                for acc in all_accessories:
+                    if acc.get('is_bundled'):
+                        # 配套附件：手柄 (配套)
+                        accessories_list.append(f"{acc['name']} (配套)")
+                    else:
+                        # 库存附件：手机支架-P01 [P01-20240501]
+                        serial = acc.get('serial_number', '')
+                        if serial:
+                            accessories_list.append(f"{acc['name']} [{serial}]")
+                        else:
+                            accessories_list.append(acc['name'])
+                
                 if accessories_list:
                     accessories_text = ', '.join(accessories_list)
                     y = self._draw_info_row(draw, y, "附件:", accessories_text)

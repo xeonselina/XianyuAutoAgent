@@ -73,13 +73,15 @@
             <span class="label">包含附件:</span>
             <div class="accessories-list">
               <el-tag
-                v-for="accessory in accessories"
-                :key="accessory.id"
-                type="info"
+                v-for="(accessory, index) in accessories"
+                :key="accessory.id || index"
+                :type="accessory.is_bundled ? 'success' : 'info'"
                 size="small"
                 class="accessory-tag"
               >
                 {{ accessory.name }}
+                <span v-if="accessory.is_bundled" class="bundled-marker">(配套)</span>
+                <span v-else-if="accessory.serial_number" class="serial-number">[{{ accessory.serial_number }}]</span>
               </el-tag>
             </div>
           </div>
@@ -269,6 +271,18 @@ const getStatusText = (status: string) => {
 
 .accessory-tag {
   font-size: 11px;
+}
+
+.bundled-marker {
+  margin-left: 4px;
+  font-weight: 600;
+  color: #67C23A;
+}
+
+.serial-number {
+  margin-left: 4px;
+  font-size: 10px;
+  color: #909399;
 }
 
 /* 档期冲突警告样式 */
