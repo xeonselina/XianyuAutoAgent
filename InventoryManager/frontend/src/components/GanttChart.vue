@@ -51,13 +51,28 @@
           >
             📦 批量发货
           </el-button>
-          <el-button
-            type="info"
-            @click="$router.push('/statistics')"
-          >
-            <el-icon><DataAnalysis /></el-icon>
-            统计数据
-          </el-button>
+          <el-dropdown @command="handleMoreCommand">
+            <el-button type="info">
+              更多
+              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="statistics">
+                  <el-icon><DataAnalysis /></el-icon>
+                  统计数据
+                </el-dropdown-item>
+                <el-dropdown-item command="sf-tracking">
+                  <el-icon><Location /></el-icon>
+                  物流查询
+                </el-dropdown-item>
+                <el-dropdown-item command="inspection">
+                  <el-icon><CircleCheck /></el-icon>
+                  验机
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <el-button
             @click="ganttStore.loadData()"
             :loading="ganttStore.loading"
@@ -334,9 +349,10 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useGanttStore, type Device, type Rental, type DeviceModel, type ModelAccessory } from '@/stores/gantt'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, ArrowLeft, ArrowRight, Search, DataAnalysis } from '@element-plus/icons-vue'
+import { Plus, Refresh, ArrowLeft, ArrowRight, Search, DataAnalysis, ArrowDown, Location, CircleCheck } from '@element-plus/icons-vue'
 import axios from 'axios'
 import GanttRow from './GanttRow.vue'
 import BookingDialog from './BookingDialog.vue'
@@ -351,6 +367,7 @@ import {
 } from '@/utils/dateUtils'
 import dayjs from 'dayjs'
 
+const router = useRouter()
 const ganttStore = useGanttStore()
 
 // 响应式状态
@@ -833,6 +850,21 @@ const handleUpdateDeviceStatus = async (device: Device, newStatus: string) => {
 
 const openBatchShipping = () => {
   window.open('/batch-shipping', '_blank')
+}
+
+// 处理"更多"菜单命令
+const handleMoreCommand = (command: string) => {
+  switch (command) {
+    case 'statistics':
+      router.push('/statistics')
+      break
+    case 'sf-tracking':
+      router.push('/sf-tracking')
+      break
+    case 'inspection':
+      window.open('/inspection-records', '_blank')
+      break
+  }
 }
 
 // 统计数据缓存

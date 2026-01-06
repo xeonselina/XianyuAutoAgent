@@ -40,7 +40,7 @@ def create_app(config_class=Config):
     CORS(app)
     
     # 注册蓝图
-    from app.routes import web, external_api, vue_app, tracking_api, device_model_api, statistics_api, shipping_batch_api, sf_test_api, sf_tracking_api
+    from app.routes import web, external_api, vue_app, tracking_api, device_model_api, statistics_api, shipping_batch_api, sf_test_api, sf_tracking_api, inspection
     app.register_blueprint(web.bp)
     app.register_blueprint(external_api.bp, url_prefix='/external-api')
     app.register_blueprint(vue_app.bp)
@@ -50,6 +50,7 @@ def create_app(config_class=Config):
     app.register_blueprint(shipping_batch_api.bp)
     app.register_blueprint(sf_test_api.bp)
     app.register_blueprint(sf_tracking_api.bp)
+    app.register_blueprint(inspection.inspection_bp)
     
     # 启动定时调度器
     try:

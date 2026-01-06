@@ -9,6 +9,12 @@
       <div class="form-tip">手柄和镜头支架已与设备配齐，无需选择具体编号</div>
     </el-form-item>
 
+    <!-- 代传照片 - 复选框 -->
+    <el-form-item label="附加服务">
+      <el-checkbox v-model="form.photoTransfer">代传照片</el-checkbox>
+      <div class="form-tip">勾选此项表示需要代替客户传输照片</div>
+    </el-form-item>
+
     <!-- 库存附件 - 手机支架 -->
     <el-form-item label="手机支架">
       <div class="device-selection">

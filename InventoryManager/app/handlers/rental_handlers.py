@@ -84,7 +84,10 @@ class RentalHandlers:
             data['includes_handle'] = data.get('includes_handle', False)
             data['includes_lens_mount'] = data.get('includes_lens_mount', False)
             
-            current_app.logger.info(f"创建租赁: includes_handle={data['includes_handle']}, includes_lens_mount={data['includes_lens_mount']}")
+            # 提取代传照片标记
+            data['photo_transfer'] = data.get('photo_transfer', False)
+            
+            current_app.logger.info(f"创建租赁: includes_handle={data['includes_handle']}, includes_lens_mount={data['includes_lens_mount']}, photo_transfer={data['photo_transfer']}")
 
             # 创建租赁记录
             main_rental, accessory_rentals = RentalService.create_rental_with_accessories(data)
@@ -298,6 +301,11 @@ class RentalHandlers:
             if 'includes_lens_mount' in data:
                 rental.includes_lens_mount = data['includes_lens_mount']
                 current_app.logger.info(f"更新includes_lens_mount: {data['includes_lens_mount']}")
+            
+            # 处理代传照片标记更新
+            if 'photo_transfer' in data:
+                rental.photo_transfer = data['photo_transfer']
+                current_app.logger.info(f"更新photo_transfer: {data['photo_transfer']}")
 
             # 确保所有更改都被提交到数据库
             # 注意：update_rental_status 会自己提交，但附件更新需要额外提交
@@ -355,7 +363,7 @@ class RentalHandlers:
                 })
 
             # 查找重复的租赁记录
-            query = Rental.query.filter(Rental.status.in_(['not_shipped', 'shipped', 'returned']))
+            query = Rental.query.filter(Rental.status.in_(['not_shipped', 'scheduled_for_shipping', 'shipped', 'returned']))
 
             # 排除当前编辑的租赁记录
             if exclude_rental_id:

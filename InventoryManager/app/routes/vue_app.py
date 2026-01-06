@@ -38,6 +38,25 @@ def unified_favicon():
 
 
 # =============================================================================
+# Vue Router 路由支持 - 捕获所有前端路由
+# =============================================================================
+
+@bp.route('/gantt')
+@bp.route('/contract/<path:subpath>')
+@bp.route('/shipping/<path:subpath>')
+@bp.route('/batch-shipping-order')
+@bp.route('/batch-shipping')
+@bp.route('/statistics')
+@bp.route('/sf-tracking')
+@bp.route('/inspection')
+@bp.route('/inspection-records')
+def vue_router_routes(subpath=None):
+    """处理所有 Vue Router 路由 - 返回 index.html 让前端路由处理"""
+    dist_path = os.path.join(current_app.root_path, '..', 'static', 'vue-dist')
+    return send_from_directory(dist_path, 'index.html')
+
+
+# =============================================================================
 # PC端前端路由 (向后兼容)
 # =============================================================================
 

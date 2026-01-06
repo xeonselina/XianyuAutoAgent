@@ -6,6 +6,8 @@ import BatchShippingOrderView from '../views/BatchShippingOrderView.vue'
 import BatchShippingView from '../views/BatchShippingView.vue'
 import StatisticsView from '../views/StatisticsView.vue'
 import SFTrackingView from '../views/SFTrackingView.vue'
+import InspectionView from '../views/InspectionView.vue'
+import InspectionRecordsView from '../views/InspectionRecordsView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -48,6 +50,16 @@ const router = createRouter({
       path: '/sf-tracking',
       name: 'sf-tracking',
       component: SFTrackingView,
+    },
+    {
+      path: '/inspection',
+      name: 'inspection',
+      component: InspectionView,
+    },
+    {
+      path: '/inspection-records',
+      name: 'inspection-records',
+      component: InspectionRecordsView,
     }
   ],
 })

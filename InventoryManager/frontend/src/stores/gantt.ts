@@ -84,6 +84,8 @@ export interface Rental {
   // 新字段：配套附件标记
   includes_handle: boolean
   includes_lens_mount: boolean
+  // 代传照片标记
+  photo_transfer: boolean
   xianyu_order_no?: string
   order_amount?: number
   buyer_id?: string

@@ -332,11 +332,11 @@ def get_daily_stats():
         available_count = len(available_devices)
 
         # 计算待寄出设备数量，分别统计主设备和附件设备
-        # 算法：有多少rental的shipouttime的日期部分是当天且状态为未发货（使用系统时区）
+        # 算法：有多少rental的shipouttime的日期部分是当天且状态为未发货或待发货（使用系统时区）
         rentals_with_ship_out = Rental.query.filter(
             db.and_(
                 Rental.ship_out_time.isnot(None),
-                Rental.status == 'not_shipped'  # 只统计未发货的
+                Rental.status.in_(['not_shipped', 'scheduled_for_shipping'])  # 统计未发货和待发货的
             )
         ).all()
 
