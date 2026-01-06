@@ -128,6 +128,9 @@ export interface Rental {
   includes_handle: boolean
   includes_lens_mount: boolean
   
+  // 代传照片标记
+  photo_transfer: boolean
+  
   // 关联数据
   device?: any
   device_info?: any

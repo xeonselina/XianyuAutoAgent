@@ -1,0 +1,214 @@
+openapi: 3.0.3
+info:
+  title: 租赁记录扩展 API
+  description: 为租赁记录添加"代传照片"字段相关的 API 扩展
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:5002/api
+    description: 本地开发环境
+  - url: https://api.example.com/api
+    description: 生产环境
+
+tags:
+  - name: Rental Extension
+    description: 租赁记录扩展功能
+
+paths:
+  # ==================== 租赁记录 CRUD（扩展 photo_transfer 字段）====================
+  
+  /rentals:
+    post:
+      summary: 创建租赁记录（扩展版本）
+      description: 创建新的租赁记录，支持"代传照片"字段
+      tags:
+        - Rental Extension
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/ExistingRentalFields'
+                - type: object
+                  properties:
+                    photo_transfer:
+                      type: boolean
+                      description: 是否包含代传照片服务
+                      example: false
+      responses:
+        '201':
+          description: 租赁记录创建成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/RentalWithPhotoTransfer'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /rentals/{rental_id}:
+    get:
+      summary: 查询租赁记录详情（扩展版本）
+      description: 获取租赁记录详情，包含"代传照片"字段
+      tags:
+        - Rental Extension
+      parameters:
+        - name: rental_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 租赁记录ID
+          example: 123
+      responses:
+        '200':
+          description: 成功返回租赁记录详情
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/RentalWithPhotoTransfer'
+        '404':
+          description: 租赁记录不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "租赁记录不存在"
+    
+    put:
+      summary: 更新租赁记录（扩展版本）
+      description: 更新租赁记录，支持修改"代传照片"字段
+      tags:
+        - Rental Extension
+      parameters:
+        - name: rental_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: 租赁记录ID
+          example: 123
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/ExistingRentalFields'
+                - type: object
+                  properties:
+                    photo_transfer:
+                      type: boolean
+                      description: 是否包含代传照片服务
+                      example: true
+      responses:
+        '200':
+          description: 租赁记录更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/RentalWithPhotoTransfer'
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 租赁记录不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+# ==================== 数据模型 ====================
+
+components:
+  schemas:
+    # 租赁记录（包含 photo_transfer 字段）
+    RentalWithPhotoTransfer:
+      allOf:
+        - $ref: '#/components/schemas/ExistingRentalFields'
+        - type: object
+          properties:
+            photo_transfer:
+              type: boolean
+              description: 是否包含代传照片服务
+              example: false
+    
+    # 现有租赁记录字段（占位符，代表现有字段）
+    ExistingRentalFields:
+      type: object
+      description: 现有租赁记录的所有字段（简化表示）
+      properties:
+        id:
+          type: integer
+          description: 租赁记录ID
+          example: 123
+        device_id:
+          type: integer
+          description: 设备ID
+          example: 2001
+        customer_name:
+          type: string
+          description: 客户姓名
+          example: "张三"
+        customer_phone:
+          type: string
+          description: 客户电话
+          example: "13800138000"
+        start_date:
+          type: string
+          format: date
+          description: 租赁开始日期
+          example: "2026-01-01"
+        end_date:
+          type: string
+          format: date
+          description: 租赁结束日期
+          example: "2026-01-10"
+        includes_handle:
+          type: boolean
+          description: 是否包含手柄
+          example: true
+        includes_lens_mount:
+          type: boolean
+          description: 是否包含镜头支架
+          example: true
+        # ... 其他现有字段 ...
+    
+    # 错误响应
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          description: 错误信息
+          example: "参数验证失败"

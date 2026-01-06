@@ -155,7 +155,8 @@ const form = ref({
   accessories: [] as number[],
   xianyuOrderNo: '',
   orderAmount: '',
-  buyerId: ''
+  buyerId: '',
+  photoTransfer: false  // 代传照片标记
 })
 
 // UI State
@@ -240,7 +241,8 @@ const handleSubmit = async () => {
       accessories: accessoryIds,
       xianyu_order_no: form.value.xianyuOrderNo,
       order_amount: form.value.orderAmount ? parseFloat(form.value.orderAmount) : undefined,
-      buyer_id: form.value.buyerId
+      buyer_id: form.value.buyerId,
+      photo_transfer: form.value.photoTransfer  // 代传照片标记
     }
 
     await ganttStore.updateRental(props.rental!.id, updateData)
@@ -507,7 +509,8 @@ const initForm = async () => {
       accessories: childAccessoryIds,
       xianyuOrderNo: rentalData.xianyu_order_no || '',
       orderAmount: rentalData.order_amount ? String(rentalData.order_amount) : '',
-      buyerId: rentalData.buyer_id || ''
+      buyerId: rentalData.buyer_id || '',
+      photoTransfer: rentalData.photo_transfer || false  // 代传照片标记
     }
 
     if (latestRental) {

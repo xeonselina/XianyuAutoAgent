@@ -57,6 +57,9 @@ class Rental(db.Model):
     includes_handle = db.Column(db.Boolean, default=False, nullable=False, comment='是否包含手柄（配套附件）')
     includes_lens_mount = db.Column(db.Boolean, default=False, nullable=False, comment='是否包含镜头支架（配套附件）')
     
+    # 代传照片标记
+    photo_transfer = db.Column(db.Boolean, default=False, nullable=False, comment='是否代传照片')
+    
     # 关系
     audit_logs = db.relationship('AuditLog', backref='rental', lazy='dynamic')
     # 子租赁记录（附件租赁）
@@ -139,7 +142,9 @@ class Rental(db.Model):
             'child_rentals': child_rentals_list,
             # 配套附件标记
             'includes_handle': self.includes_handle,
-            'includes_lens_mount': self.includes_lens_mount
+            'includes_lens_mount': self.includes_lens_mount,
+            # 代传照片标记
+            'photo_transfer': self.photo_transfer
         }
     
     def get_duration_days(self):
