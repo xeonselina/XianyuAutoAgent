@@ -286,13 +286,22 @@ class SFExpressService:
                 remark+=f"设备号：{rental.device.name}| "
 
             # 添加附件信息
+            accessories = []
+            
+            # 添加标准附件（勾选的）
+            if rental.includes_handle:
+                accessories.append("手柄")
+            if rental.includes_lens_mount:
+                accessories.append("转接环")
+            
+            # 添加个性化附件（child_rentals）
             if rental.child_rentals:
-                accessories = []
                 for child_rental in rental.child_rentals:
                     if child_rental.device and child_rental.device.device_model:
                         accessories.append(child_rental.device.device_model.name)
-                if accessories:
-                    remark+=f"附件：{'、'.join(accessories)}| "
+            
+            if accessories:
+                remark+=f"附件：{'、'.join(accessories)}| "
 
             # 添加寄出日期
             if rental.ship_out_time:

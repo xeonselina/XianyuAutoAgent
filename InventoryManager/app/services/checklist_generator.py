@@ -11,10 +11,11 @@ class ChecklistGenerator:
     # 基础检查项（所有租赁都包含）
     BASE_ITEMS = [
         {'name': '手机、镜头无严重磕碰', 'order': 1},
-        {'name': '摄像头各焦段无白色十字', 'order': 2},
-        {'name': '镜头镜片清晰，无雾无破裂', 'order': 3},
-        {'name': '镜头拆装顺滑', 'order': 4},
-        {'name': '充电头和充电线', 'order': 5}
+        {'name': '屏幕贴膜或贴纸', 'order': 2}
+        {'name': '摄像头各焦段无白色十字', 'order': 3},
+        {'name': '镜头镜片清晰，无雾无破裂', 'order': 4},
+        {'name': '镜头拆装顺滑', 'order': 5},
+        {'name': '充电头和充电线', 'order': 6}
     ]
     
     @classmethod
