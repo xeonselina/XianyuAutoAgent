@@ -4,7 +4,7 @@ T042 - Execute one turn of agent conversation.
 """
 
 import json
-from datetime import datetime
+from datetime import datetime, date
 from typing import List, Dict, Any
 from ai_kefu.agent.types import TurnResult
 from ai_kefu.models.session import Session, Message, ToolCall
@@ -12,7 +12,74 @@ from ai_kefu.config.constants import MessageRole, ToolCallStatus
 from ai_kefu.llm.qwen_client import call_qwen
 from ai_kefu.tools.tool_registry import ToolRegistry
 from ai_kefu.utils.logging import logger, log_turn_start, log_turn_end, log_tool_call, log_tool_result
-from ai_kefu.prompts.system_prompt import CUSTOMER_SERVICE_SYSTEM_PROMPT
+from ai_kefu.prompts.rental_system_prompt import RENTAL_CUSTOMER_SERVICE_PROMPT as CUSTOMER_SERVICE_SYSTEM_PROMPT
+
+
+def json_serialize(obj: Any) -> str:
+    """
+    Safely serialize objects to JSON, handling datetime and other non-serializable types.
+    
+    Args:
+        obj: Object to serialize
+        
+    Returns:
+        JSON string
+    """
+    def default_handler(o):
+        """Handle non-serializable objects."""
+        if isinstance(o, (datetime, date)):
+            return o.isoformat()
+        # Add more type handlers as needed
+        return str(o)
+    
+    return json.dumps(obj, ensure_ascii=False, default=default_handler)
+
+
+def validate_message_sequence(messages: List[Dict[str, Any]]) -> tuple[bool, str]:
+    """
+    Validate that message sequence follows Qwen API requirements.
+    
+    An assistant message with tool_calls must be followed by tool messages
+    for each tool_call_id.
+    
+    Returns:
+        (is_valid, error_message)
+    """
+    pending_tool_call_ids = set()
+    
+    for i, msg in enumerate(messages):
+        role = msg.get("role")
+        
+        if role == "assistant":
+            tool_calls = msg.get("tool_calls", [])
+            if tool_calls:
+                # Collect all tool_call_ids that need responses
+                for tc in tool_calls:
+                    pending_tool_call_ids.add(tc["id"])
+                logger.debug(f"Message[{i}] (assistant): added {len(tool_calls)} pending tool_call_ids: {pending_tool_call_ids}")
+        
+        elif role == "tool":
+            tool_call_id = msg.get("tool_call_id")
+            if tool_call_id in pending_tool_call_ids:
+                pending_tool_call_ids.remove(tool_call_id)
+                logger.debug(f"Message[{i}] (tool): resolved tool_call_id={tool_call_id}, remaining: {pending_tool_call_ids}")
+            else:
+                logger.warning(f"Message[{i}] (tool): unexpected tool_call_id={tool_call_id}")
+        
+        elif role == "user":
+            # A new user message means any pending tool calls should have been resolved
+            if pending_tool_call_ids:
+                error_msg = f"Message[{i}] (user): found user message but {len(pending_tool_call_ids)} tool_call_ids are still pending: {pending_tool_call_ids}"
+                logger.error(error_msg)
+                return False, error_msg
+    
+    # At the end, all tool calls should be resolved
+    if pending_tool_call_ids:
+        error_msg = f"End of messages: {len(pending_tool_call_ids)} tool_call_ids still pending: {pending_tool_call_ids}"
+        logger.error(error_msg)
+        return False, error_msg
+    
+    return True, ""
 
 
 def execute_turn(
@@ -51,6 +118,13 @@ def execute_turn(
         # Build message history for Qwen
         messages = _build_message_history(session, user_msg, system_prompt)
         
+        # Validate message sequence
+        is_valid, error_msg = validate_message_sequence(messages)
+        if not is_valid:
+            logger.error(f"Invalid message sequence: {error_msg}")
+            logger.error(f"Full message history: {json.dumps([{'role': m.get('role'), 'has_tool_calls': 'tool_calls' in m, 'tool_call_id': m.get('tool_call_id')} for m in messages], indent=2)}")
+            raise ValueError(f"Invalid message sequence: {error_msg}")
+        
         # Get tools in Qwen format
         tools = tools_registry.to_qwen_format()
         
@@ -77,6 +151,7 @@ def execute_turn(
             for tc in tool_calls_data:
                 tool_name = tc["function"]["name"]
                 tool_call_id = tc["id"]
+                tool_call = None  # Initialize to None
                 
                 try:
                     # Parse arguments
@@ -119,7 +194,7 @@ def execute_turn(
                     # Create tool response message
                     tool_msg = Message(
                         role=MessageRole.TOOL,
-                        content=json.dumps(result, ensure_ascii=False),
+                        content=json_serialize(result),
                         tool_call_id=tool_call_id,
                         tool_name=tool_name,
                         timestamp=datetime.utcnow()
@@ -127,11 +202,41 @@ def execute_turn(
                     new_messages.append(tool_msg)
                     
                 except Exception as e:
-                    logger.error(f"Tool execution failed: {e}")
-                    tool_call.status = ToolCallStatus.ERROR
-                    tool_call.error = str(e)
-                    tool_call.completed_at = datetime.utcnow()
-                    tool_call_objects.append(tool_call)
+                    logger.error(f"Tool execution failed: {e}", exc_info=True)
+                    
+                    # Only update tool_call if it was created
+                    if tool_call is not None:
+                        tool_call.status = ToolCallStatus.ERROR
+                        tool_call.error = str(e)
+                        tool_call.completed_at = datetime.utcnow()
+                        tool_call_objects.append(tool_call)
+                    else:
+                        # Create error tool call if tool_call wasn't created yet
+                        tool_call = ToolCall(
+                            id=tool_call_id,
+                            name=tool_name,
+                            args={},
+                            status=ToolCallStatus.ERROR,
+                            error=str(e),
+                            started_at=datetime.utcnow(),
+                            completed_at=datetime.utcnow()
+                        )
+                        tool_call_objects.append(tool_call)
+                    
+                    # IMPORTANT: Create tool response message even for errors
+                    # This is required by Qwen API - every tool_call must have a response
+                    error_result = {
+                        "success": False,
+                        "error": str(e)
+                    }
+                    tool_msg = Message(
+                        role=MessageRole.TOOL,
+                        content=json_serialize(error_result),
+                        tool_call_id=tool_call_id,
+                        tool_name=tool_name,
+                        timestamp=datetime.utcnow()
+                    )
+                    new_messages.append(tool_msg)
                     
                     log_tool_result(
                         session.session_id,
@@ -205,8 +310,12 @@ def _build_message_history(
         {"role": "system", "content": system_prompt}
     ]
     
+    logger.debug(f"Building message history from {len(session.messages)} session messages")
+    
     # Add historical messages
-    for msg in session.messages:
+    for idx, msg in enumerate(session.messages):
+        logger.debug(f"Processing session message {idx}: role={msg.role}, has_tool_calls={hasattr(msg, 'tool_calls') and msg.tool_calls is not None}, tool_call_id={getattr(msg, 'tool_call_id', None)}")
+        
         if msg.role == MessageRole.USER:
             messages.append({"role": "user", "content": msg.content})
         elif msg.role == MessageRole.ASSISTANT:
@@ -218,7 +327,7 @@ def _build_message_history(
                         "type": "function",
                         "function": {
                             "name": tc.name,
-                            "arguments": json.dumps(tc.args, ensure_ascii=False)
+                            "arguments": json_serialize(tc.args)
                         }
                     }
                     for tc in msg.tool_calls
@@ -232,6 +341,7 @@ def _build_message_history(
             })
     
     # Add new user message
+    logger.debug(f"Adding new user message: {new_user_message.content[:50]}")
     messages.append({"role": "user", "content": new_user_message.content})
     
     return messages

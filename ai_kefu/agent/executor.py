@@ -282,9 +282,16 @@ class AgentExecutor:
                 logger.info(f"Loaded existing session: {session_id}")
                 return session
             else:
-                logger.warning(f"Session not found: {session_id}, creating new")
+                # Create new session with the provided session_id
+                logger.info(f"Session not found in store, creating new session with provided ID: {session_id}")
+                new_session = Session(
+                    session_id=session_id,  # Use the provided session_id
+                    user_id=user_id,
+                    status=SessionStatus.ACTIVE
+                )
+                return new_session
         
-        # Create new session
+        # Create new session with generated ID
         new_session = Session(
             session_id=str(uuid.uuid4()),
             user_id=user_id,

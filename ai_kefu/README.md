@@ -95,16 +95,99 @@ INFO | 💡 提示：请在浏览器中点击进入消息中心或任意聊天
 
 ### 运行 AI Agent API
 
-#### 1. 启动 Redis
+#### 1. 安装和启动 Redis
+
+Redis 用于会话缓存和状态管理，是运行 AI Agent API 的必需依赖。
+
+**macOS 安装（推荐使用 Homebrew）**：
 ```bash
-# macOS
+# 安装 Redis
+brew install redis
+
+# 启动 Redis 服务
 brew services start redis
 
-# Linux
-sudo systemctl start redis
+# 验证 Redis 是否运行
+redis-cli ping
+# 应该返回: PONG
+```
 
-# Docker
-docker run -d -p 6379:6379 redis:7-alpine
+**Linux 安装**：
+```bash
+# Ubuntu/Debian
+sudo apt update
+sudo apt install redis-server
+
+# 启动 Redis 服务
+sudo systemctl start redis
+sudo systemctl enable redis  # 开机自启
+
+# CentOS/RHEL
+sudo yum install redis
+sudo systemctl start redis
+sudo systemctl enable redis
+```
+
+**使用 Docker（推荐用于开发和测试）**：
+```bash
+# 启动 Redis 容器
+docker run -d \
+  --name redis \
+  -p 6379:6379 \
+  redis:7-alpine
+
+# 查看容器状态
+docker ps | grep redis
+
+# 停止 Redis
+docker stop redis
+
+# 重新启动
+docker start redis
+```
+
+**配置 Redis 连接**：
+
+编辑 `.env` 文件，添加 Redis 配置：
+```ini
+# Redis 连接 URL
+REDIS_URL=redis://localhost:6379
+
+# Redis 会话过期时间（秒，默认 30 分钟）
+REDIS_SESSION_TTL=1800
+```
+
+**常见 Redis URL 格式**：
+```ini
+# 本地 Redis（无密码）
+REDIS_URL=redis://localhost:6379
+
+# 本地 Redis（有密码）
+REDIS_URL=redis://:your_password@localhost:6379
+
+# 远程 Redis（有密码和端口）
+REDIS_URL=redis://:your_password@your-redis-host:6379
+
+# 指定数据库编号（0-15，默认 0）
+REDIS_URL=redis://localhost:6379/0
+
+# 使用 SSL/TLS 连接
+REDIS_URL=rediss://:your_password@your-redis-host:6379
+```
+
+**验证 Redis 连接**：
+```bash
+# 测试连接
+redis-cli ping
+
+# 查看 Redis 信息
+redis-cli info
+
+# 查看当前键数量
+redis-cli dbsize
+
+# 清空当前数据库（谨慎使用）
+redis-cli flushdb
 ```
 
 #### 2. 初始化知识库
@@ -504,7 +587,40 @@ rm -rf browser_data/
 python main.py
 ```
 
-### Q5: API 服务启动失败
+### Q5: Redis 连接失败
+
+**可能原因**：
+1. Redis 服务未启动
+2. Redis 端口被占用
+3. 连接配置错误
+
+**解决方案**：
+```bash
+# 检查 Redis 是否运行
+redis-cli ping
+# 应该返回: PONG
+
+# 查看 Redis 服务状态（macOS）
+brew services list | grep redis
+
+# 查看 Redis 服务状态（Linux）
+sudo systemctl status redis
+
+# 重启 Redis 服务（macOS）
+brew services restart redis
+
+# 重启 Redis 服务（Linux）
+sudo systemctl restart redis
+
+# 查看 Redis 日志
+# macOS: brew services logs redis
+# Linux: sudo journalctl -u redis -f
+
+# 检查端口占用
+lsof -i :6379
+```
+
+### Q6: API 服务启动失败
 
 **解决方案**：
 ```bash

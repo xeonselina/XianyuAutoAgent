@@ -67,7 +67,7 @@ def collect_rental_info(
                     validation_errors.append("收货日期不能早于今天")
                 else:
                     collected_info["receive_date"] = receive_date
-                    collected_info["receive_dt"] = receive_dt
+                    # Store datetime internally for calculation, don't include in return
             except ValueError:
                 validation_errors.append("收货日期格式错误,请使用 YYYY-MM-DD 格式")
         else:
@@ -78,15 +78,15 @@ def collect_rental_info(
             try:
                 return_dt = datetime.strptime(return_date, "%Y-%m-%d")
                 collected_info["return_date"] = return_date
-                collected_info["return_dt"] = return_dt
                 
                 # 如果收货日期也有,验证逻辑关系
-                if "receive_dt" in collected_info:
-                    if return_dt <= collected_info["receive_dt"]:
+                if receive_date and "receive_date" in collected_info:
+                    receive_dt = datetime.strptime(receive_date, "%Y-%m-%d")
+                    if return_dt <= receive_dt:
                         validation_errors.append("归还日期必须晚于收货日期")
                     else:
                         # 计算预计使用天数
-                        usage_days = (return_dt - collected_info["receive_dt"]).days - 2  # 减去物流时间
+                        usage_days = (return_dt - receive_dt).days - 2  # 减去物流时间
                         collected_info["estimated_usage_days"] = max(1, usage_days)
             except ValueError:
                 validation_errors.append("归还日期格式错误,请使用 YYYY-MM-DD 格式")

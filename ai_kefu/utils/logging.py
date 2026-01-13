@@ -155,7 +155,7 @@ def log_tool_call(session_id: str, tool_name: str, tool_call_id: str, args: Dict
             "event_type": "tool_call_start",
             "tool_name": tool_name,
             "tool_call_id": tool_call_id,
-            "args": str(args)
+            "tool_args": str(args)  # Changed from 'args' to avoid conflict with logging reserved field
         }
     )
 
