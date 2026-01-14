@@ -9,6 +9,7 @@ from . import check_availability
 from . import calculate_logistics
 from . import calculate_price
 from . import collect_rental_info
+from . import parse_date
 
 __all__ = [
     "knowledge_search",
@@ -18,4 +19,5 @@ __all__ = [
     "calculate_logistics",
     "calculate_price",
     "collect_rental_info",
+    "parse_date",
 ]
