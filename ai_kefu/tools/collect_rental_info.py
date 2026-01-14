@@ -62,9 +62,10 @@ def collect_rental_info(
         if receive_date:
             try:
                 receive_dt = datetime.strptime(receive_date, "%Y-%m-%d")
+                today = datetime.now().date()
                 # 检查日期是否在未来
-                if receive_dt.date() < datetime.now().date():
-                    validation_errors.append("收货日期不能早于今天")
+                if receive_dt.date() < today:
+                    validation_errors.append(f"收货日期不能早于今天（今天是 {today.strftime('%Y-%m-%d')}）")
                 else:
                     collected_info["receive_date"] = receive_date
                     # Store datetime internally for calculation, don't include in return

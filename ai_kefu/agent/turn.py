@@ -12,7 +12,7 @@ from ai_kefu.config.constants import MessageRole, ToolCallStatus
 from ai_kefu.llm.qwen_client import call_qwen
 from ai_kefu.tools.tool_registry import ToolRegistry
 from ai_kefu.utils.logging import logger, log_turn_start, log_turn_end, log_tool_call, log_tool_result
-from ai_kefu.prompts.rental_system_prompt import RENTAL_CUSTOMER_SERVICE_PROMPT as CUSTOMER_SERVICE_SYSTEM_PROMPT
+from ai_kefu.prompts.rental_system_prompt import get_rental_system_prompt
 
 
 def json_serialize(obj: Any) -> str:
@@ -86,37 +86,75 @@ def execute_turn(
     session: Session,
     user_message: str,
     tools_registry: ToolRegistry,
-    system_prompt: str = CUSTOMER_SERVICE_SYSTEM_PROMPT
+    system_prompt: str = None,
+    is_tool_continue: bool = False
 ) -> TurnResult:
     """
     Execute one turn of conversation.
     
     Args:
         session: Current session
-        user_message: User's message
+        user_message: User's message (only used if is_tool_continue=False)
         tools_registry: Tool registry
-        system_prompt: System prompt
+        system_prompt: System prompt (if None, uses default with current date)
+        is_tool_continue: If True, don't add new user message (for tool result continuation)
         
     Returns:
         TurnResult with turn execution results
     """
+    # Use default system prompt with current date if not provided
+    if system_prompt is None:
+        system_prompt = get_rental_system_prompt()
+    
     start_time = datetime.utcnow()
     turn_counter = session.turn_counter + 1
     
     log_turn_start(session.session_id, turn_counter, user_message)
     
     try:
-        # Add user message to session
-        user_msg = Message(
-            role=MessageRole.USER,
-            content=user_message,
-            timestamp=datetime.utcnow()
-        )
+        new_messages = []
         
-        new_messages = [user_msg]
-        
-        # Build message history for Qwen
-        messages = _build_message_history(session, user_msg, system_prompt)
+        # Add user message only if this is not a tool continuation turn
+        if not is_tool_continue:
+            user_msg = Message(
+                role=MessageRole.USER,
+                content=user_message,
+                timestamp=datetime.utcnow()
+            )
+            new_messages.append(user_msg)
+            
+            # Build message history with new user message
+            messages = _build_message_history(session, user_msg, system_prompt)
+        else:
+            # For tool continuation, build message history without adding new user message
+            # The tool results are already in session.messages
+            messages = [{"role": "system", "content": system_prompt}]
+            
+            # Add all historical messages (including recent tool results)
+            for msg in session.messages:
+                if msg.role == MessageRole.USER:
+                    messages.append({"role": "user", "content": msg.content})
+                elif msg.role == MessageRole.ASSISTANT:
+                    msg_dict = {"role": "assistant", "content": msg.content}
+                    if msg.tool_calls:
+                        msg_dict["tool_calls"] = [
+                            {
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.name,
+                                    "arguments": json_serialize(tc.args)
+                                }
+                            }
+                            for tc in msg.tool_calls
+                        ]
+                    messages.append(msg_dict)
+                elif msg.role == MessageRole.TOOL:
+                    messages.append({
+                        "role": "tool",
+                        "content": msg.content,
+                        "tool_call_id": msg.tool_call_id
+                    })
         
         # Validate message sequence
         is_valid, error_msg = validate_message_sequence(messages)
@@ -250,7 +288,13 @@ def execute_turn(
         if tool_call_objects:
             assistant_msg.tool_calls = tool_call_objects
         
-        new_messages.insert(1, assistant_msg)  # Insert after user message
+        # Insert assistant message at correct position
+        if is_tool_continue:
+            # For tool continuation: assistant should be first (no user message)
+            new_messages.insert(0, assistant_msg)
+        else:
+            # For normal turn: assistant comes after user message
+            new_messages.insert(1, assistant_msg)
         
         # Calculate duration
         end_time = datetime.utcnow()

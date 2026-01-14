@@ -14,7 +14,7 @@ def check_availability(
     start_date: str,
     end_date: str,
     logistics_days: int = 2,
-    model: Optional[str] = None,
+    model: Optional[str] = "1",  # 默认查询型号 1
     is_accessory: bool = False
 ) -> Dict[str, Any]:
     """
@@ -24,7 +24,7 @@ def check_availability(
         start_date: 租赁开始日期 (YYYY-MM-DD 格式, 用户实际使用开始日期)
         end_date: 租赁结束日期 (YYYY-MM-DD 格式, 用户实际使用结束日期)
         logistics_days: 物流所需天数 (默认2天)
-        model: 设备型号 ID (可选, 不指定则查询所有型号)
+        model: 设备型号 ID (默认 "1", 可选值: "1", "2", "3" 等)
         is_accessory: 是否为配件 (默认 False)
         
     Returns:
@@ -66,12 +66,9 @@ def check_availability(
             "start_date": start_date,
             "end_date": end_date,
             "logistics_days": logistics_days,
+            "model": model if model else "1",  # 确保总是有 model 值
             "is_accessory": is_accessory
         }
-        
-        # 如果指定了型号，添加到请求中
-        if model:
-            payload["model"] = model
         
         # 从配置获取 API 地址
         api_url = f"{settings.rental_api_base_url}{settings.rental_find_slot_endpoint}"
@@ -86,6 +83,20 @@ def check_availability(
         logger.info(f"Calling rental API: {api_url}")
         logger.debug(f"Request payload: {payload}")
         
+        # 生成 curl 命令用于调试（多行格式，便于阅读）
+        import json as json_lib
+        curl_command_readable = f"""curl -X POST '{api_url}' \\
+  -H 'accept: application/json, text/plain, */*' \\
+  -H 'accept-language: zh-CN,zh;q=0.9,en;q=0.8' \\
+  -H 'content-type: application/json' \\
+  -d '{json_lib.dumps(payload, ensure_ascii=False)}'"""
+        
+        # 生成单行 curl 命令（便于复制）
+        curl_command_oneline = f"curl -X POST '{api_url}' -H 'content-type: application/json' -d '{json_lib.dumps(payload, ensure_ascii=False)}'"
+        
+        logger.info(f"Equivalent curl command (readable):\n{curl_command_readable}")
+        logger.info(f"Equivalent curl command (one-line): {curl_command_oneline}")
+        
         response = requests.post(
             api_url,
             json=payload,
@@ -94,6 +105,25 @@ def check_availability(
         )
         
         # 检查响应状态
+        if response.status_code == 404:
+            # 404 通常表示没有找到可用档期
+            try:
+                error_data = response.json()
+                error_message = error_data.get("error", "在指定时间段内没有可用设备")
+            except:
+                error_message = "在指定时间段内没有可用设备"
+            
+            logger.warning(f"No availability found: {error_message}")
+            return {
+                "success": True,  # API 调用成功，只是没有档期
+                "available_slots": [],
+                "rental_days": rental_days,
+                "start_date": start_date,
+                "end_date": end_date,
+                "logistics_days": logistics_days,
+                "message": error_message
+            }
+        
         if response.status_code != 200:
             error_msg = f"API 请求失败 (状态码: {response.status_code}): {response.text}"
             logger.error(error_msg)
@@ -107,20 +137,51 @@ def check_availability(
         api_response = response.json()
         logger.debug(f"API response: {api_response}")
         
-        # 根据 API 返回结果构建响应
-        # 注意: 需要根据实际 API 响应格式调整
-        available_slots = api_response.get("data", []) if isinstance(api_response.get("data"), list) else []
+        # 解析 API 返回的设备列表
+        # API 返回格式: {"data": {"available_devices": [...], "total_available": N}}
+        data = api_response.get("data", {})
         
-        if not available_slots:
-            message = f"抱歉，{start_date} 至 {end_date} 期间暂无可租设备"
+        if isinstance(data, dict):
+            # 新格式: data 是对象
+            available_devices = data.get("available_devices", [])
+            total_available = data.get("total_available", 0)
+            device_info = data.get("device", {})
+            
+            if available_devices:
+                message = f"找到 {total_available} 台可用设备（型号: {model}）"
+                device_model_info = device_info.get("device_model", {}) if device_info else {}
+                model_name = device_model_info.get("display_name", model) if device_model_info else model
+                
+                # 构建设备列表信息
+                available_slots = [{
+                    "device_ids": available_devices,
+                    "total_count": total_available,
+                    "model_id": model,
+                    "model_name": model_name,
+                    "start_date": start_date,
+                    "end_date": end_date
+                }]
+            else:
+                available_slots = []
+                message = f"抱歉，{start_date} 至 {end_date} 期间暂无可租设备"
+        elif isinstance(data, list):
+            # 旧格式: data 是列表
+            available_slots = data
+            if available_slots:
+                message = f"找到 {len(available_slots)} 个可用档期"
+            else:
+                message = f"抱歉，{start_date} 至 {end_date} 期间暂无可租设备"
         else:
-            message = f"找到 {len(available_slots)} 个可用档期"
+            # 未知格式
+            available_slots = []
+            message = f"抱歉，{start_date} 至 {end_date} 期间暂无可租设备"
         
-        logger.info(f"Availability check completed: {len(available_slots)} slots found")
+        logger.info(f"Availability check completed: {len(available_slots)} slots found, total devices: {total_available if isinstance(data, dict) else 0}")
         
         return {
             "success": True,
             "available_slots": available_slots,
+            "total_available": total_available if isinstance(data, dict) else len(available_slots),
             "rental_days": rental_days,
             "start_date": start_date,
             "end_date": end_date,
@@ -200,7 +261,9 @@ def get_tool_definition() -> Dict[str, Any]:
                 },
                 "model": {
                     "type": "string",
-                    "description": "设备型号 ID (可选)。如果不指定则查询所有可用型号"
+                    "description": "设备型号 ID。可选值：'1' (默认), '2', '3' 等。如果用户没有指定型号，使用默认值 '1'",
+                    "default": "1",
+                    "enum": ["1", "2", "3"]
                 },
                 "is_accessory": {
                     "type": "boolean",

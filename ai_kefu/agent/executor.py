@@ -80,7 +80,14 @@ class AgentExecutor:
             check_availability,
             calculate_logistics,
             calculate_price,
-            collect_rental_info
+            collect_rental_info,
+            parse_date
+        )
+        
+        self.tools_registry.register_tool(
+            "parse_date",
+            parse_date.parse_date,
+            parse_date.get_tool_definition()
         )
         
         self.tools_registry.register_tool(
@@ -136,6 +143,7 @@ class AgentExecutor:
         
         # Execute turns until completion
         response_text = ""
+        is_first_turn = True
         
         try:
             while True:
@@ -144,11 +152,16 @@ class AgentExecutor:
                     raise MaxTurnsExceededError(session.session_id, self.config.max_turns)
                 
                 # Execute turn
+                # First turn: add user message
+                # Subsequent turns: continue with tool results
                 turn_result = execute_turn(
                     session=session,
                     user_message=query,
-                    tools_registry=self.tools_registry
+                    tools_registry=self.tools_registry,
+                    is_tool_continue=not is_first_turn
                 )
+                
+                is_first_turn = False
                 
                 if not turn_result.success:
                     session.status = SessionStatus.ERROR
@@ -190,11 +203,21 @@ class AgentExecutor:
                     response_text = turn_result.response_text
                     break
                 
-                # Store intermediate response
+                # Update response text
                 response_text = turn_result.response_text
                 
-                # For synchronous mode, we stop after first turn
-                # (Multi-turn would need user input for next turn)
+                # If there were tool calls, continue to next turn to get LLM's response to tool results
+                if turn_result.tool_calls:
+                    logger.info(f"Turn {session.turn_counter} had {len(turn_result.tool_calls)} tool calls, continuing to next turn")
+                    continue
+                
+                # If no tool calls and we have response text, we're done
+                if response_text:
+                    logger.info(f"Turn {session.turn_counter} completed with response, ending agent execution")
+                    break
+                
+                # If no tool calls and no response text, something is wrong
+                logger.warning(f"Turn {session.turn_counter} had no tool calls and no response text")
                 break
             
             # Save session
