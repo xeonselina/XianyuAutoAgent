@@ -194,14 +194,16 @@ const emit = defineEmits<{
 // 过滤手机支架
 const phoneHolders = computed(() => {
   return props.availableControllers.filter(a => 
-    a.name.includes('手机支架') || a.name.toLowerCase().includes('phone')
+    a.name.includes('手机支架') || a.name.toLowerCase().includes('phone') ||
+    (a.model && (a.model.includes('手机支架') || a.model.toLowerCase().includes('phone')))
   )
 })
 
 // 过滤三脚架
 const tripods = computed(() => {
   return props.availableControllers.filter(a => 
-    a.name.includes('三脚架') || a.name.toLowerCase().includes('tripod')
+    a.name.includes('三脚架') || a.name.toLowerCase().includes('tripod') ||
+    (a.model && (a.model.includes('三脚架') || a.model.toLowerCase().includes('tripod')))
   )
 })
 
