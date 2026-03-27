@@ -62,12 +62,15 @@ async def root():
 
 
 # Register routes
-from ai_kefu.api.routes import system, chat, session, human_agent, knowledge
+from ai_kefu.api.routes import system, chat, session, human_agent, knowledge, conversations, prompts, eval as eval_routes
 app.include_router(system.router, tags=["system"])
 app.include_router(chat.router, prefix="/chat", tags=["chat"])
 app.include_router(session.router, prefix="/sessions", tags=["sessions"])
 app.include_router(human_agent.router, prefix="/human-agent", tags=["human-agent"])
 app.include_router(knowledge.router, prefix="/knowledge", tags=["knowledge"])
+app.include_router(conversations.router, prefix="/conversations", tags=["conversations"])
+app.include_router(prompts.router, prefix="/prompts", tags=["prompts"])
+app.include_router(eval_routes.router, prefix="/eval", tags=["eval"])
 
 
 # Mount static files for Knowledge Management UI
@@ -79,3 +82,13 @@ if ui_dist_path.exists():
         name="knowledge-ui"
     )
     logger.info(f"Knowledge Management UI mounted at /ui/knowledge")
+
+# Mount static files for Conversations UI
+conv_ui_dist = Path(__file__).parent.parent / "ui" / "conversations" / "dist"
+if conv_ui_dist.exists():
+    app.mount(
+        "/ui/conversations",
+        StaticFiles(directory=str(conv_ui_dist), html=True),
+        name="conversations-ui"
+    )
+    logger.info(f"Conversations UI mounted at /ui/conversations")

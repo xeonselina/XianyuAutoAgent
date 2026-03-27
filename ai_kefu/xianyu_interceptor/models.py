@@ -24,9 +24,13 @@ class XianyuMessage(BaseModel):
     
     message_type: XianyuMessageType
     chat_id: str
-    user_id: str
+    user_id: str  # 消息发送者的用户ID
     content: Optional[str] = None
     item_id: Optional[str] = None
+    item_title: Optional[str] = None  # 商品标题（从 reminderTitle 提取）
+    item_price: Optional[str] = None  # 商品价格（如果可用）
+    message_id: Optional[str] = None  # 消息唯一ID
+    is_self_sent: bool = False  # 是否是自己（卖家）发送的消息
     timestamp: Optional[int] = None
     raw_data: Optional[Dict[str, Any]] = None
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
@@ -69,8 +73,8 @@ class AgentClientConfig(BaseModel):
     """Configuration for Agent HTTP client."""
     
     base_url: str = "http://localhost:8000"
-    timeout: float = 10.0
-    connect_timeout: float = 5.0
+    timeout: float = 120.0
+    connect_timeout: float = 10.0
     max_retries: int = 3
     retry_delay: float = 1.0
     retry_backoff: float = 2.0

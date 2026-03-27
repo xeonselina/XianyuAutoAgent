@@ -127,6 +127,9 @@ class MemorySessionMapper(SessionMapper):
 class RedisSessionMapper(SessionMapper):
     """Redis-based session mapper."""
     
+    # TTL for session mappings (should match or exceed session data TTL)
+    MAPPING_TTL = 86400  # 24 hours
+    
     def __init__(self, redis_url: str):
         try:
             import redis
@@ -164,10 +167,10 @@ class RedisSessionMapper(SessionMapper):
             item_id=item_id
         )
         
-        # Store in Redis
-        self.redis.set(self._key_forward(chat_id), agent_session_id)
-        self.redis.set(self._key_reverse(agent_session_id), chat_id)
-        self.redis.setex(self._key_meta(chat_id), 3600, mapping.model_dump_json())
+        # Store in Redis with TTL
+        self.redis.setex(self._key_forward(chat_id), self.MAPPING_TTL, agent_session_id)
+        self.redis.setex(self._key_reverse(agent_session_id), self.MAPPING_TTL, chat_id)
+        self.redis.setex(self._key_meta(chat_id), self.MAPPING_TTL, mapping.model_dump_json())
         
         return agent_session_id
     
@@ -180,12 +183,18 @@ class RedisSessionMapper(SessionMapper):
         return self.redis.get(self._key_reverse(session_id))
     
     def update_activity(self, chat_id: str):
-        """Update last activity timestamp."""
+        """Update last activity timestamp and refresh TTL for all mapping keys."""
+        # Refresh TTL on forward and reverse mappings
+        session_id = self.redis.get(self._key_forward(chat_id))
+        if session_id:
+            self.redis.expire(self._key_forward(chat_id), self.MAPPING_TTL)
+            self.redis.expire(self._key_reverse(session_id), self.MAPPING_TTL)
+        
         meta_json = self.redis.get(self._key_meta(chat_id))
         if meta_json:
             mapping = SessionMapping.model_validate_json(meta_json)
             mapping.last_active = datetime.utcnow()
-            self.redis.setex(self._key_meta(chat_id), 3600, mapping.model_dump_json())
+            self.redis.setex(self._key_meta(chat_id), self.MAPPING_TTL, mapping.model_dump_json())
     
     def set_manual_mode(self, chat_id: str, enabled: bool):
         """Set manual mode for a chat."""
@@ -197,7 +206,7 @@ class RedisSessionMapper(SessionMapper):
                 mapping.manual_mode_entered_at = datetime.utcnow()
             else:
                 mapping.manual_mode_entered_at = None
-            self.redis.setex(self._key_meta(chat_id), 3600, mapping.model_dump_json())
+            self.redis.setex(self._key_meta(chat_id), self.MAPPING_TTL, mapping.model_dump_json())
     
     def is_manual_mode(self, chat_id: str) -> bool:
         """Check if chat is in manual mode."""

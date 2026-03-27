@@ -45,7 +45,7 @@ nano .env  # 或使用您喜欢的编辑器
 # 通义千问 API Key
 API_KEY=your_api_key_here
 MODEL_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-MODEL_NAME=qwen-max
+MODEL_NAME=qwen3.5-plus
 
 # 浏览器配置
 BROWSER_HEADLESS=false  # 显示浏览器窗口（推荐调试时使用）

@@ -27,8 +27,9 @@ uvicorn[standard]==0.25.0
 pydantic==2.5.0
 pydantic-settings==2.1.0
 
-# AI/ML - Alibaba Cloud DashScope (Qwen)
-dashscope==1.14.1
+# AI/ML - Alibaba Cloud Bailian (Qwen) via OpenAI-compatible API
+# dashscope SDK 不再直接使用，通过 openai SDK 调用百炼平台
+# dashscope==1.25.15  # 保留注释，以备需要原生 SDK 时恢复
 
 # Vector Database
 chromadb==1.4.0

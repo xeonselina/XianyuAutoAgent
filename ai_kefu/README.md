@@ -335,7 +335,7 @@ XianyuAutoAgent/ai_kefu/
 ```ini
 API_KEY=your_api_key_here
 MODEL_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-MODEL_NAME=qwen-max
+MODEL_NAME=qwen3.5-plus
 ```
 
 **闲鱼账号配置**（可选）：

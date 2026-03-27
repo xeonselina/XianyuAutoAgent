@@ -1,0 +1,218 @@
+"""
+Conversation history API routes.
+
+Provides endpoints for viewing and searching conversation records
+including AI debug mode responses and agent turn-level LLM I/O.
+"""
+
+from datetime import datetime
+from typing import Optional
+from fastapi import APIRouter, Query, HTTPException
+from ai_kefu.api.dependencies import get_conversation_store
+
+
+router = APIRouter()
+
+
+# ─── Fixed-path routes (MUST be before /{chat_id} to avoid conflicts) ─────
+
+
+@router.get("/recent")
+async def get_recent_conversations(
+    limit: int = Query(20, ge=1, le=100, description="Number of conversations to return"),
+    offset: int = Query(0, ge=0, description="Pagination offset")
+):
+    """
+    Get recent conversations list with pagination.
+    Returns conversation summaries sorted by latest message time.
+    """
+    try:
+        store = get_conversation_store()
+        result = store.get_recent_conversations(limit=limit, offset=offset)
+        
+        for item in result['items']:
+            for key in ('first_message_at', 'last_message_at'):
+                if item.get(key) and isinstance(item[key], datetime):
+                    item[key] = item[key].isoformat()
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch conversations: {str(e)}")
+
+
+@router.get("/stats")
+async def get_conversation_stats():
+    """
+    Get overall conversation statistics.
+    """
+    try:
+        store = get_conversation_store()
+        stats = store.get_conversation_stats()
+        
+        for key in ('earliest_message', 'latest_message'):
+            if stats.get(key) and isinstance(stats[key], datetime):
+                stats[key] = stats[key].isoformat()
+        
+        return stats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch stats: {str(e)}")
+
+
+@router.get("/search")
+async def search_messages(
+    keyword: Optional[str] = Query(None, description="Search keyword"),
+    start_time: Optional[str] = Query(None, description="Start time (ISO format)"),
+    end_time: Optional[str] = Query(None, description="End time (ISO format)"),
+    message_type: Optional[str] = Query(None, description="Message type filter (user/seller/system)"),
+    has_agent_response: Optional[bool] = Query(None, description="Filter AI responses"),
+    debug_only: bool = Query(False, description="Only show debug mode responses"),
+    limit: int = Query(50, ge=1, le=200, description="Page size"),
+    offset: int = Query(0, ge=0, description="Pagination offset")
+):
+    """
+    Search messages with various filters.
+    """
+    try:
+        store = get_conversation_store()
+        result = store.search_messages(
+            keyword=keyword,
+            start_time=start_time,
+            end_time=end_time,
+            message_type=message_type,
+            has_agent_response=has_agent_response,
+            debug_only=debug_only,
+            limit=limit,
+            offset=offset
+        )
+        
+        for item in result['items']:
+            for key in ('created_at', 'updated_at'):
+                if item.get(key) and isinstance(item[key], datetime):
+                    item[key] = item[key].isoformat()
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to search messages: {str(e)}")
+
+
+# ─── Agent Turns routes ───────────────────────────────────────────────────────
+
+
+@router.get("/turns/recent")
+async def get_recent_turns(
+    limit: int = Query(50, ge=1, le=200, description="Number of turns to return"),
+    offset: int = Query(0, ge=0, description="Pagination offset")
+):
+    """
+    Get recent agent turn records across all sessions.
+    Useful for debugging overview.
+    """
+    try:
+        store = get_conversation_store()
+        result = store.get_recent_turns(limit=limit, offset=offset)
+        
+        for item in result['items']:
+            if item.get('created_at') and isinstance(item['created_at'], datetime):
+                item['created_at'] = item['created_at'].isoformat()
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch turns: {str(e)}")
+
+
+@router.get("/turns/{session_id}")
+async def get_session_turns(
+    session_id: str,
+    limit: int = Query(100, ge=1, le=500, description="Maximum turns to return"),
+    offset: int = Query(0, ge=0, description="Pagination offset")
+):
+    """
+    Get all turn records for a specific agent session.
+    Shows complete LLM input/output for each turn.
+    """
+    try:
+        store = get_conversation_store()
+        turns = store.get_turns_by_session(
+            session_id=session_id,
+            limit=limit,
+            offset=offset
+        )
+        
+        if not turns:
+            raise HTTPException(status_code=404, detail=f"No turns found for session: {session_id}")
+        
+        for turn in turns:
+            if turn.get('created_at') and isinstance(turn['created_at'], datetime):
+                turn['created_at'] = turn['created_at'].isoformat()
+        
+        return {
+            'session_id': session_id,
+            'turns': turns,
+            'total': len(turns)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch session turns: {str(e)}")
+
+
+# ─── Dynamic path routes (MUST be last) ────────────────────────────────────
+
+
+@router.get("/{chat_id}")
+async def get_conversation_detail(
+    chat_id: str,
+    limit: int = Query(200, ge=1, le=1000, description="Maximum messages to return"),
+    offset: int = Query(0, ge=0, description="Pagination offset")
+):
+    """
+    Get full conversation history for a specific chat_id.
+    Includes AI agent responses and debug mode replies.
+    """
+    try:
+        store = get_conversation_store()
+        messages = store.get_conversation_history(
+            chat_id=chat_id,
+            limit=limit,
+            offset=offset
+        )
+        
+        if not messages:
+            raise HTTPException(status_code=404, detail=f"No messages found for chat_id: {chat_id}")
+        
+        # Convert to dict list with serialized datetimes
+        result = []
+        for msg in messages:
+            msg_dict = msg.model_dump()
+            for key in ('created_at', 'updated_at'):
+                if msg_dict.get(key) and isinstance(msg_dict[key], datetime):
+                    msg_dict[key] = msg_dict[key].isoformat()
+            result.append(msg_dict)
+        
+        # Also fetch associated turns if session_id is available
+        session_ids = set()
+        for msg_dict in result:
+            if msg_dict.get('session_id'):
+                session_ids.add(msg_dict['session_id'])
+        
+        turns_by_session = {}
+        for sid in session_ids:
+            try:
+                turns = store.get_turns_by_session(sid)
+                for turn in turns:
+                    if turn.get('created_at') and isinstance(turn['created_at'], datetime):
+                        turn['created_at'] = turn['created_at'].isoformat()
+                turns_by_session[sid] = turns
+            except Exception:
+                pass
+        
+        return {
+            'chat_id': chat_id,
+            'messages': result,
+            'total': len(result),
+            'turns_by_session': turns_by_session
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch conversation: {str(e)}")

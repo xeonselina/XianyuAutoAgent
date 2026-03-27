@@ -69,7 +69,7 @@ cat .env
 API_KEY=your_api_key
 COOKIES_STR=your_cookies
 MODEL_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-MODEL_NAME=qwen-max
+MODEL_NAME=qwen3.5-plus
 ```
 
 **新增的可选配置项**（默认值确保向后兼容）：

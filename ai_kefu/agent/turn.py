@@ -12,7 +12,9 @@ from ai_kefu.config.constants import MessageRole, ToolCallStatus
 from ai_kefu.llm.qwen_client import call_qwen
 from ai_kefu.tools.tool_registry import ToolRegistry
 from ai_kefu.utils.logging import logger, log_turn_start, log_turn_end, log_tool_call, log_tool_result
-from ai_kefu.prompts.rental_system_prompt import get_rental_system_prompt
+from ai_kefu.prompts.rental_system_prompt import get_rental_system_prompt, render_system_prompt
+from ai_kefu.storage.prompt_store import PromptStore
+from ai_kefu.config.settings import settings
 
 
 def json_serialize(obj: Any) -> str:
@@ -82,6 +84,43 @@ def validate_message_sequence(messages: List[Dict[str, Any]]) -> tuple[bool, str
     return True, ""
 
 
+def _estimate_response_confidence_percent(user_message: str, response_text: str) -> int:
+    """
+    使用轻量二次评估给出回答置信度（0~100）。
+
+    说明：这里是启发式置信度，不等同于模型真实概率。
+    """
+    prompt = f"""请评估下面客服回复对用户问题的置信度（0-100），仅返回一个整数。
+
+用户消息：{user_message}
+客服回复：{response_text}
+
+评分标准：
+- 信息明确且有依据，不猜测：80-100
+- 基本合理但有不确定成分：60-79
+- 可能答非所问或存在明显猜测：0-59
+
+只返回数字，不要其他内容。"""
+
+    try:
+        response = call_qwen(
+            messages=[
+                {"role": "system", "content": "你是严格的客服回复置信度评估器，只输出0到100之间的整数。"},
+                {"role": "user", "content": prompt}
+            ],
+            tools=None,
+            max_tokens=16,
+            temperature=0.0,
+            model=settings.model_name_light  # 轻量任务，使用 flash 模型降低成本
+        )
+        content = response["choices"][0]["message"].get("content", "").strip()
+        confidence = int("".join(ch for ch in content if ch.isdigit()) or "0")
+        return max(0, min(100, confidence))
+    except Exception as e:
+        logger.warning(f"Confidence estimation failed, fallback to 100: {e}")
+        return 100
+
+
 def execute_turn(
     session: Session,
     user_message: str,
@@ -104,7 +143,13 @@ def execute_turn(
     """
     # Use default system prompt with current date if not provided
     if system_prompt is None:
-        system_prompt = get_rental_system_prompt()
+        system_prompt = _load_system_prompt()
+    
+    # Inject context summary into system prompt if available
+    context_summary = session.context.get("context_summary", "")
+    if context_summary:
+        system_prompt = system_prompt + f"\n\n## 之前的对话上下文摘要\n以下是与该用户之前对话的摘要，请基于此理解用户需求的完整上下文：\n{context_summary}"
+        logger.info(f"Injected context summary ({len(context_summary)} chars) into system prompt")
     
     start_time = datetime.utcnow()
     turn_counter = session.turn_counter + 1
@@ -170,16 +215,47 @@ def execute_turn(
         logger.info(f"Calling Qwen API for turn {turn_counter}")
         response = call_qwen(messages=messages, tools=tools if tools else None)
         
+        # Capture LLM input/output for debugging
+        llm_input_snapshot = [dict(m) for m in messages]  # Shallow copy of messages sent to LLM
+        llm_output_snapshot = response  # Raw LLM response
+        
         # Parse response
         assistant_message = response["choices"][0]["message"]
         response_text = assistant_message.get("content", "")
         tool_calls_data = assistant_message.get("tool_calls", [])
-        
+
+        confidence_percent = 100
+        response_suppressed = False
+        confidence_threshold_percent = int(settings.response_confidence_threshold * 100)
+
+        # 仅在“本轮直接文本回复”时做置信度门控（有 tool_calls 的轮次跳过）
+        if settings.enable_confidence_guard and response_text and not tool_calls_data:
+            latest_user_msg = user_message
+            if is_tool_continue:
+                for m in reversed(session.messages):
+                    if m.role == MessageRole.USER:
+                        latest_user_msg = m.content
+                        break
+
+            confidence_percent = _estimate_response_confidence_percent(latest_user_msg, response_text)
+            if confidence_percent < confidence_threshold_percent:
+                response_suppressed = True
+                logger.warning(
+                    f"Low-confidence response suppressed: confidence={confidence_percent}%, "
+                    f"threshold={confidence_threshold_percent}%"
+                )
+                response_text = ""
+
         # Create assistant message
         assistant_msg = Message(
             role=MessageRole.ASSISTANT,
             content=response_text,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.utcnow(),
+            metadata={
+                "confidence_percent": confidence_percent,
+                "response_suppressed": response_suppressed,
+                "confidence_threshold_percent": confidence_threshold_percent
+            }
         )
         
         tool_call_objects = []
@@ -317,8 +393,12 @@ def execute_turn(
             new_messages=new_messages,
             metadata={
                 "duration_ms": duration_ms,
-                "turn_counter": turn_counter
-            }
+                "turn_counter": turn_counter,
+                "confidence_percent": confidence_percent,
+                "response_suppressed": response_suppressed,
+            },
+            llm_input=llm_input_snapshot,
+            llm_output=llm_output_snapshot
         )
         
     except Exception as e:
@@ -389,3 +469,50 @@ def _build_message_history(
     messages.append({"role": "user", "content": new_user_message.content})
     
     return messages
+
+
+# ============================================================
+# System Prompt Loading (DB-first, fallback to code)
+# ============================================================
+
+# Cached PromptStore instance (lazy init)
+_prompt_store_instance: PromptStore = None
+
+
+def _get_prompt_store() -> PromptStore:
+    """Get or create PromptStore singleton."""
+    global _prompt_store_instance
+    if _prompt_store_instance is None:
+        _prompt_store_instance = PromptStore(
+            host=settings.mysql_host,
+            port=settings.mysql_port,
+            user=settings.mysql_user,
+            password=settings.mysql_password,
+            database=settings.mysql_database
+        )
+    return _prompt_store_instance
+
+
+def _load_system_prompt() -> str:
+    """
+    Load system prompt: try database first, fallback to code.
+    
+    1. Try loading active 'rental_system' prompt from DB
+    2. If found, render template variables (dates)
+    3. If not found or DB error, use code default
+    
+    Returns:
+        Rendered system prompt string
+    """
+    try:
+        store = _get_prompt_store()
+        prompt = store.get_active("rental_system")
+        if prompt and prompt.content:
+            logger.info("Loaded system prompt from database (rental_system)")
+            return render_system_prompt(prompt.content)
+    except Exception as e:
+        logger.warning(f"Failed to load system prompt from DB, using code default: {e}")
+    
+    # Fallback to code default
+    logger.info("Using code-default system prompt")
+    return get_rental_system_prompt()

@@ -56,6 +56,37 @@ async def main():
         return
 
     # ============================================================
+    # 【重要】自动获取卖家 user_id（用于区分消息方向）
+    # ============================================================
+    if not config.seller_user_id:
+        # 尝试从 Cookie 中提取 unb（淘宝/闲鱼的用户ID）
+        from utils.xianyu_utils import trans_cookies
+        cookies_dict = trans_cookies(config.cookies_str)
+        unb = cookies_dict.get("unb", "")
+        if unb:
+            config.seller_user_id = unb
+            logger.info(f"✅ 自动从 Cookie 提取卖家 user_id: {unb}")
+        else:
+            # 尝试从浏览器上下文的 cookies 中获取
+            try:
+                browser_cookies = await browser_controller.context.cookies()
+                for cookie in browser_cookies:
+                    if cookie.get("name") == "unb":
+                        config.seller_user_id = cookie["value"]
+                        logger.info(f"✅ 自动从浏览器 Cookie 提取卖家 user_id: {cookie['value']}")
+                        break
+            except Exception as e:
+                logger.debug(f"从浏览器 Cookie 提取失败: {e}")
+        
+        if not config.seller_user_id:
+            logger.warning(
+                "⚠️ 未能自动获取卖家 user_id！请在 .env 中设置 SELLER_USER_ID。"
+                "否则无法区分自己发的消息和用户发的消息。"
+            )
+    else:
+        logger.info(f"卖家 user_id: {config.seller_user_id}")
+
+    # ============================================================
     # 【重要】多页面 WebSocket 监听机制
     # ============================================================
     # 闲鱼的消息中心可能在以下情况下创建 WebSocket：
@@ -147,6 +178,15 @@ async def main():
                     saved_count = 0
                     for xianyu_message in history_messages:
                         try:
+                            # 标记消息方向（是否是自己发的）
+                            if config.seller_user_id and xianyu_message.user_id == config.seller_user_id:
+                                xianyu_message.is_self_sent = True
+                            # 从 metadata 中提取 item_title
+                            if not xianyu_message.item_title and xianyu_message.metadata:
+                                xianyu_message.item_title = xianyu_message.metadata.get("reminder_title") or None
+                            # 从 metadata 中提取 message_id
+                            if not xianyu_message.message_id and xianyu_message.metadata:
+                                xianyu_message.message_id = xianyu_message.metadata.get("message_id") or None
                             # 传递给消息处理器（会自动保存到数据库并处理去重）
                             await message_handler.handle_message(xianyu_message)
                             saved_count += 1
@@ -177,15 +217,24 @@ async def main():
                 return  # 无法提取的消息（如订单消息）静默忽略
 
             # 步骤 3: 转换为 XianyuMessage 对象
+            metadata = std_message.metadata or {}
+            is_self_sent = (
+                bool(config.seller_user_id) and 
+                std_message.user_id == config.seller_user_id
+            )
             xianyu_message = XianyuMessage(
                 message_type=XianyuMessageType(std_message.message_type.value),
                 chat_id=std_message.chat_id,
                 user_id=std_message.user_id,
                 content=std_message.content,
                 item_id=std_message.item_id,
+                item_title=metadata.get("item_title") or metadata.get("reminder_title") or None,
+                item_price=None,  # 闲鱼 WebSocket 不携带价格
+                message_id=metadata.get("message_id") or None,
+                is_self_sent=is_self_sent,
                 timestamp=std_message.timestamp,
                 raw_data=std_message.raw_data,
-                metadata=std_message.metadata or {}
+                metadata=metadata
             )
 
             # 【重要】处理图片消息

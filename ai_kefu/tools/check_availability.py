@@ -3,6 +3,7 @@
 T_RENTAL_001 - check_availability tool
 """
 
+import hashlib
 import requests
 from typing import Dict, Any, Optional
 from datetime import datetime
@@ -69,6 +70,47 @@ def check_availability(
             "model": model if model else "1",  # 确保总是有 model 值
             "is_accessory": is_accessory
         }
+
+        # 评测模式 mock：默认 80% 有档期，20% 无档期（可配置）
+        if settings.eval_mock_availability:
+            ratio = min(max(settings.eval_mock_availability_available_ratio, 0.0), 1.0)
+            mock_key = f"{start_date}|{end_date}|{logistics_days}|{model}|{is_accessory}"
+            bucket = int(hashlib.md5(mock_key.encode("utf-8")).hexdigest()[:8], 16) / 0xFFFFFFFF
+            is_available = bucket < ratio
+
+            if is_available:
+                mock_slots = [{
+                    "device_ids": ["mock_device_001", "mock_device_002"],
+                    "total_count": 2,
+                    "model_id": model or "1",
+                    "model_name": "Mock Model",
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "source": "eval_mock"
+                }]
+                return {
+                    "success": True,
+                    "available_slots": mock_slots,
+                    "total_available": 2,
+                    "rental_days": rental_days,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "logistics_days": logistics_days,
+                    "message": "[EVAL MOCK] 有可用档期",
+                    "api_response": {"mock": True, "available": True}
+                }
+
+            return {
+                "success": True,
+                "available_slots": [],
+                "total_available": 0,
+                "rental_days": rental_days,
+                "start_date": start_date,
+                "end_date": end_date,
+                "logistics_days": logistics_days,
+                "message": "[EVAL MOCK] 在指定时间段内没有可用设备",
+                "api_response": {"mock": True, "available": False}
+            }
         
         # 从配置获取 API 地址
         api_url = f"{settings.rental_api_base_url}{settings.rental_find_slot_endpoint}"

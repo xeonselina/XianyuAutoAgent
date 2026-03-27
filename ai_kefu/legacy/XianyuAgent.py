@@ -235,7 +235,7 @@ class BaseAgent:
     def _call_llm(self, messages: List[Dict], temperature: float = 0.4) -> str:
         """调用大模型"""
         response = self.client.chat.completions.create(
-            model=os.getenv("MODEL_NAME", "qwen-max"),
+            model=os.getenv("MODEL_NAME", "qwen3.5-plus"),
             messages=messages,
             temperature=temperature,
             max_tokens=500,
@@ -254,7 +254,7 @@ class PriceAgent(BaseAgent):
         messages[0]['content'] += f"\n▲当前议价轮次：{bargain_count}"
 
         response = self.client.chat.completions.create(
-            model=os.getenv("MODEL_NAME", "qwen-max"),
+            model=os.getenv("MODEL_NAME", "qwen3.5-plus"),
             messages=messages,
             temperature=dynamic_temp,
             max_tokens=500,
@@ -275,7 +275,7 @@ class TechAgent(BaseAgent):
         # messages[0]['content'] += "\n▲知识库：\n" + self._fetch_tech_specs()
 
         response = self.client.chat.completions.create(
-            model=os.getenv("MODEL_NAME", "qwen-max"),
+            model=os.getenv("MODEL_NAME", "qwen3.5-plus"),
             messages=messages,
             temperature=0.4,
             max_tokens=500,
@@ -344,7 +344,7 @@ class ScheduleAgent(BaseAgent):
                 messages[0]['content'] += f"\n▲库存信息：{inventory_info}"
         
         response = self.client.chat.completions.create(
-            model=os.getenv("MODEL_NAME", "qwen-max"),
+            model=os.getenv("MODEL_NAME", "qwen3.5-plus"),
             messages=messages,
             temperature=0.4,
             max_tokens=600,  # 档期回复可以稍长一些
