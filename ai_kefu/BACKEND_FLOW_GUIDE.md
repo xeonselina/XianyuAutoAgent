@@ -815,7 +815,7 @@ def call_qwen(
     
     # 调用 DashScope SDK
     response = Generation.call(
-        model=settings.model_name,  # "qwen-max" 等
+        model=settings.model_name,  # "qwen3.5-plus" 等
         messages=messages,
         tools=tools,  # 工具定义
         result_format='message',  # 消息格式
@@ -975,7 +975,7 @@ TurnResult(
     ├───────────────────────┤  ├─────────────────┤  │ ChatResponse(  │
     │ 1. _ensure_api_key()  │  │ 1. 获取工具函数  │  │   session_id,  │
     │ 2. Generation.call(   │  │ 2. tool(**args) │  │   response,    │
-    │      model=qwen-max,  │  │ 3. 返回结果     │  │   status,      │
+    │      model=qwen3.5-plus,  │  │ 3. 返回结果     │  │   status,      │
     │      messages=[...],  │  │                 │  │   metadata     │
     │      tools=[...],     │  │ 示例：          │  │ )              │
     │      temperature=0.7, │  │ knowledge_search│  └────────────────┘
@@ -1061,7 +1061,7 @@ class ToolCall:
 class Settings(BaseSettings):
     # API 配置
     api_key: str  # 通义千问 API Key
-    model_name: str = "qwen-max"
+    model_name: str = "qwen3.5-plus"
     
     # Qwen 参数
     qwen_temperature: float = 0.7  # 创造性（0-2）

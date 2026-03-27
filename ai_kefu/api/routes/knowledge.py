@@ -476,3 +476,40 @@ async def export_knowledge(
     except Exception as e:
         logger.error(f"Export error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# Single Entry Get (placed after all fixed-path routes to avoid
+# /{entry_id} capturing /export, /search etc.)
+# ============================================================
+
+@router.get("/{entry_id}", response_model=KnowledgeResponse)
+async def get_knowledge(
+    entry_id: str,
+    knowledge_store: KnowledgeStore = Depends(get_knowledge_store)
+):
+    """Get a single knowledge entry by ID."""
+    try:
+        entry = knowledge_store.get(entry_id)
+
+        if entry is None:
+            raise HTTPException(status_code=404, detail=f"Knowledge entry not found: {entry_id}")
+
+        return KnowledgeResponse(
+            id=entry.id,
+            title=entry.title,
+            content=entry.content,
+            category=entry.category,
+            tags=entry.tags,
+            source=entry.source,
+            priority=entry.priority,
+            active=entry.active,
+            created_at=entry.created_at,
+            updated_at=entry.updated_at
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting knowledge: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

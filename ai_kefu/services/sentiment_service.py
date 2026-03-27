@@ -6,6 +6,7 @@ T039 - Analyze user sentiment from messages.
 from enum import Enum
 from ai_kefu.llm.qwen_client import call_qwen
 from ai_kefu.prompts.workflow_prompts import SENTIMENT_ANALYSIS_PROMPT
+from ai_kefu.config.settings import settings
 from ai_kefu.utils.logging import logger
 
 
@@ -36,7 +37,8 @@ def analyze_sentiment(user_message: str) -> SentimentType:
         response = call_qwen(
             messages=[{"role": "user", "content": prompt}],
             max_tokens=10,
-            temperature=0.1  # Low temperature for classification
+            temperature=0.1,  # Low temperature for classification
+            model=settings.model_name_light  # 简单分类任务，使用 flash 模型降低成本
         )
         
         # Extract sentiment from response

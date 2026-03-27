@@ -1,8 +1,8 @@
 # AI客服 (ai_kefu) 项目详细文档
 
 **项目名称**: AI客服 Agent 系统 (XianyuAutoAgent)  
-**版本**: 1.0  
-**最后更新**: 2025-12-24
+**版本**: 1.1  
+**最后更新**: 2026-03-03
 
 ---
 
@@ -90,14 +90,17 @@ AI客服 (ai_kefu) 是一个**智能客服系统**，整合了两大核心功能
 **技术**: Playwright + Chrome DevTools Protocol (CDP)
 
 **功能**:
-- 拦截闲鱼WebSocket消息
-- 解析闲鱼消息格式
-- 通过HTTP调用AI Agent服务
+- 拦截闲鱼WebSocket消息（CDP注入脚本）
+- 解析闲鱼私有消息格式（syncPushPackage + base64解密）
+- 图片消息处理（ImageHandler下载保存）
+- 历史消息批量解析（HistoryMessageParser）
+- 对话记录持久化到MySQL（ConversationStore）
+- 通过HTTP调用AI Agent服务（带tenacity重试）
 - 将AI回复发送回闲鱼
 
 **模式**:
 - **自动模式**: AI自动回复
-- **手动模式**: 发送关键词(如"。")切换，支持人工接管
+- **手动模式**: 发送关键词(如"。")切换，支持人工接管（超时自动恢复）
 
 ### 5. 会话管理
 
@@ -210,9 +213,14 @@ AI客服 (ai_kefu) 是一个**智能客服系统**，整合了两大核心功能
 
 | 工具名称 | 功能 | 使用场景 |
 |---------|------|---------|
-| `knowledge_search` | 搜索知识库 | 查询退款政策、FAQ等 |
+| `knowledge_search` | 搜索知识库 | 查询退款政策、FAQ、租赁须知等 |
 | `complete_task` | 标记对话完成 | 问题已解决，结束对话 |
 | `ask_human_agent` | 请求人工协助 | 需要查询订单、人工决策等 |
+| `check_availability` | 档期查询 | 查询指定时间段可用设备（租赁） |
+| `calculate_logistics` | 物流计算 | 根据目的地计算物流时效（租赁） |
+| `calculate_price` | 价格计算 | 根据租期/客户类型/季节计算报价（租赁） |
+| `collect_rental_info` | 信息收集 | 收集验证租赁必需信息（租赁） |
+| `parse_date` | 日期解析 | 解析用户输入的日期表达 |
 
 **工具注册机制**:
 - `tool_registry.py`: 工具注册中心
@@ -283,26 +291,38 @@ AI客服 (ai_kefu) 是一个**智能客服系统**，整合了两大核心功能
 | `models.py` | 数据模型 (Pydantic) |
 | `browser_controller.py` | Playwright浏览器控制 |
 | `cdp_interceptor.py` | CDP协议拦截WebSocket |
-| `messaging_core.py` | 闲鱼消息编解码 |
-| `http_client.py` | Agent服务HTTP客户端 |
+| `messaging_core.py` | 闲鱼消息编解码（syncPushPackage、base64解密） |
+| `http_client.py` | Agent服务HTTP客户端（带tenacity重试） |
 | `session_mapper.py` | 会话ID映射 (内存/Redis) |
-| `message_handler.py` | 消息处理主逻辑 |
-| `manual_mode.py` | 手动模式管理 |
+| `message_handler.py` | 消息处理主逻辑（分流、模式判断、Agent调用） |
+| `manual_mode.py` | 手动模式管理（超时自动恢复） |
 | `message_converter.py` | 格式转换 (闲鱼↔Agent) |
+| `image_handler.py` | 图片消息处理（下载保存闲鱼图片） |
+| `conversation_store.py` | MySQL对话持久化存储 |
+| `conversation_models.py` | 对话数据模型 |
+| `history_message_parser.py` | 历史消息API响应批量解析 |
+| `main_integration.py` | 集成入口 |
+| `logging_setup.py` | 日志设置 |
+| `exceptions.py` | 异常定义 |
 
 #### 2.2 消息流程
 
 ```
 1. 浏览器加载闲鱼页面
 2. CDP拦截WebSocket消息
-3. 解析闲鱼消息格式
-4. 检查是否手动模式
-5. 获取/创建Agent session ID
-6. 转换为Agent API格式
-7. HTTP POST /chat
-8. 接收Agent响应
-9. 转换为闲鱼格式
-10. 通过WebSocket发送回复
+3. 过滤心跳/系统消息
+4. 检测历史消息（批量解析保存）
+5. 解码闲鱼消息格式（syncPushPackage + base64）
+6. 提取标准化数据（chat_id, user_id, content, item_id, timestamp）
+7. 处理图片消息（ImageHandler下载保存）
+8. 保存用户消息到MySQL（ConversationStore）
+9. 检查是否手动模式（ManualModeManager）
+10. 获取/创建Agent session ID（SessionMapper）
+11. 转换为Agent API格式（message_converter）
+12. HTTP POST /chat（AgentClient，带重试）
+13. 接收Agent响应
+14. 保存AI回复到MySQL
+15. 通过WebSocket发送回复
 ```
 
 #### 2.3 会话映射
@@ -320,21 +340,132 @@ AI客服 (ai_kefu) 是一个**智能客服系统**，整合了两大核心功能
 
 ## 数据流程
 
-### 1. 用户发起对话
+### 1. 消息处理完整流程
+
+以下是闲鱼消息从接收到 AI 回复的完整处理链路：
+
+```mermaid
+graph TD
+    A["闲鱼 WebSocket 消息<br/>(浏览器 CDP 拦截)"] --> B{是心跳/系统消息?}
+    B -- 是 --> Z1["静默忽略"]
+    B -- 否 --> C{是历史消息API响应?}
+    C -- 是 --> D["HistoryMessageParser 解析<br/>批量保存到数据库"]
+    C -- 否 --> E["XianyuMessageCodec.decode_message()<br/>解码 syncPushPackage"]
+    E --> F{解码成功?}
+    F -- 否 --> Z2["静默忽略"]
+    F -- 是 --> G["XianyuMessageCodec.extract_message_data()<br/>提取标准化数据"]
+    G --> H{是图片消息?}
+    H -- 是 --> I["ImageHandler 下载保存图片<br/>路径写入 metadata"]
+    H -- 否 --> J
+    I --> J["构造 XianyuMessage 对象"]
+    J --> K["MessageHandler.handle_message()"]
+    
+    K --> L{是 CHAT 类型?}
+    L -- 否 --> Z3["跳过非聊天消息"]
+    L -- 是 --> M["保存用户消息到 MySQL<br/>(ConversationStore)"]
+    M --> N{是切换关键词?}
+    N -- 是 --> O["切换手动/自动模式<br/>(ManualModeManager)"]
+    N -- 否 --> P{当前是手动模式?}
+    P -- 是 --> Z4["跳过 AI 处理"]
+    P -- 否 --> Q{ENABLE_AI_REPLY=true?}
+    Q -- 否 --> Q1["调用 Agent 获取 AI 回复<br/>(调试模式)"]
+    Q1 --> Q2["回复添加【调试】标记<br/>仅记录到数据库，不发送到闲鱼"]
+    Q -- 是 --> R["SessionMapper 获取/创建 Agent Session"]
+    R --> S["convert_xianyu_to_agent() 消息格式转换"]
+    S --> T["AgentClient.send_message()<br/>HTTP POST /chat"]
+    
+    T --> U["FastAPI Agent 后端"]
+    U --> V["AgentExecutor.run()"]
+    V --> W["execute_turn()<br/>构建 system prompt + 历史对话"]
+    W --> X["call_qwen()<br/>调用通义千问 API"]
+    X --> Y{返回 tool_calls?}
+    Y -- 是 --> Y1["执行工具<br/>(knowledge_search等)"]
+    Y1 --> Y2["返回 AI 回复"]
+    Y -- 否 --> Y2
+    Y2 --> AA["保存 AI 回复到 MySQL"]
+    AA --> AB["transport.send_message()<br/>通过浏览器 CDP 发送回复到闲鱼"]
+```
+
+### 2. 分步骤详解
+
+#### 2.1 WebSocket 消息拦截（run_xianyu.py → on_message 回调）
+
+通过 Playwright 浏览器 + CDP（Chrome DevTools Protocol）拦截闲鱼页面的 WebSocket 消息。收到消息后：
+
+1. **过滤心跳**: `code=200` 且没有 `body` 的消息直接忽略
+2. **检测历史消息**: 如果是历史消息 API 响应，用 `HistoryMessageParser` 批量解析并保存到数据库
+3. **解码消息**: `XianyuMessageCodec.decode_message()` 只处理 `syncPushPackage` 格式（别人发来的消息），内部使用 base64 + 解密
+4. **提取标准数据**: `extract_message_data()` 从解密后的消息中提取 `chat_id`、`user_id`、`content`、`item_id`、`timestamp`
+5. **图片处理**: 如果内容包含图片，调用 `ImageHandler` 下载并保存图片
+
+#### 2.2 消息处理（MessageHandler.handle_message()）
+
+核心判断链：
+
+1. **非 CHAT 消息** → 直接跳过
+2. **记录用户消息到 MySQL**（通过 `ConversationStore`，无论后续处理结果如何）
+3. **切换关键词**（默认 `。`）→ 通过 `ManualModeManager` 切换手动/自动模式
+4. **手动模式中** → 不调用 AI，由人工接管
+5. **AI 回复未启用**（`ENABLE_AI_REPLY=false`）→ 调试模式：仍调用 Agent 获取 AI 回复，回复添加"【调试】"标记后记录到数据库，但**不**通过 CDP 发送到闲鱼
+6. 以上都不满足 → 进入 AI Agent 处理流程
+
+#### 2.3 调用 AI Agent（_process_with_agent()）
+
+1. `SessionMapper` 管理闲鱼 `chat_id` → Agent `session_id` 的映射（支持内存/Redis 两种存储）
+2. `convert_xianyu_to_agent()` 将闲鱼消息格式转换为 Agent 请求格式
+3. `AgentClient` 通过 HTTP POST 到 Agent 后端 `/chat` 接口（带 tenacity retry 机制）
+4. Agent 后端内部流程：
+   - `AgentExecutor.run()` → `execute_turn()` → 构建 system prompt + 历史对话 → `call_qwen()` 调用通义千问
+   - 通义千问可能返回 `tool_calls`（如 `knowledge_search` 搜索知识库、`check_availability` 查询档期等）
+   - 工具执行后生成最终回复
+5. 保存 AI 回复到 MySQL（`ConversationStore`）
+6. 通过 `transport.send_message()` 将回复发送回闲鱼
+
+#### 2.4 错误处理
+
+如果 Agent API 调用失败且配置了 fallback：
+- 发送预设的 fallback 消息（如"客服繁忙，请稍候"）
+- 否则静默失败，不回复
+
+### 3. 关键组件对照表
+
+| 组件 | 文件 | 职责 |
+|---|---|---|
+| 启动入口 | `run_xianyu.py` | 闲鱼消息拦截器启动脚本 |
+| CDP 拦截器 | `xianyu_interceptor/cdp_interceptor.py` | 通过 Chrome DevTools Protocol 拦截 WebSocket |
+| 消息编解码 | `xianyu_interceptor/messaging_core.py` | 解码/编码闲鱼私有协议消息（syncPushPackage） |
+| 消息处理器 | `xianyu_interceptor/message_handler.py` | 消息分流、模式判断、调用 Agent |
+| HTTP 客户端 | `xianyu_interceptor/http_client.py` | 与 Agent 后端通信（带 tenacity retry） |
+| 手动模式 | `xianyu_interceptor/manual_mode.py` | 管理手动/自动切换（超时自动恢复） |
+| Session 映射 | `xianyu_interceptor/session_mapper.py` | 闲鱼 chat_id ↔ Agent session_id（内存/Redis） |
+| 对话存储 | `xianyu_interceptor/conversation_store.py` | 持久化对话记录到 MySQL |
+| 历史消息解析 | `xianyu_interceptor/history_message_parser.py` | 批量解析闲鱼历史消息 API 响应 |
+| 图片处理 | `xianyu_interceptor/image_handler.py` | 下载保存闲鱼图片消息 |
+| 消息格式转换 | `xianyu_interceptor/message_converter.py` | 闲鱼消息 ↔ Agent 请求格式转换 |
+| Agent 执行器 | `agent/executor.py` | AI Agent 主循环（Plan-Action-Check），调用 LLM + 工具 |
+| 通义千问客户端 | `llm/qwen_client.py` | 调用通义千问 API（带重试机制） |
+| 知识库搜索 | `tools/knowledge_search.py` | 向量检索 ChromaDB 知识库 |
+
+### 4. 时序图：用户发起对话
 
 ```mermaid
 sequenceDiagram
     participant User as 买家
     participant Xianyu as 闲鱼WebSocket
-    participant Interceptor as 拦截器
-    participant Agent as AI Agent
+    participant CDP as CDP拦截器
+    participant Handler as MessageHandler
+    participant DB as MySQL
+    participant Agent as AI Agent API
     participant Qwen as Qwen API
     participant Chroma as 知识库
 
     User->>Xianyu: 发送消息
-    Xianyu->>Interceptor: WebSocket消息
-    Interceptor->>Interceptor: 解析消息
-    Interceptor->>Agent: POST /chat
+    Xianyu->>CDP: WebSocket消息
+    CDP->>CDP: decode_message() 解码
+    CDP->>Handler: XianyuMessage对象
+    Handler->>DB: 保存用户消息
+    Handler->>Handler: 检查模式/开关
+    Handler->>Agent: POST /chat
     Agent->>Agent: 创建/获取会话
     Agent->>Qwen: 调用LLM
     Qwen->>Agent: 触发knowledge_search
@@ -342,12 +473,14 @@ sequenceDiagram
     Chroma->>Agent: 返回相关知识
     Agent->>Qwen: 继续LLM调用
     Qwen->>Agent: 生成回复
-    Agent->>Interceptor: 返回响应
-    Interceptor->>Xianyu: 发送回复
+    Agent->>Handler: 返回响应
+    Handler->>DB: 保存AI回复
+    Handler->>CDP: 发送回复
+    CDP->>Xianyu: WebSocket发送
     Xianyu->>User: 显示回复
 ```
 
-### 2. Human-in-the-Loop流程
+### 5. Human-in-the-Loop流程
 
 ```
 1. Agent调用ask_human_agent工具
@@ -369,11 +502,11 @@ sequenceDiagram
 XianyuAutoAgent/
 ├── ai_kefu/                          # 主应用目录
 │   ├── __init__.py
-│   ├── main.py                       # 拦截器启动入口
+│   ├── run_xianyu.py                # 闲鱼消息拦截器启动入口
 │   │
 │   ├── agent/                        # Agent引擎
 │   │   ├── __init__.py
-│   │   ├── executor.py              # Agent执行器
+│   │   ├── executor.py              # Agent执行器（Plan-Action-Check循环）
 │   │   ├── turn.py                  # 单轮逻辑
 │   │   └── types.py                 # 类型定义
 │   │
@@ -402,8 +535,8 @@ XianyuAutoAgent/
 │   │
 │   ├── llm/                          # LLM客户端
 │   │   ├── __init__.py
-│   │   ├── qwen_client.py           # Qwen API封装
-│   │   └── embeddings.py            # 向量化服务
+│   │   ├── qwen_client.py           # Qwen API封装（带tenacity重试）
+│   │   └── embeddings.py            # 向量化服务（Qwen text-embedding-v3）
 │   │
 │   ├── models/                       # 数据模型
 │   │   ├── __init__.py
@@ -412,17 +545,19 @@ XianyuAutoAgent/
 │   │
 │   ├── prompts/                      # 提示词
 │   │   ├── __init__.py
-│   │   ├── system_prompt.py         # 系统提示词
+│   │   ├── system_prompt.py         # 通用客服提示词
+│   │   ├── rental_system_prompt.py  # 租赁业务提示词
 │   │   └── workflow_prompts.py      # 工作流提示
 │   │
 │   ├── scripts/                      # 工具脚本
 │   │   ├── __init__.py
-│   │   └── init_knowledge.py        # 初始化知识库
+│   │   ├── init_knowledge.py        # 通用知识库初始化
+│   │   └── init_rental_knowledge.py # 租赁知识库初始化
 │   │
 │   ├── services/                     # 业务服务
 │   │   ├── __init__.py
 │   │   ├── sentiment_service.py     # 情感分析
-│   │   └── loop_detection.py        # 循环检测
+│   │   └── loop_detection.py        # 循环检测（防止工具重复调用）
 │   │
 │   ├── storage/                      # 存储层
 │   │   ├── __init__.py
@@ -431,10 +566,15 @@ XianyuAutoAgent/
 │   │
 │   ├── tools/                        # Agent工具
 │   │   ├── __init__.py
-│   │   ├── tool_registry.py         # 工具注册
+│   │   ├── tool_registry.py         # 工具注册中心
 │   │   ├── knowledge_search.py      # 知识检索工具
 │   │   ├── complete_task.py         # 完成任务工具
-│   │   └── ask_human_agent.py       # 人工协助工具
+│   │   ├── ask_human_agent.py       # 人工协助工具
+│   │   ├── check_availability.py    # 档期查询（租赁）
+│   │   ├── calculate_logistics.py   # 物流计算（租赁）
+│   │   ├── calculate_price.py       # 价格计算（租赁）
+│   │   ├── collect_rental_info.py   # 信息收集（租赁）
+│   │   └── parse_date.py            # 日期解析
 │   │
 │   ├── utils/                        # 工具函数
 │   │   ├── __init__.py
@@ -442,20 +582,24 @@ XianyuAutoAgent/
 │   │   └── errors.py                # 异常定义
 │   │
 │   ├── xianyu_interceptor/          # 闲鱼拦截器
-│   │   ├── __init__.py
+│   │   ├── __init__.py              # 初始化（暴露 initialize/run 接口）
 │   │   ├── config.py                # 拦截器配置
 │   │   ├── models.py                # 数据模型
-│   │   ├── browser_controller.py   # 浏览器控制
-│   │   ├── cdp_interceptor.py      # CDP拦截
-│   │   ├── messaging_core.py       # 消息核心
-│   │   ├── http_client.py          # HTTP客户端
-│   │   ├── session_mapper.py       # 会话映射
-│   │   ├── message_handler.py      # 消息处理
-│   │   ├── manual_mode.py          # 手动模式
-│   │   ├── message_converter.py    # 格式转换
-│   │   ├── main_integration.py     # 集成入口
-│   │   ├── logging_setup.py        # 日志设置
-│   │   └── exceptions.py           # 异常定义
+│   │   ├── browser_controller.py    # 浏览器控制
+│   │   ├── cdp_interceptor.py       # CDP拦截
+│   │   ├── messaging_core.py        # 消息编解码（syncPushPackage）
+│   │   ├── http_client.py           # HTTP客户端（带重试）
+│   │   ├── session_mapper.py        # 会话映射（内存/Redis）
+│   │   ├── message_handler.py       # 消息处理（分流/模式判断）
+│   │   ├── manual_mode.py           # 手动模式
+│   │   ├── message_converter.py     # 格式转换
+│   │   ├── image_handler.py         # 图片消息处理
+│   │   ├── conversation_store.py    # MySQL对话持久化
+│   │   ├── conversation_models.py   # 对话数据模型
+│   │   ├── history_message_parser.py # 历史消息批量解析
+│   │   ├── main_integration.py      # 集成入口
+│   │   ├── logging_setup.py         # 日志设置
+│   │   └── exceptions.py            # 异常定义
 │   │
 │   └── legacy/                       # 归档代码
 │       ├── XianyuAgent.py           # 旧AI逻辑
@@ -1080,6 +1224,6 @@ MIT License
 
 ---
 
-**文档版本**: 1.0  
-**最后更新**: 2025-12-24  
+**文档版本**: 1.1  
+**最后更新**: 2026-03-03  
 **维护者**: AI客服开发团队

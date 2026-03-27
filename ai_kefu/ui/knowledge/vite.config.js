@@ -9,6 +9,14 @@ export default defineConfig({
       '/knowledge': {
         target: 'http://localhost:8000',
         changeOrigin: true
+      },
+      '/prompts': {
+        target: 'http://localhost:8000',
+        changeOrigin: true
+      },
+      '/eval': {
+        target: 'http://localhost:8000',
+        changeOrigin: true
       }
     }
   },

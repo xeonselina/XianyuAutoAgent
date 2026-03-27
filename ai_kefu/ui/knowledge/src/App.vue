@@ -1,10 +1,11 @@
 <template>
   <div id="app">
     <header class="app-header">
-      <h1>知识库管理系统</h1>
+      <h1>AI 客服管理中心</h1>
       <nav>
-        <router-link to="/" class="nav-link">知识列表</router-link>
-        <router-link to="/new" class="nav-link">新建知识</router-link>
+        <router-link to="/" class="nav-link">知识库</router-link>
+        <router-link to="/prompts" class="nav-link">System Prompt</router-link>
+        <router-link to="/eval" class="nav-link">Eval 回放</router-link>
       </nav>
     </header>
     <main class="app-main">

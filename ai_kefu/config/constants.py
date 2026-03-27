@@ -25,8 +25,10 @@ MAX_CONVERSATION_HISTORY: Final[int] = 100
 
 # Qwen API Limits
 QWEN_FREE_TIER_QPS: Final[int] = 10
-QWEN_API_RETRY_ATTEMPTS: Final[int] = 5
-QWEN_API_RETRY_DELAY: Final[float] = 2.0  # seconds
+QWEN_API_RETRY_ATTEMPTS: Final[int] = 3       # 重试次数（从 5 降为 3，避免总时长超过 interceptor 超时）
+QWEN_API_RETRY_DELAY: Final[float] = 1.0      # 重试基础延迟（秒）
+QWEN_API_RETRY_MAX_DELAY: Final[float] = 10.0  # 重试最大延迟（秒）
+QWEN_API_TIMEOUT: Final[float] = 30.0          # 单次 API 调用超时（秒，SDK 默认 300s 太长）
 
 # Tool Names
 TOOL_KNOWLEDGE_SEARCH: Final[str] = "knowledge_search"

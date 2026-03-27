@@ -97,8 +97,6 @@ def collect_rental_info(
         # 3. 验证收货地址
         if destination and destination.strip():
             collected_info["destination"] = destination.strip()
-        else:
-            missing_fields.append("destination")
         
         # 4. 收集设备偏好 (可选)
         if device_preference:
@@ -106,6 +104,19 @@ def collect_rental_info(
         
         # 5. 收集客户类型 (可选,默认新客户)
         collected_info["customer_type"] = customer_type if customer_type in ["new", "old"] else "new"
+        
+        # 判断收货日期距今是否超过3天（超过则地址非必需，可直接报价）
+        destination_required = True
+        if "receive_date" in collected_info:
+            receive_dt = datetime.strptime(collected_info["receive_date"], "%Y-%m-%d")
+            days_until_receive = (receive_dt.date() - datetime.now().date()).days
+            if days_until_receive > 3:
+                destination_required = False
+                collected_info["destination_deferred"] = True  # 标记地址延后收集
+        
+        # 地址缺失检查（仅在需要时）
+        if destination_required and "destination" not in collected_info:
+            missing_fields.append("destination")
         
         # 判断状态
         if validation_errors:
@@ -124,12 +135,19 @@ def collect_rental_info(
             next_steps = [f"询问用户{missing_str}"]
         else:
             status = RentalInfoStatus.READY_FOR_QUOTE
-            message = "信息收集完成,可以开始查询档期和报价"
-            next_steps = [
-                "1. 使用 calculate_logistics 计算物流时间",
-                "2. 使用 check_availability 查询档期",
-                "3. 使用 calculate_price 计算报价"
-            ]
+            if collected_info.get("destination_deferred"):
+                message = "日期信息收集完成（收货距今>3天，地址可稍后确认），可以先报价"
+                next_steps = [
+                    "1. 直接根据价格表报价（不需要算物流）",
+                    "2. 用户确认后再收集收货地址"
+                ]
+            else:
+                message = "信息收集完成,可以开始查询档期和报价"
+                next_steps = [
+                    "1. 使用 calculate_logistics 计算物流时间",
+                    "2. 使用 check_availability 查询档期",
+                    "3. 使用 calculate_price 计算报价"
+                ]
         
         logger.info(f"Rental info collection status: {status}, missing: {missing_fields}")
         
@@ -174,16 +192,15 @@ def get_tool_definition() -> Dict[str, Any]:
 必需信息:
 1. receive_date: 收货日期 (用户希望什么时候收到设备)
 2. return_date: 归还日期 (用户什么时候寄回设备)
-3. destination: 收货地址 (至少需要省份/城市)
+3. destination: 收货地址 — **仅在收货日期距今≤3天时必需**（物流紧张需确认能否送达）
+
+⚡ 快速报价规则：
+- 如果收货日期距今 > 3天，不需要地址也能报价（status 会变为 ready_for_quote）
+- 地址在用户确认下单后再收集即可
 
 可选信息:
 4. device_preference: 设备型号偏好
 5. customer_type: 客户类型 (new/old)
-
-工作流程：
-1. 与用户对话时,逐步收集上述信息
-2. 每次获得新信息时调用此工具验证
-3. 当 status 为 "ready_for_quote" 时,按 next_steps 执行后续步骤
 
 注意：
 - 收货日期不能早于今天

@@ -21,17 +21,18 @@ class XianyuInterceptorConfig(BaseSettings):
 
     # Xianyu Account
     cookies_str: str = ""
+    seller_user_id: str = ""  # 卖家（自己）的用户ID，用于区分消息方向
 
     # AI Model Configuration (for backend API)
     api_key: str = ""
     model_base_url: str = "https://dashscope.aliyuncs.com/api/v1"
-    model_name: str = "qwen-max"
+    model_name: str = "qwen3.5-plus"
     qwen_api_key: str = ""  # Alias for api_key
 
     # AI Agent Service
     enable_ai_reply: bool = False  # Whether to enable AI auto-reply
     agent_service_url: str = "http://localhost:8000"
-    agent_timeout: float = 10.0
+    agent_timeout: float = 120.0
     agent_max_retries: int = 3
     agent_retry_delay: float = 1.0
     

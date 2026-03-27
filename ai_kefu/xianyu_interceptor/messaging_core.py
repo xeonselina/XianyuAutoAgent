@@ -277,13 +277,18 @@ class XianyuMessageCodec:
             if message_type == MessageType.CHAT:
                 # 提取聊天消息数据
                 chat_id = message["1"]["2"].split('@')[0]
-                user_id = message["1"]["10"]["senderUserId"]
-                content = message["1"]["10"]["reminderContent"]
+                msg_info = message["1"]["10"]
+                user_id = msg_info["senderUserId"]
+                content = msg_info["reminderContent"]
                 timestamp = int(message["1"]["5"])
 
                 # 提取商品 ID
-                url_info = message["1"]["10"]["reminderUrl"]
+                url_info = msg_info.get("reminderUrl", "")
                 item_id = url_info.split("itemId=")[1].split("&")[0] if "itemId=" in url_info else None
+
+                # 提取商品标题和消息 ID
+                item_title = msg_info.get("reminderTitle", "")
+                message_id = message.get("1", {}).get("3", "")  # 消息唯一标识
 
                 return Message(
                     message_type=message_type,
@@ -292,7 +297,12 @@ class XianyuMessageCodec:
                     item_id=item_id,
                     content=content,
                     timestamp=timestamp,
-                    raw_data=message
+                    raw_data=message,
+                    metadata={
+                        "item_title": item_title,
+                        "message_id": str(message_id) if message_id else "",
+                        "source": "realtime",
+                    }
                 )
             elif message_type == MessageType.ORDER:
                 # 提取订单消息数据
