@@ -381,14 +381,16 @@ const canSearchSlot = computed(() => {
 // 过滤出手机支架
 const phoneHolders = computed(() => {
   return deviceManagement.accessories.value.filter(a => 
-    a.name.includes('手机支架') || a.name.toLowerCase().includes('phone')
+    a.name.includes('手机支架') || a.name.toLowerCase().includes('phone') ||
+    (a.model && (a.model.includes('手机支架') || a.model.toLowerCase().includes('phone')))
   )
 })
 
 // 过滤出三脚架
 const tripods = computed(() => {
   return deviceManagement.accessories.value.filter(a => 
-    a.name.includes('三脚架') || a.name.toLowerCase().includes('tripod')
+    a.name.includes('三脚架') || a.name.toLowerCase().includes('tripod') ||
+    (a.model && (a.model.includes('三脚架') || a.model.toLowerCase().includes('tripod')))
   )
 })
 
@@ -576,12 +578,15 @@ const addFoundAccessory = () => {
   if (availableAccessorySlot.value?.accessory) {
     const accessory = availableAccessorySlot.value.accessory
     const accessoryName = accessory.name.toLowerCase()
+    const accessoryModel = accessory.model?.toLowerCase() || ''
     
-    // 根据附件名称分配到相应字段
-    if (accessoryName.includes('手机支架') || accessoryName.includes('phone')) {
+    // 根据附件名称或型号分配到相应字段
+    if (accessoryName.includes('手机支架') || accessoryName.includes('phone') ||
+        accessoryModel.includes('手机支架') || accessoryModel.includes('phone')) {
       form.value.phoneHolderId = accessory.id
       ElMessage.success(`已添加手机支架: ${accessory.name}`)
-    } else if (accessoryName.includes('三脚架') || accessoryName.includes('tripod')) {
+    } else if (accessoryName.includes('三脚架') || accessoryName.includes('tripod') ||
+               accessoryModel.includes('三脚架') || accessoryModel.includes('tripod')) {
       form.value.tripodId = accessory.id
       ElMessage.success(`已添加三脚架: ${accessory.name}`)
     } else {
@@ -737,10 +742,10 @@ const handleSubmit = async () => {
 
     const shipOutTime = availableSlot.value
       ? availableSlot.value.shipOutDate
-      : dayjs(form.value.startDate).startOf('day').subtract(form.value.logisticsDays, 'day').toDate()
+      : dayjs(form.value.startDate).startOf('day').subtract(1 + form.value.logisticsDays, 'day').toDate()
     const shipInTime = availableSlot.value
       ? availableSlot.value.shipInDate
-      : dayjs(form.value.endDate).startOf('day').add(form.value.logisticsDays, 'day').toDate()
+      : dayjs(form.value.endDate).startOf('day').add(1 + form.value.logisticsDays, 'day').toDate()
 
     // 转换UI格式到API格式
     const accessoryIds = [form.value.phoneHolderId, form.value.tripodId]
