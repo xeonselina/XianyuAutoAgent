@@ -480,10 +480,18 @@ const initForm = async () => {
     // 从 accessories数组中提取库存附件
     const accessories = rentalData.accessories || []
     const phoneHolder = accessories.find((a: any) => 
-      a.type === 'phone_holder' || a.name?.includes('手机支架')
+      a.type === 'phone_holder' || 
+      a.name?.includes('手机支架') || 
+      a.name?.toLowerCase().includes('phone') ||
+      a.model?.includes('手机支架') ||
+      a.model?.toLowerCase().includes('phone')
     )
     const tripod = accessories.find((a: any) => 
-      a.type === 'tripod' || a.name?.includes('三脚架')
+      a.type === 'tripod' || 
+      a.name?.includes('三脚架') || 
+      a.name?.toLowerCase().includes('tripod') ||
+      a.model?.includes('三脚架') ||
+      a.model?.toLowerCase().includes('tripod')
     )
 
     // 也从 child_rentals中提取（兼容旧数据）
