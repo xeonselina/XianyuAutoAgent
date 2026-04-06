@@ -10,6 +10,18 @@
         </div>
       </template>
       
+      <!-- 确认按钮放在清单上方 -->
+      <div v-if="checkItems.length > 0" class="top-actions">
+        <el-button 
+          type="primary" 
+          size="large" 
+          :loading="loading"
+          @click="handleSubmit"
+        >
+          {{ submitText }}
+        </el-button>
+      </div>
+
       <div v-if="checkItems.length > 0" class="checklist-items">
         <div 
           v-for="(item, index) in checkItems" 
@@ -28,19 +40,6 @@
       </div>
       
       <el-empty v-else description="暂无检查项" />
-      
-      <template #footer v-if="checkItems.length > 0">
-        <div class="footer-actions">
-          <el-button 
-            type="primary" 
-            size="large" 
-            :loading="loading"
-            @click="handleSubmit"
-          >
-            提交验货
-          </el-button>
-        </div>
-      </template>
     </el-card>
   </div>
 </template>
@@ -54,10 +53,12 @@ import type { CheckItem } from '../../types/inspection'
 interface Props {
   checkItems: CheckItem[]
   loading?: boolean
+  submitText?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  loading: false
+  loading: false,
+  submitText: '提交验货'
 })
 
 // Emits
@@ -154,13 +155,13 @@ const handleSubmit = () => {
   font-weight: 500;
 }
 
-.footer-actions {
+.top-actions {
   display: flex;
   justify-content: center;
-  padding-top: 16px;
+  margin-bottom: 16px;
 }
 
-.footer-actions .el-button {
+.top-actions .el-button {
   width: 100%;
   max-width: 400px;
 }

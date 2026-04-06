@@ -51,6 +51,7 @@
           :record="record"
           @view="handleView"
           @edit="handleEdit"
+          @deposit-completed="handleDepositCompleted"
         />
         
         <el-empty
@@ -147,6 +148,11 @@ const handleView = (record: InspectionRecord) => {
 const handleEdit = (record: InspectionRecord) => {
   // 跳转到验货页面,带上验货记录ID作为编辑模式
   router.push(`/inspection?edit=${record.id}`)
+}
+
+const handleDepositCompleted = () => {
+  // 刷新列表以更新租赁状态
+  fetchRecords()
 }
 
 // 生命周期

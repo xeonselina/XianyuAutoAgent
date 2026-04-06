@@ -52,10 +52,10 @@ export const useInspectionStore = defineStore('inspection', () => {
         currentRental.value = response.data.rental
         checklist.value = response.data.checklist
 
-        // 初始化 checkItems（所有项默认未勾选）
+        // 初始化 checkItems（所有项默认已勾选）
         checkItems.value = response.data.checklist.map((item: ChecklistItem) => ({
           item_name: item.name,
-          is_checked: false,
+          is_checked: true,
           item_order: item.order
         }))
 
@@ -84,10 +84,10 @@ export const useInspectionStore = defineStore('inspection', () => {
         currentRental.value = response.data.rental
         checklist.value = response.data.checklist
 
-        // 初始化 checkItems（所有项默认未勾选）
+        // 初始化 checkItems（所有项默认已勾选）
         checkItems.value = response.data.checklist.map((item: ChecklistItem) => ({
           item_name: item.name,
-          is_checked: false,
+          is_checked: true,
           item_order: item.order
         }))
 
