@@ -165,12 +165,8 @@
             <!-- 底部二维码区域 -->
             <div class="qr-codes-section">
               <div class="qr-code-item">
-                <img src="/src/assets/镜头安装教程.png" alt="镜头安装教程" class="qr-code" />
-                <div class="qr-code-label">镜头安装教程</div>
-              </div>
-              <div class="qr-code-item">
-                <img src="/src/assets/拍摄调试教程.png" alt="拍摄调试教程" class="qr-code" />
-                <div class="qr-code-label">拍摄调试教程</div>
+                <img src="/src/assets/安装调试教程.jpg" alt="安装拍摄教程" class="qr-code" />
+                <div class="qr-code-label">安装拍摄教程</div>
               </div>
               <div class="qr-code-item">
                 <img src="/src/assets/照片传输教程.png" alt="照片传输教程" class="qr-code" />
@@ -597,8 +593,9 @@ const getPersonalizedAccessories = (rental: any) => {
 
 .qr-codes-section {
   display: flex;
-  justify-content: space-around;
+  justify-content: center;
   align-items: center;
+  gap: 60px;
   padding: 16px 0;
   border-top: 1px solid #e0e0e0;
 }
@@ -608,16 +605,17 @@ const getPersonalizedAccessories = (rental: any) => {
 }
 
 .qr-code {
-  width: 120px;
-  height: 120px;
+  width: 150px;
+  height: 150px;
   border: 1px solid #e0e0e0;
   border-radius: 4px;
 }
 
 .qr-code-label {
   margin-top: 8px;
-  font-size: 13px;
+  font-size: 14px;
   color: #353536;
+  font-weight: bold;
 }
 
 /* 打印样式 */
@@ -718,15 +716,16 @@ const getPersonalizedAccessories = (rental: any) => {
 
   .qr-codes-section {
     padding: 8px 0;
+    gap: 40px;
   }
 
   .qr-code {
-    width: 90px;
-    height: 90px;
+    width: 120px;
+    height: 120px;
   }
 
   .qr-code-label {
-    font-size: 11px;
+    font-size: 12px;
     margin-top: 4px;
   }
 

@@ -32,7 +32,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 
 // Props
@@ -52,6 +52,17 @@ const emit = defineEmits<{
 // 状态
 const deviceName = ref('')
 const inputRef = ref()
+
+// 挂载后设置原生 input 的 inputmode，确保弹出数字键盘
+onMounted(() => {
+  nextTick(() => {
+    const nativeInput = inputRef.value?.$el?.querySelector('input') || inputRef.value?.input
+    if (nativeInput) {
+      nativeInput.setAttribute('inputmode', 'numeric')
+      nativeInput.setAttribute('pattern', '[0-9]*')
+    }
+  })
+})
 
 // 方法
 const handleSearch = () => {
@@ -77,6 +88,12 @@ const clearAndFocus = () => {
   // 使用 nextTick 确保 DOM 更新后再聚焦
   setTimeout(() => {
     inputRef.value?.focus()
+    // 确保原生 input 保持 inputmode
+    const nativeInput = inputRef.value?.$el?.querySelector('input') || inputRef.value?.input
+    if (nativeInput) {
+      nativeInput.setAttribute('inputmode', 'numeric')
+      nativeInput.setAttribute('pattern', '[0-9]*')
+    }
   }, 100)
 }
 

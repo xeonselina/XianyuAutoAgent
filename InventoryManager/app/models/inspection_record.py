@@ -20,8 +20,8 @@ class InspectionRecord(db.Model):
         comment='验货状态: normal=验机正常, abnormal=验机异常'
     )
     inspector_user_id = db.Column(db.Integer, nullable=True, comment='验货人员ID（预留）')
-    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
-    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now, index=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
 
     # 关系
     rental = db.relationship('Rental', backref=db.backref('inspection_records', lazy='dynamic'))

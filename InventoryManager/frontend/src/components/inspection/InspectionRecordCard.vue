@@ -22,6 +22,14 @@
         <span class="value">{{ record.rental?.customer_phone || '-' }}</span>
       </div>
       <div class="info-row">
+        <span class="label">租赁状态:</span>
+        <span class="value">
+          <el-tag :type="rentalStatusType" size="small">
+            {{ rentalStatusText }}
+          </el-tag>
+        </span>
+      </div>
+      <div class="info-row">
         <span class="label">检查项:</span>
         <span class="value">
           {{ record.check_items?.filter((item: any) => item.is_checked).length || 0 }} / 
@@ -45,6 +53,18 @@
     </div>
     
     <div class="card-footer">
+      <el-button 
+        v-if="record.rental && record.rental.status !== 'completed' && record.rental.status !== 'cancelled'"
+        size="small" 
+        type="success" 
+        :loading="completingDeposit"
+        @click="handleCompleteDeposit"
+      >
+        完成退押
+      </el-button>
+      <el-tag v-else-if="record.rental?.status === 'completed'" type="success" size="small">
+        已完成
+      </el-tag>
       <el-button size="small" @click="$emit('view', record)">
         查看详情
       </el-button>
@@ -56,10 +76,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import type { InspectionRecord } from '../../types/inspection'
 import dayjs from 'dayjs'
 import { WarningFilled, Close } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 interface Props {
   record: InspectionRecord
@@ -68,10 +89,14 @@ interface Props {
 const props = defineProps<Props>()
 
 // Emits
-defineEmits<{
+const emit = defineEmits<{
   view: [record: InspectionRecord]
   edit: [record: InspectionRecord]
+  'deposit-completed': [record: InspectionRecord]
 }>()
+
+// 状态
+const completingDeposit = ref(false)
 
 // 计算属性
 const statusType = computed(() => {
@@ -82,6 +107,31 @@ const statusText = computed(() => {
   return props.record.status === 'normal' ? '验机正常' : '验机异常'
 })
 
+// 租赁状态
+const rentalStatusText = computed(() => {
+  const statusMap: Record<string, string> = {
+    not_shipped: '待发货',
+    scheduled_for_shipping: '已预约',
+    shipped: '已发货',
+    returned: '已收回',
+    completed: '已完成',
+    cancelled: '已取消'
+  }
+  return statusMap[props.record.rental?.status || ''] || props.record.rental?.status || '-'
+})
+
+const rentalStatusType = computed(() => {
+  const typeMap: Record<string, string> = {
+    not_shipped: 'info',
+    scheduled_for_shipping: 'warning',
+    shipped: '',
+    returned: 'success',
+    completed: 'success',
+    cancelled: 'danger'
+  }
+  return typeMap[props.record.rental?.status || ''] || 'info'
+})
+
 // 获取未勾选的异常项
 const abnormalItems = computed(() => {
   if (!props.record.check_items) return []
@@ -90,6 +140,43 @@ const abnormalItems = computed(() => {
 
 const formatDate = (dateString: string) => {
   return dayjs(dateString).format('YYYY-MM-DD HH:mm')
+}
+
+// 完成退押
+const handleCompleteDeposit = async () => {
+  try {
+    await ElMessageBox.confirm(
+      `确认将设备 ${props.record.device?.name || ''} 的租赁标记为已完成？`,
+      '完成退押',
+      {
+        confirmButtonText: '确认',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    
+    completingDeposit.value = true
+    
+    const response = await fetch(`/api/rentals/${props.record.rental_id}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'completed' })
+    })
+    const result = await response.json()
+    
+    if (result.success) {
+      ElMessage.success('退押完成')
+      emit('deposit-completed', props.record)
+    } else {
+      ElMessage.error(result.message || '操作失败')
+    }
+  } catch (error: any) {
+    if (error !== 'cancel' && error?.toString() !== 'cancel') {
+      ElMessage.error('操作失败')
+    }
+  } finally {
+    completingDeposit.value = false
+  }
 }
 </script>
 
