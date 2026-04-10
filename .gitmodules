@@ -1,0 +1,3 @@
+[submodule "ai_kefu/xianyu_provider/upstream"]
+	path = ai_kefu/xianyu_provider/upstream
+	url = https://github.com/cv-cat/XianYuApis.git
