@@ -24,7 +24,9 @@ class XianyuMessage(BaseModel):
     
     message_type: XianyuMessageType
     chat_id: str
-    user_id: str  # 消息发送者的用户ID
+    user_id: str  # 消息发送者的用户ID（淘宝数字ID）
+    user_nickname: Optional[str] = None  # 用户昵称（从 reminderTitle 提取）
+    encrypted_uid: Optional[str] = None  # 闲鱼加密UID（如 ugHmQcaOgYFpoJcDbMP+RQ==）
     content: Optional[str] = None
     item_id: Optional[str] = None
     item_title: Optional[str] = None  # 商品标题（从 reminderTitle 提取）

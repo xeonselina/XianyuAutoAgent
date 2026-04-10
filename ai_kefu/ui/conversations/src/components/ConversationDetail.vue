@@ -124,129 +124,141 @@
             <span class="badge badge-blue">{{ turns.length }} turns</span>
           </div>
 
-          <div class="turn-timeline">
-            <div
-              v-for="turn in turns"
-              :key="turn.id"
-              class="turn-card"
-              :class="{ 'turn-error': !turn.success }"
-            >
-              <div class="turn-header" @click="toggleTurn(turn.id)">
-                <div class="turn-header-left">
-                  <span class="turn-number">Turn #{{ turn.turn_number }}</span>
-                  <span class="badge" :class="turn.success ? 'badge-green' : 'badge-red'">
-                    {{ turn.success ? '✓ 成功' : '✗ 失败' }}
-                  </span>
-                  <span class="badge badge-blue" v-if="turn.tool_calls && turn.tool_calls.length">
-                    🔨 {{ turn.tool_calls.length }} tool calls
-                  </span>
-                  <span class="turn-duration" v-if="turn.duration_ms">
-                    ⏱ {{ turn.duration_ms }}ms
-                  </span>
-                </div>
-                <span class="turn-toggle">{{ expandedTurns[turn.id] ? '▼' : '▶' }}</span>
-              </div>
+          <!-- Group turns by interaction_id -->
+          <div v-for="(group, groupIdx) in groupTurnsByInteraction(turns)" :key="group.interaction_id || groupIdx" class="interaction-group">
+            <div class="interaction-header" v-if="group.interaction_id">
+              <span class="interaction-label">💬 Interaction #{{ groupIdx + 1 }}</span>
+              <code class="interaction-id">{{ truncateId(group.interaction_id) }}</code>
+              <span class="badge badge-purple">{{ group.turns.length }} turns</span>
+            </div>
 
-              <!-- Turn Details (collapsible) -->
-              <div class="turn-details" v-if="expandedTurns[turn.id]">
-
-                <!-- User Query -->
-                <div class="turn-section" v-if="turn.user_query">
-                  <div class="section-label">💬 用户查询</div>
-                  <div class="section-content content-text">{{ turn.user_query }}</div>
-                </div>
-
-                <!-- LLM Response Text -->
-                <div class="turn-section" v-if="turn.response_text">
-                  <div class="section-label">💡 LLM 回复文本</div>
-                  <div class="section-content content-text">{{ turn.response_text }}</div>
-                </div>
-
-                <!-- Tool Calls -->
-                <div class="turn-section" v-if="turn.tool_calls && turn.tool_calls.length">
-                  <div class="section-label">🔨 Tool Calls</div>
-                  <div class="tool-call-list">
-                    <div v-for="(tc, idx) in turn.tool_calls" :key="idx" class="tool-call-item">
-                      <div class="tool-call-header">
-                        <span class="tool-name">{{ tc.name || 'unknown' }}</span>
-                        <code class="tool-id">{{ tc.id }}</code>
-                      </div>
-                      <div class="tool-call-body" v-if="tc.args">
-                        <div class="sub-label">参数:</div>
-                        <pre class="json-block">{{ formatJson(tc.args) }}</pre>
-                      </div>
-                      <div class="tool-call-body" v-if="tc.result !== undefined && tc.result !== null">
-                        <div class="sub-label">结果:</div>
-                        <pre class="json-block json-result">{{ formatJson(tc.result) }}</pre>
-                      </div>
-                    </div>
+            <div class="turn-timeline">
+              <div
+                v-for="turn in group.turns"
+                :key="turn.id"
+                class="turn-card"
+                :class="{ 'turn-error': !turn.success }"
+              >
+                <div class="turn-header" @click="toggleTurn(turn.id)">
+                  <div class="turn-header-left">
+                    <span class="turn-number" v-if="turn.local_turn_number">
+                      Turn {{ turn.local_turn_number }}/{{ group.turns.length }}
+                    </span>
+                    <span class="turn-number" v-else>Turn #{{ turn.turn_number }}</span>
+                    <span class="badge" :class="turn.success ? 'badge-green' : 'badge-red'">
+                      {{ turn.success ? '✓ 成功' : '✗ 失败' }}
+                    </span>
+                    <span class="badge badge-blue" v-if="turn.tool_calls && turn.tool_calls.length">
+                      🔨 {{ turn.tool_calls.length }} tool calls
+                    </span>
+                    <span class="turn-duration" v-if="turn.duration_ms">
+                      ⏱ {{ turn.duration_ms }}ms
+                    </span>
                   </div>
+                  <span class="turn-toggle">{{ expandedTurns[turn.id] ? '▼' : '▶' }}</span>
                 </div>
 
-                <!-- LLM Input (Messages Array) -->
-                <div class="turn-section">
-                  <div class="section-label">
-                    📥 LLM 输入 (Messages)
-                    <button class="btn btn-sm btn-secondary" @click="toggleLlmInput(turn.id)" style="margin-left: 8px;">
-                      {{ expandedLlmInput[turn.id] ? '收起' : '展开' }}
-                    </button>
+                <!-- Turn Details (collapsible) -->
+                <div class="turn-details" v-if="expandedTurns[turn.id]">
+
+                  <!-- User Query -->
+                  <div class="turn-section" v-if="turn.user_query">
+                    <div class="section-label">💬 用户查询</div>
+                    <div class="section-content content-text">{{ turn.user_query }}</div>
                   </div>
-                  <div v-if="expandedLlmInput[turn.id]" class="section-content">
-                    <div v-if="turn.llm_input && turn.llm_input.length" class="llm-messages">
-                      <div
-                        v-for="(m, mi) in turn.llm_input"
-                        :key="mi"
-                        class="llm-msg"
-                        :class="'llm-msg-' + m.role"
-                      >
-                        <div class="llm-msg-header">
-                          <span class="llm-msg-role">{{ m.role }}</span>
-                          <span class="llm-msg-idx">[{{ mi }}]</span>
-                          <span v-if="m.tool_call_id" class="llm-msg-tcid">tool_call_id: {{ m.tool_call_id }}</span>
+
+                  <!-- LLM Response Text -->
+                  <div class="turn-section" v-if="turn.response_text">
+                    <div class="section-label">💡 LLM 回复文本</div>
+                    <div class="section-content content-text">{{ turn.response_text }}</div>
+                  </div>
+
+                  <!-- Tool Calls -->
+                  <div class="turn-section" v-if="turn.tool_calls && turn.tool_calls.length">
+                    <div class="section-label">🔨 Tool Calls</div>
+                    <div class="tool-call-list">
+                      <div v-for="(tc, idx) in turn.tool_calls" :key="idx" class="tool-call-item">
+                        <div class="tool-call-header">
+                          <span class="tool-name">{{ tc.name || 'unknown' }}</span>
+                          <code class="tool-id">{{ tc.id }}</code>
                         </div>
-                        <div class="llm-msg-content">
-                          <template v-if="m.content && m.content.length > 500">
-                            {{ m.content.substring(0, 500) }}...
-                            <button class="btn btn-sm btn-secondary" @click="showFullContent(m.content)">
-                              查看完整内容 ({{ m.content.length }} chars)
-                            </button>
-                          </template>
-                          <template v-else>
-                            {{ m.content || '(empty)' }}
-                          </template>
+                        <div class="tool-call-body" v-if="tc.args">
+                          <div class="sub-label">参数:</div>
+                          <pre class="json-block">{{ formatJson(tc.args) }}</pre>
                         </div>
-                        <div v-if="m.tool_calls" class="llm-msg-tc">
-                          <pre class="json-block">{{ formatJson(m.tool_calls) }}</pre>
+                        <div class="tool-call-body" v-if="tc.result !== undefined && tc.result !== null">
+                          <div class="sub-label">结果:</div>
+                          <pre class="json-block json-result">{{ formatJson(tc.result) }}</pre>
                         </div>
                       </div>
                     </div>
-                    <span v-else class="text-muted">无输入数据</span>
                   </div>
-                </div>
 
-                <!-- LLM Output (Raw Response) -->
-                <div class="turn-section">
-                  <div class="section-label">
-                    📤 LLM 输出 (Raw)
-                    <button class="btn btn-sm btn-secondary" @click="toggleLlmOutput(turn.id)" style="margin-left: 8px;">
-                      {{ expandedLlmOutput[turn.id] ? '收起' : '展开' }}
-                    </button>
+                  <!-- LLM Input (Messages Array) -->
+                  <div class="turn-section">
+                    <div class="section-label">
+                      📥 LLM 输入 (Messages)
+                      <button class="btn btn-sm btn-secondary" @click="toggleLlmInput(turn.id)" style="margin-left: 8px;">
+                        {{ expandedLlmInput[turn.id] ? '收起' : '展开' }}
+                      </button>
+                    </div>
+                    <div v-if="expandedLlmInput[turn.id]" class="section-content">
+                      <div v-if="turn.llm_input && turn.llm_input.length" class="llm-messages">
+                        <div
+                          v-for="(m, mi) in turn.llm_input"
+                          :key="mi"
+                          class="llm-msg"
+                          :class="'llm-msg-' + m.role"
+                        >
+                          <div class="llm-msg-header">
+                            <span class="llm-msg-role">{{ m.role }}</span>
+                            <span class="llm-msg-idx">[{{ mi }}]</span>
+                            <span v-if="m.tool_call_id" class="llm-msg-tcid">tool_call_id: {{ m.tool_call_id }}</span>
+                          </div>
+                          <div class="llm-msg-content">
+                            <template v-if="m.content && m.content.length > 500">
+                              {{ m.content.substring(0, 500) }}...
+                              <button class="btn btn-sm btn-secondary" @click="showFullContent(m.content)">
+                                查看完整内容 ({{ m.content.length }} chars)
+                              </button>
+                            </template>
+                            <template v-else>
+                              {{ m.content || '(empty)' }}
+                            </template>
+                          </div>
+                          <div v-if="m.tool_calls" class="llm-msg-tc">
+                            <pre class="json-block">{{ formatJson(m.tool_calls) }}</pre>
+                          </div>
+                        </div>
+                      </div>
+                      <span v-else class="text-muted">无输入数据</span>
+                    </div>
                   </div>
-                  <div v-if="expandedLlmOutput[turn.id]" class="section-content">
-                    <pre class="json-block" v-if="turn.llm_output">{{ formatJson(turn.llm_output) }}</pre>
-                    <span v-else class="text-muted">无输出数据</span>
+
+                  <!-- LLM Output (Raw Response) -->
+                  <div class="turn-section">
+                    <div class="section-label">
+                      📤 LLM 输出 (Raw)
+                      <button class="btn btn-sm btn-secondary" @click="toggleLlmOutput(turn.id)" style="margin-left: 8px;">
+                        {{ expandedLlmOutput[turn.id] ? '收起' : '展开' }}
+                      </button>
+                    </div>
+                    <div v-if="expandedLlmOutput[turn.id]" class="section-content">
+                      <pre class="json-block" v-if="turn.llm_output">{{ formatJson(turn.llm_output) }}</pre>
+                      <span v-else class="text-muted">无输出数据</span>
+                    </div>
                   </div>
-                </div>
 
-                <!-- Error -->
-                <div class="turn-section" v-if="turn.error_message">
-                  <div class="section-label">❌ 错误信息</div>
-                  <div class="section-content error-text">{{ turn.error_message }}</div>
-                </div>
+                  <!-- Error -->
+                  <div class="turn-section" v-if="turn.error_message">
+                    <div class="section-label">❌ 错误信息</div>
+                    <div class="section-content error-text">{{ turn.error_message }}</div>
+                  </div>
 
-                <!-- Timestamp -->
-                <div class="turn-footer">
-                  <span class="turn-time">{{ formatDateTime(turn.created_at) }}</span>
+                  <!-- Timestamp -->
+                  <div class="turn-footer">
+                    <span class="turn-time">{{ formatDateTime(turn.created_at) }}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -344,6 +356,33 @@ export default {
     },
     goBack() {
       this.$router.push('/')
+    },
+    groupTurnsByInteraction(turns) {
+      // Group turns by interaction_id
+      // Turns without interaction_id go into a single "legacy" group
+      const groups = []
+      const groupMap = {}
+      for (const turn of turns) {
+        const key = turn.interaction_id || '__legacy__'
+        if (!groupMap[key]) {
+          groupMap[key] = {
+            interaction_id: turn.interaction_id || null,
+            turns: []
+          }
+          groups.push(groupMap[key])
+        }
+        groupMap[key].turns.push(turn)
+      }
+      // Sort turns within each group by local_turn_number (fallback to id)
+      for (const group of groups) {
+        group.turns.sort((a, b) => {
+          if (a.local_turn_number && b.local_turn_number) {
+            return a.local_turn_number - b.local_turn_number
+          }
+          return (a.id || 0) - (b.id || 0)
+        })
+      }
+      return groups
     },
     toggleTurn(id) {
       this.expandedTurns = { ...this.expandedTurns, [id]: !this.expandedTurns[id] }
@@ -521,7 +560,37 @@ export default {
 .turns-panel { margin-top: 20px; }
 .card-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .card-header-row code { font-size: 12px; background: #f0f0f0; padding: 2px 8px; border-radius: 4px; }
-.turn-timeline { display: flex; flex-direction: column; gap: 8px; }
+
+/* Interaction Group */
+.interaction-group {
+  margin-bottom: 16px;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.interaction-group:last-child { margin-bottom: 0; }
+.interaction-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: #f6f0ff;
+  border-bottom: 1px solid #e8e8e8;
+}
+.interaction-label {
+  font-weight: 600;
+  font-size: 13px;
+  color: #722ed1;
+}
+.interaction-id {
+  font-size: 11px;
+  color: #999;
+  background: rgba(0,0,0,0.04);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.turn-timeline { display: flex; flex-direction: column; gap: 0; }
 
 .turn-card {
   border: 1px solid #e8e8e8;

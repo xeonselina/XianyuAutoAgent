@@ -149,7 +149,15 @@ class KnowledgeStore:
             "priority": entry.priority,
             "active": entry.active
         }
-        regenerate_embedding = embedding is not None
+
+        if embedding is not None:
+            # 调用方显式传了新 embedding，直接使用
+            regenerate_embedding = True
+        else:
+            # 调用方未传 embedding（如批量导入），自动检测 content 是否变化
+            existing = self.mysql_store.get(entry.id)
+            regenerate_embedding = existing is not None and existing.content != entry.content
+
         result = self.mysql_store.update(entry.id, updates, regenerate_embedding)
         return result is not None
     

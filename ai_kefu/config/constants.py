@@ -16,7 +16,7 @@ MAX_TOOL_CALL_RETRIES: Final[int] = 3
 DEFAULT_SESSION_TTL: Final[int] = 1800  # 30 minutes in seconds
 
 # Knowledge Base
-DEFAULT_TOP_K: Final[int] = 5
+DEFAULT_TOP_K: Final[int] = 3  # 从 5 降为 3：减少 ChromaDB 返回量和 LLM 上下文，加速搜索
 MAX_KNOWLEDGE_CONTENT_LENGTH: Final[int] = 10000
 
 # Message Limits

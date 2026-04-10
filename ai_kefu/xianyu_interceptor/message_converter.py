@@ -26,18 +26,28 @@ def convert_xianyu_to_agent(
     Returns:
         AgentChatRequest object
     """
+    # 展开 metadata 到 context，同时确保 user_nickname 始终存在
+    # （历史消息的 metadata 中可能只有 reminder_title 而没有 user_nickname）
+    ctx = {
+        "conversation_id": xianyu_msg.chat_id,
+        "source": "xianyu",
+        "item_id": xianyu_msg.item_id,
+        "timestamp": xianyu_msg.timestamp,
+        "message_type": xianyu_msg.message_type.value,
+        **(xianyu_msg.metadata or {})
+    }
+    # 确保 user_nickname 取值链完整：字段级 > metadata.user_nickname > metadata.reminder_title
+    if not ctx.get("user_nickname"):
+        ctx["user_nickname"] = (
+            xianyu_msg.user_nickname
+            or (xianyu_msg.metadata or {}).get("reminder_title")
+            or None
+        )
     return AgentChatRequest(
         query=xianyu_msg.content or "",
         session_id=agent_session_id,
         user_id=xianyu_msg.user_id,
-        context={
-            "conversation_id": xianyu_msg.chat_id,
-            "source": "xianyu",
-            "item_id": xianyu_msg.item_id,
-            "timestamp": xianyu_msg.timestamp,
-            "message_type": xianyu_msg.message_type.value,
-            **(xianyu_msg.metadata or {})
-        }
+        context=ctx
     )
 
 

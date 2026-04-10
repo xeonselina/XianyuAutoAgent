@@ -17,6 +17,14 @@ export default defineConfig({
       '/eval': {
         target: 'http://localhost:8000',
         changeOrigin: true
+      },
+      '/ignore-patterns': {
+        target: 'http://localhost:8000',
+        changeOrigin: true
+      },
+      '/conversations': {
+        target: 'http://localhost:8000',
+        changeOrigin: true
       }
     }
   },

@@ -5,7 +5,9 @@
       <nav>
         <router-link to="/" class="nav-link">知识库</router-link>
         <router-link to="/prompts" class="nav-link">System Prompt</router-link>
+        <router-link to="/ignore-patterns" class="nav-link">消息过滤</router-link>
         <router-link to="/eval" class="nav-link">Eval 回放</router-link>
+        <router-link to="/history" class="nav-link">历史对话</router-link>
       </nav>
     </header>
     <main class="app-main">
