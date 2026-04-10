@@ -75,8 +75,8 @@ class InspectionService:
             rental_id=rental_id,
             device_id=device_id,
             status=status,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            created_at=datetime.now(),
+            updated_at=datetime.now()
         )
         db.session.add(inspection_record)
         db.session.flush()  # 获取 inspection_record.id
@@ -140,7 +140,7 @@ class InspectionService:
         all_items = inspection_record.check_items.all()
         status = 'normal' if all(item.is_checked for item in all_items) else 'abnormal'
         inspection_record.status = status
-        inspection_record.updated_at = datetime.utcnow()
+        inspection_record.updated_at = datetime.now()
         
         db.session.commit()
         
