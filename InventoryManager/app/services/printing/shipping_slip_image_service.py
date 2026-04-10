@@ -164,7 +164,7 @@ class ShippingSlipImageService:
 
     def _draw_qr_codes_section(self, img: Image.Image, y: int) -> int:
         """
-        绘制底部二维码区域（垂直排列）
+        绘制底部二维码区域（左右并排，2个）
 
         Args:
             img: 主图像对象
@@ -173,20 +173,19 @@ class ShippingSlipImageService:
         Returns:
             新的Y坐标
         """
-        # 二维码配置
+        # 二维码配置（只保留2个）
         qr_codes = [
-            ('镜头安装教程.png', '镜头安装教程'),
-            ('拍摄调试教程.png', '拍摄调试教程'),
+            ('安装调试教程.jpg', '安装拍摄教程'),
             ('照片传输教程.png', '照片传输教程')
         ]
 
-        qr_size = 150  # 每个二维码的尺寸
-        vertical_spacing = 10  # 二维码之间的垂直间距
+        qr_size = 180  # 每个二维码的尺寸（放大，因为只有2个）
+        label_height_reserve = 40  # 标签区域高度
 
         y += 15  # 顶部留白
 
-        # 创建二维码标签专用字体（缩小20%）
-        qr_label_size = 24  # 30 * 0.8 = 24
+        # 创建二维码标签专用字体
+        qr_label_size = 26
         font_paths = [
             "/System/Library/Fonts/PingFang.ttc",
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
@@ -201,11 +200,11 @@ class ShippingSlipImageService:
             except Exception:
                 continue
 
-        # 绘制三个二维码（垂直排列，交替左右）
-        # 第1个：居左，标题在右边
-        # 第2个：居右，标题在左边
-        # 第3个：居左，标题在右边
         draw = ImageDraw.Draw(img)
+
+        # 计算两个二维码左右均匀分布的位置
+        total_width = self.width_px - 2 * self.padding
+        slot_width = total_width // 2
 
         for idx, (filename, label) in enumerate(qr_codes):
             # 加载二维码图片
@@ -213,40 +212,22 @@ class ShippingSlipImageService:
             if not qr_img:
                 continue
 
-            # 第2个二维码（索引1）居右，其他居左
-            if idx == 1:
-                # 第2个：居右，标题在左边
-                qr_x = self.width_px - self.padding - qr_size
+            # 计算该二维码的水平居中位置（在各自槽位内居中）
+            slot_start = self.padding + idx * slot_width
+            qr_x = slot_start + (slot_width - qr_size) // 2
 
-                # 标题在二维码左边
-                bbox = qr_label_font.getbbox(label)
-                label_width = bbox[2] - bbox[0]
-                label_height = bbox[3] - bbox[1]
-                label_x = qr_x - 15 - label_width  # 二维码左边留15px间距
-                label_y = y + (qr_size - label_height) // 2  # 垂直居中
+            # 粘贴二维码
+            img.paste(qr_img, (qr_x, y))
 
-                # 先绘制标题，再粘贴二维码
-                draw.text((label_x, label_y), label, fill='black', font=qr_label_font)
-                img.paste(qr_img, (qr_x, y))
-            else:
-                # 第1、3个：居左，标题在右边
-                qr_x = self.padding
-
-                # 粘贴二维码
-                img.paste(qr_img, (qr_x, y))
-
-                # 标题在二维码右边
-                label_x = qr_x + qr_size + 15  # 二维码右边留15px间距
-                bbox = qr_label_font.getbbox(label)
-                label_height = bbox[3] - bbox[1]
-                label_y = y + (qr_size - label_height) // 2  # 垂直居中
-                draw.text((label_x, label_y), label, fill='black', font=qr_label_font)
-
-            # 移动到下一个二维码位置
-            y += qr_size + vertical_spacing
+            # 标签在二维码下方居中
+            bbox = qr_label_font.getbbox(label)
+            label_width = bbox[2] - bbox[0]
+            label_x = slot_start + (slot_width - label_width) // 2
+            label_y = y + qr_size + 8
+            draw.text((label_x, label_y), label, fill='black', font=qr_label_font)
 
         # 返回最终Y位置
-        return y + 10
+        return y + qr_size + label_height_reserve + 10
 
     def _draw_info_row(self, draw: ImageDraw.Draw, y: int, label: str, value: str,
                       label_font: ImageFont.FreeTypeFont = None,

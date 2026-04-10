@@ -22,6 +22,7 @@
         v-if="inspectionStore.checkItems.length > 0"
         :check-items="inspectionStore.checkItems"
         :loading="inspectionStore.loading"
+        :submit-text="isEditMode ? '保存修改' : '确认验机'"
         @toggle="handleToggleCheckItem"
         @submit="handleSubmit"
       />
@@ -102,13 +103,19 @@ const handleSubmit = async () => {
   if (isEditMode.value && editingRecordId.value) {
     // 编辑模式: 更新验货记录
     success = await inspectionStore.updateInspectionRecord(editingRecordId.value)
+    if (success) {
+      showSuccessResult.value = true
+    }
   } else {
     // 创建模式: 创建新的验货记录
     success = await inspectionStore.submitInspection()
-  }
-  
-  if (success) {
-    showSuccessResult.value = true
+    if (success) {
+      // 直接重置并开始下一台验机
+      inspectionStore.reset()
+      setTimeout(() => {
+        deviceSearchRef.value?.clearAndFocus()
+      }, 100)
+    }
   }
 }
 

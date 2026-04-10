@@ -135,12 +135,8 @@
         <!-- 底部二维码区域 -->
         <div class="qr-codes-section">
           <div class="qr-code-item">
-            <img src="/src/assets/镜头安装教程.png" alt="镜头安装教程" class="qr-code" />
-            <div class="qr-code-label">镜头安装教程</div>
-          </div>
-          <div class="qr-code-item">
-            <img src="/src/assets/拍摄调试教程.png" alt="拍摄调试教程" class="qr-code" />
-            <div class="qr-code-label">拍摄调试教程</div>
+            <img src="/src/assets/安装调试教程.jpg" alt="安装拍摄教程" class="qr-code" />
+            <div class="qr-code-label">安装拍摄教程</div>
           </div>
           <div class="qr-code-item">
             <img src="/src/assets/照片传输教程.png" alt="照片传输教程" class="qr-code" />
@@ -605,8 +601,9 @@ onMounted(async () => {
 
 .qr-codes-section {
   display: flex;
-  justify-content: space-around;
+  justify-content: center;
   align-items: center;
+  gap: 60px;
   margin-top: 20px;
   padding: 15px;
   background: #f8f9fa;
@@ -622,8 +619,8 @@ onMounted(async () => {
 }
 
 .qr-code {
-  width: 100px;
-  height: 100px;
+  width: 130px;
+  height: 130px;
   object-fit: contain;
   border: 1px solid #ddd;
   border-radius: 4px;
@@ -633,7 +630,7 @@ onMounted(async () => {
 
 .qr-code-label {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: bold;
   color: #333;
   line-height: 1.2;
@@ -703,16 +700,17 @@ onMounted(async () => {
   .qr-codes-section {
     margin-top: 15px;
     padding: 10px;
+    gap: 40px;
   }
 
   .qr-code {
-    width: 80px;
-    height: 80px;
+    width: 110px;
+    height: 110px;
     padding: 3px;
   }
 
   .qr-code-label {
-    font-size: 10px;
+    font-size: 11px;
     margin-top: 5px;
   }
 }
