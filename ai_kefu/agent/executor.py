@@ -392,6 +392,30 @@ class AgentExecutor:
                     except Exception as e:
                         logger.warning(f"Failed to persist turn data (non-fatal): {e}")
                 
+                # Extract rental info from tool results and persist into session.context
+                # so it gets saved to DB context column on the next AI reply.
+                if turn_result.tool_calls:
+                    for tc_dict in turn_result.tool_calls:
+                        tool_name = tc_dict.get("name", "")
+                        result = tc_dict.get("result") or {}
+                        if isinstance(result, str):
+                            try:
+                                import json as _json
+                                result = _json.loads(result)
+                            except Exception:
+                                result = {}
+                        if tool_name == "collect_rental_info" and result.get("success"):
+                            collected = result.get("collected_info", {})
+                            if collected.get("receive_date"):
+                                session.context["receive_date"] = collected["receive_date"]
+                            if collected.get("return_date"):
+                                session.context["return_date"] = collected["return_date"]
+                            if collected.get("destination"):
+                                session.context["destination"] = collected["destination"]
+                        elif tool_name == "calculate_logistics" and result.get("success"):
+                            if result.get("destination"):
+                                session.context["destination"] = result["destination"]
+
                 # Check for loop in tool calls
                 if self.config.enable_loop_detection and turn_result.tool_calls:
                     for tc_dict in turn_result.tool_calls:
@@ -503,6 +527,11 @@ class AgentExecutor:
                     "confidence_percent": last_turn_metadata.get("confidence_percent"),
                     "response_suppressed": last_turn_metadata.get("response_suppressed", False),
                     "original_response": last_turn_metadata.get("original_response"),
+                    "context_summary": session.context.get("context_summary"),
+                    "is_returning_customer": session.context.get("is_returning_customer"),
+                    "receive_date": session.context.get("receive_date"),
+                    "return_date": session.context.get("return_date"),
+                    "destination": session.context.get("destination"),
                 }
             }
             
