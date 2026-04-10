@@ -10,12 +10,13 @@ from typing import Optional, AsyncGenerator
 from ai_kefu.agent.types import AgentConfig
 from ai_kefu.agent.turn import execute_turn
 from ai_kefu.agent.context_summarizer import should_summarize, summarize_context, apply_summary_to_session
+from ai_kefu.agent.skill_selector import detect_skills, get_active_tool_names
 from ai_kefu.models.session import Session, AgentState
 from ai_kefu.storage.session_store import SessionStore
 from ai_kefu.tools.tool_registry import ToolRegistry
 from ai_kefu.tools import knowledge_search, complete_task
 from ai_kefu.services.loop_detection import check_tool_loop
-from ai_kefu.config.constants import SessionStatus, TerminateReason, TOOL_COMPLETE_TASK
+from ai_kefu.config.constants import SessionStatus, TerminateReason, TOOL_COMPLETE_TASK, MessageRole
 from ai_kefu.config.settings import settings
 from ai_kefu.utils.logging import logger, log_agent_complete
 from ai_kefu.utils.errors import (
@@ -91,37 +92,101 @@ class AgentExecutor:
             get_return_address,
             get_order_status
         )
-        
+
         self.tools_registry.register_tool(
             "parse_date",
             parse_date.parse_date,
             parse_date.get_tool_definition()
         )
-        
+
         self.tools_registry.register_tool(
             "check_availability",
             check_availability.check_availability,
             check_availability.get_tool_definition()
         )
-        
+
         self.tools_registry.register_tool(
             "calculate_logistics",
             calculate_logistics.calculate_logistics,
             calculate_logistics.get_tool_definition()
         )
-        
+
         self.tools_registry.register_tool(
             "calculate_price",
             calculate_price.calculate_price,
             calculate_price.get_tool_definition()
         )
-        
+
         self.tools_registry.register_tool(
             "collect_rental_info",
             collect_rental_info.collect_rental_info,
             collect_rental_info.get_tool_definition()
         )
-        
+
+        self.tools_registry.register_tool(
+            "get_return_address",
+            get_return_address.get_return_address,
+            get_return_address.get_tool_definition()
+        )
+
+        self.tools_registry.register_tool(
+            "get_order_status",
+            get_order_status.get_order_status,
+            get_order_status.get_tool_definition()
+        )
+
+        # Register Xianyu tools
+        from ai_kefu.tools.xianyu import (
+            get_item_info,
+            get_item_info_definition,
+            get_order_detail,
+            get_order_detail_definition,
+            get_buyer_info,
+            get_buyer_info_definition,
+            send_xianyu_message,
+            send_message_definition,
+            upload_media,
+            upload_media_definition,
+            list_conversations,
+            list_conversations_definition,
+        )
+
+        self.tools_registry.register_tool(
+            "get_item_info",
+            get_item_info,
+            get_item_info_definition()
+        )
+
+        self.tools_registry.register_tool(
+            "get_order_detail",
+            get_order_detail,
+            get_order_detail_definition()
+        )
+
+        self.tools_registry.register_tool(
+            "get_buyer_info",
+            get_buyer_info,
+            get_buyer_info_definition()
+        )
+
+        self.tools_registry.register_tool(
+            "send_xianyu_message",
+            send_xianyu_message,
+            send_message_definition()
+        )
+
+        self.tools_registry.register_tool(
+            "upload_media",
+            upload_media,
+            upload_media_definition()
+        )
+
+        self.tools_registry.register_tool(
+            "list_conversations",
+            list_conversations,
+            list_conversations_definition()
+        )
+
         logger.info(f"Registered {len(self.tools_registry.get_all_tools())} tools")
     
     def run(
@@ -147,7 +212,14 @@ class AgentExecutor:
         
         # Load or create session
         chat_id = (context or {}).get("conversation_id")
-        session = self._get_or_create_session(session_id, user_id, chat_id=chat_id)
+        user_nickname = (context or {}).get("user_nickname")
+        item_id = (context or {}).get("item_id")
+        item_title = (context or {}).get("item_title")
+        item_price = (context or {}).get("item_price")
+        session = self._get_or_create_session(
+            session_id, user_id, chat_id=chat_id, item_id=item_id,
+            item_title=item_title, item_price=item_price,
+        )
         
         # Check if context summarization is needed before processing
         if self.config.enable_context_summary and should_summarize(
@@ -178,10 +250,59 @@ class AgentExecutor:
         # Create agent state for loop detection
         agent_state = AgentState(session_id=session.session_id)
         
+        # ============================================================
+        # 动态注入上下文信息到 ask_human_agent 工具
+        # LLM function calling 不会传 chat_id/user_nickname/context_summary，
+        # 所以通过 functools.partial 预绑定这些参数。
+        # ============================================================
+        from functools import partial
+        from ai_kefu.tools import ask_human_agent as _ask_human_mod
+        _original_ask_human = _ask_human_mod.ask_human_agent
+        _bound_ask_human = partial(
+            _original_ask_human,
+            chat_id=chat_id,
+            user_nickname=user_nickname,
+            context_summary=session.context.get("context_summary"),
+        )
+        self.tools_registry._tools["ask_human_agent"] = _bound_ask_human
+
+        # ============================================================
+        # 动态注入 chat_id / buyer_id 到 send_xianyu_message 工具
+        # LLM function calling 只传 text，chat_id 和 buyer_id 由运行时上下文提供。
+        # buyer_id 对应闲鱼的买家用户 ID，通过 context.user_id 传入。
+        # ============================================================
+        _buyer_id = (context or {}).get("user_id", "")
+        from ai_kefu.tools.xianyu import send_xianyu_message as _send_xianyu_msg_fn
+        _original_send_xianyu = _send_xianyu_msg_fn
+        if chat_id and _buyer_id:
+            _bound_send_xianyu = partial(
+                _original_send_xianyu,
+                chat_id=chat_id,
+                buyer_id=_buyer_id,
+            )
+            self.tools_registry._tools["send_xianyu_message"] = _bound_send_xianyu
+
         # Execute turns until completion
         response_text = ""
         is_first_turn = True
         last_turn_metadata = {}
+
+        # Generate a unique interaction_id for this user-message processing
+        # All turns within this run() belong to the same interaction
+        interaction_id = str(uuid.uuid4())
+        local_turn_counter = 0
+
+        # ============================================================
+        # 动态技能选择：根据用户消息检测本次 run() 需要的工具子集
+        # 以减少每次传给 LLM 的 tool definitions 数量（节省 token）。
+        # active_skills 在整个 run() 中保持不变（包括 tool-continuation 轮次）。
+        # ============================================================
+        active_skills = detect_skills(query, session_context=session.context)
+        active_skill_tools = get_active_tool_names(active_skills)
+        logger.info(
+            f"[skill_selector] active_skills={active_skills}, "
+            f"active_tool_count={len(active_skill_tools)}"
+        )
         
         # 超时保护: 确保整个 agent 执行不超过 turn_timeout_seconds
         # 这是最后一道防线，防止 Qwen API 慢响应 + 重试导致无限等待
@@ -216,7 +337,8 @@ class AgentExecutor:
                     session=session,
                     user_message=query,
                     tools_registry=self.tools_registry,
-                    is_tool_continue=not is_first_turn
+                    is_tool_continue=not is_first_turn,
+                    active_skill_tools=active_skill_tools,
                 )
                 
                 is_first_turn = False
@@ -234,6 +356,7 @@ class AgentExecutor:
                 # Update session with new messages
                 session.messages.extend(turn_result.new_messages)
                 session.turn_counter += 1
+                local_turn_counter += 1
                 session.updated_at = datetime.utcnow()
                 
                 # Persist turn data for debugging
@@ -260,7 +383,11 @@ class AgentExecutor:
                             tool_results=tool_results,
                             duration_ms=turn_result.metadata.get("duration_ms"),
                             success=turn_result.success,
-                            error_message=turn_result.error_message
+                            error_message=turn_result.error_message,
+                            interaction_id=interaction_id,
+                            local_turn_number=local_turn_counter,
+                            confidence_percent=turn_result.metadata.get("confidence_percent"),
+                            response_suppressed=turn_result.metadata.get("response_suppressed", False)
                         )
                     except Exception as e:
                         logger.warning(f"Failed to persist turn data (non-fatal): {e}")
@@ -300,12 +427,56 @@ class AgentExecutor:
                 
                 # If no tool calls and we have response text, we're done
                 if response_text:
-                    logger.info(f"Turn {session.turn_counter} completed with response, ending agent execution")
                     last_turn_metadata = turn_result.metadata
+                    # 检查是否被置信度门控抑制
+                    if turn_result.metadata.get("response_suppressed"):
+                        confidence = turn_result.metadata.get("confidence_percent", "?")
+                        threshold = turn_result.metadata.get("confidence_threshold_percent", "?")
+                        logger.warning(
+                            f"Turn {session.turn_counter}: 【置信度抑制】confidence={confidence}%, "
+                            f"original_response={response_text[:200]!r}, using fallback response"
+                        )
+                        # 保留原始回复到 metadata，供下游（如数据库记录）使用
+                        last_turn_metadata["original_response"] = response_text
+                        # 置信度抑制时不给用户发送任何消息（静默处理），
+                        # 通过 metadata.response_suppressed=True 标记，
+                        # 让下游（message_handler）只做数据库记录、不发送到闲鱼。
+                        # response_text 保持原始内容不动，用于数据库记录。
+
+                        # 发送钉钉通知
+                        try:
+                            from ai_kefu.services.dingtalk_notify import notify_confidence_suppression
+
+                            # 获取上下文总结：优先使用已有摘要，否则从最近消息中构建
+                            _ctx_summary = session.context.get("context_summary")
+                            if not _ctx_summary and session.messages:
+                                # 没有正式摘要时，从最近消息构建简要上下文
+                                _recent_lines = []
+                                for _m in session.messages[-8:]:  # 最多取最近 8 条
+                                    if _m.role == MessageRole.USER:
+                                        _recent_lines.append(f"用户: {_m.content[:100]}")
+                                    elif _m.role == MessageRole.ASSISTANT and _m.content:
+                                        _recent_lines.append(f"客服: {_m.content[:100]}")
+                                if _recent_lines:
+                                    _ctx_summary = "\n".join(_recent_lines)
+
+                            notify_confidence_suppression(
+                                chat_id=chat_id or session.session_id,
+                                user_message=query,
+                                original_response=last_turn_metadata["original_response"],
+                                confidence_percent=confidence if isinstance(confidence, int) else 0,
+                                threshold_percent=threshold if isinstance(threshold, int) else 80,
+                                fallback_response="",
+                                user_nickname=user_nickname,
+                                context_summary=_ctx_summary,
+                            )
+                        except Exception as notify_err:
+                            logger.warning(f"置信度抑制钉钉通知失败（不影响主流程）: {notify_err}")
+                    else:
+                        logger.info(f"Turn {session.turn_counter} completed with response, ending agent execution")
                     break
                 
                 # If no tool calls and no response text, something is wrong
-                # (could be confidence guard suppression — still capture metadata)
                 last_turn_metadata = turn_result.metadata
                 logger.warning(f"Turn {session.turn_counter} had no tool calls and no response text")
                 break
@@ -331,6 +502,7 @@ class AgentExecutor:
                     "duration_ms": duration_ms,
                     "confidence_percent": last_turn_metadata.get("confidence_percent"),
                     "response_suppressed": last_turn_metadata.get("response_suppressed", False),
+                    "original_response": last_turn_metadata.get("original_response"),
                 }
             }
             
@@ -380,6 +552,10 @@ class AgentExecutor:
         finally:
             # 确保超时定时器被取消（无论成功还是异常）
             timeout_timer.cancel()
+            # 恢复 ask_human_agent 原始函数（避免 partial 闭包泄漏到其他 session）
+            self.tools_registry._tools["ask_human_agent"] = _original_ask_human
+            # 恢复 send_xianyu_message 原始函数
+            self.tools_registry._tools["send_xianyu_message"] = _original_send_xianyu
     
     async def stream(
         self,
@@ -416,17 +592,22 @@ class AgentExecutor:
         self,
         session_id: Optional[str],
         user_id: Optional[str],
-        chat_id: Optional[str] = None
+        chat_id: Optional[str] = None,
+        item_id: Optional[str] = None,
+        item_title: Optional[str] = None,
+        item_price: Optional[str] = None,
     ) -> Session:
         """
         Get existing session or create new one.
         When creating a new session, load conversation history from MySQL
         and generate a context summary so the LLM knows the conversation background.
-        
+        Also prefetch item info (title, price, model) and store as a fixed context slot.
+
         Args:
             session_id: Existing session ID (optional)
             user_id: User ID (optional)
             chat_id: Xianyu chat ID (for loading history from MySQL on new sessions)
+            item_id: Xianyu item/listing ID (for prefetching item info on new sessions)
             
         Returns:
             Session object
@@ -448,6 +629,10 @@ class AgentExecutor:
                     self._load_history_as_context(session, chat_id)
                     if session.context.get("context_summary"):
                         self.session_store.set(session)  # Persist the updated context
+                # Prefetch item info if not already cached in session
+                if item_id and not session.context.get("item_info"):
+                    self._load_item_info_context(session, item_id, item_title=item_title, item_price=item_price)
+                    self.session_store.set(session)
                 return session
             else:
                 # Create new session with the provided session_id
@@ -459,8 +644,10 @@ class AgentExecutor:
                 )
                 # Load conversation history from MySQL for context
                 self._load_history_as_context(new_session, chat_id)
+                # Prefetch item info for the fixed context slot
+                self._load_item_info_context(new_session, item_id, item_title=item_title, item_price=item_price)
                 return new_session
-        
+
         # Create new session with generated ID
         new_session = Session(
             session_id=str(uuid.uuid4()),
@@ -469,13 +656,174 @@ class AgentExecutor:
         )
         # Load conversation history from MySQL for context
         self._load_history_as_context(new_session, chat_id)
-        
+        # Prefetch item info for the fixed context slot
+        self._load_item_info_context(new_session, item_id, item_title=item_title, item_price=item_price)
+
         logger.info(f"Created new session: {new_session.session_id}")
         return new_session
+
+    def _load_item_info_context(
+        self,
+        session: Session,
+        item_id: Optional[str],
+        item_title: Optional[str] = None,
+        item_price: Optional[str] = None,
+    ):
+        """
+        Fetch Xianyu item/listing info once at session start and store it as a
+        fixed context slot (session.context["item_info"]).
+
+        This lets the LLM know the exact product title, price, and description
+        for the listing the buyer is enquiring about — without having to ask
+        the buyer which variant they want.
+
+        If the Xianyu API call fails (e.g. XIANYU_COOKIE not configured), falls
+        back to the title/price forwarded by the interceptor in the request context.
+
+        Args:
+            session:    The session to populate
+            item_id:    Xianyu item ID (from context["item_id"])
+            item_title: Item title forwarded by interceptor (fallback when API unavailable)
+            item_price: Item price forwarded by interceptor (fallback when API unavailable)
+        """
+        if not item_id:
+            return
+
+        import re as _re
+        # Each tuple: (regex_pattern, canonical_name)
+        # 3 canonical models: X300U, X200U, X300P
+        # Ultra/Pro variants and space-separated writes all normalize to the canonical name.
+        _model_patterns = [
+            (r"X300\s*Ultra",          "X300U"),
+            (r"X300\s*U(?![a-zA-Z])",  "X300U"),
+            (r"X200\s*Ultra",          "X200U"),
+            (r"X200\s*U(?![a-zA-Z])",  "X200U"),
+            (r"X300\s*Pro",            "X300P"),
+            (r"X300\s*P(?![a-zA-Z])",  "X300P"),
+        ]
+
+        def _extract_and_store(title: str, price: str, source: str):
+            """Helper: store item_info slot and detect model from title."""
+            session.context["item_info"] = {
+                "success": True,
+                "item_id": item_id,
+                "title": title,
+                "price": price,
+                "desc": "",
+                "item_status": 0,
+                "seller_id": "",
+                "location": "",
+            }
+            for _pat, _canonical in _model_patterns:
+                if _re.search(_pat, title, _re.IGNORECASE):
+                    session.context["item_model"] = _canonical
+                    logger.info(
+                        f"[item_info] Detected item_model={_canonical!r} from title={title!r} (source={source})"
+                    )
+                    break
+            else:
+                logger.debug(
+                    f"[item_info] No known model pattern found in title={title!r} (source={source})"
+                )
+            logger.info(
+                f"[item_info] item_info context set for item_id={item_id}: "
+                f"title={title!r}, price={price!r}, source={source}"
+            )
+
+        try:
+            from ai_kefu.tools.xianyu import get_item_info
+            result = get_item_info(item_id)
+            if result.get("success"):
+                session.context["item_info"] = result
+                _title = result.get("title", "")
+                for _pat, _canonical in _model_patterns:
+                    if _re.search(_pat, _title, _re.IGNORECASE):
+                        session.context["item_model"] = _canonical
+                        logger.info(
+                            f"[item_info] Detected item_model={_canonical!r} from title={_title!r} (source=api)"
+                        )
+                        break
+                else:
+                    logger.debug(
+                        f"[item_info] No known model pattern found in title={_title!r} (source=api)"
+                    )
+                logger.info(
+                    f"[item_info] Prefetched item info for item_id={item_id}: "
+                    f"title={_title!r}, price={result.get('price', '')!r}"
+                )
+            else:
+                logger.warning(
+                    f"[item_info] API call failed for item_id={item_id}: "
+                    f"{result.get('error')} — trying interceptor-forwarded title fallback"
+                )
+                if item_title:
+                    _extract_and_store(item_title, item_price or "", "interceptor")
+                else:
+                    logger.warning(
+                        f"[item_info] No fallback title available for item_id={item_id}, "
+                        "item_info context slot will be empty"
+                    )
+        except Exception as e:
+            logger.warning(
+                f"[item_info] Exception while fetching item info for item_id={item_id}: {e} "
+                "— trying interceptor-forwarded title fallback",
+                exc_inc=True,
+            )
+            if item_title:
+                _extract_and_store(item_title, item_price or "", "interceptor")
+
+    def _get_summary_cache_key(self, chat_id: str) -> str:
+        """Generate Redis key for cached history summary."""
+        return f"history_summary:{chat_id}"
+
+    def _get_cached_summary(self, chat_id: str) -> Optional[dict]:
+        """
+        Try to load cached history summary from Redis.
+        
+        Returns:
+            Dict with 'summary', 'is_returning_customer', 'fingerprint' if cache hit,
+            None if cache miss.
+        """
+        try:
+            import json
+            cache_key = self._get_summary_cache_key(chat_id)
+            data = self.session_store.client.get(cache_key)
+            if data:
+                return json.loads(data)
+        except Exception as e:
+            logger.debug(f"Failed to read summary cache for chat_id={chat_id}: {e}")
+        return None
+
+    def _set_cached_summary(self, chat_id: str, summary: str, is_returning_customer: bool, fingerprint: dict):
+        """
+        Cache history summary in Redis with 1-hour TTL.
+        
+        Args:
+            chat_id: Xianyu chat ID
+            summary: Generated summary text
+            is_returning_customer: Whether user is a returning customer
+            fingerprint: Dict with 'message_count' and 'last_message_at'
+        """
+        try:
+            import json
+            cache_key = self._get_summary_cache_key(chat_id)
+            cache_data = json.dumps({
+                "summary": summary,
+                "is_returning_customer": is_returning_customer,
+                "fingerprint": fingerprint
+            }, ensure_ascii=False)
+            # TTL 1 hour - balances freshness vs performance
+            self.session_store.client.setex(cache_key, 3600, cache_data)
+            logger.debug(f"Cached history summary for chat_id={chat_id}")
+        except Exception as e:
+            logger.debug(f"Failed to cache summary for chat_id={chat_id}: {e}")
 
     def _load_history_as_context(self, session: Session, chat_id: Optional[str]):
         """
         Load conversation history from MySQL and inject as context summary.
+        
+        Uses Redis cache to avoid repeated LLM summarization calls.
+        Cache is invalidated when message count or last message timestamp changes.
         
         This ensures that when a Redis session expires and a new one is created,
         the LLM still has context about previous conversations with this user.
@@ -488,11 +836,34 @@ class AgentExecutor:
             return
         
         try:
+            # Step 1: Get lightweight fingerprint (COUNT + MAX timestamp)
+            fingerprint = self.conversation_store.get_conversation_fingerprint(chat_id)
+            if not fingerprint:
+                logger.debug(f"No conversation history found for chat_id={chat_id}")
+                return
+            
+            # Step 2: Check Redis cache
+            cached = self._get_cached_summary(chat_id)
+            if cached and cached.get("fingerprint") == fingerprint:
+                # Cache hit! Reuse cached summary
+                summary = cached["summary"]
+                is_returning_customer = cached["is_returning_customer"]
+                session.context["context_summary"] = summary
+                session.context["is_returning_customer"] = is_returning_customer
+                logger.info(
+                    f"[cache_hit] Loaded cached history summary for chat_id={chat_id}: "
+                    f"{len(summary)} chars, returning_customer={is_returning_customer}"
+                )
+                return
+            
+            # Step 3: Cache miss - load full history and generate summary
+            logger.info(f"[cache_miss] Generating history summary for chat_id={chat_id} "
+                        f"(fingerprint: count={fingerprint['message_count']}, last={fingerprint['last_message_at']})")
+            
             # Load recent conversation history from MySQL
-            # Get the last N messages for this chat_id
             history = self.conversation_store.get_conversation_history(
                 chat_id=chat_id,
-                limit=30  # Get last 30 messages for summarization
+                limit=50  # Get last 50 messages for summarization
             )
             
             if not history:
@@ -501,6 +872,8 @@ class AgentExecutor:
             
             # Build a readable conversation text from MySQL records
             conversation_lines = []
+            # 检测是否老客户：历史对话中是否出现过 "[我已付款，等待你发货]"
+            is_returning_customer = False
             for msg in history:
                 msg_type = msg.message_type
                 content = msg.message_content or ""
@@ -508,6 +881,10 @@ class AgentExecutor:
                 # Skip empty messages
                 if not content.strip():
                     continue
+                
+                # 检测付款记录（闲鱼系统消息或用户消息中包含付款标记）
+                if "我已付款，等待你发货" in content:
+                    is_returning_customer = True
                 
                 # Clean up debug markers for readability
                 if content.startswith("【调试】"):
@@ -526,27 +903,43 @@ class AgentExecutor:
             if not conversation_lines:
                 return
             
+            # 将老客户标记存入 session context
+            session.context["is_returning_customer"] = is_returning_customer
+            if is_returning_customer:
+                logger.info(f"chat_id={chat_id}: 检测到老客户（历史对话中有付款记录）")
+            
             # Build context summary directly (for short histories) 
             # or call LLM to summarize (for long histories)
             conversation_text = "\n".join(conversation_lines)
             
+            # 在摘要前附加老客户标记
+            returning_customer_tag = "【老客户】该用户之前有过付款记录。" if is_returning_customer else "【新客户】该用户暂无历史付款记录。"
+            
             if len(conversation_lines) <= 10:
                 # Short history: use as-is
-                summary = f"以下是与该用户之前的对话记录：\n{conversation_text}"
+                summary = f"{returning_customer_tag}\n\n以下是与该用户之前的对话记录：\n{conversation_text}"
             else:
                 # Longer history: call LLM to summarize
-                summary = self._summarize_history(conversation_text)
+                summary = self._summarize_history(conversation_text, is_returning_customer=is_returning_customer)
                 if not summary:
                     # Fallback: use last few messages as context
                     recent_lines = conversation_lines[-10:]
-                    summary = f"以下是与该用户最近的对话记录：\n" + "\n".join(recent_lines)
+                    summary = f"{returning_customer_tag}\n\n以下是与该用户最近的对话记录：\n" + "\n".join(recent_lines)
+                else:
+                    # 确保摘要中包含老客户标记
+                    if returning_customer_tag not in summary:
+                        summary = f"{returning_customer_tag}\n\n{summary}"
             
             # Inject into session context
             session.context["context_summary"] = summary
             logger.info(
                 f"Loaded conversation history for chat_id={chat_id}: "
-                f"{len(history)} records, summary {len(summary)} chars"
+                f"{len(history)} records, summary {len(summary)} chars, "
+                f"returning_customer={is_returning_customer}"
             )
+            
+            # Step 4: Cache the result for future requests
+            self._set_cached_summary(chat_id, summary, is_returning_customer, fingerprint)
             
         except Exception as e:
             logger.warning(
@@ -554,27 +947,31 @@ class AgentExecutor:
                 exc_info=True
             )
     
-    def _summarize_history(self, conversation_text: str) -> Optional[str]:
+    def _summarize_history(self, conversation_text: str, is_returning_customer: bool = False) -> Optional[str]:
         """
         Use LLM to summarize conversation history into a compact context.
         
         Args:
             conversation_text: Formatted conversation text
+            is_returning_customer: Whether this user has payment history (returning customer)
             
         Returns:
             Summary string, or None if failed
         """
-        from ai_kefu.llm.qwen_client import call_qwen
+        from ai_kefu.llm.qwen_client import call_qwen_fast
+        
+        returning_tag = "【老客户】该用户之前有过付款记录。" if is_returning_customer else "【新客户】该用户暂无历史付款记录。"
         
         prompt = f"""请将以下客服对话历史压缩成一段简洁的上下文摘要。
 
 要求：
-1. 保留关键信息：用户的核心需求、已确认的订单/租赁信息、价格、日期等
-2. 保留对话状态：当前进展到哪一步、还有哪些待确认的事项
-3. 保留用户偏好和情绪倾向
-4. 去掉冗余的寒暄、重复的信息
-5. 使用第三人称描述（"用户"、"客服"）
-6. 控制在 300 字以内
+1. 摘要开头必须标注客户类型：{returning_tag}
+2. 保留关键信息：用户的核心需求、已确认的订单/租赁信息、价格、日期等
+3. 保留对话状态：当前进展到哪一步、还有哪些待确认的事项
+4. 保留用户偏好和情绪倾向
+5. 去掉冗余的寒暄、重复的信息
+6. 使用第三人称描述（"用户"、"客服"）
+7. 控制在 200 字以内
 
 对话历史：
 {conversation_text}
@@ -582,20 +979,20 @@ class AgentExecutor:
 请输出压缩后的上下文摘要："""
         
         try:
-            response = call_qwen(
+            response = call_qwen_fast(
                 messages=[
                     {"role": "system", "content": "你是一个专业的对话摘要助手。"},
                     {"role": "user", "content": prompt}
                 ],
                 tools=None,
-                max_tokens=500,
+                max_tokens=300,
                 temperature=0.3,
-                model=settings.model_name_light  # 摘要任务，使用 flash 模型降低成本
+                model=settings.model_name_light,  # 摘要任务，使用 flash 模型降低成本
             )
             
             summary = response["choices"][0]["message"].get("content", "")
             if summary:
-                summary = self._build_structured_history_summary(conversation_text, summary.strip())
+                summary = summary.strip()
                 logger.info(f"Generated history summary: {len(summary)} chars")
                 return summary
             return None
