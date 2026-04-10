@@ -500,13 +500,28 @@ async def _process_with_agent(
     else:
         db_response = f"【调试】{response_text}" if is_debug_mode else response_text
 
+    # Always enrich the stored context with AI's conversation-level awareness
+    agent_context: dict = {}
+    if metadata.get("context_summary"):
+        agent_context["context_summary"] = metadata["context_summary"]
+    if metadata.get("is_returning_customer") is not None:
+        agent_context["is_returning_customer"] = metadata["is_returning_customer"]
+    if metadata.get("receive_date"):
+        agent_context["receive_date"] = metadata["receive_date"]
+    if metadata.get("return_date"):
+        agent_context["return_date"] = metadata["return_date"]
+    if metadata.get("destination"):
+        agent_context["destination"] = metadata["destination"]
+    if confidence_context:
+        agent_context.update(confidence_context)
+
     await _log_message(
         req=req,
         message_type=MessageType.SELLER,
         conversation_store=conversation_store,
         agent_response=db_response,
         session_id=agent_session_id,
-        extra_context=confidence_context if confidence_context else None,
+        extra_context=agent_context if agent_context else None,
     )
 
     if is_debug_mode:

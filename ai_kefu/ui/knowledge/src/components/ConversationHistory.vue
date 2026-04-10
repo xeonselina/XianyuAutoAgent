@@ -92,49 +92,63 @@
                 <div class="msg-meta">AI 回复 · {{ formatTime(msg.created_at) }}</div>
                 <div class="msg-bubble">{{ msg.message_content }}</div>
                 <!-- AI Context Panel -->
-                <div class="ai-context-toggle" @click="toggleContext(msg.id)">
+                <div v-if="hasAiContext(msg)" class="ai-context-toggle" @click="toggleContext(msg.id)">
                   {{ contextVisible[msg.id] ? '▲ 收起 AI 上下文' : '▼ 查看 AI 上下文' }}
                 </div>
-                <div v-if="contextVisible[msg.id]" class="ai-context-panel">
-                  <template v-if="getContextForMsg(msg, index).length > 0">
-                    <!-- Tool Calls -->
-                    <div v-if="hasToolCalls(getContextForMsg(msg, index))" class="ctx-section">
-                      <div class="ctx-section-title">🔧 工具调用</div>
-                      <div v-for="(turn, ti) in getContextForMsg(msg, index)" :key="ti">
-                        <div v-if="turn.tool_calls && turn.tool_calls.length" class="tool-call-list">
-                          <div v-for="(tc, tci) in turn.tool_calls" :key="tci" class="tool-call-item">
-                            <span class="tool-name">{{ tc.function ? tc.function.name : tc.name }}</span>
-                            <span class="tool-args">{{ formatToolArgs(tc) }}</span>
-                            <div v-if="getToolResult(turn, tci)" class="tool-result">
-                              ↳ {{ formatToolResult(getToolResult(turn, tci)) }}
-                            </div>
-                          </div>
-                        </div>
+                <div v-if="contextVisible[msg.id] && hasAiContext(msg)" class="ai-context-panel">
+                  <!-- 商品信息 -->
+                  <div v-if="msg.context && (msg.context.item_title || msg.context.item_price)" class="ctx-section">
+                    <div class="ctx-section-title">🛍️ 商品信息</div>
+                    <div class="ctx-kv-list">
+                      <div v-if="msg.context.item_title" class="ctx-kv-row">
+                        <span class="ctx-kv-key">标题</span>
+                        <span class="ctx-kv-val">{{ msg.context.item_title }}</span>
+                      </div>
+                      <div v-if="msg.context.item_price" class="ctx-kv-row">
+                        <span class="ctx-kv-key">价格</span>
+                        <span class="ctx-kv-val">¥{{ msg.context.item_price }}</span>
                       </div>
                     </div>
-                    <!-- LLM Context Messages -->
-                    <div v-if="getContextForMsg(msg, index)[0] && getContextForMsg(msg, index)[0].llm_input" class="ctx-section">
-                      <div class="ctx-section-title">
-                        📋 LLM 上下文
-                        <span class="ctx-count">({{ getLlmInputMessages(getContextForMsg(msg, index)[0]).length }} 条)</span>
-                        <button class="btn-link ctx-expand-btn" @click.stop="toggleLlmExpand(msg.id)">
-                          {{ llmExpanded[msg.id] ? '收起' : '展开' }}
-                        </button>
-                      </div>
-                      <div v-if="llmExpanded[msg.id]" class="llm-messages">
-                        <div
-                          v-for="(lmsg, li) in getLlmInputMessages(getContextForMsg(msg, index)[0])"
-                          :key="li"
-                          class="llm-msg-row"
-                          :class="'llm-role-' + lmsg.role"
-                        >
-                          <span class="llm-role-badge">{{ lmsg.role }}</span>
-                          <span class="llm-content">{{ formatLlmContent(lmsg) }}</span>
-                        </div>
+                  </div>
+
+                  <!-- 买家身份 -->
+                  <div v-if="msg.context && msg.context.is_returning_customer !== undefined" class="ctx-section">
+                    <div class="ctx-section-title">👤 买家身份</div>
+                    <div class="ctx-kv-list">
+                      <div class="ctx-kv-row">
+                        <span class="ctx-kv-key">类型</span>
+                        <span class="ctx-kv-val">
+                          <span v-if="msg.context.is_returning_customer" class="badge-returning">🔁 老客户（有付款记录）</span>
+                          <span v-else class="badge-new">🆕 新客户</span>
+                        </span>
                       </div>
                     </div>
-                  </template>
-                  <div v-else class="ctx-empty">暂无上下文记录（该会话无 agent_turns 数据）</div>
+                  </div>
+
+                  <!-- 租赁信息 -->
+                  <div v-if="msg.context && (msg.context.receive_date || msg.context.return_date || msg.context.destination)" class="ctx-section">
+                    <div class="ctx-section-title">🗓️ 租赁信息</div>
+                    <div class="ctx-kv-list">
+                      <div v-if="msg.context.receive_date" class="ctx-kv-row">
+                        <span class="ctx-kv-key ctx-kv-key-wide">收货日期</span>
+                        <span class="ctx-kv-val">{{ msg.context.receive_date }}</span>
+                      </div>
+                      <div v-if="msg.context.return_date" class="ctx-kv-row">
+                        <span class="ctx-kv-key ctx-kv-key-wide">归还日期</span>
+                        <span class="ctx-kv-val">{{ msg.context.return_date }}</span>
+                      </div>
+                      <div v-if="msg.context.destination" class="ctx-kv-row">
+                        <span class="ctx-kv-key ctx-kv-key-wide">收货地</span>
+                        <span class="ctx-kv-val">{{ msg.context.destination }}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 历史对话摘要 -->
+                  <div v-if="msg.context && msg.context.context_summary" class="ctx-section">
+                    <div class="ctx-section-title">📝 历史对话摘要</div>
+                    <div class="ctx-summary">{{ msg.context.context_summary }}</div>
+                  </div>
                 </div>
               </div>
               <div class="msg-avatar">🤖</div>
@@ -254,9 +268,7 @@ export default {
       savedReview: null,  // persisted review loaded from DB / just submitted
 
       // AI context panel
-      turnsBySession: {},   // { session_id: [turn, ...] }
       contextVisible: {},   // { msg_id: bool }
-      llmExpanded: {},      // { msg_id: bool }
     }
   },
 
@@ -322,16 +334,13 @@ export default {
       this.reviewSaved = false
       this.reviewError = ''
       this.savedReview = null
-      this.turnsBySession = {}
       this.contextVisible = {}
-      this.llmExpanded = {}
       try {
         const [convData, reviewData] = await Promise.all([
           fetchConversation(chatId),
           fetchReviews(chatId),
         ])
         this.messages = convData.messages || []
-        this.turnsBySession = convData.turns_by_session || {}
         if (reviewData.reviews && reviewData.reviews.length > 0) {
           const r = reviewData.reviews[0]
           this.reviewRating = r.rating || 0
@@ -394,105 +403,18 @@ export default {
 
     // ── AI Context helpers ──────────────────────────────────────────
 
+    hasAiContext(msg) {
+      if (!msg.context) return false
+      const c = msg.context
+      return !!(c.item_title || c.item_price || c.context_summary || c.is_returning_customer !== undefined
+        || c.receive_date || c.return_date || c.destination)
+    },
+
     toggleContext(msgId) {
       this.contextVisible = {
         ...this.contextVisible,
         [msgId]: !this.contextVisible[msgId],
       }
-    },
-
-    toggleLlmExpand(msgId) {
-      this.llmExpanded = {
-        ...this.llmExpanded,
-        [msgId]: !this.llmExpanded[msgId],
-      }
-    },
-
-    // Return the turns array that belong to this AI message.
-    // Strategy: match by session_id on the message, falling back to the
-    // turns whose user_query equals the preceding user message.
-    getContextForMsg(msg, index) {
-      if (!msg.session_id) return []
-      const turns = this.turnsBySession[msg.session_id]
-      if (!turns || !turns.length) return []
-
-      // Find the user message just before this seller/AI message
-      let prevUserMsg = null
-      for (let i = index - 1; i >= 0; i--) {
-        if (this.messages[i].message_type === 'user') {
-          prevUserMsg = this.messages[i]
-          break
-        }
-      }
-
-      // If we have an interaction_id on the turns, group by the turn whose
-      // user_query matches the preceding user message
-      if (prevUserMsg) {
-        const matchingTurns = turns.filter(
-          t => t.user_query && t.user_query.trim() === prevUserMsg.message_content.trim()
-        )
-        if (matchingTurns.length) return matchingTurns
-      }
-
-      // Fallback: return the turn whose response_text matches the AI reply
-      const byResponse = turns.filter(
-        t => t.response_text && msg.message_content &&
-             t.response_text.trim() === msg.message_content.trim()
-      )
-      if (byResponse.length) return byResponse
-
-      // Last resort: return all turns for this session
-      return turns
-    },
-
-    hasToolCalls(ctx) {
-      return ctx.some(t => t.tool_calls && t.tool_calls.length > 0)
-    },
-
-    getLlmInputMessages(turn) {
-      if (!turn || !turn.llm_input) return []
-      try {
-        const inp = typeof turn.llm_input === 'string'
-          ? JSON.parse(turn.llm_input)
-          : turn.llm_input
-        return Array.isArray(inp) ? inp : (inp.messages || [])
-      } catch { return [] }
-    },
-
-    getToolResult(turn, toolCallIndex) {
-      if (!turn.tool_results) return null
-      const results = typeof turn.tool_results === 'string'
-        ? (() => { try { return JSON.parse(turn.tool_results) } catch { return [] } })()
-        : turn.tool_results
-      return Array.isArray(results) ? (results[toolCallIndex] || null) : null
-    },
-
-    formatToolArgs(tc) {
-      try {
-        const args = tc.function ? tc.function.arguments : tc.arguments
-        if (!args) return ''
-        const parsed = typeof args === 'string' ? JSON.parse(args) : args
-        return JSON.stringify(parsed, null, 0).slice(0, 200)
-      } catch {
-        return String(tc.function ? tc.function.arguments : tc.arguments || '').slice(0, 200)
-      }
-    },
-
-    formatToolResult(result) {
-      if (!result) return ''
-      const content = result.content || result.output || result
-      const str = typeof content === 'string' ? content : JSON.stringify(content)
-      return str.length > 300 ? str.slice(0, 300) + '…' : str
-    },
-
-    formatLlmContent(msg) {
-      if (!msg) return ''
-      const c = msg.content
-      if (typeof c === 'string') return c.length > 400 ? c.slice(0, 400) + '…' : c
-      if (Array.isArray(c)) {
-        return c.map(p => p.text || JSON.stringify(p)).join(' ').slice(0, 400)
-      }
-      return JSON.stringify(c).slice(0, 400)
     },
 
     formatTime(ts) {
@@ -814,37 +736,48 @@ export default {
   padding: 0.25rem 0.5rem;
 }
 
-/* LLM messages */
-.llm-messages { display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.35rem; }
-.llm-msg-row {
-  display: flex;
-  gap: 0.5rem;
-  align-items: flex-start;
-  padding: 0.3rem 0.5rem;
-  border-radius: 5px;
+/* KV list */
+.ctx-kv-list { display: flex; flex-direction: column; gap: 0.25rem; }
+.ctx-kv-row { display: flex; gap: 0.5rem; align-items: baseline; font-size: 0.82rem; }
+.ctx-kv-key {
+  flex-shrink: 0;
+  color: #999;
+  width: 3em;
+}
+.ctx-kv-key-wide {
+  width: 4.5em;
+}
+.ctx-kv-val { color: #333; word-break: break-word; }
+
+/* Returning / new customer badges */
+.badge-returning {
+  background: #fff7e6;
+  color: #d46b08;
+  border: 1px solid #ffd591;
+  border-radius: 10px;
+  padding: 1px 8px;
   font-size: 0.78rem;
 }
-.llm-role-system   { background: #fff7e6; }
-.llm-role-user     { background: #e6f7ff; }
-.llm-role-assistant { background: #f9f0ff; }
-.llm-role-tool     { background: #f6ffed; }
-
-.llm-role-badge {
-  font-size: 0.68rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: rgba(0,0,0,0.06);
-  flex-shrink: 0;
-  color: #555;
-  white-space: nowrap;
+.badge-new {
+  background: #f6ffed;
+  color: #389e0d;
+  border: 1px solid #b7eb8f;
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 0.78rem;
 }
-.llm-content {
+
+/* History summary */
+.ctx-summary {
+  background: #fff;
+  border-left: 3px solid #722ed1;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.83rem;
   color: #333;
-  word-break: break-word;
+  line-height: 1.6;
   white-space: pre-wrap;
-  line-height: 1.45;
+  word-break: break-word;
+  border-radius: 0 4px 4px 0;
 }
 
 .ctx-empty {
