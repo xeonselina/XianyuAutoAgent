@@ -28,18 +28,25 @@ def knowledge_search(query: str, top_k: int = DEFAULT_TOP_K) -> Dict[str, Any]:
         }
     """
     try:
+        import time as _time
         logger.info(f"Knowledge search: query='{query}', top_k={top_k}")
         
         # Generate embedding for query
+        _t0 = _time.monotonic()
         query_embedding = generate_embedding(query, task_type="retrieval_query")
+        _t1 = _time.monotonic()
+        logger.info(f"[perf] knowledge_search.embedding: {int((_t1 - _t0) * 1000)}ms")
         
         # Search knowledge store
         knowledge_store = get_knowledge_store()
+        _t2 = _time.monotonic()
         search_results = knowledge_store.search(
             query_embedding=query_embedding,
             top_k=top_k,
             active_only=True
         )
+        _t3 = _time.monotonic()
+        logger.info(f"[perf] knowledge_search.chroma_query: {int((_t3 - _t2) * 1000)}ms")
         
         # Format results
         results = []

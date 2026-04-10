@@ -55,25 +55,36 @@ class ToolRegistry:
         """
         return list(self._tools.keys())
     
-    def to_qwen_format(self) -> List[Dict[str, Any]]:
+    def to_qwen_format(
+        self,
+        skill_names: Optional[set] = None,
+    ) -> List[Dict[str, Any]]:
         """
         Convert tool definitions to Qwen Function Calling format.
-        
+
+        Args:
+            skill_names: Optional set of tool names to include.  When
+                provided only tools whose names appear in this set are
+                returned, which keeps the per-turn prompt shorter.
+                Pass ``None`` (default) to return every registered tool.
+
         Returns:
             List of tool definitions in Qwen format
         """
         qwen_tools = []
-        
+
         for name, definition in self._tool_definitions.items():
+            if skill_names is not None and name not in skill_names:
+                continue
             qwen_tools.append({
                 "type": "function",
                 "function": {
                     "name": definition["name"],
                     "description": definition["description"],
-                    "parameters": definition["parameters"]
-                }
+                    "parameters": definition["parameters"],
+                },
             })
-        
+
         return qwen_tools
     
     def execute_tool(self, name: str, args: Dict[str, Any]) -> Any:

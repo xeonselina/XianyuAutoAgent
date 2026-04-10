@@ -33,6 +33,8 @@ _RETRYABLE_ERRORS = (APIError, APITimeoutError, APIConnectionError)
 
 # 全局 OpenAI client（惰性初始化）
 _client: Optional[OpenAI] = None
+# Fast client: 短超时、无内部重试，用于辅助调用（置信度、摘要）
+_fast_client: Optional[OpenAI] = None
 
 
 def _get_client() -> OpenAI:
@@ -48,6 +50,22 @@ def _get_client() -> OpenAI:
             timeout=settings.qwen_api_timeout or QWEN_API_TIMEOUT,
         )
     return _client
+
+
+def _get_fast_client(timeout: float = 10.0) -> OpenAI:
+    """获取或创建 fast OpenAI client（单例，短超时、无内部重试）。"""
+    global _fast_client
+    if _fast_client is None:
+        api_key = settings.api_key
+        if not api_key:
+            raise ValueError("API key not found in settings. Please check your .env file.")
+        _fast_client = OpenAI(
+            api_key=api_key,
+            base_url=settings.model_base_url,
+            timeout=timeout,
+            max_retries=0,  # 禁用 OpenAI SDK 内部重试
+        )
+    return _fast_client
 
 
 def _completion_to_dict(completion) -> Dict[str, Any]:
@@ -137,6 +155,63 @@ def call_qwen(
         kwargs["tools"] = tools
     
     completion = client.chat.completions.create(**kwargs)
+    return _completion_to_dict(completion)
+
+
+def call_qwen_fast(
+    messages: List[Dict[str, Any]],
+    tools: Optional[List[Dict[str, Any]]] = None,
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+    model: Optional[str] = None,
+    timeout: float = 15.0
+) -> Dict[str, Any]:
+    """
+    Fast, no-retry variant of call_qwen for low-priority auxiliary calls
+    (e.g. confidence guard, context summarisation).
+
+    Differences from call_qwen:
+    - No retry on failure — neither tenacity nor OpenAI SDK internal retries
+    - Short timeout (default 15s), and that's a **hard** ceiling
+    - Uses a singleton fast client (max_retries=0)
+
+    Note: the `timeout` parameter is only used on first initialisation of the
+    singleton fast client.  Subsequent calls reuse the same client regardless
+    of the timeout value passed.  In practice all callers should use the same
+    default (15s).
+
+    Args:
+        messages: Conversation messages
+        tools: Tool definitions
+        temperature: Sampling temperature
+        top_p: Nucleus sampling parameter
+        max_tokens: Maximum tokens to generate
+        model: Model name override
+        timeout: Hard timeout in seconds (default 15s).
+
+    Returns:
+        Response dict (same format as call_qwen)
+
+    Raises:
+        APIError, APITimeoutError, APIConnectionError on failure (no retry)
+    """
+    fast_client = _get_fast_client(timeout=timeout)
+    
+    effective_model = model or settings.model_name
+    
+    kwargs: Dict[str, Any] = {
+        "model": effective_model,
+        "messages": messages,
+        "temperature": temperature or settings.qwen_temperature,
+        "top_p": top_p or settings.qwen_top_p,
+        "max_tokens": max_tokens or settings.qwen_max_tokens,
+        "stream": False,
+    }
+    if tools:
+        kwargs["tools"] = tools
+    
+    completion = fast_client.chat.completions.create(**kwargs)
     return _completion_to_dict(completion)
 
 

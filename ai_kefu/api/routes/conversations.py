@@ -8,10 +8,17 @@ including AI debug mode responses and agent turn-level LLM I/O.
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Query, HTTPException
+from pydantic import BaseModel
 from ai_kefu.api.dependencies import get_conversation_store
 
 
 router = APIRouter()
+
+
+class ReviewRequest(BaseModel):
+    rating: int  # 1 = thumbs up, -1 = thumbs down
+    comment: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 # ─── Fixed-path routes (MUST be before /{chat_id} to avoid conflicts) ─────
@@ -157,6 +164,44 @@ async def get_session_turns(
 
 
 # ─── Dynamic path routes (MUST be last) ────────────────────────────────────
+
+
+@router.post("/{chat_id}/reviews")
+async def save_conversation_review(chat_id: str, body: ReviewRequest):
+    """
+    Save (upsert) an operator review for a conversation.
+    One review per chat_id; re-submitting overwrites the previous rating/comment.
+    """
+    if body.rating not in (1, -1):
+        raise HTTPException(status_code=422, detail="rating must be 1 (thumbs up) or -1 (thumbs down)")
+    try:
+        store = get_conversation_store()
+        row_id = store.save_review(
+            chat_id=chat_id,
+            rating=body.rating,
+            comment=body.comment,
+            session_id=body.session_id,
+        )
+        return {"ok": True, "id": row_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save review: {str(e)}")
+
+
+@router.get("/{chat_id}/reviews")
+async def get_conversation_reviews(chat_id: str):
+    """
+    Get all reviews for a specific chat_id.
+    """
+    try:
+        store = get_conversation_store()
+        reviews = store.get_reviews_by_chat(chat_id)
+        for r in reviews:
+            for key in ('created_at', 'updated_at'):
+                if r.get(key) and isinstance(r[key], datetime):
+                    r[key] = r[key].isoformat()
+        return {"chat_id": chat_id, "reviews": reviews}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch reviews: {str(e)}")
 
 
 @router.get("/{chat_id}")

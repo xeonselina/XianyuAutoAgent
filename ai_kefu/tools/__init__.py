@@ -13,6 +13,9 @@ from . import parse_date
 from . import get_return_address
 from . import get_order_status
 
+# Xianyu (闲鱼) platform tools — backed by xianyu_provider (real API calls)
+from . import xianyu
+
 __all__ = [
     "knowledge_search",
     "complete_task",
@@ -22,4 +25,8 @@ __all__ = [
     "calculate_price",
     "collect_rental_info",
     "parse_date",
+    "get_return_address",
+    "get_order_status",
+    # Xianyu sub-package
+    "xianyu",
 ]

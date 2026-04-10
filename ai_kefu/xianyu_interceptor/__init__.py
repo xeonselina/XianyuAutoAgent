@@ -34,10 +34,6 @@ from .logging_setup import setup_logging
 from .main_integration import (
     initialize_interceptor,
     run_interceptor,
-    setup_agent_client,
-    setup_session_mapper,
-    setup_manual_mode_manager,
-    setup_conversation_store
 )
 
 __all__ = [
@@ -93,8 +89,4 @@ __all__ = [
     "setup_logging",
     "initialize_interceptor",
     "run_interceptor",
-    "setup_agent_client",
-    "setup_session_mapper",
-    "setup_manual_mode_manager",
-    "setup_conversation_store",
 ]

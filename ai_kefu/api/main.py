@@ -2,6 +2,7 @@
 FastAPI application main entry point.
 """
 
+import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -26,7 +27,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     logger.info("Starting AI Customer Service Agent...")
     logger.info(f"Configuration: Model={settings.model_name}, Port={settings.api_port}")
     
-    yield
+    try:
+        yield
+    except asyncio.CancelledError:
+        # Gunicorn worker shutdown sends CancelledError to lifespan.
+        # This is expected behavior — suppress the traceback.
+        pass
     
     # Shutdown
     logger.info("Shutting down AI Customer Service Agent...")
@@ -62,7 +68,7 @@ async def root():
 
 
 # Register routes
-from ai_kefu.api.routes import system, chat, session, human_agent, knowledge, conversations, prompts, eval as eval_routes
+from ai_kefu.api.routes import system, chat, session, human_agent, knowledge, conversations, prompts, eval as eval_routes, ignore_patterns, dingtalk, xianyu as xianyu_routes
 app.include_router(system.router, tags=["system"])
 app.include_router(chat.router, prefix="/chat", tags=["chat"])
 app.include_router(session.router, prefix="/sessions", tags=["sessions"])
@@ -71,6 +77,9 @@ app.include_router(knowledge.router, prefix="/knowledge", tags=["knowledge"])
 app.include_router(conversations.router, prefix="/conversations", tags=["conversations"])
 app.include_router(prompts.router, prefix="/prompts", tags=["prompts"])
 app.include_router(eval_routes.router, prefix="/eval", tags=["eval"])
+app.include_router(ignore_patterns.router, prefix="/ignore-patterns", tags=["ignore-patterns"])
+app.include_router(dingtalk.router, prefix="/dingtalk", tags=["dingtalk"])
+app.include_router(xianyu_routes.router, prefix="/xianyu", tags=["xianyu"])
 
 
 # Mount static files for Knowledge Management UI

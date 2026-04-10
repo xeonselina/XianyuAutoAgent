@@ -60,5 +60,10 @@ COPY prompts/default_prompt_example.txt prompts/default_prompt.txt
 COPY main.py XianyuAgent.py XianyuApis.py context_manager.py ./
 COPY utils/ utils/
 
-# 容器启动时运行的命令
-CMD ["python", "main.py"]
+# 容器启动时运行的命令 (10 workers for production concurrency)
+CMD ["gunicorn", "ai_kefu.api.main:app", \
+     "-w", "10", \
+     "-k", "uvicorn.workers.UvicornWorker", \
+     "--bind", "0.0.0.0:8000", \
+     "--timeout", "120", \
+     "--access-logfile", "-"]

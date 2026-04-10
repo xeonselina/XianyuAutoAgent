@@ -4,6 +4,8 @@ import KnowledgeForm from './components/KnowledgeForm.vue'
 import PromptList from './components/PromptList.vue'
 import PromptEditor from './components/PromptEditor.vue'
 import EvalReplay from './components/EvalReplay.vue'
+import IgnorePatternList from './components/IgnorePatternList.vue'
+import ConversationHistory from './components/ConversationHistory.vue'
 
 const routes = [
   {
@@ -47,6 +49,22 @@ const routes = [
     path: '/eval/:runId',
     name: 'eval-detail',
     component: EvalReplay,
+    props: true
+  },
+  {
+    path: '/ignore-patterns',
+    name: 'ignore-patterns',
+    component: IgnorePatternList
+  },
+  {
+    path: '/history',
+    name: 'history-list',
+    component: ConversationHistory
+  },
+  {
+    path: '/history/:chatId',
+    name: 'history-detail',
+    component: ConversationHistory,
     props: true
   }
 ]

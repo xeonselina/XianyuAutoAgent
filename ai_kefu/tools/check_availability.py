@@ -51,12 +51,12 @@ def check_availability(
                 "error": f"日期格式错误，请使用 YYYY-MM-DD 格式: {str(e)}"
             }
         
-        # 验证日期逻辑
-        if end_dt <= start_dt:
+        # 验证日期逻辑（允许 start_date == end_date，即单天查询）
+        if end_dt < start_dt:
             return {
                 "success": False,
                 "available_slots": [],
-                "error": "结束日期必须晚于开始日期"
+                "error": "结束日期不能早于开始日期"
             }
         
         # 计算租赁天数

@@ -2,7 +2,8 @@
 """
 闲鱼消息拦截器启动脚本
 
-使用 xianyu_interceptor 拦截闲鱼消息并可选地调用后端 AI Agent API
+使用 xianyu_interceptor 拦截闲鱼消息并通过 POST /xianyu/inbound 转发给 AI API。
+拦截器是纯传输层中继，不包含任何业务逻辑。
 """
 
 import asyncio
@@ -26,7 +27,68 @@ from xianyu_interceptor.messaging_core import XianyuMessageCodec
 from xianyu_interceptor.models import XianyuMessage, XianyuMessageType
 from xianyu_interceptor.image_handler import get_image_handler
 from xianyu_interceptor.history_message_parser import HistoryMessageParser
+from xianyu_interceptor.browser_transport import BrowserTransport
+from ai_kefu.config.settings import settings
 import json
+
+
+async def _save_history_messages_to_api(history_messages: list) -> None:
+    """
+    将解析出的历史消息通过 HTTP POST 到 /xianyu/history-inbound 保存到数据库。
+    直接调用 conversation_store 依赖于 API 层的单例，所以改为 HTTP 调用。
+    若无专用端点则降级为逐条调用 /xianyu/inbound（is_history=True 跳过 AI）。
+    """
+    import httpx
+    inbound_url = f"{config.agent_service_url.rstrip('/')}/xianyu/inbound"
+
+    seller_user_id = settings.seller_user_id
+
+    for xianyu_message in history_messages:
+        try:
+            content = xianyu_message.content or ""
+            if not content.strip():
+                continue
+
+            metadata = xianyu_message.metadata or {}
+            encrypted_uid = xianyu_message.encrypted_uid or metadata.get("encrypted_uid") or None
+            message_id = xianyu_message.message_id or metadata.get("message_id") or None
+
+            # Auto-record UID mapping at interceptor level
+            if xianyu_message.user_id and encrypted_uid:
+                from xianyu_interceptor.uid_mapper import record_uid_mapping
+                record_uid_mapping(xianyu_message.user_id, encrypted_uid)
+
+            is_self_sent = (
+                bool(seller_user_id)
+                and str(xianyu_message.user_id).strip() == str(seller_user_id).strip()
+            )
+
+            payload = {
+                "chat_id": xianyu_message.chat_id,
+                "user_id": xianyu_message.user_id,
+                "content": content,
+                "item_id": xianyu_message.item_id,
+                "user_nickname": xianyu_message.user_nickname or metadata.get("reminder_title"),
+                "encrypted_uid": encrypted_uid,
+                "is_self_sent": is_self_sent,
+                "message_id": message_id,
+                "item_title": metadata.get("item_title"),
+                "item_price": None,
+                "timestamp": xianyu_message.timestamp,
+                "raw_data": None,
+                "metadata": {
+                    **metadata,
+                    "source": "history_api",
+                    "history_only": True,   # tells the API not to trigger AI reply
+                },
+            }
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(inbound_url, json=payload)
+                resp.raise_for_status()
+
+        except Exception as e:
+            logger.warning(f"保存历史消息失败 (chat_id={xianyu_message.chat_id}): {e}")
 
 
 async def main():
@@ -35,15 +97,14 @@ async def main():
     setup_logging()
 
     logger.info("=" * 60)
-    logger.info("闲鱼消息拦截器")
+    logger.info("闲鱼消息拦截器 (传输层中继)")
     logger.info("=" * 60)
     logger.info(f"AI 自动回复: {'启用' if config.enable_ai_reply else '禁用'}")
-    logger.info(f"对话记录: 将保存到 MySQL" if config.mysql_user else "对话记录: 未配置")
+    logger.info(f"AI API 地址: {config.agent_service_url}")
     logger.info("=" * 60)
 
-    # 初始化拦截器组件
-    agent_client, session_mapper, manual_mode_manager, conversation_store, message_handler = \
-        await initialize_interceptor()
+    # 初始化拦截器（返回 MessageHandler 薄中继）
+    message_handler = await initialize_interceptor()
 
     # 初始化浏览器控制器
     logger.info("正在启动浏览器...")
@@ -57,14 +118,19 @@ async def main():
 
     # ============================================================
     # 【重要】自动获取卖家 user_id（用于区分消息方向）
+    # seller_user_id 现在由 API 层的 settings 管理，
+    # 但拦截器也需要它来设置 is_self_sent 字段。
+    # 优先使用 settings.seller_user_id（来自 .env）；
+    # 若未配置则尝试从 Cookie 中提取。
     # ============================================================
-    if not config.seller_user_id:
+    seller_user_id = settings.seller_user_id
+    if not seller_user_id:
         # 尝试从 Cookie 中提取 unb（淘宝/闲鱼的用户ID）
         from utils.xianyu_utils import trans_cookies
         cookies_dict = trans_cookies(config.cookies_str)
         unb = cookies_dict.get("unb", "")
         if unb:
-            config.seller_user_id = unb
+            seller_user_id = unb
             logger.info(f"✅ 自动从 Cookie 提取卖家 user_id: {unb}")
         else:
             # 尝试从浏览器上下文的 cookies 中获取
@@ -72,19 +138,44 @@ async def main():
                 browser_cookies = await browser_controller.context.cookies()
                 for cookie in browser_cookies:
                     if cookie.get("name") == "unb":
-                        config.seller_user_id = cookie["value"]
+                        seller_user_id = cookie["value"]
                         logger.info(f"✅ 自动从浏览器 Cookie 提取卖家 user_id: {cookie['value']}")
                         break
             except Exception as e:
                 logger.debug(f"从浏览器 Cookie 提取失败: {e}")
-        
-        if not config.seller_user_id:
+
+        if not seller_user_id:
             logger.warning(
                 "⚠️ 未能自动获取卖家 user_id！请在 .env 中设置 SELLER_USER_ID。"
                 "否则无法区分自己发的消息和用户发的消息。"
             )
     else:
-        logger.info(f"卖家 user_id: {config.seller_user_id}")
+        logger.info(f"卖家 user_id: {seller_user_id}")
+
+    # ============================================================
+    # 【重要】创建消息传输层 (BrowserTransport)
+    # ============================================================
+    browser_transport = BrowserTransport(seller_user_id=seller_user_id)
+    message_handler.transport = browser_transport
+    logger.info("✅ BrowserTransport 已创建并注入 message_handler")
+
+    # 将 transport 注入到钉钉回复服务（session_mapper 不再由拦截器层管理）
+    try:
+        from ai_kefu.services.dingtalk_reply_handler import set_global_transport
+        set_global_transport(browser_transport)
+        logger.info("✅ 钉钉回复服务已注入 transport")
+    except Exception as e:
+        logger.warning(f"钉钉回复服务注入失败（不影响主流程）: {e}")
+
+    # ============================================================
+    # 【钉钉 Stream 模式】启动长连接客户端接收群消息
+    # ============================================================
+    try:
+        from ai_kefu.services.dingtalk_stream_client import get_dingtalk_stream_service
+        stream_service = get_dingtalk_stream_service()
+        await stream_service.start()
+    except Exception as e:
+        logger.warning(f"钉钉 Stream 客户端启动失败（不影响主流程）: {e}")
 
     # ============================================================
     # 【重要】多页面 WebSocket 监听机制
@@ -123,7 +214,7 @@ async def main():
         1. 使用 XianyuMessageCodec.decode_message() 解码原始消息
         2. 使用 XianyuMessageCodec.extract_message_data() 提取标准化数据
         3. 转换为 XianyuMessage 对象
-        4. 传递给 message_handler
+        4. 传递给 message_handler（薄中继，POST 到 /xianyu/inbound）
         """
         try:
             # 过滤心跳和系统消息，减少日志噪音
@@ -174,27 +265,14 @@ async def main():
                 if history_messages:
                     logger.info(f"✅ 解析到 {len(history_messages)} 条历史消息，正在保存到数据库...")
 
-                    # 保存每条历史消息到数据库
-                    saved_count = 0
-                    for xianyu_message in history_messages:
-                        try:
-                            # 标记消息方向（是否是自己发的）
-                            if config.seller_user_id and xianyu_message.user_id == config.seller_user_id:
-                                xianyu_message.is_self_sent = True
-                            # 从 metadata 中提取 item_title
-                            if not xianyu_message.item_title and xianyu_message.metadata:
-                                xianyu_message.item_title = xianyu_message.metadata.get("reminder_title") or None
-                            # 从 metadata 中提取 message_id
-                            if not xianyu_message.message_id and xianyu_message.metadata:
-                                xianyu_message.message_id = xianyu_message.metadata.get("message_id") or None
-                            # 传递给消息处理器（会自动保存到数据库并处理去重）
-                            await message_handler.handle_message(xianyu_message)
-                            saved_count += 1
-                        except Exception as e:
-                            logger.warning(f"保存历史消息失败 (chat_id={xianyu_message.chat_id}): {e}")
-                            continue
-
-                    logger.success(f"🎉 成功保存 {saved_count}/{len(history_messages)} 条历史消息")
+                    # ============================================================
+                    # 【重要】历史消息只保存到数据库，不触发 AI 回复！
+                    # 通过 /xianyu/inbound 发送，metadata 中携带 history_only=True，
+                    # API 层收到后仅入库，不调用 AI Agent。
+                    # ============================================================
+                    saved_count = len(history_messages)
+                    await _save_history_messages_to_api(history_messages)
+                    logger.success(f"🎉 已转发 {saved_count} 条历史消息到 API 层入库")
                 else:
                     logger.warning("未能从历史消息响应中解析到消息")
 
@@ -211,24 +289,33 @@ async def main():
                     logger.info(f"   ⚠️ 此消息无法被decode_message解码（可能需要新的解码逻辑）")
                 return  # 静默忽略非聊天消息
 
+            # 🔬 解码成功后，先打印解码结果的分类信息
+            msg_type = XianyuMessageCodec.classify_message(decoded_message)
+            logger.info(f"🔬 [解码成功] 消息分类={msg_type.value}, 顶层键={list(decoded_message.keys())}")
+
             # 步骤 2: 提取标准化数据
             std_message = XianyuMessageCodec.extract_message_data(decoded_message)
             if not std_message:
                 return  # 无法提取的消息（如订单消息）静默忽略
 
+            # 🔬 打印提取结果
+            logger.info(f"🔬 [提取结果] type={std_message.message_type.value}, user_id={std_message.user_id}, chat_id={std_message.chat_id}, content={std_message.content[:50] if std_message.content else 'None'}")
+
             # 步骤 3: 转换为 XianyuMessage 对象
             metadata = std_message.metadata or {}
             is_self_sent = (
-                bool(config.seller_user_id) and 
-                std_message.user_id == config.seller_user_id
+                bool(seller_user_id) and
+                std_message.user_id == seller_user_id
             )
             xianyu_message = XianyuMessage(
                 message_type=XianyuMessageType(std_message.message_type.value),
                 chat_id=std_message.chat_id,
                 user_id=std_message.user_id,
+                user_nickname=metadata.get("user_nickname") or metadata.get("reminder_title") or None,
+                encrypted_uid=metadata.get("encrypted_uid") or None,
                 content=std_message.content,
                 item_id=std_message.item_id,
-                item_title=metadata.get("item_title") or metadata.get("reminder_title") or None,
+                item_title=metadata.get("item_title") or None,
                 item_price=None,  # 闲鱼 WebSocket 不携带价格
                 message_id=metadata.get("message_id") or None,
                 is_self_sent=is_self_sent,
@@ -263,7 +350,7 @@ async def main():
                 except Exception as e:
                     logger.error(f"处理图片消息失败: {e}", exc_info=True)
 
-            # 步骤 4: 传递给消息处理器
+            # 步骤 4: 传递给消息处理器（薄中继，POST 到 /xianyu/inbound）
             await message_handler.handle_message(xianyu_message)
 
         except Exception as e:
@@ -308,6 +395,7 @@ async def main():
                 if interceptor.is_connected():
                     logger.info(f"✅ 在页面中检测到 WebSocket: {page_url[:80]}")
                     active_cdp_interceptor = interceptor
+                    browser_transport.set_interceptor(interceptor)
 
         except Exception as e:
             logger.error(f"设置页面监控失败: {e}")
@@ -400,6 +488,7 @@ async def main():
                     if await interceptor.check_websocket_in_page():
                         websocket_detected = True
                         active_cdp_interceptor = interceptor
+                        browser_transport.set_interceptor(interceptor)
                         logger.info(f"✅ WebSocket 连接已建立（页面: {info['url'][:80]}），停止定期检测")
                         break
 
@@ -411,8 +500,6 @@ async def main():
         for page_id, info in page_interceptors.items():
             await info['interceptor'].close()
         await browser_controller.close()
-        if conversation_store:
-            conversation_store.close()
         logger.success("拦截器已停止")
 
 

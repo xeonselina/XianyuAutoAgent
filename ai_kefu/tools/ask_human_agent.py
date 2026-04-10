@@ -14,7 +14,10 @@ def ask_human_agent(
     question_type: str,
     context: Optional[Dict[str, Any]] = None,
     options: Optional[List[Dict[str, str]]] = None,
-    urgency: str = "medium"
+    urgency: str = "medium",
+    chat_id: Optional[str] = None,
+    user_nickname: Optional[str] = None,
+    context_summary: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Request human agent assistance (Human-in-the-Loop).
@@ -28,6 +31,9 @@ def ask_human_agent(
         context: Context information for human agent
         options: List of options if this is a multiple choice question
         urgency: Urgency level (low, medium, high)
+        chat_id: Xianyu chat ID (injected by executor, not from LLM)
+        user_nickname: User nickname (injected by executor, not from LLM)
+        context_summary: Conversation context summary (injected by executor, not from LLM)
         
     Returns:
         Dict with request status:
@@ -62,11 +68,39 @@ def ask_human_agent(
         if options:
             result["options"] = options
         
-        # Note: In actual implementation, this would:
-        # 1. Create HumanRequest object
-        # 2. Update session status to waiting_for_human
-        # 3. Store pending request in session
-        # 4. Pause agent execution
+        # 持久化请求到 MySQL（确保钉钉回复时能查到）
+        try:
+            from ai_kefu.services.human_request_store import HumanRequestStore
+            store = HumanRequestStore.get_instance()
+            store.create_request(
+                request_id=request_id,
+                chat_id=chat_id or "",
+                question=question,
+                question_type=question_type,
+                urgency=urgency,
+                session_id=None,  # session_id 由 executor 在外层设置
+                user_nickname=user_nickname,
+                context=context,
+                context_summary=context_summary,
+            )
+        except Exception as store_err:
+            logger.warning(f"持久化 human_request 失败（不影响主流程）: {store_err}")
+        
+        # 发送钉钉通知给人工客服
+        try:
+            from ai_kefu.services.dingtalk_notify import notify_human_agent_request
+            notify_human_agent_request(
+                request_id=request_id,
+                question=question,
+                question_type=question_type,
+                urgency=urgency,
+                context=context,
+                chat_id=chat_id,
+                user_nickname=user_nickname,
+                context_summary=context_summary,
+            )
+        except Exception as notify_err:
+            logger.warning(f"钉钉通知发送失败（不影响主流程）: {notify_err}")
         
         return result
         

@@ -29,6 +29,7 @@ class ConversationMessage(BaseModel):
     id: Optional[int] = Field(None, description="Database auto-increment ID")
     chat_id: str = Field(..., description="Xianyu chat ID")
     user_id: str = Field(..., description="User ID who sent the message")
+    user_nickname: Optional[str] = Field(None, description="User nickname (from reminderTitle)")
     seller_id: Optional[str] = Field(None, description="Seller ID (account owner)")
     item_id: Optional[str] = Field(None, description="Item ID if available")
 
