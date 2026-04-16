@@ -14,7 +14,19 @@
       "Bash(echo:*)",
       "mcp__plugin_playwright_playwright__browser_navigate",
       "mcp__plugin_playwright_playwright__browser_snapshot",
-      "mcp__plugin_playwright_playwright__browser_click"
+      "mcp__plugin_playwright_playwright__browser_click",
+      "Bash(lsof:*)",
+      "Bash(python:*)",
+      "Bash(venv/bin/python -c \"from ai_kefu.utils.logging import logger; print\\('OK:', type\\(logger\\)\\)\")",
+      "Bash(./venv/bin/python:*)",
+      "Bash(./venv/bin/pip install:*)",
+      "Bash(make help:*)",
+      "Bash(make init:*)",
+      "Bash(docker stop:*)",
+      "Bash(docker rm:*)",
+      "Read(//tmp/**)",
+      "Bash(cp /tmp/codebase_exploration_report.md /Users/jimmypan/git_repo/XianyuAutoAgent/ai_kefu/CODEBASE_EXPLORATION_REPORT.md)",
+      "Bash(cp /tmp/quick_reference_guide.md /Users/jimmypan/git_repo/XianyuAutoAgent/ai_kefu/QUICK_REFERENCE_GUIDE.md)"
     ]
   }
 }

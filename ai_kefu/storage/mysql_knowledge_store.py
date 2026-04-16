@@ -95,7 +95,7 @@ class MySQLKnowledgeStore:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
                     sql = """
-                        INSERT INTO knowledge_entries
+                        INSERT IGNORE INTO knowledge_entries
                         (kb_id, title, content, category, tags, source, priority, active, created_at, updated_at)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """
@@ -111,6 +111,10 @@ class MySQLKnowledgeStore:
                         entry.created_at,
                         entry.updated_at
                     ))
+                    if cursor.rowcount == 0:
+                        # Already exists, skip ChromaDB sync
+                        logger.info(f"Knowledge entry {entry.id} already exists, skipping")
+                        return True
 
             # Generate embedding and sync to ChromaDB
             try:

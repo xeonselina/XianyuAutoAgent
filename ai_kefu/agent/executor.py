@@ -656,6 +656,8 @@ class AgentExecutor:
                         f"and no context_summary, loading from MySQL"
                     )
                     self._load_history_as_context(session, chat_id)
+                    # Also load cross-conversation user history
+                    self._load_user_history_as_context(session, user_id)
                     if session.context.get("context_summary"):
                         self.session_store.set(session)  # Persist the updated context
                 # Prefetch item info if not already cached in session
@@ -673,6 +675,8 @@ class AgentExecutor:
                 )
                 # Load conversation history from MySQL for context
                 self._load_history_as_context(new_session, chat_id)
+                # Load cross-conversation user history (all chats for this buyer)
+                self._load_user_history_as_context(new_session, user_id)
                 # Prefetch item info for the fixed context slot
                 self._load_item_info_context(new_session, item_id, item_title=item_title, item_price=item_price)
                 return new_session
@@ -685,6 +689,8 @@ class AgentExecutor:
         )
         # Load conversation history from MySQL for context
         self._load_history_as_context(new_session, chat_id)
+        # Load cross-conversation user history (all chats for this buyer)
+        self._load_user_history_as_context(new_session, user_id)
         # Prefetch item info for the fixed context slot
         self._load_item_info_context(new_session, item_id, item_title=item_title, item_price=item_price)
 
@@ -823,15 +829,25 @@ class AgentExecutor:
             logger.debug(f"Failed to read summary cache for chat_id={chat_id}: {e}")
         return None
 
-    def _set_cached_summary(self, chat_id: str, summary: str, is_returning_customer: bool, fingerprint: dict):
+    def _set_cached_summary(
+        self,
+        chat_id: str,
+        summary: str,
+        is_returning_customer: bool,
+        fingerprint: dict,
+        ttl: int = 3600,
+    ):
         """
-        Cache history summary in Redis with 1-hour TTL.
-        
+        Cache history summary in Redis.
+
         Args:
             chat_id: Xianyu chat ID
             summary: Generated summary text
             is_returning_customer: Whether user is a returning customer
-            fingerprint: Dict with 'message_count' and 'last_message_at'
+            fingerprint: Dict identifying the data version (varies by source)
+            ttl: Redis key TTL in seconds (default 3600 / 1 hour).
+                 Use a shorter value (e.g. 1800) for API-sourced summaries
+                 whose message count can change more frequently.
         """
         try:
             import json
@@ -841,22 +857,323 @@ class AgentExecutor:
                 "is_returning_customer": is_returning_customer,
                 "fingerprint": fingerprint
             }, ensure_ascii=False)
-            # TTL 1 hour - balances freshness vs performance
-            self.session_store.client.setex(cache_key, 3600, cache_data)
-            logger.debug(f"Cached history summary for chat_id={chat_id}")
+            self.session_store.client.setex(cache_key, ttl, cache_data)
+            logger.debug(f"Cached history summary for chat_id={chat_id} (ttl={ttl}s)")
         except Exception as e:
             logger.debug(f"Failed to cache summary for chat_id={chat_id}: {e}")
 
+    # ------------------------------------------------------------------
+    # User-level (cross-conversation) summary cache helpers
+    # ------------------------------------------------------------------
+
+    def _get_user_summary_cache_key(self, user_id: str) -> str:
+        """Generate Redis key for cached cross-conversation user summary."""
+        return f"user_history_summary:{user_id}"
+
+    def _get_cached_user_summary(self, user_id: str) -> Optional[dict]:
+        """
+        Try to load a cached cross-conversation summary from Redis.
+
+        Returns:
+            Dict with 'summary', 'is_returning_customer', 'fingerprint' if cache hit,
+            None on cache miss.
+        """
+        try:
+            import json
+            cache_key = self._get_user_summary_cache_key(user_id)
+            data = self.session_store.client.get(cache_key)
+            if data:
+                return json.loads(data)
+        except Exception as e:
+            logger.debug(f"Failed to read user summary cache for user_id={user_id}: {e}")
+        return None
+
+    def _set_cached_user_summary(
+        self,
+        user_id: str,
+        summary: str,
+        is_returning_customer: bool,
+        fingerprint: dict,
+        ttl: int = 3600,
+    ):
+        """
+        Cache a cross-conversation history summary in Redis.
+
+        Args:
+            user_id: Buyer's Xianyu user ID
+            summary: Generated summary text
+            is_returning_customer: Whether user is a returning customer
+            fingerprint: Dict identifying the data version
+            ttl: Redis key TTL in seconds (default 3600 / 1 hour)
+        """
+        try:
+            import json
+            cache_key = self._get_user_summary_cache_key(user_id)
+            cache_data = json.dumps({
+                "summary": summary,
+                "is_returning_customer": is_returning_customer,
+                "fingerprint": fingerprint,
+            }, ensure_ascii=False)
+            self.session_store.client.setex(cache_key, ttl, cache_data)
+            logger.debug(f"Cached user history summary for user_id={user_id} (ttl={ttl}s)")
+        except Exception as e:
+            logger.debug(f"Failed to cache user summary for user_id={user_id}: {e}")
+
     def _load_history_as_context(self, session: Session, chat_id: Optional[str]):
         """
+        Load conversation history and inject as context summary into the session.
+
+        Strategy (in priority order):
+        1. Try Xianyu WebSocket API — covers *all* messages including pre-AI ones.
+           Applies time-proximity compression (verbatim recent, LLM-summarized older).
+        2. Fall back to MySQL-based loader if the API returns nothing or fails.
+
+        Args:
+            session: The newly created session
+            chat_id: Xianyu chat ID to query history for
+        """
+        if not chat_id:
+            return
+
+        try:
+            api_messages = self._fetch_xianyu_api_history(chat_id)
+        except Exception as e:
+            logger.warning(f"[api_history] Unexpected error, falling back to MySQL: {e}", exc_info=True)
+            api_messages = []
+
+        if api_messages:
+            try:
+                api_fingerprint = {"source": "xianyu_api", "message_count": len(api_messages)}
+
+                # Check Redis cache — avoid re-summarizing if message count unchanged
+                cached = self._get_cached_summary(chat_id)
+                if cached and cached.get("fingerprint") == api_fingerprint:
+                    session.context["context_summary"] = cached["summary"]
+                    session.context["is_returning_customer"] = cached.get("is_returning_customer", False)
+                    logger.info(
+                        f"[cache_hit] API history summary for chat_id={chat_id}: "
+                        f"{len(cached['summary'])} chars"
+                    )
+                    return
+
+                # Detect returning customer from API messages
+                is_returning_customer = any(
+                    "我已付款" in (m.get("message", {}).get("reminderContent") or "")
+                    for m in api_messages
+                )
+
+                # Apply time-proximity compression
+                summary_body = self._compress_by_time_proximity(api_messages)
+                if not summary_body:
+                    logger.debug(
+                        f"[api_history] No extractable text from {len(api_messages)} messages "
+                        f"for chat_id={chat_id}, falling back to MySQL"
+                    )
+                else:
+                    tag = (
+                        "【老客户】该用户之前有过付款记录。"
+                        if is_returning_customer
+                        else "【新客户】该用户暂无历史付款记录。"
+                    )
+                    summary = f"{tag}\n\n{summary_body}"
+
+                    session.context["context_summary"] = summary
+                    session.context["is_returning_customer"] = is_returning_customer
+                    # Use shorter TTL for API summaries — message count changes more often
+                    self._set_cached_summary(
+                        chat_id, summary, is_returning_customer, api_fingerprint, ttl=1800
+                    )
+                    logger.info(
+                        f"[api_history] Loaded {len(api_messages)} msgs for chat_id={chat_id}, "
+                        f"summary={len(summary)} chars, returning_customer={is_returning_customer}"
+                    )
+                    return
+            except Exception as e:
+                logger.warning(
+                    f"[api_history] Error processing API history for chat_id={chat_id}: {e}, "
+                    "falling back to MySQL",
+                    exc_info=True,
+                )
+
+        # Fall back to MySQL-based history (original behaviour, unchanged)
+        self._load_history_as_context_from_mysql(session, chat_id)
+
+    def _compress_mysql_messages_by_time_proximity(self, messages: list) -> str:
+        """
+        Apply tiered time-proximity compression to a list of ConversationMessage objects
+        (as returned by ConversationStore.get_conversation_history_by_user_id).
+
+        Tiers (same thresholds as the Xianyu API variant):
+        - Last 20 messages  → verbatim   (highest signal)
+        - Messages 20–60    → LLM-summarized as 【近期对话摘要】
+        - Messages 60+      → LLM-summarized as 【早期对话摘要】
+
+        Returns:
+            Formatted multi-section string, or "" if no usable text.
+        """
+        RECENT_WINDOW = 20
+        MIDTERM_WINDOW = 40
+
+        def _extract_line(msg) -> Optional[str]:
+            content = (msg.message_content or "").strip()
+            if not content:
+                return None
+            # Strip debug prefix for readability
+            if content.startswith("【调试】"):
+                content = content[4:]
+            msg_type = msg.message_type
+            type_str = msg_type.value if hasattr(msg_type, 'value') else str(msg_type)
+            if type_str == "user":
+                return f"用户: {content}"
+            elif type_str == "seller":
+                return f"客服: {content}"
+            return None
+
+        lines = [t for m in messages if (t := _extract_line(m))]
+
+        if not lines:
+            return ""
+
+        recent = lines[-RECENT_WINDOW:]
+        midterm = lines[-(RECENT_WINDOW + MIDTERM_WINDOW):-RECENT_WINDOW]
+        early = lines[:-(RECENT_WINDOW + MIDTERM_WINDOW)]
+
+        parts = []
+
+        if early:
+            early_text = "\n".join(early)
+            early_summary = (
+                self._summarize_history(early_text)
+                or f"（早期对话 {len(early)} 条，已省略）"
+            )
+            parts.append(f"【早期对话摘要】\n{early_summary}")
+
+        if midterm:
+            mid_text = "\n".join(midterm)
+            mid_summary = (
+                self._summarize_history(mid_text)
+                or f"（中期对话 {len(midterm)} 条，已省略）"
+            )
+            parts.append(f"【近期对话摘要】\n{mid_summary}")
+
+        parts.append(f"【最新对话记录（{len(recent)} 条）】\n" + "\n".join(recent))
+
+        return "\n\n".join(parts)
+
+    def _load_user_history_as_context(self, session: Session, user_id: Optional[str]):
+        """
+        Load ALL conversation history for a buyer (across every chat_id) and inject
+        a time-proximity-compressed summary into the session context.
+
+        This supplements the per-chat context already loaded by
+        _load_history_as_context, giving the LLM visibility into the buyer's full
+        interaction history — not just the current conversation thread.
+
+        Strategy:
+        1. Lightweight fingerprint check → Redis cache lookup
+        2. On cache miss: fetch up to 100 messages by user_id from MySQL,
+           apply tiered compression, cache result
+        3. Merge with any existing context_summary already in the session
+
+        Args:
+            session:  The newly created (or reloaded) session
+            user_id:  Buyer's Xianyu user ID
+        """
+        if not user_id or not self.conversation_store:
+            return
+
+        try:
+            # Step 1: lightweight fingerprint
+            fingerprint = self.conversation_store.get_user_fingerprint(user_id)
+            if not fingerprint:
+                logger.debug(f"No cross-conversation history found for user_id={user_id}")
+                return
+
+            # Step 2: Redis cache check
+            cached = self._get_cached_user_summary(user_id)
+            if cached and cached.get("fingerprint") == fingerprint:
+                user_summary = cached["summary"]
+                is_returning_customer = cached.get("is_returning_customer", False)
+                logger.info(
+                    f"[user_cache_hit] Cross-conversation summary for user_id={user_id}: "
+                    f"{len(user_summary)} chars, returning_customer={is_returning_customer}"
+                )
+            else:
+                # Step 3: Cache miss — load & compress
+                logger.info(
+                    f"[user_cache_miss] Generating cross-conversation summary for user_id={user_id} "
+                    f"(count={fingerprint['message_count']}, last={fingerprint['last_message_at']})"
+                )
+                history = self.conversation_store.get_conversation_history_by_user_id(
+                    user_id=user_id,
+                    limit=100,
+                )
+                if not history:
+                    return
+
+                # Detect returning customer
+                is_returning_customer = any(
+                    "我已付款，等待你发货" in (msg.message_content or "")
+                    for msg in history
+                )
+
+                summary_body = self._compress_mysql_messages_by_time_proximity(history)
+                if not summary_body:
+                    logger.debug(
+                        f"[user_history] No extractable text from {len(history)} messages "
+                        f"for user_id={user_id}"
+                    )
+                    return
+
+                returning_tag = (
+                    "【老客户】该用户之前有过付款记录。"
+                    if is_returning_customer
+                    else "【新客户】该用户暂无历史付款记录。"
+                )
+                user_summary = f"{returning_tag}\n\n{summary_body}"
+
+                # Cache for subsequent sessions
+                self._set_cached_user_summary(
+                    user_id, user_summary, is_returning_customer, fingerprint
+                )
+                logger.info(
+                    f"[user_history] Loaded {len(history)} msgs for user_id={user_id}, "
+                    f"summary={len(user_summary)} chars, returning_customer={is_returning_customer}"
+                )
+
+            # Step 4: Merge into session context
+            # If a per-chat summary already exists (from _load_history_as_context),
+            # prepend the cross-conversation view as a separate section so the LLM
+            # gets the broadest picture first.
+            existing = session.context.get("context_summary", "")
+            if existing:
+                session.context["context_summary"] = (
+                    f"## 用户历史对话摘要（跨会话）\n{user_summary}"
+                    f"\n\n## 当前会话上下文\n{existing}"
+                )
+            else:
+                session.context["context_summary"] = user_summary
+
+            # Returning-customer flag: a returning customer in ANY chat counts
+            if is_returning_customer:
+                session.context["is_returning_customer"] = True
+
+        except Exception as e:
+            logger.warning(
+                f"Failed to load cross-conversation history for user_id={user_id}: {e}",
+                exc_info=True,
+            )
+
+    def _load_history_as_context_from_mysql(self, session: Session, chat_id: Optional[str]):
+        """
         Load conversation history from MySQL and inject as context summary.
-        
+
         Uses Redis cache to avoid repeated LLM summarization calls.
         Cache is invalidated when message count or last message timestamp changes.
-        
+
         This ensures that when a Redis session expires and a new one is created,
         the LLM still has context about previous conversations with this user.
-        
+
         Args:
             session: The newly created session
             chat_id: Xianyu chat ID to query history for
@@ -976,6 +1293,90 @@ class AgentExecutor:
                 exc_info=True
             )
     
+    def _fetch_xianyu_api_history(self, chat_id: str) -> list:
+        """
+        Synchronously fetch all messages from the Xianyu WebSocket API.
+
+        Uses a ThreadPoolExecutor to call asyncio.run() safely even when called
+        from within a FastAPI async context (avoids "event loop already running" errors).
+
+        Returns:
+            List of {send_user_id, send_user_name, message} dicts in chronological order.
+            Empty list if the provider is unavailable or an error occurs.
+        """
+        import asyncio
+        import concurrent.futures
+        from ai_kefu.xianyu_provider import get_provider
+
+        try:
+            provider = get_provider()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(asyncio.run, provider.list_all_conversations(chat_id))
+                messages = future.result(timeout=30)
+            logger.info(
+                f"[api_history] Fetched {len(messages)} msgs from Xianyu API for chat_id={chat_id}"
+            )
+            return messages
+        except Exception as e:
+            logger.warning(
+                f"[api_history] Failed to fetch Xianyu API history for chat_id={chat_id}: {e}"
+            )
+            return []
+
+    def _compress_by_time_proximity(self, messages: list) -> str:
+        """
+        Apply tiered time-proximity compression to a raw Xianyu API message list.
+
+        Tiers:
+        - Last 20 messages  → verbatim   (most recent context, highest signal)
+        - Messages 20–60    → LLM-summarize as 【近期对话摘要】
+        - Messages 60+      → LLM-summarize as 【早期对话摘要】
+
+        Returns:
+            A formatted multi-section string ready to inject into
+            session.context["context_summary"], or "" if no text could be extracted.
+        """
+        RECENT_WINDOW = 20
+        MIDTERM_WINDOW = 40  # messages 20–60 from the end
+
+        def _extract_text(m: dict):
+            reminder = m.get("message", {}).get("reminderContent")
+            if reminder and isinstance(reminder, str) and reminder.strip():
+                name = m.get("send_user_name") or m.get("send_user_id") or "用户"
+                return f"{name}: {reminder.strip()}"
+            return None
+
+        lines = [t for m in messages if (t := _extract_text(m))]
+
+        if not lines:
+            return ""
+
+        recent = lines[-RECENT_WINDOW:]
+        midterm = lines[-(RECENT_WINDOW + MIDTERM_WINDOW):-RECENT_WINDOW]
+        early = lines[:-(RECENT_WINDOW + MIDTERM_WINDOW)]
+
+        parts = []
+
+        if early:
+            early_text = "\n".join(early)
+            early_summary = (
+                self._summarize_history(early_text)
+                or f"（早期对话 {len(early)} 条，已省略）"
+            )
+            parts.append(f"【早期对话摘要】\n{early_summary}")
+
+        if midterm:
+            mid_text = "\n".join(midterm)
+            mid_summary = (
+                self._summarize_history(mid_text)
+                or f"（中期对话 {len(midterm)} 条，已省略）"
+            )
+            parts.append(f"【近期对话摘要】\n{mid_summary}")
+
+        parts.append(f"【最新对话记录（{len(recent)} 条）】\n" + "\n".join(recent))
+
+        return "\n\n".join(parts)
+
     def _summarize_history(self, conversation_text: str, is_returning_customer: bool = False) -> Optional[str]:
         """
         Use LLM to summarize conversation history into a compact context.

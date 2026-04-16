@@ -431,15 +431,16 @@ def check_and_create_database():
         
         cursor = connection.cursor()
         
-        # 检查数据库是否存在
-        cursor.execute("SHOW DATABASES LIKE %s", (settings.mysql_database,))
+        # 检查数据库是否存在（转义 _ 和 % 以避免 LIKE 通配符问题）
+        escaped_db = settings.mysql_database.replace('\\', '\\\\').replace('_', '\\_').replace('%', '\\%')
+        cursor.execute("SHOW DATABASES LIKE %s", (escaped_db,))
         result = cursor.fetchone()
-        
+
         if result:
             print(f"✅ 数据库 '{settings.mysql_database}' 已存在")
         else:
             print(f"⚠️  数据库 '{settings.mysql_database}' 不存在，正在创建...")
-            cursor.execute(f"CREATE DATABASE {settings.mysql_database} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+            cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{settings.mysql_database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
             print(f"✅ 成功创建数据库 '{settings.mysql_database}'")
         
         cursor.close()
