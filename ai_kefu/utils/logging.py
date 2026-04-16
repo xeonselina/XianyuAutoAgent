@@ -1,163 +1,170 @@
 """
-Logging infrastructure with structured JSON logging.
+Logging infrastructure using loguru.
+
+- Console: colored text (dev) or JSON (production, LOG_FORMAT=json)
+- File:    always JSON (JSONL), daily rotation → logs/backend_YYYY-MM-DD.log
+- stdlib bridge: all logging.getLogger() calls are routed through loguru
 """
 
-import logging
-import json
 import sys
-from datetime import datetime
+import logging
+from pathlib import Path
 from typing import Any, Dict, Optional
+
+from loguru import logger
+
 from ai_kefu.config.settings import settings
 
 
-class JSONFormatter(logging.Formatter):
-    """Custom formatter for JSON structured logging."""
-    
-    def format(self, record: logging.LogRecord) -> str:
-        """
-        Format log record as JSON.
-        
-        Args:
-            record: Log record
-            
-        Returns:
-            JSON formatted log string
-        """
-        log_data = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "level": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-        }
-        
-        # Add custom fields
-        if hasattr(record, 'session_id'):
-            log_data["session_id"] = record.session_id
-        if hasattr(record, 'event_type'):
-            log_data["event_type"] = record.event_type
-        if hasattr(record, 'duration_ms'):
-            log_data["duration_ms"] = record.duration_ms
-        if hasattr(record, 'tool_name'):
-            log_data["tool_name"] = record.tool_name
-        if hasattr(record, 'user_id'):
-            log_data["user_id"] = record.user_id
-        
-        # Add exception info if present
-        if record.exc_info:
-            log_data["exception"] = self.formatException(record.exc_info)
-        
-        return json.dumps(log_data, ensure_ascii=False)
+# ── Log directory ──────────────────────────────────────────────────────────────
+LOG_DIR = Path(__file__).parent.parent / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 
-class TextFormatter(logging.Formatter):
-    """Simple text formatter for development."""
-    
-    def __init__(self):
-        super().__init__(
-            fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+# ── stdlib → loguru bridge (installed once) ────────────────────────────────────
+class _InterceptHandler(logging.Handler):
+    """Route all stdlib logging.getLogger() records through loguru."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            level: str | int = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+
+        frame, depth = logging.currentframe(), 2
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
+            depth += 1
+
+        logger.opt(depth=depth, exception=record.exc_info).log(
+            level, record.getMessage()
         )
 
 
+_INTERCEPT_INSTALLED = False
+
+
+# ── Public setup ───────────────────────────────────────────────────────────────
+
 def setup_logging(
     level: Optional[str] = None,
-    log_format: Optional[str] = None
-) -> logging.Logger:
+    log_format: Optional[str] = None,
+) -> "logger":  # type: ignore[return]
     """
-    Setup application logging.
-    
-    Args:
-        level: Log level (DEBUG, INFO, WARNING, ERROR)
-        log_format: Log format ("json" or "text")
-        
-    Returns:
-        Configured logger
+    Configure application logging.
+
+    Call once at startup (api/main.py already does this).
+    Safe to call multiple times – handlers are rebuilt from scratch each call.
     """
-    level = level or settings.log_level
+    global _INTERCEPT_INSTALLED
+
+    level = (level or settings.log_level).upper()
     log_format = log_format or settings.log_format
-    
-    # Create logger
-    logger = logging.getLogger("ai_kefu")
-    logger.setLevel(getattr(logging, level.upper()))
-    
-    # Remove existing handlers
-    logger.handlers.clear()
-    
-    # Create console handler
-    handler = logging.StreamHandler(sys.stdout)
-    
-    # Set formatter
+
+    # ── Remove all existing loguru handlers ──────────────────────────────────
+    logger.remove()
+
+    # ── Console handler ──────────────────────────────────────────────────────
     if log_format.lower() == "json":
-        formatter = JSONFormatter()
+        # serialize=True → compact JSONL on stdout, easy for log shippers
+        logger.add(
+            sys.stdout,
+            level=level,
+            serialize=True,
+            colorize=False,
+        )
     else:
-        formatter = TextFormatter()
-    
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    
-    # Prevent propagation to root logger
-    logger.propagate = False
-    
+        logger.add(
+            sys.stdout,
+            level=level,
+            format=(
+                "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+                "<level>{level: <8}</level> | "
+                "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
+                "<level>{message}</level>"
+            ),
+            colorize=True,
+        )
+
+    # ── File handler – always JSONL, daily rotation, 30-day retention ────────
+    logger.add(
+        str(LOG_DIR / "backend_{time:YYYY-MM-DD}.log"),
+        level=level,
+        rotation="00:00",         # rotate at midnight
+        retention="30 days",
+        compression="zip",
+        encoding="utf-8",
+        serialize=True,           # robust JSON – handles quotes/newlines in messages
+        enqueue=True,             # async-safe (works with uvicorn workers)
+    )
+
+    # ── Intercept stdlib logging (installed once) ────────────────────────────
+    if not _INTERCEPT_INSTALLED:
+        logging.basicConfig(handlers=[_InterceptHandler()], level=0, force=True)
+        _INTERCEPT_INSTALLED = True
+
+    logger.info(
+        f"Logging configured: level={level}, format={log_format}, "
+        f"log_dir={LOG_DIR}"
+    )
     return logger
 
 
-def get_logger(name: str = "ai_kefu") -> logging.Logger:
+def get_logger(name: str = "ai_kefu"):
     """
-    Get logger instance.
-    
-    Args:
-        name: Logger name
-        
-    Returns:
-        Logger instance
+    Return the loguru logger.
+    The ``name`` argument is accepted for API compatibility but ignored;
+    loguru records the call-site module automatically.
     """
-    return logging.getLogger(name)
+    return logger
 
 
-# Initialize default logger
-logger = setup_logging()
+# ── Initialise on import ────────────────────────────────────────────────────────
+setup_logging()
 
 
-# Helper functions for structured logging
-def log_turn_start(session_id: str, turn_counter: int, query: str):
-    """Log turn start event."""
-    logger.info(
-        f"Turn {turn_counter} started",
-        extra={
-            "session_id": session_id,
-            "event_type": "turn_start",
-            "turn_counter": turn_counter,
-            "query_length": len(query)
-        }
-    )
+# ── Structured-logging helpers (backward-compatible API) ───────────────────────
+
+def log_turn_start(session_id: str, turn_counter: int, query: str) -> None:
+    """Log turn start with structured fields."""
+    logger.bind(
+        session_id=session_id,
+        event_type="turn_start",
+        turn_counter=turn_counter,
+        query_length=len(query),
+    ).info(f"Turn {turn_counter} started")
 
 
-def log_turn_end(session_id: str, turn_counter: int, duration_ms: int, success: bool):
-    """Log turn end event."""
-    logger.info(
-        f"Turn {turn_counter} completed",
-        extra={
-            "session_id": session_id,
-            "event_type": "turn_end",
-            "turn_counter": turn_counter,
-            "duration_ms": duration_ms,
-            "success": success
-        }
-    )
+def log_turn_end(
+    session_id: str,
+    turn_counter: int,
+    duration_ms: int,
+    success: bool,
+) -> None:
+    """Log turn end with structured fields."""
+    logger.bind(
+        session_id=session_id,
+        event_type="turn_end",
+        turn_counter=turn_counter,
+        duration_ms=duration_ms,
+        success=success,
+    ).info(f"Turn {turn_counter} completed")
 
 
-def log_tool_call(session_id: str, tool_name: str, tool_call_id: str, args: Dict[str, Any]):
-    """Log tool call event."""
-    logger.info(
-        f"Tool called: {tool_name}",
-        extra={
-            "session_id": session_id,
-            "event_type": "tool_call_start",
-            "tool_name": tool_name,
-            "tool_call_id": tool_call_id,
-            "tool_args": str(args)  # Changed from 'args' to avoid conflict with logging reserved field
-        }
-    )
+def log_tool_call(
+    session_id: str,
+    tool_name: str,
+    tool_call_id: str,
+    args: Dict[str, Any],
+) -> None:
+    """Log tool call start with structured fields."""
+    logger.bind(
+        session_id=session_id,
+        event_type="tool_call_start",
+        tool_name=tool_name,
+        tool_call_id=tool_call_id,
+        tool_args=str(args),
+    ).info(f"Tool called: {tool_name}")
 
 
 def log_tool_result(
@@ -165,31 +172,30 @@ def log_tool_result(
     tool_name: str,
     tool_call_id: str,
     success: bool,
-    duration_ms: int
-):
-    """Log tool call result."""
-    logger.info(
-        f"Tool completed: {tool_name}",
-        extra={
-            "session_id": session_id,
-            "event_type": "tool_call_end",
-            "tool_name": tool_name,
-            "tool_call_id": tool_call_id,
-            "success": success,
-            "duration_ms": duration_ms
-        }
-    )
+    duration_ms: int,
+) -> None:
+    """Log tool call result with structured fields."""
+    logger.bind(
+        session_id=session_id,
+        event_type="tool_call_end",
+        tool_name=tool_name,
+        tool_call_id=tool_call_id,
+        success=success,
+        duration_ms=duration_ms,
+    ).info(f"Tool completed: {tool_name}")
 
 
-def log_agent_complete(session_id: str, status: str, total_turns: int, total_duration_ms: int):
-    """Log agent completion."""
-    logger.info(
-        f"Agent completed with status: {status}",
-        extra={
-            "session_id": session_id,
-            "event_type": "agent_complete",
-            "status": status,
-            "total_turns": total_turns,
-            "total_duration_ms": total_duration_ms
-        }
-    )
+def log_agent_complete(
+    session_id: str,
+    status: str,
+    total_turns: int,
+    total_duration_ms: int,
+) -> None:
+    """Log agent completion with structured fields."""
+    logger.bind(
+        session_id=session_id,
+        event_type="agent_complete",
+        status=status,
+        total_turns=total_turns,
+        total_duration_ms=total_duration_ms,
+    ).info(f"Agent completed with status: {status}")

@@ -529,7 +529,88 @@ class ConversationStore:
         except Exception as e:
             logger.error(f"Failed to retrieve conversation history: {e}")
             raise
-    
+
+    def get_conversation_history_by_user_id(
+        self,
+        user_id: str,
+        limit: int = 100,
+    ) -> List[ConversationMessage]:
+        """
+        Retrieve all conversation history for a user across all chat_ids.
+
+        Ordered by created_at ASC so older messages come first — ready for
+        time-proximity compression in the agent layer.
+
+        Args:
+            user_id: The buyer's Xianyu user ID
+            limit: Maximum number of messages to return (default 100)
+
+        Returns:
+            List of ConversationMessage objects ordered oldest-first
+        """
+        try:
+            conn = self._get_connection()
+            sql = """
+                SELECT * FROM conversations
+                WHERE user_id = %s
+                ORDER BY created_at ASC
+                LIMIT %s
+            """
+            with conn.cursor() as cursor:
+                cursor.execute(sql, (user_id, limit))
+                rows = cursor.fetchall()
+
+            messages = []
+            for row in rows:
+                if row.get('context'):
+                    try:
+                        row['context'] = json.loads(row['context'])
+                    except Exception:
+                        row['context'] = None
+                messages.append(ConversationMessage(**row))
+
+            logger.debug(f"Retrieved {len(messages)} messages across all chats for user_id={user_id}")
+            return messages
+
+        except Exception as e:
+            logger.error(f"Failed to retrieve cross-conversation history for user_id={user_id}: {e}")
+            raise
+
+    def get_user_fingerprint(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a lightweight fingerprint of all conversations for a user.
+
+        Used for Redis cache invalidation: the cached summary is stale when
+        message_count or last_message_at changes.
+
+        Args:
+            user_id: The buyer's Xianyu user ID
+
+        Returns:
+            Dict with 'message_count' and 'last_message_at', or None if no messages
+        """
+        try:
+            conn = self._get_connection()
+            sql = """
+                SELECT COUNT(*) as message_count, MAX(created_at) as last_message_at
+                FROM conversations
+                WHERE user_id = %s
+            """
+            with conn.cursor() as cursor:
+                cursor.execute(sql, (user_id,))
+                row = cursor.fetchone()
+
+            if not row or row['message_count'] == 0:
+                return None
+
+            return {
+                'message_count': row['message_count'],
+                'last_message_at': str(row['last_message_at']) if row['last_message_at'] else None,
+            }
+        except Exception as e:
+            logger.warning(f"Failed to get user fingerprint for user_id={user_id}: {e}")
+            return None
+
     def get_recent_conversations(
         self,
         limit: int = 10,
