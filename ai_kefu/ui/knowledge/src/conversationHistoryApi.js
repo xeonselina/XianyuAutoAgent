@@ -55,3 +55,16 @@ export async function saveReview(chatId, rating, comment = '', sessionId = null)
   }
   return res.json()
 }
+
+/**
+ * Get AI comparison analysis for a conversation.
+ * Compares human replies with AI replies using similarity metrics.
+ * @param {string} chatId
+ */
+export async function compareReplies(chatId) {
+  const res = await fetch(`${BASE}/${encodeURIComponent(chatId)}/compare`, {
+    method: 'POST'
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}

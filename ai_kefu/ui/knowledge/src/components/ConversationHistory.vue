@@ -222,6 +222,85 @@
               {{ savingReview ? '保存中…' : '提交评价' }}
             </button>
           </template>
+
+        <!-- AI Evaluation / Comparison Section -->
+        <div class="ai-eval-form card">
+          <h3>🤖 AI 对比评估</h3>
+          <p class="review-hint">AI 自动对比人工回复和 AI 回复的相似度</p>
+
+          <div v-if="loadingComparison" class="loading"><div class="spinner"></div></div>
+          <div v-else-if="comparisonError" class="alert alert-error">{{ comparisonError }}</div>
+          
+          <template v-else-if="aiComparisons && aiComparisons.comparisons && aiComparisons.comparisons.length > 0">
+            <button
+              class="btn btn-secondary"
+              @click="comparisonVisible = !comparisonVisible"
+              style="margin-bottom: 1rem; width: 100%;"
+            >
+              {{ comparisonVisible ? '▲ 隐藏对比结果' : '▼ 展开对比结果' }} ({{ aiComparisons.comparisons.length }} 条对话)
+            </button>
+
+            <div v-if="comparisonVisible" class="ai-comparison-results">
+              <div v-for="(comp, idx) in aiComparisons.comparisons" :key="idx" class="comparison-item">
+                <div class="comparison-header">
+                  <span class="comp-index">第 {{ idx + 1 }} 条对话</span>
+                  <span class="comp-similarity" :class="getSimilarityClass(comp.similarity)">
+                    📊 相似度: {{ (comp.similarity * 100).toFixed(1) }}%
+                  </span>
+                  <span class="comp-length-ratio">
+                    📏 长度比: {{ (comp.length_ratio * 100).toFixed(1) }}%
+                  </span>
+                </div>
+
+                <div class="comparison-messages">
+                  <div class="comp-msg-group">
+                    <div class="comp-msg-label">📝 用户问题</div>
+                    <div class="comp-msg-content">{{ comp.user_message }}</div>
+                  </div>
+
+                  <div class="comp-msg-group">
+                    <div class="comp-msg-label">🧑‍💼 人工回复 ({{ comp.length_human }} 字)</div>
+                    <div class="comp-msg-content human-reply">{{ comp.human_reply }}</div>
+                  </div>
+
+                  <div class="comp-msg-group">
+                    <div class="comp-msg-label">🤖 AI 回复 ({{ comp.length_ai }} 字)</div>
+                    <div class="comp-msg-content ai-reply">{{ comp.ai_reply }}</div>
+                  </div>
+                </div>
+
+                <div class="comparison-metrics">
+                  <div class="metric-bar">
+                    <span class="metric-label">相似度</span>
+                    <div class="progress-bar">
+                      <div class="progress-fill" :style="{ width: (comp.similarity * 100) + '%', backgroundColor: getSimilarityColor(comp.similarity) }"></div>
+                    </div>
+                    <span class="metric-value">{{ (comp.similarity * 100).toFixed(1) }}%</span>
+                  </div>
+                  <div class="metric-bar">
+                    <span class="metric-label">长度比</span>
+                    <div class="progress-bar">
+                      <div class="progress-fill" :style="{ width: (comp.length_ratio * 100) + '%', backgroundColor: getSimilarityColor(comp.length_ratio) }"></div>
+                    </div>
+                    <span class="metric-value">{{ (comp.length_ratio * 100).toFixed(1) }}%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <template v-else-if="aiComparisons && aiComparisons.status === 'no_data'">
+            <div class="alert alert-info">
+              ℹ️ 该对话中没有找到对应的人工回复和 AI 回复对进行对比。
+            </div>
+          </template>
+
+          <template v-else>
+            <button class="btn btn-secondary" @click="loadComparison" style="width: 100%;">
+              加载 AI 对比结果
+            </button>
+          </template>
+        </div>
         </div>
       </template>
     </div>
@@ -234,6 +313,7 @@ import {
   fetchConversation,
   fetchReviews,
   saveReview,
+  compareReplies,
 } from '../conversationHistoryApi.js'
 
 export default {
@@ -245,6 +325,12 @@ export default {
 
   data() {
     return {
+      // AI Comparison
+      aiComparisons: null,
+      loadingComparison: false,
+      comparisonError: '',
+      comparisonVisible: false,
+
       // Session list
       sessions: [],
       totalSessions: 0,
@@ -335,6 +421,9 @@ export default {
       this.reviewError = ''
       this.savedReview = null
       this.contextVisible = {}
+      this.aiComparisons = null
+      this.comparisonError = ''
+      this.comparisonVisible = false
       try {
         const [convData, reviewData] = await Promise.all([
           fetchConversation(chatId),
@@ -346,6 +435,12 @@ export default {
           this.reviewRating = r.rating || 0
           this.reviewComment = r.comment || ''
           this.savedReview = r
+        }
+        // Auto-load AI comparison
+        try {
+          this.aiComparisons = await compareReplies(chatId)
+        } catch (e) {
+          console.debug('Could not load AI comparison', e)
         }
       } catch (e) {
         console.error('Failed to load conversation', e)
@@ -417,7 +512,32 @@ export default {
       }
     },
 
-    formatTime(ts) {
+
+    async loadComparison() {
+      this.loadingComparison = true
+      this.comparisonError = ''
+      try {
+        this.aiComparisons = await compareReplies(this.selectedChatId)
+      } catch (e) {
+        this.comparisonError = `加载失败: ${e.message}`
+      } finally {
+        this.loadingComparison = false
+      }
+    },
+
+    getSimilarityClass(similarity) {
+      if (similarity >= 0.7) return 'similarity-high'
+      if (similarity >= 0.4) return 'similarity-medium'
+      return 'similarity-low'
+    },
+
+    getSimilarityColor(value) {
+      if (value >= 0.7) return '#52c41a'  // green
+      if (value >= 0.4) return '#faad14'  // orange
+      return '#ff4d4f'  // red
+    },
+
+        formatTime(ts) {
       if (!ts) return '—'
       const d = new Date(ts)
       return d.toLocaleString('zh-CN', {
@@ -787,3 +907,169 @@ export default {
   padding: 0.5rem 0;
 }
 </style>
+
+/* ── AI Evaluation Section ── */
+.ai-eval-form h3 { margin-bottom: 0.25rem; }
+.ai-eval-form { background: #f0f8ff; border: 1px solid #b3d8ff; }
+
+.ai-comparison-results {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.comparison-item {
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.comparison-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #f0f0f0;
+  flex-wrap: wrap;
+}
+
+.comp-index {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #666;
+}
+
+.comp-similarity {
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 6px;
+}
+
+.similarity-high {
+  background: #f6ffed;
+  color: #389e0d;
+  border: 1px solid #b7eb8f;
+}
+
+.similarity-medium {
+  background: #fffbe6;
+  color: #ad6800;
+  border: 1px solid #ffd591;
+}
+
+.similarity-low {
+  background: #fff2f0;
+  color: #cf1322;
+  border: 1px solid #ffccc7;
+}
+
+.comp-length-ratio {
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.comparison-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.comp-msg-group {
+  background: #fafafa;
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.comp-msg-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #999;
+  margin-bottom: 0.3rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.comp-msg-content {
+  font-size: 0.9rem;
+  color: #333;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #fff;
+  border-radius: 4px;
+  padding: 0.6rem;
+  border-left: 3px solid #d9d9d9;
+}
+
+.comp-msg-content.human-reply {
+  border-left-color: #52c41a;
+  background: #f6ffed;
+}
+
+.comp-msg-content.ai-reply {
+  border-left-color: #722ed1;
+  background: #f9f0ff;
+}
+
+.comparison-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.metric-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.metric-label {
+  flex-shrink: 0;
+  width: 4rem;
+  color: #666;
+  font-weight: 500;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 24px;
+  background: #f0f0f0;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid #d9d9d9;
+}
+
+.progress-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  color: #fff;
+  font-weight: 600;
+}
+
+.metric-value {
+  flex-shrink: 0;
+  width: 3.5rem;
+  text-align: right;
+  font-weight: 600;
+  color: #333;
+}
+
+.alert-info {
+  background: #e6f7ff;
+  border: 1px solid #91d5ff;
+  color: #0050b3;
+  border-radius: 6px;
+  padding: 0.85rem 1.1rem;
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
+}

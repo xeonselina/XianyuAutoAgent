@@ -261,3 +261,131 @@ async def get_conversation_detail(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch conversation: {str(e)}")
+
+# ─── AI Evaluation / Comparison ──────────────────────────────────
+
+def _jaccard_similarity(text_a: str, text_b: str) -> float:
+    """
+    Calculate Jaccard similarity based on character bigrams.
+    Returns value between 0.0 and 1.0.
+    """
+    if not text_a or not text_b:
+        return 0.0
+    
+    def bigrams(text: str) -> set:
+        text = text.strip()
+        return {text[i:i+2] for i in range(len(text) - 1)} if len(text) >= 2 else {text}
+    
+    set_a = bigrams(text_a)
+    set_b = bigrams(text_b)
+    
+    intersection = len(set_a & set_b)
+    union = len(set_a | set_b)
+    return intersection / union if union > 0 else 0.0
+
+
+def _length_ratio(text_a: str, text_b: str) -> float:
+    """
+    Calculate length ratio (shorter / longer).
+    Returns value between 0.0 and 1.0.
+    """
+    if not text_a or not text_b:
+        return 0.0
+    la, lb = len(text_a.strip()), len(text_b.strip())
+    if max(la, lb) == 0:
+        return 1.0
+    return min(la, lb) / max(la, lb)
+
+
+@router.post("/{chat_id}/compare")
+async def compare_replies(
+    chat_id: str,
+    message_id: Optional[int] = Query(None, description="Specific message ID to compare (if multiple)"),
+):
+    """
+    AI evaluation: Compare human reply with AI reply for a conversation.
+    
+    This endpoint finds a user message and compares:
+    - Human (seller) reply (if exists)
+    - AI reply (if exists)
+    
+    Returns similarity metrics and comparison analysis.
+    """
+    try:
+        store = get_conversation_store()
+        messages = store.get_conversation_history(chat_id=chat_id)
+        
+        if not messages:
+            raise HTTPException(status_code=404, detail=f"No messages found for chat_id: {chat_id}")
+        
+        # Convert ORM models to dicts
+        msg_list = []
+        for msg in messages:
+            msg_dict = msg.model_dump()
+            msg_list.append(msg_dict)
+        
+        # Find the user message and corresponding human/AI replies
+        comparisons = []
+        
+        for i, msg in enumerate(msg_list):
+            if msg['message_type'] != 'user':
+                continue
+            
+            user_message = msg['message_content']
+            user_msg_id = msg.get('id')
+            
+            # Find corresponding human reply (seller message without agent_response)
+            human_reply = None
+            human_reply_id = None
+            for j in range(i + 1, len(msg_list)):
+                if msg_list[j]['message_type'] == 'seller' and not msg_list[j].get('agent_response'):
+                    human_reply = msg_list[j]['message_content']
+                    human_reply_id = msg_list[j].get('id')
+                    break
+            
+            # Find corresponding AI reply (seller message with agent_response)
+            ai_reply = None
+            ai_reply_id = None
+            for j in range(i + 1, len(msg_list)):
+                if msg_list[j]['message_type'] == 'seller' and msg_list[j].get('agent_response'):
+                    ai_reply = msg_list[j]['message_content']
+                    ai_reply_id = msg_list[j].get('id')
+                    break
+            
+            # Only create comparison if we have both human and AI replies
+            if human_reply and ai_reply:
+                similarity = _jaccard_similarity(human_reply, ai_reply)
+                length_ratio = _length_ratio(human_reply, ai_reply)
+                
+                comparisons.append({
+                    'user_msg_id': user_msg_id,
+                    'user_message': user_message,
+                    'human_reply_id': human_reply_id,
+                    'human_reply': human_reply,
+                    'ai_reply_id': ai_reply_id,
+                    'ai_reply': ai_reply,
+                    'similarity': round(similarity, 4),
+                    'length_ratio': round(length_ratio, 4),
+                    'length_human': len(human_reply.strip()),
+                    'length_ai': len(ai_reply.strip()),
+                })
+        
+        if not comparisons:
+            return {
+                'chat_id': chat_id,
+                'status': 'no_data',
+                'message': 'No complete pairs of human and AI replies found for comparison',
+                'comparisons': []
+            }
+        
+        return {
+            'chat_id': chat_id,
+            'status': 'ok',
+            'total_comparisons': len(comparisons),
+            'comparisons': comparisons
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to compare replies: {str(e)}")
