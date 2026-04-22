@@ -21,10 +21,12 @@
           >
             <div class="session-card-top">
               <span class="session-chat-id">💬 {{ s.chat_id }}</span>
-              <span v-if="reviewMap[s.chat_id]" class="review-badge"
-                :class="reviewMap[s.chat_id].rating === 1 ? 'badge-up' : 'badge-down'">
-                {{ reviewMap[s.chat_id].rating === 1 ? '👍 已评价' : '👎 已评价' }}
-              </span>
+              <span
+                v-if="reviewMap[s.chat_id]"
+                class="review-icon"
+                :class="reviewMap[s.chat_id].rating === 1 ? 'review-icon-up' : 'review-icon-down'"
+                :title="reviewMap[s.chat_id].rating === 1 ? '已好评' : '已差评'"
+              >{{ reviewMap[s.chat_id].rating === 1 ? '👍' : '👎' }}</span>
             </div>
             <div class="session-card-meta">
               <span v-if="s.user_id">买家: {{ s.user_id }}</span>
@@ -223,6 +225,8 @@
             </button>
           </template>
 
+        </div>
+
         <!-- AI Evaluation / Comparison Section -->
         <div class="ai-eval-form card">
           <h3>🤖 AI 对比评估</h3>
@@ -300,7 +304,6 @@
               加载 AI 对比结果
             </button>
           </template>
-        </div>
         </div>
       </template>
     </div>
@@ -407,9 +410,8 @@ export default {
     },
 
     async openSession(chatId) {
-      this.selectedChatId = chatId
-      this.$router.push({ name: 'history-detail', params: { chatId } }).catch(() => {})
-      await this.loadDetail(chatId)
+      const resolved = this.$router.resolve({ name: 'history-detail', params: { chatId } })
+      window.open(resolved.href, '_blank')
     },
 
     async loadDetail(chatId) {
@@ -581,14 +583,16 @@ export default {
   margin-bottom: 0.4rem;
 }
 .session-chat-id { font-weight: 600; font-size: 0.95rem; color: #333; }
-.review-badge {
-  font-size: 0.75rem;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-weight: 500;
+.review-icon {
+  font-size: 1rem;
+  line-height: 1;
+  cursor: default;
+  opacity: 0.85;
+  transition: opacity 0.15s;
 }
-.badge-up { background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; }
-.badge-down { background: #fff2f0; color: #ff4d4f; border: 1px solid #ffccc7; }
+.review-icon:hover { opacity: 1; }
+.review-icon-up  { filter: none; }
+.review-icon-down { filter: none; }
 
 .session-card-meta {
   display: flex;
@@ -906,7 +910,6 @@ export default {
   text-align: center;
   padding: 0.5rem 0;
 }
-</style>
 
 /* ── AI Evaluation Section ── */
 .ai-eval-form h3 { margin-bottom: 0.25rem; }
@@ -1073,3 +1076,4 @@ export default {
   font-size: 0.9rem;
   margin-top: 0.5rem;
 }
+</style>

@@ -98,8 +98,30 @@ class IgnorePatternStore:
             if conn:
                 conn.close()
 
+    # Default patterns seeded on first startup (INSERT IGNORE = idempotent)
+    _DEFAULT_PATTERNS: List[tuple] = [
+        ("[图片]", "买家发送的图片消息"),
+        ("[语音]", "买家发送的语音消息"),
+        ("[视频]", "买家发送的视频消息"),
+        ("[红包]", "红包消息"),
+        ("[转账]", "转账消息"),
+        # NOTE: Do NOT add order-placement messages here.
+        # "[我已拍下，待付款]" and "[我已付款，等待你发货]" are the triggers for
+        # the order recording pipeline (_is_order_placed_message) and MUST NOT
+        # be filtered by ignore patterns — they would be silently dropped before
+        # the order handler ever runs.
+        ("队友喊你来打气", "闲鱼平台活动推送消息"),
+    ]
+
+    # Patterns that must NEVER be ignored — they are order-detection triggers.
+    # If a previous version accidentally inserted them, we remove them on startup.
+    _ORDER_TRIGGER_PATTERNS: List[str] = [
+        "[我已拍下，待付款]",
+        "[我已付款，等待你发货]",
+    ]
+
     def _ensure_table(self):
-        """Create the ignore_patterns table if it doesn't exist."""
+        """Create the ignore_patterns table if it doesn't exist, then seed defaults."""
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
@@ -114,6 +136,23 @@ class IgnorePatternStore:
                             UNIQUE KEY uk_pattern (pattern)
                         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                     """)
+                    # Remove order-trigger patterns that may have been seeded by a
+                    # previous buggy version — these strings must reach the order
+                    # detection handler and must never be filtered here.
+                    for bad_pattern in self._ORDER_TRIGGER_PATTERNS:
+                        cursor.execute(
+                            "DELETE FROM ignore_patterns WHERE pattern = %s",
+                            (bad_pattern,),
+                        )
+                    # Seed default patterns (INSERT IGNORE skips duplicates silently)
+                    for pattern, description in self._DEFAULT_PATTERNS:
+                        cursor.execute(
+                            """
+                            INSERT IGNORE INTO ignore_patterns (pattern, description, active)
+                            VALUES (%s, %s, TRUE)
+                            """,
+                            (pattern, description),
+                        )
             logger.debug("ignore_patterns table ensured")
         except Exception as e:
             logger.error(f"Failed to ensure ignore_patterns table: {e}")

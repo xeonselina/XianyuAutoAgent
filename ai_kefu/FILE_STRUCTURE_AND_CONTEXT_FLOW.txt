@@ -1,0 +1,312 @@
+================================================================================
+COMPLETE FILE CONTENTS - AI KEFU PROJECT
+All files have been read in full with complete line numbers
+================================================================================
+
+FILE 1: /Users/jimmypan/git_repo/XianyuAutoAgent/ai_kefu/agent/turn.py
+================================================================================
+[623 lines - Full content provided in read output above]
+Key functions:
+  - execute_turn(session, user_message, tools_registry, system_prompt, is_tool_continue) [Lines 167-483]
+  - _build_message_history(session, new_user_message, system_prompt) [Lines 498-552]
+  - _load_system_prompt() [Lines 583-622]
+  - validate_message_sequence(messages, auto_fix=False) [Lines 40-106]
+  - _estimate_response_confidence_percent(user_message, response_text, tool_calls_summary) [Lines 109-164]
+
+Important cache pattern:
+  - _system_prompt_cache = (None, 0.0) [Line 565]
+  - _SYSTEM_PROMPT_CACHE_TTL = 300 (5 minutes) [Line 566]
+
+
+FILE 2: /Users/jimmypan/git_repo/XianyuAutoAgent/ai_kefu/models/session.py
+================================================================================
+[228 lines - Full content provided in read output above]
+Key models:
+  - ToolCall [Lines 20-49]
+    * id, name, args, status, result, error, timestamps, duration_ms
+  
+  - Message [Lines 52-78]
+    * role, content, timestamp, tool_calls, tool_call_id, tool_name, metadata
+  
+  - HumanRequest [Lines 88-142]
+    * request_id, question, question_type, context, options, urgency, status
+  
+  - Session [Lines 145-204] *** CRITICAL FOR CONTEXT ***
+    * session_id, user_id, created_at, updated_at
+    * messages: List[Message]
+    * turn_counter: int
+    * status: SessionStatus
+    * context: Dict[str, Any] <-- Item info goes here
+    * terminate_reason, pending_human_request, human_request_history, metadata
+  
+  - AgentState [Lines 207-227]
+    * session_id, recent_tool_calls, loop_detected, loop_count, etc.
+
+
+FILE 3: /Users/jimmypan/git_repo/XianyuAutoAgent/ai_kefu/prompts/rental_system_prompt.py
+================================================================================
+[414 lines - Full content provided in read output above]
+Key functions:
+  - get_rental_system_prompt() [Lines 9-187]
+    Returns: System prompt with current date embedded (187 lines of instructions)
+  
+  - get_rental_system_prompt_template() [Lines 190-365]
+    Returns: Template with variables {today_str}, {today_date}, {current_year}, {current_month}
+  
+  - render_system_prompt(template) [Lines 368-384]
+    Fills in date variables in template
+  
+  - RENTAL_QUICK_REPLIES dictionary [Lines 393-413]
+    Pre-defined common responses
+
+Key constraints in system prompt:
+  - Max 50 characters per reply (Line 26)
+  - Must call check_availability BEFORE quoting (Line 128)
+  - Uses 7 main tools (parse_date, check_availability, calculate_price, etc.)
+  - Forbids making up information about prices, availability, dates
+
+
+FILE 4: /Users/jimmypan/git_repo/XianyuAutoAgent/ai_kefu/agent/executor.py
+================================================================================
+[824 lines - Full content provided in read output above]
+
+*** THIS IS WHERE CONTEXT IS BUILT AND PASSED ***
+
+Key class: AgentExecutor
+  def __init__(self, session_store, config, conversation_store) [Lines 34-58]
+  def _register_tools(self) [Lines 60-153]
+  
+  def run(query, session_id, user_id, context) [Lines 155-502]
+    *** MAIN ENTRY POINT ***
+    - Extracts from context: conversation_id (→ chat_id), user_nickname, user_id
+    - Gets/creates session via _get_or_create_session()
+    - Applies context summarization if needed
+    - Injects context into ask_human_agent tool (partial binding)
+    - Executes turns in a loop
+    - Returns response dict
+  
+  def stream(query, session_id, user_id, context) [Lines 504-533]
+    Async streaming version
+  
+  def _get_or_create_session(session_id, user_id, chat_id) [Lines 535-594]
+    - Tries to load existing session
+    - Creates new session if needed
+    - Calls _load_history_as_context() for MySQL history loading
+  
+  def _get_summary_cache_key(chat_id) [Lines 596-598]
+    Returns: f"history_summary:{chat_id}"
+  
+  def _get_cached_summary(chat_id) [Lines 600-616]
+    Loads cached summary from Redis
+  
+  def _set_cached_summary(chat_id, summary, is_returning_customer, fingerprint) [Lines 618-640]
+    Caches summary in Redis with 1-hour TTL
+  
+  def _load_history_as_context(session, chat_id) [Lines 642-823]
+    *** WHERE TO PREFETCH ITEM INFO ***
+    - Gets conversation fingerprint (COUNT + MAX timestamp)
+    - Checks Redis cache (invalidated by fingerprint)
+    - If cache miss: loads history from MySQL
+    - Summarizes history with LLM
+    - Detects "returning customer" (payment history)
+    - Injects session.context["context_summary"] and session.context["is_returning_customer"]
+    - Caches result for 1 hour
+  
+  def _summarize_history(conversation_text, is_returning_customer) [Lines 771-823]
+    Calls call_qwen_fast to summarize conversation
+
+Critical context flow [Lines 177-179]:
+```python
+chat_id = (context or {}).get("conversation_id")
+user_nickname = (context or {}).get("user_nickname")
+session = self._get_or_create_session(session_id, user_id, chat_id=chat_id)
+```
+
+Dynamic tool injection [Lines 210-241]:
+```python
+_bound_ask_human = partial(
+    _original_ask_human,
+    chat_id=chat_id,
+    user_nickname=user_nickname,
+    context_summary=session.context.get("context_summary"),
+)
+self.tools_registry._tools["ask_human_agent"] = _bound_ask_human
+```
+
+
+FILE 5: /Users/jimmypan/git_repo/XianyuAutoAgent/ai_kefu/api/routes/chat.py
+================================================================================
+[207 lines - Full content provided in read output above]
+
+Key functions:
+  def _ensure_session_locks_guard() [Lines 37-42]
+  def _get_session_lock(session_id) [Lines 45-55]
+  
+  async def chat_sync(request, session_store) [Lines 58-146]
+    *** MAIN CHAT ENDPOINT ***
+    - request.context passed to executor.run()
+    - Per-session concurrency guard (prevents parallel execution)
+    - Returns ChatResponse
+  
+  async def chat_stream(request, session_store) [Lines 149-206]
+    Streaming version with Server-Sent Events
+
+Key context passing [Lines 107-113]:
+```python
+result = await asyncio.to_thread(
+    executor.run,
+    query=request.query,
+    session_id=request.session_id,
+    user_id=request.user_id,
+    context=request.context  # <-- Context dict here
+)
+```
+
+
+FILE 6: /Users/jimmypan/git_repo/XianyuAutoAgent/ai_kefu/api/models.py
+================================================================================
+[203 lines - Full content provided in read output above]
+
+Key models:
+  class ChatRequest [Lines 16-21]
+    query: str (required, 1-10000 chars)
+    session_id: Optional[str]
+    user_id: Optional[str]
+    context: Dict[str, Any] (optional, default empty dict)
+  
+  class ChatResponse [Lines 24-30]
+    session_id: str
+    response: str
+    status: SessionStatus
+    turn_counter: int
+    metadata: Dict[str, Any]
+  
+  class SessionResponse [Lines 37-48]
+    For session detail endpoints
+  
+  Various other models for knowledge, human requests, etc.
+
+
+================================================================================
+EXECUTION FLOW DIAGRAM
+================================================================================
+
+1. HTTP POST /chat
+   └─ ChatRequest(query, session_id, user_id, context)
+      └─ context dict passed through
+
+2. chat_sync() endpoint
+   └─ asyncio.to_thread(executor.run(...))
+      └─ executor.run(query, session_id, user_id, context)
+
+3. executor.run() [MAIN ORCHESTRATOR]
+   ├─ chat_id = context.get("conversation_id")
+   ├─ session = _get_or_create_session(session_id, user_id, chat_id)
+   │  ├─ _load_history_as_context(session, chat_id)
+   │  │  ├─ Get fingerprint from MySQL
+   │  │  ├─ Check Redis cache (hit or miss)
+   │  │  ├─ Load conversation from MySQL
+   │  │  ├─ Summarize with LLM
+   │  │  └─ Inject session.context["context_summary"]
+   │  │  └─ Cache in Redis (1 hour TTL)
+   │  └─ Detect is_returning_customer from payment history
+   ├─ apply_summary_to_session() if needed
+   ├─ Inject context into ask_human_agent tool (partial binding)
+   ├─ execute_turn() loop
+   │  ├─ Build message history for LLM
+   │  ├─ Call call_qwen(messages, tools)
+   │  ├─ Execute tool calls
+   │  ├─ Check confidence guard
+   │  └─ Collect tool results
+   └─ Return response
+
+4. execute_turn() [PER-TURN LOGIC]
+   ├─ Load/render system prompt
+   ├─ Inject context_summary into system prompt
+   ├─ Build message history
+   ├─ Validate message sequence
+   ├─ Call Qwen LLM
+   ├─ Execute tool calls if any
+   └─ Return TurnResult
+
+5. Return to client
+   └─ ChatResponse(session_id, response, status, turn_counter, metadata)
+
+
+================================================================================
+CONTEXT KEYS CURRENTLY IN USE
+================================================================================
+
+Request context (from ChatRequest):
+  - conversation_id → used to load history from MySQL (becomes chat_id)
+  - user_nickname → passed to human-in-the-loop requests
+  - user_id → for Xianyu buyer_id
+
+Session.context keys (built during execution):
+  - context_summary: str - LLM summary of conversation history
+  - is_returning_customer: bool - Detected from payment history
+
+
+================================================================================
+WHERE TO ADD ITEM INFO PREFETCHING
+================================================================================
+
+BEST LOCATION: executor._load_history_as_context() [Lines 642-823]
+
+Pattern already exists:
+  1. Fingerprint checking (invalidates cache when data changes)
+  2. Redis caching with TTL
+  3. MySQL loading
+  4. LLM processing (optional)
+  5. Injection into session.context
+
+For item info, follow same pattern:
+  1. Extract item_id from conversation history
+  2. Get fingerprint from Xianyu API or cache
+  3. Check Redis cache (key: f"item_info:{item_id}")
+  4. If cache miss: fetch from API
+  5. Inject into session.context["item_info"]
+  6. Cache with 1-3 hour TTL
+
+Code would be added around line 720-760 (after history summary injection).
+
+
+================================================================================
+CACHING PATTERN TO FOLLOW
+================================================================================
+
+Current pattern in executor.py [Lines 596-641]:
+
+def _get_summary_cache_key(self, chat_id: str) -> str:
+    return f"history_summary:{chat_id}"
+
+def _get_cached_summary(self, chat_id: str) -> Optional[dict]:
+    try:
+        cache_key = self._get_summary_cache_key(chat_id)
+        data = self.session_store.client.get(cache_key)  # Redis client
+        if data:
+            return json.loads(data)
+    except Exception as e:
+        logger.debug(f"Failed to read summary cache: {e}")
+    return None
+
+def _set_cached_summary(self, chat_id: str, summary: str, is_returning_customer: bool, fingerprint: dict):
+    try:
+        cache_key = self._get_summary_cache_key(chat_id)
+        cache_data = json.dumps({
+            "summary": summary,
+            "is_returning_customer": is_returning_customer,
+            "fingerprint": fingerprint
+        }, ensure_ascii=False)
+        # TTL 1 hour
+        self.session_store.client.setex(cache_key, 3600, cache_data)
+    except Exception as e:
+        logger.debug(f"Failed to cache summary: {e}")
+
+For item info, apply the same pattern:
+  - Cache key: f"item_info:{item_id}"
+  - TTL: 3600 (1 hour) or higher depending on data freshness needs
+  - Store JSON in Redis
+  - Fingerprint: message_count + last_message_at for invalidation
+
+================================================================================

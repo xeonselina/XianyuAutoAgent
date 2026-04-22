@@ -8,6 +8,7 @@
         <router-link to="/ignore-patterns" class="nav-link">消息过滤</router-link>
         <router-link to="/eval" class="nav-link">Eval 回放</router-link>
         <router-link to="/history" class="nav-link">历史对话</router-link>
+        <router-link to="/settings" class="nav-link">系统设置</router-link>
       </nav>
     </header>
     <main class="app-main">

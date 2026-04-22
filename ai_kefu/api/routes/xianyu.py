@@ -66,6 +66,43 @@ class XianyuInboundResponse(BaseModel):
     reply: Optional[str] = None
 
 
+class UpdateCookiesRequest(BaseModel):
+    """Browser cookies pushed by run_xianyu.py to re-initialize GoofishProvider."""
+    cookies_str: str
+
+
+class UpdateCookiesResponse(BaseModel):
+    success: bool
+    message: str
+    user_id: str = ""
+
+
+# ──────────────────────────────────────────────────────────────
+# Cookie update endpoint
+# ──────────────────────────────────────────────────────────────
+
+@router.post("/update-cookies", response_model=UpdateCookiesResponse)
+async def update_cookies(req: UpdateCookiesRequest):
+    """
+    Internal endpoint: re-initialize GoofishProvider with fresh browser cookies.
+    Called by run_xianyu.py once a live WebSocket session is detected.
+    """
+    if not req.cookies_str or req.cookies_str.strip() == "your_cookies_here":
+        return UpdateCookiesResponse(success=False, message="Empty or placeholder cookies")
+    try:
+        from ai_kefu.xianyu_provider import init_provider
+        from ai_kefu.xianyu_provider.goofish_provider import GoofishProvider
+        provider = GoofishProvider(cookies_str=req.cookies_str)
+        init_provider(provider)
+        user_id = provider.my_user_id
+        settings.xianyu_cookie = req.cookies_str
+        logger.info(f"[update-cookies] GoofishProvider re-initialized, user_id={user_id}")
+        return UpdateCookiesResponse(success=True, message="Provider re-initialized", user_id=user_id)
+    except Exception as e:
+        logger.error(f"[update-cookies] Failed: {e}", exc_info=True)
+        return UpdateCookiesResponse(success=False, message=str(e))
+
+
 # ──────────────────────────────────────────────────────────────
 # Constants
 # ──────────────────────────────────────────────────────────────
@@ -158,7 +195,7 @@ async def _record_order_detail(
         return
 
     try:
-        from ai_kefu.tools.xianyu import get_order_detail
+        from ai_kefu.tools.xianyu import get_order_detail, get_item_info
 
         logger.info(
             f"[record_order_detail] 拉取订单详情: "
@@ -168,10 +205,40 @@ async def _record_order_detail(
 
         if not detail.get("success"):
             logger.warning(
-                f"[record_order_detail] get_order_detail 失败: "
+                f"[record_order_detail] get_order_detail 失败，将以骨架记录写库: "
                 f"order_id={order_id}, error={detail.get('error')}"
             )
-            return
+            # API 失败时仍写入骨架记录，确保 order_id 不丢失，后续可补录
+            detail = {
+                "success": False,
+                "order_id": order_id,
+                "item_id": req.item_id or "",
+                "item_title": req.item_title or "",
+                "sku": "",
+                "quantity": "",
+                "amount": "",
+                "status": "UNKNOWN",
+                "status_label": "API获取失败",
+                "buyer_id": req.user_id or "",
+                "buyer_nickname": req.user_nickname or "",
+                "create_time": "",
+                "error": detail.get("error", ""),
+            }
+
+        # 若 item_title 仍为空（WS 帧从不携带商品标题），则通过商品详情 API 补全
+        if not detail.get("item_title") and req.item_id:
+            try:
+                item_info = await asyncio.to_thread(get_item_info, req.item_id)
+                if item_info.get("success") and item_info.get("title"):
+                    detail["item_title"] = item_info["title"]
+                    logger.info(
+                        f"[record_order_detail] 补全 item_title: "
+                        f"item_id={req.item_id}, title={item_info['title']!r}"
+                    )
+            except Exception as _e:
+                logger.warning(
+                    f"[record_order_detail] 补全 item_title 失败: item_id={req.item_id}, error={_e}"
+                )
 
         await asyncio.to_thread(
             conversation_store.save_order_detail,

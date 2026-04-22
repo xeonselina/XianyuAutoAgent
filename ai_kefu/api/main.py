@@ -68,7 +68,7 @@ async def root():
 
 
 # Register routes
-from ai_kefu.api.routes import system, chat, session, human_agent, knowledge, conversations, prompts, eval as eval_routes, ignore_patterns, dingtalk, xianyu as xianyu_routes
+from ai_kefu.api.routes import system, chat, session, human_agent, knowledge, conversations, prompts, eval as eval_routes, ignore_patterns, dingtalk, xianyu as xianyu_routes, settings as settings_routes
 app.include_router(system.router, tags=["system"])
 app.include_router(chat.router, prefix="/chat", tags=["chat"])
 app.include_router(session.router, prefix="/sessions", tags=["sessions"])
@@ -80,6 +80,7 @@ app.include_router(eval_routes.router, prefix="/eval", tags=["eval"])
 app.include_router(ignore_patterns.router, prefix="/ignore-patterns", tags=["ignore-patterns"])
 app.include_router(dingtalk.router, prefix="/dingtalk", tags=["dingtalk"])
 app.include_router(xianyu_routes.router, prefix="/xianyu", tags=["xianyu"])
+app.include_router(settings_routes.router, prefix="/settings", tags=["settings"])
 
 
 # Mount static files for Knowledge Management UI
