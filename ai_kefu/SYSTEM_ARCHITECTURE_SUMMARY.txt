@@ -1,0 +1,396 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                                                                            ║
+║          闲鱼自动客服系统 - 订单流程系统架构总结                          ║
+║                    Order Flow System Architecture                          ║
+║                                                                            ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+┌─ 📋 执行摘要 ─────────────────────────────────────────────────────────────┐
+│                                                                           │
+│ 系统包含三个订单处理阶段:                                                  │
+│                                                                           │
+│ 1. 消息分类层 (Classification Layer)                                      │
+│    - 位置: xianyu_interceptor/messaging_core.py:242-261                  │
+│    - 功能: 将接收的消息分类为 CHAT/ORDER/SYSTEM/TYPING/UNKNOWN           │
+│    - 风险: ORDER 消息在此被过滤,无法进入后续处理                          │
+│                                                                           │
+│ 2. 传输层 (Transport Layer)                                              │
+│    - 位置: xianyu_interceptor/message_handler.py:110-113                 │
+│    - 功能: 仅中继 CHAT 类型消息到 AI API /xianyu/inbound                 │
+│    - 风险: ORDER 消息被阻挡,完全无法继续                                  │
+│                                                                           │
+│ 3. 业务层 (Business Layer)                                               │
+│    - 位置: api/routes/xianyu.py:544-695                                  │
+│    - 功能: 应用业务规则,检测订单触发条件,调用订单处理                    │
+│    - 风险: ignore_patterns 表可能阻挡订单消息                             │
+│                                                                           │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─ 🔍 消息分类规则详解 ──────────────────────────────────────────────────┐
+│                                                                        │
+│  CHAT Message (聊天消息)                 ORDER Message (订单消息)      │
+│  ┌────────────────────────────────┐     ┌───────────────────────┐     │
+│  │ 识别条件:                      │     │ 识别条件:             │     │
+│  │ message["1"]["10"]             │     │ message["3"]          │     │
+│  │   ├─ reminderContent ✓ 存在    │     │   ├─ redReminder ✓   │     │
+│  │   ├─ reminderUrl               │     │   └─ 结构不同         │     │
+│  │   └─ senderUserId              │     │                       │     │
+│  │                                │     │ 后果:                 │     │
+│  │ 后果:                          │     │ ✗ 传输层直接过滤      │     │
+│  │ ✓ 继续到业务层处理              │     │ ✗ 永不到达 /inbound  │     │
+│  │ ✓ 可能触发订单                  │     │ ✗ 无法保存到表       │     │
+│  └────────────────────────────────┘     └───────────────────────┘     │
+│                                                                        │
+│  ⚠️  关键发现:                                                           │
+│      ORDER 和 CHAT 使用完全不同的 JSON 字段路径,无法同时匹配!           │
+│      一条消息只能被分类为其中一种类型,永远不会两种都是。                │
+│                                                                        │
+└────────────────────────────────────────────────────────────────────────┘
+
+┌─ 📊 完整数据流图 ─────────────────────────────────────────────────────┐
+│                                                                       │
+│                        Xianyu WebSocket                              │
+│                              │                                       │
+│                              ↓                                       │
+│                  ┌─────────────────────┐                             │
+│                  │   Interceptor       │                             │
+│                  │   Decode & Parse    │                             │
+│                  └────────┬────────────┘                             │
+│                           │                                         │
+│            ┌──────────────┴──────────────┐                          │
+│            ↓                             ↓                          │
+│   ┌─────────────────┐         ┌──────────────────┐                 │
+│   │ messaging_core  │         │ ROUTING POINT    │                 │
+│   │ classify()      │────────▶│ Different JSON   │                 │
+│   └────┬────────────┘         └──────────────────┘                 │
+│        │                                                            │
+│   ┌────┴────┬─────────┬────────┬───────┐                          │
+│   ↓         ↓         ↓        ↓       ↓                          │
+│  CHAT    ORDER    SYSTEM   TYPING   UNKNOWN                        │
+│   ✓        ✗         ✗       ✗        ✗                           │
+│   │        │         │       │        │                           │
+│   ├────────┼─────────┴───────┴────────┤                           │
+│   ↓        │                          ↓                           │
+│ [防线2]    │                  [直接过滤]                           │
+│message_    │                                                       │
+│handler.py  │                                                       │
+│ 仅转发      │                                                       │
+│ CHAT →    │                                                       │
+│   ↓        │                                                       │
+│  POST      │                                                       │
+│/xianyu/    │                                                       │
+│inbound     │                                                       │
+│   │        │                                                       │
+│   ├────────┘                                                       │
+│   │                                                                │
+│   ↓                                                                │
+│ [防线3]                                                            │
+│ignore_                                                             │
+│pattern_                                                            │
+│store.                                                              │
+│should_                                                             │
+│ignore()    ─── 如果匹配 ──→ return None ✗                         │
+│   │                                                                │
+│   │ 不匹配                                                          │
+│   ↓                                                                │
+│xianyu.py                                                           │
+│ ├─ 方向检测                                                        │
+│ ├─ 手动模式检查                                                    │
+│ ├─ AI抑制检查                                                      │
+│ │                                                                  │
+│ └─▶ _is_order_placed_message() ──┐                               │
+│        内容是否精确匹配              │                              │
+│        "[我已拍下,待付款]"           │                              │
+│        或                           │                              │
+│        "[我已付款,等待你发货]"       │                              │
+│                                    │                              │
+│     ┌─── YES ───┬──── NO ────┐    │                              │
+│     ↓           ↓             ↓   │                              │
+│[订单路径]  [AI Agent]   [继续处理]  │                              │
+│     │           │             ↓   │                              │
+│     │           │         return  │                              │
+│     │           │           reply │                              │
+│     │           ↓                 │                              │
+│     │        xianyu_orders        │                              │
+│     │        (无订单)              │                              │
+│     │                             │                              │
+│     └──▶ _handle_order_placed()   │                              │
+│           ├─ 提取 order_id        │                              │
+│           ├─ Fire-and-forget:     │                              │
+│           │  _record_order_detail │                              │
+│           │   └─ call API         │                              │
+│           │   └─ INSERT/UPDATE    │                              │
+│           │       xianyu_orders   │                              │
+│           └─ 生成租机摘要          │                              │
+│                                    │                              │
+└────────────────────────────────────┘                              │
+                                                                    │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─ 🚧 三道防线详解 ─────────────────────────────────────────────────────┐
+│                                                                       │
+│ ┌──────────────────────────────────────────────────────────────────┐ │
+│ │ 防线 1: 消息分类层 (Classification)                              │ │
+│ ├──────────────────────────────────────────────────────────────────┤ │
+│ │ 文件: messaging_core.py                                          │ │
+│ │ 位置: 第 242-261 行 (classify_message)                           │ │
+│ │       第 501-511 行 (_is_order_message)                          │ │
+│ │                                                                  │ │
+│ │ 工作原理:                                                         │ │
+│ │   1. 接收 WebSocket frame (raw JSON)                             │ │
+│ │   2. 检查消息结构是否包含特定字段                                 │ │
+│ │   3. 分类为 CHAT/ORDER/SYSTEM/TYPING/UNKNOWN                   │ │
+│ │                                                                  │ │
+│ │ 风险:                                                             │ │
+│ │   ⚠️  一旦被分类为 ORDER → 生命周期结束                           │ │
+│ │   ⚠️  无法被重新分类为 CHAT                                      │ │
+│ │   ⚠️  后续所有处理都会检查 message_type 并跳过                   │ │
+│ │                                                                  │ │
+│ │ 日志标志:                                                         │ │
+│ │   "判断是否为订单消息"                                           │ │
+│ │   "message['1']的所有键"                                         │ │
+│ │   "Skipping non-chat message: order"                            │ │
+│ └──────────────────────────────────────────────────────────────────┘ │
+│                                                                       │
+│ ┌──────────────────────────────────────────────────────────────────┐ │
+│ │ 防线 2: 传输层过滤 (Transport Filter)                            │ │
+│ ├──────────────────────────────────────────────────────────────────┤ │
+│ │ 文件: message_handler.py                                         │ │
+│ │ 位置: 第 110-113 行                                              │ │
+│ │                                                                  │ │
+│ │ 代码:                                                             │ │
+│ │   if message.message_type != XianyuMessageType.CHAT:            │ │
+│ │       logger.debug(f"Skipping non-chat message")               │ │
+│ │       return None                                               │ │
+│ │                                                                  │ │
+│ │ 工作原理:                                                         │ │
+│ │   仅有 CHAT 类型消息会被 POST 到 /xianyu/inbound                │ │
+│ │   其他所有类型直接返回 None                                      │ │
+│ │                                                                  │ │
+│ │ 风险:                                                             │ │
+│ │   🔴 ORDER 消息永不到达业务层                                    │ │
+│ │   🔴 无机会进入 xianyu.py 处理                                   │ │
+│ │   🔴 无法保存到任何表                                            │ │
+│ │                                                                  │ │
+│ │ 日志标志:                                                         │ │
+│ │   "Skipping non-chat message: order"                            │ │
+│ └──────────────────────────────────────────────────────────────────┘ │
+│                                                                       │
+│ ┌──────────────────────────────────────────────────────────────────┐ │
+│ │ 防线 3: 业务层过滤 (Business Layer Filter)                       │ │
+│ ├──────────────────────────────────────────────────────────────────┤ │
+│ │ 文件: api/routes/xianyu.py                                      │ │
+│ │ 位置: 第 566-572 行                                              │ │
+│ │                                                                  │ │
+│ │ 代码:                                                             │ │
+│ │   if req.content and ignore_pattern_store.should_ignore(...):  │ │
+│ │       logger.info("[xianyu/inbound] ✋ ignored by pattern")    │ │
+│ │       return XianyuInboundResponse(reply=None)                 │ │
+│ │                                                                  │ │
+│ │ 工作原理:                                                         │ │
+│ │   1. 检查消息内容是否在 ignore_patterns 表中                     │ │
+│ │   2. 使用 60 秒 TTL 内存缓存 (不每次查询数据库)                 │ │
+│ │   3. 精确匹配: content.strip() == pattern                      │ │
+│ │   4. 如果匹配 → 直接返回 None (不处理任何后续)                  │ │
+│ │                                                                  │ │
+│ │ 风险:                                                             │ │
+│ │   🔴 如果 ignore_patterns 包含订单关键词                        │ │
+│ │        → 订单消息被过滤                                         │ │
+│ │        → 永不触发 _handle_order_placed()                       │ │
+│ │        → 订单永不进入 xianyu_orders                            │ │
+│ │                                                                  │ │
+│ │ 日志标志:                                                         │ │
+│ │   "[xianyu/inbound] ✋ ignored by pattern: '[我已拍下..."       │ │
+│ │                                                                  │ │
+│ │ 防护措施:                                                         │ │
+│ │   ✓ 定期审视 ignore_patterns 表                                │ │
+│ │   ✓ 不应包含订单相关关键词                                      │ │
+│ │   ✓ 如果包含,应立即禁用或删除                                  │ │
+│ └──────────────────────────────────────────────────────────────────┘ │
+│                                                                       │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─ 📍 关键决策点 ────────────────────────────────────────────────────┐
+│                                                                   │
+│ 位置: api/routes/xianyu.py 第 665 行                             │
+│ 函数: _is_order_placed_message()                                 │
+│ 定义: (第 97-100 行)                                              │
+│                                                                   │
+│ 触发关键词 (精确匹配):                                             │
+│   • "[我已拍下，待付款]"                                          │
+│   • "[我已付款，等待你发货]"                                      │
+│                                                                   │
+│ 注意:                                                             │
+│   • 精确匹配 (exact match),不模糊                                │
+│   • 包括方括号                                                    │
+│   • 包括标点符号                                                  │
+│   • 必须是完整的字符串                                            │
+│                                                                   │
+│ 匹配时执行:                                                       │
+│   1. _handle_order_placed() 第 235-381 行                        │
+│   2. 提取 order_id (三个方法)                                     │
+│   3. Fire-and-forget: _record_order_detail()                    │
+│   4. 调用 get_order_detail() 获取完整订单信息                    │
+│   5. INSERT/UPDATE xianyu_orders                                 │
+│                                                                   │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─ 📊 xianyu_orders 表详解 ──────────────────────────────────────┐
+│                                                               │
+│ 表名: xianyu_orders                                          │
+│ 说明: 买家拍下商品时记录的订单详情                            │
+│                                                               │
+│ 字段列表:                                                     │
+│   ├─ id              BIGINT          主键                    │
+│   ├─ chat_id         VARCHAR(255)    闲鱼聊天 ID              │
+│   ├─ user_id         VARCHAR(255)    买家用户 ID              │
+│   ├─ item_id         VARCHAR(255)    商品 ID                 │
+│   ├─ order_id        VARCHAR(255)    订单号 (UNIQUE) ★       │
+│   ├─ order_status    VARCHAR(64)     订单状态码              │
+│   ├─ order_status_label VARCHAR(128) 人类可读状态             │
+│   ├─ order_amount    VARCHAR(64)     支付金额                │
+│   ├─ sku             TEXT            SKU/规格                 │
+│   ├─ quantity        VARCHAR(32)     购买数量                │
+│   ├─ buyer_nickname  VARCHAR(255)    买家昵称                │
+│   ├─ item_title      TEXT            商品标题                │
+│   ├─ raw_detail      JSON            完整订单字段             │
+│   ├─ raw_api_response JSON           闲鱼 API 原始响应       │
+│   ├─ created_at      TIMESTAMP       创建时间                │
+│   └─ updated_at      TIMESTAMP       更新时间                │
+│                                                               │
+│ 关键约束:                                                     │
+│   • UNIQUE KEY uq_order_id (order_id)                        │
+│   • 策略: ON DUPLICATE KEY UPDATE                            │
+│   • 效果: 同一订单再记录时会更新状态                          │
+│                                                               │
+│ 创建语句:                                                     │
+│   conversation_store.py 第 95-120 行                         │
+│                                                               │
+│ 保存触发:                                                     │
+│   xianyu.py 第 147-189 行 (_record_order_detail)            │
+│   conversation_store.py 第 357-449 行 (save_order_detail)   │
+│                                                               │
+└───────────────────────────────────────────────────────────────┘
+
+┌─ 💾 数据持久化流程 ────────────────────────────────────────────┐
+│                                                              │
+│ 触发:   消息内容 === "[我已拍下，待付款]"                    │
+│                                                              │
+│ 步骤:                                                        │
+│                                                              │
+│  1. _handle_order_placed() 被调用 (xianyu.py:235-381)      │
+│     └─▶ 从 raw_data 提取 order_id                          │
+│          三个方法 (优先级):                                 │
+│          ① reminderUrl ?orderId=<id>                       │
+│          ② extJson.updateKey <chat>:<order_id>:<...>      │
+│          ③ Nested dxCard URL order_detail?id=<id>         │
+│                                                              │
+│  2. asyncio.ensure_future(_record_order_detail()) (异步)   │
+│     └─▶ 不等待,继续处理 AI 回复                            │
+│                                                              │
+│  3. _record_order_detail() (xianyu.py:147-189)            │
+│     └─▶ call get_order_detail(order_id)                   │
+│          └─▶ 调用闲鱼 API 获取完整订单信息                 │
+│                                                              │
+│  4. conversation_store.save_order_detail() (第 357 行)    │
+│     └─▶ 构建 INSERT ... ON DUPLICATE KEY UPDATE SQL       │
+│     └─▶ 执行查询                                           │
+│     └─▶ 提交事务                                           │
+│                                                              │
+│  5. SQL 执行:                                              │
+│     INSERT INTO xianyu_orders (                             │
+│        chat_id, user_id, order_id, ...                     │
+│     ) VALUES (...)                                          │
+│     ON DUPLICATE KEY UPDATE                                │
+│        order_status = VALUES(order_status),                │
+│        ...                                                  │
+│                                                              │
+│ 结果:                                                        │
+│   ✓ 新订单 → 插入新行                                       │
+│   ✓ 已存在订单 → 更新为最新状态                            │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+
+┌─ ⚠️  风险矩阵 ──────────────────────────────────────────────┐
+│                                                            │
+│ 风险等级 | 风险描述 | 影响范围 | 发生位置                  │
+│ ────────┼─────────┼─────────┼────────────────────────────│
+│ 🔴 高  │ Ignore  │ 阻止所有 │ messaging_core.py          │
+│        │ Pattern │ 订单    │ → message_handler.py →    │
+│        │ 包含    │ 处理    │ xianyu.py:566-572         │
+│        │ 订单    │         │                            │
+│        │ 关键词  │         │                            │
+│ ────────┼─────────┼─────────┼────────────────────────────│
+│ 🟠 中  │ 消息    │ 订单    │ messaging_core.py:501-511 │
+│        │ 分类    │ 永不    │ message_handler.py:110    │
+│        │ 为      │ 到达    │ 检查 message_type        │
+│        │ ORDER   │ 业务层  │                            │
+│ ────────┼─────────┼─────────┼────────────────────────────│
+│ 🟠 中  │ 订单 ID │ 订单    │ xianyu.py:254-308         │
+│        │ 提取    │ 入库    │ (三个提取方法的失败)       │
+│        │ 失败    │ 失败    │                            │
+│ ────────┼─────────┼─────────┼────────────────────────────│
+│ 🟡 低  │ API     │ 订单    │ xianyu.py:147-189         │
+│        │ 调用    │ 信息    │ _record_order_detail()    │
+│        │ 失败    │ 不完整  │                            │
+│                                                            │
+└────────────────────────────────────────────────────────────┘
+
+┌─ 🎯 排查流程 ──────────────────────────────────────────────┐
+│                                                           │
+│ 问题: 订单没有进入 xianyu_orders                          │
+│                                                           │
+│ 步骤 1: 检查 Ignore Pattern                              │
+│ ├─ SQL: SELECT * FROM ignore_patterns WHERE active=TRUE  │
+│ ├─ 查找包含: "%拍下%", "%付款%", "%订单%"                │
+│ └─ 如有 → UPDATE SET active=FALSE 或 DELETE              │
+│                                                           │
+│ 步骤 2: 检查消息分类                                      │
+│ ├─ 日志: grep "Skipping non-chat" logs                   │
+│ ├─ 检查: 是否有 "Skipping non-chat: order"               │
+│ └─ 如有 → 消息被分类为 ORDER,需要重新检查分类规则       │
+│                                                           │
+│ 步骤 3: 检查业务层过滤                                    │
+│ ├─ 日志: grep "ignored by pattern" logs                  │
+│ ├─ 检查: "[xianyu/inbound] ✋ ignored"                   │
+│ └─ 如有 → 消息被 ignore_patterns 阻挡                    │
+│                                                           │
+│ 步骤 4: 检查订单处理日志                                  │
+│ ├─ 日志: grep "📦 用户拍下商品" logs                      │
+│ ├─ 日志: grep "_handle_order_placed" logs               │
+│ └─ 如无 → 未触发订单处理                                 │
+│                                                           │
+│ 步骤 5: 检查订单表                                        │
+│ ├─ SQL: SELECT * FROM xianyu_orders ORDER BY DESC       │
+│ ├─ SQL: SELECT * FROM xianyu_orders WHERE chat_id=<?>   │
+│ └─ 如空 → 订单完全未保存                                 │
+│                                                           │
+│ 步骤 6: 启用 DEBUG 日志重新测试                           │
+│ ├─ 设置: LOG_LEVEL=DEBUG                                 │
+│ ├─ 操作: 发送测试订单消息                                │
+│ └─ 观察: 查看日志输出确定具体阻点                        │
+│                                                           │
+└───────────────────────────────────────────────────────────┘
+
+┌─ 📞 快速参考 ────────────────────────────────────────────┐
+│                                                          │
+│ 完整分析文档: ORDER_FLOW_ANALYSIS.md (473 行)           │
+│ 快速参考卡: ORDER_FLOW_QUICK_REFERENCE.md (259 行)      │
+│ 系统架构: SYSTEM_ARCHITECTURE_SUMMARY.txt (本文件)       │
+│                                                          │
+│ 关键文件速查表:                                          │
+│   消息分类: messaging_core.py (242-261)                 │
+│   传输过滤: message_handler.py (110-113)                │
+│   业务入口: xianyu.py (544-695)                         │
+│   订单触发: xianyu.py (97-100)                          │
+│   订单处理: xianyu.py (235-381)                         │
+│   订单记录: conversation_store.py (357-449)             │
+│   数据表: conversation_store.py (95-120)                │
+│   Ignore过滤: ignore_pattern_store.py (154-174)         │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║  分析完成! 请参考完整文档了解更多详情                                       ║
+║  Analysis Complete! See full documentation for more details               ║
+╚════════════════════════════════════════════════════════════════════════════╝

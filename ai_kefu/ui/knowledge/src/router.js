@@ -6,6 +6,7 @@ import PromptEditor from './components/PromptEditor.vue'
 import EvalReplay from './components/EvalReplay.vue'
 import IgnorePatternList from './components/IgnorePatternList.vue'
 import ConversationHistory from './components/ConversationHistory.vue'
+import Settings from './components/Settings.vue'
 
 const routes = [
   {
@@ -66,6 +67,11 @@ const routes = [
     name: 'history-detail',
     component: ConversationHistory,
     props: true
+  },
+  {
+    path: '/settings',
+    name: 'settings',
+    component: Settings
   }
 ]
 

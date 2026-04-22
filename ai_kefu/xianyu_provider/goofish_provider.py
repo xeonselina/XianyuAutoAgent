@@ -91,7 +91,7 @@ _ORDER_STATUS_MAP = {
 }
 
 # 订单详情接口（上游 XianyuApis 未提供，此处保留）
-_ORDER_DETAIL_URL = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.order.detail/1.0/"
+_ORDER_DETAIL_URL = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.trade.order.detail/1.0/"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -154,7 +154,7 @@ class GoofishProvider(XianyuProvider):
         return {"success": False, "error": str(res.get("ret", res)), "_raw": res}
 
     async def get_token(self) -> dict[str, Any]:
-        return await asyncio.get_event_loop().run_in_executor(None, self._sync_get_token)
+        return await asyncio.get_running_loop().run_in_executor(None, self._sync_get_token)
 
     def _sync_refresh_token(self) -> dict[str, Any]:
         """委托给上游 XianyuApis.refresh_token()，规范化响应。"""
@@ -162,7 +162,7 @@ class GoofishProvider(XianyuProvider):
         return {"success": True, "_raw": res}
 
     async def refresh_token(self) -> dict[str, Any]:
-        return await asyncio.get_event_loop().run_in_executor(None, self._sync_refresh_token)
+        return await asyncio.get_running_loop().run_in_executor(None, self._sync_refresh_token)
 
     # ── 商品详情 ──────────────────────────────────────────────────────────────
 
@@ -196,7 +196,7 @@ class GoofishProvider(XianyuProvider):
         }
 
     async def get_item_info(self, item_id: str) -> dict[str, Any]:
-        return await asyncio.get_event_loop().run_in_executor(
+        return await asyncio.get_running_loop().run_in_executor(
             None, self._sync_get_item_info, str(item_id)
         )
 
@@ -328,14 +328,14 @@ class GoofishProvider(XianyuProvider):
     async def get_buyer_info(self, buyer_id: str) -> dict[str, Any]:
         """
         异步包装：获取买家信息。
-        
+
         Args:
             buyer_id: 买家用户 ID
-            
+
         Returns:
             dict - 买家信息和交易统计
         """
-        return await asyncio.get_event_loop().run_in_executor(
+        return await asyncio.get_running_loop().run_in_executor(
             None, self._sync_get_buyer_info, str(buyer_id)
         )
 
@@ -364,7 +364,7 @@ class GoofishProvider(XianyuProvider):
             "accountSite": "xianyu",
             "dataType": "json",
             "timeout": "20000",
-            "api": "mtop.taobao.idle.order.detail",
+            "api": "mtop.taobao.idle.trade.order.detail",
             "sessionOption": "AutoLoginOnly",
         }
         resp = self._apis.session.post(
@@ -420,7 +420,7 @@ class GoofishProvider(XianyuProvider):
         }
 
     async def get_order_detail(self, order_id: str) -> dict[str, Any]:
-        return await asyncio.get_event_loop().run_in_executor(
+        return await asyncio.get_running_loop().run_in_executor(
             None, self._sync_get_order_detail, str(order_id)
         )
 
@@ -441,7 +441,7 @@ class GoofishProvider(XianyuProvider):
         return {"success": False, "error": str(res), "_raw": res}
 
     async def upload_media(self, media_path: str) -> dict[str, Any]:
-        return await asyncio.get_event_loop().run_in_executor(
+        return await asyncio.get_running_loop().run_in_executor(
             None, self._sync_upload_media, media_path
         )
 
@@ -795,7 +795,7 @@ class GoofishProvider(XianyuProvider):
             return self._sync_has_login(retry_count + 1)
 
     async def has_login(self) -> bool:
-        return await asyncio.get_event_loop().run_in_executor(
+        return await asyncio.get_running_loop().run_in_executor(
             None, self._sync_has_login, 0
         )
 

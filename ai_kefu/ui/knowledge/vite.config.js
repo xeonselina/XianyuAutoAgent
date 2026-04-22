@@ -25,6 +25,10 @@ export default defineConfig({
       '/conversations': {
         target: 'http://localhost:8000',
         changeOrigin: true
+      },
+      '/settings': {
+        target: 'http://localhost:8000',
+        changeOrigin: true
       }
     }
   },

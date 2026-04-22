@@ -91,6 +91,29 @@ async def _save_history_messages_to_api(history_messages: list) -> None:
             logger.warning(f"保存历史消息失败 (chat_id={xianyu_message.chat_id}): {e}")
 
 
+async def _push_cookies_to_api(browser_controller, agent_service_url: str) -> None:
+    """
+    Extract current browser cookies and push them to the FastAPI process
+    so GoofishProvider can be re-initialized with valid credentials.
+    """
+    import httpx
+    try:
+        cookies_str = await browser_controller.extract_cookies()
+        if not cookies_str:
+            logger.warning("[cookie-push] No cookies extracted from browser, skipping")
+            return
+        url = f"{agent_service_url.rstrip('/')}/xianyu/update-cookies"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(url, json={"cookies_str": cookies_str})
+            data = resp.json()
+        if data.get("success"):
+            logger.info(f"[cookie-push] GoofishProvider updated, user_id={data.get('user_id')}")
+        else:
+            logger.warning(f"[cookie-push] API rejected cookies: {data.get('message')}")
+    except Exception as e:
+        logger.warning(f"[cookie-push] Failed to push cookies to API: {e}")
+
+
 async def main():
     """主函数"""
     # 设置日志
@@ -115,6 +138,9 @@ async def main():
     if not success:
         logger.error("浏览器启动失败")
         return
+
+    # Push whatever cookies the browser has after launch (may already be valid)
+    await _push_cookies_to_api(browser_controller, config.agent_service_url)
 
     # ============================================================
     # 【重要】自动获取卖家 user_id（用于区分消息方向）
@@ -471,12 +497,22 @@ async def main():
         last_check_time = 0
         websocket_detected = False
 
+        # 定期刷新推送 cookie（每 30 分钟），防止服务端刷新 token 后 GoofishProvider 持有旧 cookie
+        cookie_push_interval = 1800  # 30 分钟
+        last_cookie_push_time = 0
+
         while True:
             await asyncio.sleep(1)
 
-            # 定期检查所有页面的 WebSocket（仅在未检测到时）
             import time
             current_time = time.time()
+
+            # 定期刷新 cookie 推送（无论 WebSocket 是否已检测到）
+            if current_time - last_cookie_push_time >= cookie_push_interval:
+                last_cookie_push_time = current_time
+                await _push_cookies_to_api(browser_controller, config.agent_service_url)
+
+            # 定期检查所有页面的 WebSocket（仅在未检测到时）
             if not websocket_detected and (current_time - last_check_time) >= check_interval:
                 last_check_time = current_time
                 logger.debug("🔍 执行 WebSocket 主动检测...")
@@ -490,6 +526,8 @@ async def main():
                         active_cdp_interceptor = interceptor
                         browser_transport.set_interceptor(interceptor)
                         logger.info(f"✅ WebSocket 连接已建立（页面: {info['url'][:80]}），停止定期检测")
+                        # Push freshest cookies — definitive login confirmation
+                        await _push_cookies_to_api(browser_controller, config.agent_service_url)
                         break
 
     except KeyboardInterrupt:
