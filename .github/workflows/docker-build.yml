@@ -13,7 +13,7 @@ jobs:
   # ── 拦截器镜像 ────────────────────────────────────────────────
   build-interceptor:
     name: 拦截器 (interceptor)
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: read
 
@@ -35,7 +35,6 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ai_kefu/xianyu_provider/upstream
-          file: ai_kefu/xianyu_provider/upstream/Dockerfile
           platforms: linux/amd64
           push: true
           tags: |
@@ -47,7 +46,7 @@ jobs:
   # ── API 服务镜像 ──────────────────────────────────────────────
   build-api:
     name: API 服务 (api)
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: read
 
@@ -81,7 +80,7 @@ jobs:
   # ── AI 控制台镜像 ─────────────────────────────────────────────
   build-console:
     name: AI 控制台 (console)
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: read
 
