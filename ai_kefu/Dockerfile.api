@@ -28,10 +28,14 @@ ENV PATH="/opt/venv/bin:$PATH" \
     UV_LINK_MODE=copy
 
 COPY requirements.api.txt .
-# uv: 并行解析+下载，比 pip 快 10-100x，彻底消除 backtracking 卡顿
+# uv: 并行解析+下载，比 pip 快 10-100x
+# --prerelease=allow: chromadb==1.4.0 的传递依赖 opentelemetry-exporter-otlp-proto-grpc
+#   在 stable 范围内有版本冲突，满足约束的版本为预发布版（如 1.12.0rc2）
+#   pip 靠回溯慢慢凑出来但会卡很久，uv 直接报 unsatisfiable，需显式允许预发布
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install \
         --python /opt/venv/bin/python \
+        --prerelease=allow \
         -r requirements.api.txt
 
 # ── Stage 2: 最终运行镜像 ─────────────────────────────────
