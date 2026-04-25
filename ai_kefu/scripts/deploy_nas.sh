@@ -120,7 +120,9 @@ success "控制台镜像已拉取"
 step "4/4  重启容器"
 
 # 确保 ChromaDB volume 存在（首次创建，后续重用）
-nas_sudo "docker volume inspect $CHROMA_VOLUME >/dev/null 2>&1 || docker volume create $CHROMA_VOLUME"
+# 注意：不能在 nas_sudo 内部用 ||，否则 || 后面的命令会在没有 sudo/PATH 的情况下执行
+nas_sudo "docker volume inspect $CHROMA_VOLUME" >/dev/null 2>&1 \
+    || nas_sudo "docker volume create $CHROMA_VOLUME"
 success "ChromaDB volume: $CHROMA_VOLUME"
 
 # 停止容器（不存在时忽略错误）
