@@ -46,6 +46,9 @@ CONSOLE_CONTAINER="aikefu-console"
 API_PORT="8000"
 CONSOLE_PORT="8080"
 
+# ChromaDB 持久化 volume（向量索引数据，重启/重新部署后不丢失）
+CHROMA_VOLUME="aikefu-chroma-data"
+
 # .env 文件：本地路径 → NAS 上的存放位置（放在用户 home，无需 sudo 即可 scp）
 LOCAL_ENV_FILE="$(dirname "$0")/../.env"
 NAS_ENV_FILE_REMOTE="~/aikefu.env"            # scp 目标（~ 由 NAS shell 展开）
@@ -116,6 +119,10 @@ success "控制台镜像已拉取"
 # ── 步骤 3：停止并删除旧容器 ─────────────────────────────────
 step "4/4  重启容器"
 
+# 确保 ChromaDB volume 存在（首次创建，后续重用）
+nas_sudo "docker volume inspect $CHROMA_VOLUME >/dev/null 2>&1 || docker volume create $CHROMA_VOLUME"
+success "ChromaDB volume: $CHROMA_VOLUME"
+
 # 停止容器（不存在时忽略错误）
 nas_sudo "docker stop $API_CONTAINER 2>/dev/null || true"
 nas_sudo "docker rm   $API_CONTAINER 2>/dev/null || true"
@@ -133,6 +140,7 @@ nas_sudo "docker run -d \
     --restart unless-stopped \
     --network bridge \
     --env-file $NAS_ENV_FILE_ABS \
+    -v $CHROMA_VOLUME:/workspace/ai_kefu/chroma_data \
     -p $API_PORT:8000 \
     $API_IMAGE:$IMAGE_TAG"
 success "API 容器已启动 → http://$NAS_HOST:$API_PORT"
