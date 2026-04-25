@@ -84,7 +84,10 @@
       "Bash(node:*)",
       "Bash(wc -l /Users/jimmypan/git_repo/XianyuAutoAgent/ai_kefu/CONTEXT*.md)",
       "Bash(sed -n '100,145p' /Users/jimmypan/git_repo/XianyuAutoAgent/ai_kefu/api/routes/xianyu.py)",
-      "Bash(sed -n '440,520p' /Users/jimmypan/git_repo/XianyuAutoAgent/ai_kefu/api/routes/xianyu.py)"
+      "Bash(sed -n '440,520p' /Users/jimmypan/git_repo/XianyuAutoAgent/ai_kefu/api/routes/xianyu.py)",
+      "Bash(git config *)",
+      "Bash(cp /tmp/project_exploration_report.md /Users/jimmypan/git_repo/XianyuAutoAgent/PROJECT_EXPLORATION_COMPLETE.md)",
+      "Bash(cp /tmp/detailed_file_paths.md /Users/jimmypan/git_repo/XianyuAutoAgent/DETAILED_FILE_PATHS.md)"
     ],
     "deny": [],
     "ask": [],

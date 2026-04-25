@@ -1,0 +1,58 @@
+# ============================================================
+# Dockerfile.console — 管理控制台 (linux/amd64)
+# 包含两个 Vue3 SPA：
+#   /ui/knowledge     — 知识库管理 UI (ui/knowledge)
+#   /ui/conversations — 对话管理 UI   (ui/conversations)
+# 运行: nginx 提供静态文件 + 反向代理 API
+# 端口: 80
+# ============================================================
+
+# ── Stage 1: 构建知识库管理 UI ────────────────────────────
+FROM --platform=linux/amd64 node:20-alpine AS builder-knowledge
+
+WORKDIR /build
+COPY ui/knowledge/package*.json ./
+RUN npm ci --prefer-offline
+COPY ui/knowledge/ .
+# 生产构建，基础路径对齐 nginx 挂载点
+RUN npx vite build --base /ui/knowledge/
+
+# ── Stage 2: 构建对话管理 UI ──────────────────────────────
+FROM --platform=linux/amd64 node:20-alpine AS builder-conversations
+
+WORKDIR /build
+COPY ui/conversations/package*.json ./
+RUN npm ci --prefer-offline
+COPY ui/conversations/ .
+RUN npx vite build --base /ui/conversations/
+
+# ── Stage 3: 最终 nginx 镜像 ──────────────────────────────
+FROM --platform=linux/amd64 nginx:1.26-alpine
+
+LABEL maintainer="coderxiu<coderxiu@qq.com>"
+LABEL description="闲鱼AI客服 - 管理控制台 (知识库 + 对话管理)"
+LABEL version="2.0"
+
+# 时区
+RUN apk add --no-cache tzdata \
+    && ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && echo Asia/Shanghai > /etc/timezone \
+    && rm -rf /var/cache/apk/*
+
+# 复制两个 UI 的构建产物
+COPY --from=builder-knowledge     /build/dist /usr/share/nginx/html/knowledge
+COPY --from=builder-conversations /build/dist /usr/share/nginx/html/conversations
+
+# 复制 nginx 配置（使用 envsubst 支持运行时注入 API_HOST / API_PORT）
+COPY docker/nginx.console.conf /etc/nginx/templates/default.conf.template
+
+# nginx 官方镜像会自动执行 envsubst 处理 /etc/nginx/templates/*.template
+# 默认 API_HOST=api, API_PORT=8000（可通过环境变量覆盖）
+ENV API_HOST=api \
+    API_PORT=8000 \
+    TZ=Asia/Shanghai
+
+EXPOSE 80
+
+# 使用默认 nginx 启动命令（镜像内置 docker-entrypoint.sh 会处理模板）
+CMD ["nginx", "-g", "daemon off;"]
