@@ -43,6 +43,11 @@ LABEL version="2.0"
 # nginx 配置（比构建产物稳定，放前面）
 COPY docker/nginx.console.conf /etc/nginx/templates/default.conf.template
 
+# 修复 io_setup() failed (ENOSYS) — nginx:1.26-alpine 编译了 --with-file-aio，
+# worker 启动时调用 io_setup() 系统调用，而该调用在群晖 NAS 的 seccomp 沙箱
+# 及 QEMU 模拟（Apple Silicon）中均不可用。在 http 块加 "aio off;" 可禁用 AIO。
+RUN sed -i 's|sendfile        on;|sendfile        on;\n    aio             off;|' /etc/nginx/nginx.conf
+
 # 复制两个 UI 的构建产物（每次都变，放最后）
 COPY --from=builder-knowledge     /build/dist /usr/share/nginx/html/knowledge
 COPY --from=builder-conversations /build/dist /usr/share/nginx/html/conversations
