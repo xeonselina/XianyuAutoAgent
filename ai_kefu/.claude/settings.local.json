@@ -41,7 +41,11 @@
       "Bash(/Users/jimmypan/git_repo/XianyuAutoAgent/ai_kefu/.venv/bin/python3 -c \"import pymysql; print\\('pymysql', pymysql.__version__\\)\")",
       "Bash(/Users/jimmypan/git_repo/XianyuAutoAgent/ai_kefu/.venv/bin/python3 -c \"import dotenv; print\\('dotenv ok'\\)\")",
       "Bash(.venv/bin/python3 *)",
-      "Bash(chmod +x *)"
+      "Bash(chmod +x *)",
+      "Bash(docker build *)",
+      "Bash(git checkout *)",
+      "Bash(sshpass *)",
+      "Bash(grep -v '^$')"
     ]
   }
 }
