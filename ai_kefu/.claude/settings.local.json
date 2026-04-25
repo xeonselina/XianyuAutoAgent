@@ -40,7 +40,8 @@
       "Bash(mysql -h192.168.50.132 -P33601 -uroot -p'Xs527215!!!' -e \"SELECT 1;\")",
       "Bash(/Users/jimmypan/git_repo/XianyuAutoAgent/ai_kefu/.venv/bin/python3 -c \"import pymysql; print\\('pymysql', pymysql.__version__\\)\")",
       "Bash(/Users/jimmypan/git_repo/XianyuAutoAgent/ai_kefu/.venv/bin/python3 -c \"import dotenv; print\\('dotenv ok'\\)\")",
-      "Bash(.venv/bin/python3 *)"
+      "Bash(.venv/bin/python3 *)",
+      "Bash(chmod +x *)"
     ]
   }
 }
