@@ -34,7 +34,6 @@ htmlcov/
 
 # 运行时生成的持久化数据（通过 volume 挂载）
 chroma_data/
-storage/
 logs/
 browser_data/
 xianyu_images/
