@@ -72,12 +72,21 @@ info "API 镜像 : $API_IMAGE:$IMAGE_TAG"
 info "控制台   : $CONSOLE_IMAGE:$IMAGE_TAG"
 echo ""
 
+# ── SSH ControlMaster：整个脚本复用同一条连接，只握手一次 ─────
+SSH_CTRL_DIR="$(mktemp -d)"
+SSH_CTRL_SOCK="$SSH_CTRL_DIR/ctrl.sock"
+SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ControlMaster=auto -o ControlPath=$SSH_CTRL_SOCK -o ControlPersist=300"
+
+# 预先建立 master 连接（后续所有 ssh 复用它，无需重复认证）
+sshpass -p "$NAS_PASS" ssh $SSH_OPTS "$NAS_USER@$NAS_HOST" true
+
+# 脚本退出时自动关闭 master 连接并清理临时目录
+cleanup() { ssh -O exit -o ControlPath="$SSH_CTRL_SOCK" "$NAS_USER@$NAS_HOST" 2>/dev/null; rm -rf "$SSH_CTRL_DIR"; }
+trap cleanup EXIT
+
 # ── 辅助：在 NAS 上执行命令 ───────────────────────────────────
 nas_run() {
-    sshpass -p "$NAS_PASS" ssh \
-        -o StrictHostKeyChecking=no \
-        -o ConnectTimeout=10 \
-        "$NAS_USER@$NAS_HOST" "$@"
+    ssh $SSH_OPTS "$NAS_USER@$NAS_HOST" "$@"
 }
 
 # 带 sudo 执行（通过 echo 传密码给 sudo -S）
@@ -99,10 +108,8 @@ if [[ ! -f "$LOCAL_ENV_FILE" ]]; then
     exit 1
 fi
 
-# scp 上传（群晖禁用 sftp，改用 ssh stdin 重定向）
-sshpass -p "$NAS_PASS" ssh \
-    -o StrictHostKeyChecking=no \
-    "$NAS_USER@$NAS_HOST" "cat > $NAS_ENV_FILE_REMOTE" < "$LOCAL_ENV_FILE"
+# scp 上传（群晖禁用 sftp，改用 ssh stdin 重定向；复用 ControlMaster 连接）
+nas_run "cat > $NAS_ENV_FILE_REMOTE" < "$LOCAL_ENV_FILE"
 success ".env 已同步到 NAS → $NAS_ENV_FILE_ABS"
 
 # ── 步骤 2：拉取新镜像 ────────────────────────────────────────
