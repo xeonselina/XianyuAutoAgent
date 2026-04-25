@@ -13,7 +13,7 @@ jobs:
   # ── 拦截器镜像 ────────────────────────────────────────────────
   build-interceptor:
     name: 拦截器 (interceptor)
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     permissions:
       contents: read
 
@@ -46,7 +46,7 @@ jobs:
   # ── API 服务镜像 ──────────────────────────────────────────────
   build-api:
     name: API 服务 (api)
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     permissions:
       contents: read
 
@@ -80,7 +80,7 @@ jobs:
   # ── AI 控制台镜像 ─────────────────────────────────────────────
   build-console:
     name: AI 控制台 (console)
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     permissions:
       contents: read
 
