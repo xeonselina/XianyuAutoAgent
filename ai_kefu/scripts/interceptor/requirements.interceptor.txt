@@ -1,0 +1,28 @@
+# 闲鱼拦截器最小依赖（不含 API 后台所需的 fastapi/chromadb/redis 等）
+# 适用于只运行 run_xianyu.py 的场景
+
+# 核心运行时
+loguru>=0.7.0
+python-dotenv>=1.0.1
+requests>=2.32.3
+httpx>=0.27.0,<1
+aiohttp>=3.9.0
+tenacity>=8.2.3
+
+# 配置管理
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# 浏览器自动化（闲鱼消息拦截核心）
+playwright>=1.40.0
+
+# 数据库（对话持久化）
+pymysql==1.1.0
+cryptography==41.0.7
+
+# 钉钉 Stream 模式（可选，群消息接收）
+dingtalk-stream>=0.24.0
+
+# 闲鱼签名算法（PyExecJS 需要系统安装 Node.js >= 18）
+PyExecJS>=1.5.1
+blackboxprotobuf>=1.0.1

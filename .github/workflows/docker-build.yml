@@ -1,0 +1,131 @@
+name: Build & Push Docker Images
+
+on:
+  push:
+    branches: ["main", "master"]
+  workflow_dispatch:
+
+env:
+  REGISTRY: docker.cnb.cool/tdcc-demo/jimmy
+  IMAGE_TAG: ${{ github.run_number }}-${{ github.sha && github.sha || 'unknown' }}
+
+jobs:
+  # ── 拦截器镜像 ────────────────────────────────────────────────
+  build-interceptor:
+    name: 拦截器 (interceptor)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: docker.cnb.cool
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build & Push interceptor
+        uses: docker/build-push-action@v6
+        with:
+          context: ai_kefu/xianyu_provider/upstream
+          file: ai_kefu/xianyu_provider/upstream/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/aikefu-interceptor:${{ github.run_number }}
+            ${{ env.REGISTRY }}/aikefu-interceptor:latest
+          cache-from: type=gha,scope=interceptor
+          cache-to:   type=gha,scope=interceptor,mode=max
+
+  # ── API 服务镜像 ──────────────────────────────────────────────
+  build-api:
+    name: API 服务 (api)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: docker.cnb.cool
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build & Push api
+        uses: docker/build-push-action@v6
+        with:
+          context: ai_kefu
+          file: ai_kefu/Dockerfile.api
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/aikefu-api:${{ github.run_number }}
+            ${{ env.REGISTRY }}/aikefu-api:latest
+          cache-from: type=gha,scope=api
+          cache-to:   type=gha,scope=api,mode=max
+
+  # ── AI 控制台镜像 ─────────────────────────────────────────────
+  build-console:
+    name: AI 控制台 (console)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: docker.cnb.cool
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build & Push console
+        uses: docker/build-push-action@v6
+        with:
+          context: ai_kefu
+          file: ai_kefu/Dockerfile.console
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/aikefu-console:${{ github.run_number }}
+            ${{ env.REGISTRY }}/aikefu-console:latest
+          cache-from: type=gha,scope=console
+          cache-to:   type=gha,scope=console,mode=max
+
+  # ── 汇总通知（可选）─────────────────────────────────────────
+  summary:
+    name: 构建摘要
+    runs-on: ubuntu-latest
+    needs: [build-interceptor, build-api, build-console]
+    if: always()
+
+    steps:
+      - name: Print image tags
+        run: |
+          echo "## 构建结果" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| 镜像 | Tag | 状态 |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-----|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| aikefu-interceptor | ${{ github.run_number }} / latest | ${{ needs.build-interceptor.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| aikefu-api         | ${{ github.run_number }} / latest | ${{ needs.build-api.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| aikefu-console     | ${{ github.run_number }} / latest | ${{ needs.build-console.result }} |" >> $GITHUB_STEP_SUMMARY

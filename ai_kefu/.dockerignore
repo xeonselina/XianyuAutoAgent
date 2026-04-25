@@ -16,4 +16,50 @@ backups/
 Dockerfile
 docker-compose.yml
 .dockerignore
-# README.md 
+# README.md
+
+# ── 新增：构建 api / console 镜像时排除的文件 ──────────────
+# Python 虚拟环境
+.venv/
+venv/
+
+# 测试、覆盖率
+tests/
+testcases/
+htmlcov/
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 运行时生成的持久化数据（通过 volume 挂载）
+chroma_data/
+storage/
+logs/
+browser_data/
+xianyu_images/
+
+# 知识库 / 对话 UI 的 node_modules（builder stage 内部安装）
+ui/knowledge/node_modules/
+ui/conversations/node_modules/
+
+# 已构建的 dist（builder stage 重新构建）
+ui/knowledge/dist/
+ui/conversations/dist/
+
+# 探索性文档（不打包进镜像）
+CODEBASE_EXPLORATION*.md
+ARCHITECTURE_SUMMARY.md
+EXPLORATION_INDEX.md
+QUICK_REFERENCE.md
+EXECUTIVE_SUMMARY_SESSION.txt
+FILE_STRUCTURE_AND_CONTEXT_FLOW.txt
+SYSTEM_ARCHITECTURE_SUMMARY.txt
+
+# 旧版代码
+legacy/
+
+# 调试文件
+debug.log
+diagnose_websocket.py
+ 
