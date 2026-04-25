@@ -22,12 +22,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir \
-        -i https://mirrors.aliyun.com/pypi/simple/ \
-        --trusted-host mirrors.aliyun.com \
-        -r requirements.txt
+COPY requirements.api.txt .
+# --prefer-binary: 优先下载预编译 wheel，避免 QEMU 里编译卡死
+# --mount=type=cache: BuildKit 缓存 pip 下载，重复构建秒过
+# 不指定 mirror: GitHub Actions 在美国，aliyun 反而更慢
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip && \
+    pip install \
+        --prefer-binary \
+        --timeout 120 \
+        -r requirements.api.txt
 
 # ── Stage 2: 最终运行镜像 ─────────────────────────────────
 FROM --platform=linux/amd64 python:3.10-slim
