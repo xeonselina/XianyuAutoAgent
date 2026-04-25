@@ -1,0 +1,38 @@
+# API 后台生产依赖（不含 dev/test/playwright/pandas 等）
+# 对应 Dockerfile.api 使用
+
+# Web Framework
+fastapi==0.108.0
+uvicorn[standard]==0.25.0
+gunicorn==21.2.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# AI / LLM
+openai==1.65.5
+
+# Vector DB
+chromadb==1.4.0
+
+# Storage
+redis==5.0.1
+pymysql==1.1.0
+cryptography==41.0.7
+
+# HTTP / WebSocket
+websockets==13.1
+requests==2.32.3
+httpx>=0.27.0,<1
+aiohttp>=3.9.0
+
+# Utilities
+loguru>=0.7.0
+python-dotenv==1.0.1
+tenacity==8.2.3
+
+# DingTalk Stream
+dingtalk-stream>=0.24.0
+
+# 闲鱼签名算法（需系统 Node.js >= 18）
+PyExecJS>=1.5.1
+blackboxprotobuf>=1.0.1
