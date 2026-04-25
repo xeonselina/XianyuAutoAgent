@@ -5,8 +5,6 @@
 
 from typing import Dict, Any, Optional
 
-from ai_kefu.tools.xianyu.get_order_detail import get_order_detail as _get_order_detail
-
 
 def get_order_status(order_id: Optional[str] = None) -> Dict[str, Any]:
     """
@@ -43,6 +41,8 @@ def get_order_status(order_id: Optional[str] = None) -> Dict[str, Any]:
             "message": "请提供订单号，我帮你查订单状态。",
         }
 
+    # Lazy import — avoids pulling execjs/blackboxprotobuf at module load time
+    from ai_kefu.tools.xianyu.get_order_detail import get_order_detail as _get_order_detail
     result = _get_order_detail(order_id)
 
     if not result.get("success"):

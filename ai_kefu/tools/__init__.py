@@ -1,5 +1,11 @@
 """
 Tools module - All agent tools.
+
+NOTE: get_order_status and xianyu are intentionally NOT imported here at module level.
+Both pull in xianyu_provider → goofish_utils → execjs/blackboxprotobuf, which are
+interceptor-only dependencies absent from requirements.api.txt.  Those tools are
+imported lazily inside the agent executor (agent/executor.py) at call time, so the
+API process can boot cleanly without those heavy deps.
 """
 
 from . import knowledge_search
@@ -11,10 +17,6 @@ from . import calculate_price
 from . import collect_rental_info
 from . import parse_date
 from . import get_return_address
-from . import get_order_status
-
-# Xianyu (闲鱼) platform tools — backed by xianyu_provider (real API calls)
-from . import xianyu
 
 __all__ = [
     "knowledge_search",
@@ -26,7 +28,5 @@ __all__ = [
     "collect_rental_info",
     "parse_date",
     "get_return_address",
-    "get_order_status",
-    # Xianyu sub-package
-    "xianyu",
+    # get_order_status and xianyu are imported lazily — see module docstring
 ]
