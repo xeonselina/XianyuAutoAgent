@@ -32,7 +32,3 @@ tenacity==8.2.3
 
 # DingTalk Stream
 dingtalk-stream>=0.24.0
-
-# 闲鱼签名算法（需系统 Node.js >= 18）
-PyExecJS>=1.5.1
-blackboxprotobuf>=1.0.1
