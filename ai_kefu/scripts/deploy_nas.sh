@@ -46,6 +46,11 @@ CONSOLE_CONTAINER="aikefu-console"
 API_PORT="8000"
 CONSOLE_PORT="8080"
 
+# .env 文件：本地路径 → NAS 上的存放位置（放在用户 home，无需 sudo 即可 scp）
+LOCAL_ENV_FILE="$(dirname "$0")/../.env"
+NAS_ENV_FILE_REMOTE="~/aikefu.env"            # scp 目标（~ 由 NAS shell 展开）
+NAS_ENV_FILE_ABS="/var/services/homes/$NAS_USER/aikefu.env"  # docker run 用绝对路径
+
 # ── 检查 IMAGE_TAG ────────────────────────────────────────────
 if [[ -z "$IMAGE_TAG" ]]; then
     error "请指定 IMAGE_TAG。用法: $0 <tag>  或  IMAGE_TAG=<tag> make deploy-nas"
@@ -73,8 +78,9 @@ nas_run() {
 }
 
 # 带 sudo 执行（通过 echo 传密码给 sudo -S）
+# 群晖 sudo 会清空 PATH，显式传入 /usr/local/bin 使 docker 可被找到
 nas_sudo() {
-    nas_run "echo '$SUDO_PASS' | sudo -S $*"
+    nas_run "echo '$SUDO_PASS' | sudo -S env PATH=/usr/local/bin:/usr/bin:/bin $*"
 }
 
 # ── 步骤 1：连通性测试 ────────────────────────────────────────
@@ -82,8 +88,22 @@ step "1/4  测试 SSH 连接"
 nas_run "echo 'SSH OK'"
 success "SSH 连通"
 
+# ── 步骤 1.5：上传 .env 到 NAS ────────────────────────────────
+step "2/4  同步 .env 配置"
+
+if [[ ! -f "$LOCAL_ENV_FILE" ]]; then
+    error "本地 .env 不存在：$LOCAL_ENV_FILE"
+    exit 1
+fi
+
+# scp 上传（群晖禁用 sftp，改用 ssh stdin 重定向）
+sshpass -p "$NAS_PASS" ssh \
+    -o StrictHostKeyChecking=no \
+    "$NAS_USER@$NAS_HOST" "cat > $NAS_ENV_FILE_REMOTE" < "$LOCAL_ENV_FILE"
+success ".env 已同步到 NAS → $NAS_ENV_FILE_ABS"
+
 # ── 步骤 2：拉取新镜像 ────────────────────────────────────────
-step "2/4  拉取 Docker 镜像"
+step "3/4  拉取 Docker 镜像"
 
 info "拉取 API 镜像..."
 nas_sudo "docker pull $API_IMAGE:$IMAGE_TAG"
@@ -94,7 +114,7 @@ nas_sudo "docker pull $CONSOLE_IMAGE:$IMAGE_TAG"
 success "控制台镜像已拉取"
 
 # ── 步骤 3：停止并删除旧容器 ─────────────────────────────────
-step "3/4  重置旧容器"
+step "4/4  重启容器"
 
 # 停止容器（不存在时忽略错误）
 nas_sudo "docker stop $API_CONTAINER 2>/dev/null || true"
@@ -106,13 +126,13 @@ nas_sudo "docker rm   $CONSOLE_CONTAINER 2>/dev/null || true"
 success "旧控制台容器已清除"
 
 # ── 步骤 4：启动新容器 ────────────────────────────────────────
-step "4/4  启动新容器"
 
 info "启动 API 容器 ($API_CONTAINER)..."
 nas_sudo "docker run -d \
     --name $API_CONTAINER \
     --restart unless-stopped \
     --network bridge \
+    --env-file $NAS_ENV_FILE_ABS \
     -p $API_PORT:8000 \
     $API_IMAGE:$IMAGE_TAG"
 success "API 容器已启动 → http://$NAS_HOST:$API_PORT"
@@ -122,6 +142,7 @@ nas_sudo "docker run -d \
     --name $CONSOLE_CONTAINER \
     --restart unless-stopped \
     --network bridge \
+    --env-file $NAS_ENV_FILE_ABS \
     -p $CONSOLE_PORT:80 \
     $CONSOLE_IMAGE:$IMAGE_TAG"
 success "控制台容器已启动 → http://$NAS_HOST:$CONSOLE_PORT"
