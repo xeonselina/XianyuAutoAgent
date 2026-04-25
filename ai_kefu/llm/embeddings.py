@@ -1,12 +1,15 @@
 """
 Embedding service using Qwen text-embedding-v3 model.
 
+Uses OpenAI-compatible API (Alibaba Cloud Bailian / DashScope compatible-mode).
+Migrated from dashscope SDK to openai SDK (2026-04-25) — same reason as qwen_client.py:
+  - dashscope SDK fails on model names containing '.' (URL construction bug)
+  - openai SDK via compatible-mode endpoint has no such restriction
+
 Performance: LRU cache for query embeddings to avoid redundant API calls.
 """
 
-import dashscope
-from dashscope import TextEmbedding
-from dashscope.common.error import RequestFailure
+from openai import OpenAI
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -14,42 +17,42 @@ from tenacity import (
     retry_if_exception_type
 )
 from functools import lru_cache
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from ai_kefu.config.settings import settings
 from ai_kefu.config.constants import QWEN_API_RETRY_ATTEMPTS, QWEN_API_RETRY_DELAY
-import os
 import logging
 
 logger = logging.getLogger(__name__)
 
+# 全局 OpenAI client（惰性初始化）
+_client: Optional[OpenAI] = None
 
-def _ensure_api_key():
-    """Ensure DASHSCOPE_API_KEY is set."""
-    if not dashscope.api_key:
-        api_key = settings.api_key
-        if not api_key:
-            raise ValueError(f"API key not found in settings. Please check your .env file.")
-        dashscope.api_key = api_key
+
+def _get_client() -> OpenAI:
+    global _client
+    if _client is None:
+        _client = OpenAI(
+            api_key=settings.api_key,
+            base_url=settings.model_base_url,
+        )
+    return _client
 
 
 @retry(
-    retry=retry_if_exception_type(RequestFailure),
+    retry=retry_if_exception_type(Exception),
     wait=wait_exponential(multiplier=1, min=QWEN_API_RETRY_DELAY, max=60),
     stop=stop_after_attempt(QWEN_API_RETRY_ATTEMPTS)
 )
 def _call_embedding_api(text: str) -> List[float]:
     """Raw embedding API call (with retry). Not cached."""
-    _ensure_api_key()
-    response = TextEmbedding.call(
+    client = _get_client()
+    response = client.embeddings.create(
         model="text-embedding-v3",
         input=text,
-        dimension=1024  # Qwen embedding dimension
+        dimensions=1024,
+        encoding_format="float",
     )
-    
-    if response.status_code != 200:
-        raise RequestFailure(f"Qwen Embedding API Error: {response.message}")
-    
-    return response.output["embeddings"][0]["embedding"]
+    return response.data[0].embedding
 
 
 # LRU cache for query embeddings — queries repeat often (e.g. "押金政策", "归还地址").
@@ -71,12 +74,10 @@ def generate_embedding(text: str, task_type: str = "retrieval_document") -> List
     Args:
         text: Input text to embed
         task_type: Task type - "retrieval_query" for queries, "retrieval_document" for documents
+                   (passed through for cache keying; not sent to API in compatible-mode)
 
     Returns:
         Vector embedding as list of floats
-
-    Raises:
-        RequestFailure: API request failed
     """
     cached = _cached_embedding(text, task_type)
     return list(cached)
@@ -85,11 +86,11 @@ def generate_embedding(text: str, task_type: str = "retrieval_document") -> List
 def generate_embeddings_batch(texts: List[str], task_type: str = "retrieval_document") -> List[List[float]]:
     """
     Generate embeddings for multiple texts (batch processing).
-    
+
     Args:
         texts: List of input texts
         task_type: Task type
-        
+
     Returns:
         List of vector embeddings
     """
@@ -99,8 +100,8 @@ def generate_embeddings_batch(texts: List[str], task_type: str = "retrieval_docu
             embedding = generate_embedding(text, task_type)
             embeddings.append(embedding)
         except Exception as e:
-            print(f"Error generating embedding for text: {e}")
+            logger.error(f"Error generating embedding for text: {e}")
             # Return zero vector on failure
             embeddings.append([0.0] * 1024)
-    
+
     return embeddings
