@@ -29,22 +29,23 @@ RUN npx vite build --base /ui/conversations/
 # ── Stage 3: 最终 nginx 镜像 ──────────────────────────────
 FROM --platform=linux/amd64 nginx:1.26-alpine
 
-LABEL maintainer="coderxiu<coderxiu@qq.com>"
-LABEL description="闲鱼AI客服 - 管理控制台 (知识库 + 对话管理)"
-LABEL version="2.0"
-
-# 时区
+# 时区（慢，放最前缓存）
 RUN apk add --no-cache tzdata \
     && ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
     && echo Asia/Shanghai > /etc/timezone \
     && rm -rf /var/cache/apk/*
 
-# 复制两个 UI 的构建产物
+# LABEL 放在 RUN 之后，避免版本号变动破坏上面的缓存层
+LABEL maintainer="coderxiu<coderxiu@qq.com>"
+LABEL description="闲鱼AI客服 - 管理控制台 (知识库 + 对话管理)"
+LABEL version="2.0"
+
+# nginx 配置（比构建产物稳定，放前面）
+COPY docker/nginx.console.conf /etc/nginx/templates/default.conf.template
+
+# 复制两个 UI 的构建产物（每次都变，放最后）
 COPY --from=builder-knowledge     /build/dist /usr/share/nginx/html/knowledge
 COPY --from=builder-conversations /build/dist /usr/share/nginx/html/conversations
-
-# 复制 nginx 配置（使用 envsubst 支持运行时注入 API_HOST / API_PORT）
-COPY docker/nginx.console.conf /etc/nginx/templates/default.conf.template
 
 # nginx 官方镜像会自动执行 envsubst 处理 /etc/nginx/templates/*.template
 # 默认 API_HOST=api, API_PORT=8000（可通过环境变量覆盖）

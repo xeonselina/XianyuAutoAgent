@@ -32,10 +32,6 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # ── Stage 2: 最终运行镜像 ─────────────────────────────────
 FROM --platform=linux/amd64 python:3.10-slim
 
-LABEL maintainer="coderxiu<coderxiu@qq.com>"
-LABEL description="闲鱼AI客服 - API后台服务"
-LABEL version="2.0"
-
 ENV TZ=Asia/Shanghai \
     PYTHONIOENCODING=utf-8 \
     LANG=C.UTF-8 \
@@ -43,7 +39,7 @@ ENV TZ=Asia/Shanghai \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# 运行时系统依赖：
+# 运行时系统依赖（慢，放在最前缓存）：
 #   tzdata  — 时区数据
 #   nodejs  — PyExecJS 运行时（闲鱼签名算法必需，需 Node.js >= 18）
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -53,21 +49,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && echo Asia/Shanghai > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
 
-# 从 builder 阶段复制虚拟环境
+# LABEL 放在慢速 RUN 之后，避免版本号变动破坏上面的缓存层
+LABEL maintainer="coderxiu<coderxiu@qq.com>"
+LABEL description="闲鱼AI客服 - API后台服务"
+LABEL version="2.0"
+
+# 从 builder 阶段复制虚拟环境（requirements.txt 不变时命中缓存）
 COPY --from=builder /opt/venv /opt/venv
 
 # 工作目录为 ai_kefu 包的父目录，使 `import ai_kefu` 正确解析
 WORKDIR /workspace
 
-# 将当前上下文（ai_kefu 包内容）复制为 ai_kefu 包
-COPY . /workspace/ai_kefu/
-
-# 创建运行时目录（可通过 volume 挂载持久化）
+# 创建运行时目录（放在 COPY 代码之前，避免每次代码变动重跑）
 RUN mkdir -p \
     /workspace/ai_kefu/data \
     /workspace/ai_kefu/logs \
     /workspace/ai_kefu/chroma_data \
     /workspace/ai_kefu/storage
+
+# 将当前上下文（ai_kefu 包内容）复制为 ai_kefu 包（每次都变，放最后）
+COPY . /workspace/ai_kefu/
 
 # 暴露端口
 EXPOSE 8000

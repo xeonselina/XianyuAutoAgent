@@ -1,0 +1,20 @@
+FROM python:3.12-slim
+
+# 安装系统依赖 + Node.js（慢，放最前缓存）
+RUN apt-get update && apt-get install -y --no-install-recommends curl gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# 先复制依赖文件，requirements.txt / package.json 不变时命中缓存
+COPY requirements.txt package*.json* ./
+
+RUN pip install --no-cache-dir -r requirements.txt
+RUN npm install 2>/dev/null || true
+
+# 业务代码最后复制（每次都可能变）
+COPY . .
+
+CMD ["python", "goofish_live.py"]
