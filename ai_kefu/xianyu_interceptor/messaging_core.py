@@ -287,119 +287,9 @@ class XianyuMessageCodec:
                 item_id = url_info.split("itemId=")[1].split("&")[0] if "itemId=" in url_info else None
 
                 # 提取用户昵称和消息 ID
-                # reminderTitle 实际是消息发送者的昵称（如"健康快乐"、"TB_28060346"）
+                # reminderTitle 实际是消息发送者的昵称（如"健康快乐"、"TB_28070346"）
                 user_nickname = msg_info.get("reminderTitle", "")
                 message_id = message.get("1", {}).get("3", "")  # 消息唯一标识
-
-                # ============================================================
-                # 🎯 [UID追踪] 完整打印实时消息结构（寻找 encryptedUid 字段）
-                # ============================================================
-                import json as _json
-                is_target_user = ("TB_28060346" in str(user_id)) or ("28060346" in str(user_id))
-                target_marker = "🎯🎯🎯 [目标用户TB_28060346] " if is_target_user else ""
-
-                logger.info(f"{target_marker}🔬 [实时CHAT消息] user_id={user_id}, content={content[:50] if content else ''}")
-
-                # 完整打印消息结构（不截断）
-                try:
-                    full_dump = _json.dumps(message, ensure_ascii=False, default=str)
-                    logger.info(f"{target_marker}🔬 [实时消息完整JSON] (长度={len(full_dump)}): {full_dump[:5000]}")
-                    if len(full_dump) > 5000:
-                        logger.info(f"{target_marker}🔬 [实时消息完整JSON续] {full_dump[5000:10000]}")
-                except Exception as e:
-                    logger.info(f"🔬 [实时消息JSON序列化失败]: {e}")
-
-                # 逐层打印 message['1'] 的所有键值
-                msg_node = message.get("1", {})
-                logger.info(f"{target_marker}🔬 [message['1']的所有键]: {list(msg_node.keys())}")
-                for key in msg_node:
-                    val = msg_node[key]
-                    val_type = type(val).__name__
-                    if isinstance(val, dict):
-                        logger.info(f"{target_marker}🔬   message['1']['{key}'] (dict, {len(val)}键): {list(val.keys())}")
-                        # 打印 dict 内容（如果不太长）
-                        try:
-                            val_str = _json.dumps(val, ensure_ascii=False, default=str)
-                            if len(val_str) < 2000:
-                                logger.info(f"{target_marker}🔬     内容: {val_str}")
-                            else:
-                                logger.info(f"{target_marker}🔬     内容(前2000): {val_str[:2000]}")
-                        except:
-                            pass
-                    elif isinstance(val, list):
-                        logger.info(f"{target_marker}🔬   message['1']['{key}'] (list, {len(val)}项): {str(val)[:500]}")
-                    elif isinstance(val, str) and len(val) > 100:
-                        logger.info(f"{target_marker}🔬   message['1']['{key}'] ({val_type}): {val[:200]}...")
-                    else:
-                        logger.info(f"{target_marker}🔬   message['1']['{key}'] ({val_type}): {val}")
-
-                # 额外：打印 message 顶层键（除了 '1'）
-                for top_key in message:
-                    if top_key != "1":
-                        val = message[top_key]
-                        if isinstance(val, dict):
-                            try:
-                                val_str = _json.dumps(val, ensure_ascii=False, default=str)
-                                logger.info(f"{target_marker}🔬 message['{top_key}'] (dict): {val_str[:2000]}")
-                            except:
-                                logger.info(f"{target_marker}🔬 message['{top_key}'] (dict keys): {list(val.keys())}")
-                        else:
-                            logger.info(f"{target_marker}🔬 message['{top_key}']: {str(val)[:500]}")
-
-                # 尝试提取闲鱼加密 UID（遍历所有层级查找）
-                encrypted_uid = ""
-                # 方法1：从 message['1'] 的所有 dict 子节点查找
-                for key in msg_node:
-                    val = msg_node[key]
-                    if isinstance(val, dict):
-                        # 检查常见的加密UID字段名
-                        for uid_field in ["encryptedUid", "encrypted_uid", "encryptUid", 
-                                          "encryptedUserId", "senderEncryptedUid", "buyerEncryptedUid"]:
-                            uid = val.get(uid_field, "")
-                            if uid:
-                                encrypted_uid = uid
-                                logger.info(f"{target_marker}   ✅ 实时消息找到 [{uid_field}]: {encrypted_uid} (在 message['1']['{key}'])")
-                                break
-                        if encrypted_uid:
-                            break
-                        # 也检查嵌套一层的情况
-                        for sub_key, sub_val in val.items():
-                            if isinstance(sub_val, dict):
-                                for uid_field in ["encryptedUid", "encrypted_uid", "encryptUid",
-                                                  "encryptedUserId", "senderEncryptedUid", "buyerEncryptedUid"]:
-                                    uid = sub_val.get(uid_field, "")
-                                    if uid:
-                                        encrypted_uid = uid
-                                        logger.info(f"{target_marker}   ✅ 实时消息找到 [{uid_field}]: {encrypted_uid} (在 message['1']['{key}']['{sub_key}'])")
-                                        break
-                                if encrypted_uid:
-                                    break
-                    if encrypted_uid:
-                        break
-
-                # 方法2：全局递归搜索包含 "encrypt" 或 "uid" 关键字的字段
-                if not encrypted_uid:
-                    def _find_uid_fields(obj, path=""):
-                        """递归搜索所有包含encrypt/uid关键字的字段"""
-                        results = []
-                        if isinstance(obj, dict):
-                            for k, v in obj.items():
-                                k_lower = str(k).lower()
-                                if any(kw in k_lower for kw in ["encrypt", "uid", "buyer", "sender"]):
-                                    results.append((f"{path}.{k}" if path else k, v))
-                                results.extend(_find_uid_fields(v, f"{path}.{k}" if path else k))
-                        elif isinstance(obj, list):
-                            for i, item in enumerate(obj):
-                                results.extend(_find_uid_fields(item, f"{path}[{i}]"))
-                        return results
-
-                    uid_fields = _find_uid_fields(message)
-                    if uid_fields:
-                        logger.info(f"{target_marker}🔬 [递归搜索] 找到 {len(uid_fields)} 个包含encrypt/uid/buyer/sender的字段:")
-                        for field_path, field_val in uid_fields:
-                            logger.info(f"{target_marker}🔬   {field_path} = {str(field_val)[:200]}")
-                    else:
-                        logger.info(f"{target_marker}🔬 [递归搜索] 未找到包含encrypt/uid/buyer/sender的字段")
 
                 return Message(
                     message_type=message_type,
@@ -413,7 +303,7 @@ class XianyuMessageCodec:
                         "user_nickname": user_nickname,
                         "message_id": str(message_id) if message_id else "",
                         "source": "realtime",
-                        "encrypted_uid": encrypted_uid,
+                        "encrypted_uid": "",
                     }
                 )
             elif message_type == MessageType.ORDER:

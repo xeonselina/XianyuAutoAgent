@@ -105,8 +105,6 @@ class HistoryMessageParser:
             Optional[XianyuMessage]: 解析出的消息，失败返回None
         """
         try:
-            import json as _json
-
             message = model.get("message", {})
             extension = message.get("extension", {})
 
@@ -125,126 +123,6 @@ class HistoryMessageParser:
                 sender_uid = sender.get("uid", "")
                 if sender_uid:
                     sender_id = sender_uid.split("@")[0]
-
-            # ============================================================
-            # 🎯 [UID追踪] 判断是否是目标用户 TB_28060346
-            # ============================================================
-            is_target_user = ("TB_28060346" in str(sender_id)) or ("28060346" in str(sender_id))
-            target_marker = "🎯🎯🎯 [目标用户TB_28060346] " if is_target_user else ""
-
-            if is_target_user:
-                logger.info(f"{target_marker}📜 发现目标用户的历史消息! content={content[:80] if content else ''}")
-
-            # 🔬 完整打印 model 对象顶层键
-            logger.info(f"{target_marker}🔬 [历史消息model顶层键]: {list(model.keys())}")
-            # 🔬 完整打印 message 对象所有键
-            logger.info(f"{target_marker}🔬 [message对象所有键]: {list(message.keys())}")
-
-            # 🔬 完整打印 message 对象（不截断，最多10000字符）
-            try:
-                msg_dump = _json.dumps(message, ensure_ascii=False, default=str)
-                if is_target_user or len(msg_dump) < 3000:
-                    # 目标用户完整打印
-                    logger.info(f"{target_marker}🔬 [message完整JSON] (长度={len(msg_dump)}): {msg_dump[:10000]}")
-                else:
-                    logger.info(f"🔬 [message完整JSON] (长度={len(msg_dump)}): {msg_dump[:3000]}")
-            except Exception:
-                pass
-
-            # 逐个打印 message 中的所有顶层字段
-            for msg_key in message:
-                val = message[msg_key]
-                if isinstance(val, dict):
-                    try:
-                        val_str = _json.dumps(val, ensure_ascii=False, default=str)
-                        logger.info(f"{target_marker}🔬   message['{msg_key}'] (dict, {len(val)}键): {val_str[:1500]}")
-                    except:
-                        logger.info(f"{target_marker}🔬   message['{msg_key}'] (dict keys): {list(val.keys())}")
-                elif isinstance(val, list):
-                    logger.info(f"{target_marker}🔬   message['{msg_key}'] (list, {len(val)}项): {str(val)[:500]}")
-                elif isinstance(val, str) and len(val) > 200:
-                    logger.info(f"{target_marker}🔬   message['{msg_key}'] (str): {val[:200]}...")
-                else:
-                    logger.info(f"{target_marker}🔬   message['{msg_key}']: {val}")
-
-            # ============================================================
-            # 提取闲鱼加密 UID - 全面搜索策略
-            # ============================================================
-            encrypted_uid = ""
-
-            # 方法1: sender 对象
-            sender_obj = message.get("sender", {})
-            if isinstance(sender_obj, dict) and sender_obj:
-                logger.info(f"{target_marker}🔬 [sender对象完整内容]: {_json.dumps(sender_obj, ensure_ascii=False, default=str)}")
-                for uid_field in ["encryptedUid", "encrypted_uid", "encryptUid",
-                                  "encryptedUserId", "senderEncryptedUid", "buyerEncryptedUid"]:
-                    uid = sender_obj.get(uid_field, "")
-                    if uid:
-                        encrypted_uid = uid
-                        logger.info(f"{target_marker}   ✅ 从 sender['{uid_field}'] 提取到: {encrypted_uid}")
-                        break
-                if not encrypted_uid:
-                    # 遍历所有值，看看有没有类似 base64 编码的加密 UID
-                    for k, v in sender_obj.items():
-                        if isinstance(v, str) and len(v) > 10 and ("==" in v or "+" in v or "/" in v):
-                            logger.info(f"{target_marker}   🔍 sender['{k}'] 可能是加密UID: {v[:50]}")
-
-            # 方法2: 检查 message 的其他对象字段
-            if not encrypted_uid:
-                for top_key in ["sender", "receiver", "from", "to", "user", "buyer", "seller"]:
-                    obj = message.get(top_key, {})
-                    if isinstance(obj, dict) and obj:
-                        for uid_field in ["encryptedUid", "encrypted_uid", "encryptUid",
-                                          "encryptedUserId", "senderEncryptedUid", "buyerEncryptedUid"]:
-                            uid = obj.get(uid_field, "")
-                            if uid:
-                                encrypted_uid = uid
-                                logger.info(f"{target_marker}   ✅ 从 message['{top_key}']['{uid_field}'] 提取到: {encrypted_uid}")
-                                break
-                        if encrypted_uid:
-                            break
-
-            # 方法3: 检查 extension 对象
-            if not encrypted_uid and isinstance(extension, dict):
-                for uid_field in ["encryptedUid", "encrypted_uid", "encryptUid",
-                                  "senderEncryptedUid", "buyerEncryptedUid"]:
-                    uid = extension.get(uid_field, "")
-                    if uid:
-                        encrypted_uid = uid
-                        logger.info(f"{target_marker}   ✅ 从 extension['{uid_field}'] 提取到: {encrypted_uid}")
-                        break
-
-            # 方法4: 递归搜索整个 message 对象
-            if not encrypted_uid:
-                def _find_uid_fields(obj, path=""):
-                    results = []
-                    if isinstance(obj, dict):
-                        for k, v in obj.items():
-                            k_lower = str(k).lower()
-                            if any(kw in k_lower for kw in ["encrypt", "uid", "buyer", "sender"]):
-                                results.append((f"{path}.{k}" if path else k, v))
-                            results.extend(_find_uid_fields(v, f"{path}.{k}" if path else k))
-                    elif isinstance(obj, list):
-                        for i, item in enumerate(obj):
-                            results.extend(_find_uid_fields(item, f"{path}[{i}]"))
-                    return results
-
-                uid_fields = _find_uid_fields(message)
-                if uid_fields:
-                    logger.info(f"{target_marker}🔬 [递归搜索message] 找到 {len(uid_fields)} 个相关字段:")
-                    for field_path, field_val in uid_fields:
-                        logger.info(f"{target_marker}🔬   {field_path} = {str(field_val)[:200]}")
-                else:
-                    logger.info(f"{target_marker}🔬 [递归搜索message] 未找到包含encrypt/uid/buyer/sender的字段")
-
-                # 方法5: 在 model 顶层也搜索
-                uid_fields_model = _find_uid_fields(model)
-                if uid_fields_model and uid_fields_model != uid_fields:
-                    extra = [f for f in uid_fields_model if f not in uid_fields]
-                    if extra:
-                        logger.info(f"{target_marker}🔬 [递归搜索model] 额外找到 {len(extra)} 个字段:")
-                        for field_path, field_val in extra:
-                            logger.info(f"{target_marker}🔬   {field_path} = {str(field_val)[:200]}")
 
             # 提取会话ID
             cid = message.get("cid", "")
@@ -281,8 +159,7 @@ class HistoryMessageParser:
                     "read_status": model.get("readStatus", 0),
                     "reminder_title": extension.get("reminderTitle", ""),
                     "session_type": extension.get("sessionType", ""),
-                    "encrypted_uid": encrypted_uid,
-                    "sender_fields": list(sender_obj.keys()) if isinstance(sender_obj, dict) else [],
+                    "encrypted_uid": "",
                 }
             )
 
