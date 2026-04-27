@@ -923,10 +923,9 @@ class AgentExecutor:
         """
         Load conversation history and inject as context summary into the session.
 
-        Strategy (in priority order):
-        1. Try Xianyu WebSocket API — covers *all* messages including pre-AI ones.
-           Applies time-proximity compression (verbatim recent, LLM-summarized older).
-        2. Fall back to MySQL-based loader if the API returns nothing or fails.
+        History is sourced from MySQL — the interceptor pushes historical messages
+        via /xianyu/inbound (history_only=True) so they are persisted before the
+        agent processes any new message from this chat.
 
         Args:
             session: The newly created session
@@ -935,67 +934,6 @@ class AgentExecutor:
         if not chat_id:
             return
 
-        try:
-            api_messages = self._fetch_xianyu_api_history(chat_id)
-        except Exception as e:
-            logger.warning(f"[api_history] Unexpected error, falling back to MySQL: {e}", exc_info=True)
-            api_messages = []
-
-        if api_messages:
-            try:
-                api_fingerprint = {"source": "xianyu_api", "message_count": len(api_messages)}
-
-                # Check Redis cache — avoid re-summarizing if message count unchanged
-                cached = self._get_cached_summary(chat_id)
-                if cached and cached.get("fingerprint") == api_fingerprint:
-                    session.context["context_summary"] = cached["summary"]
-                    session.context["is_returning_customer"] = cached.get("is_returning_customer", False)
-                    logger.info(
-                        f"[cache_hit] API history summary for chat_id={chat_id}: "
-                        f"{len(cached['summary'])} chars"
-                    )
-                    return
-
-                # Detect returning customer from API messages
-                is_returning_customer = any(
-                    "我已付款" in (m.get("message", {}).get("reminderContent") or "")
-                    for m in api_messages
-                )
-
-                # Apply time-proximity compression
-                summary_body = self._compress_by_time_proximity(api_messages)
-                if not summary_body:
-                    logger.debug(
-                        f"[api_history] No extractable text from {len(api_messages)} messages "
-                        f"for chat_id={chat_id}, falling back to MySQL"
-                    )
-                else:
-                    tag = (
-                        "【老客户】该用户之前有过付款记录。"
-                        if is_returning_customer
-                        else "【新客户】该用户暂无历史付款记录。"
-                    )
-                    summary = f"{tag}\n\n{summary_body}"
-
-                    session.context["context_summary"] = summary
-                    session.context["is_returning_customer"] = is_returning_customer
-                    # Use shorter TTL for API summaries — message count changes more often
-                    self._set_cached_summary(
-                        chat_id, summary, is_returning_customer, api_fingerprint, ttl=1800
-                    )
-                    logger.info(
-                        f"[api_history] Loaded {len(api_messages)} msgs for chat_id={chat_id}, "
-                        f"summary={len(summary)} chars, returning_customer={is_returning_customer}"
-                    )
-                    return
-            except Exception as e:
-                logger.warning(
-                    f"[api_history] Error processing API history for chat_id={chat_id}: {e}, "
-                    "falling back to MySQL",
-                    exc_info=True,
-                )
-
-        # Fall back to MySQL-based history (original behaviour, unchanged)
         self._load_history_as_context_from_mysql(session, chat_id)
 
     def _compress_mysql_messages_by_time_proximity(self, messages: list) -> str:
@@ -1293,90 +1231,6 @@ class AgentExecutor:
                 exc_info=True
             )
     
-    def _fetch_xianyu_api_history(self, chat_id: str) -> list:
-        """
-        Synchronously fetch all messages from the Xianyu WebSocket API.
-
-        Uses a ThreadPoolExecutor to call asyncio.run() safely even when called
-        from within a FastAPI async context (avoids "event loop already running" errors).
-
-        Returns:
-            List of {send_user_id, send_user_name, message} dicts in chronological order.
-            Empty list if the provider is unavailable or an error occurs.
-        """
-        import asyncio
-        import concurrent.futures
-        from ai_kefu.xianyu_provider import get_provider
-
-        try:
-            provider = get_provider()
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(asyncio.run, provider.list_all_conversations(chat_id))
-                messages = future.result(timeout=30)
-            logger.info(
-                f"[api_history] Fetched {len(messages)} msgs from Xianyu API for chat_id={chat_id}"
-            )
-            return messages
-        except Exception as e:
-            logger.warning(
-                f"[api_history] Failed to fetch Xianyu API history for chat_id={chat_id}: {e}"
-            )
-            return []
-
-    def _compress_by_time_proximity(self, messages: list) -> str:
-        """
-        Apply tiered time-proximity compression to a raw Xianyu API message list.
-
-        Tiers:
-        - Last 20 messages  → verbatim   (most recent context, highest signal)
-        - Messages 20–60    → LLM-summarize as 【近期对话摘要】
-        - Messages 60+      → LLM-summarize as 【早期对话摘要】
-
-        Returns:
-            A formatted multi-section string ready to inject into
-            session.context["context_summary"], or "" if no text could be extracted.
-        """
-        RECENT_WINDOW = 20
-        MIDTERM_WINDOW = 40  # messages 20–60 from the end
-
-        def _extract_text(m: dict):
-            reminder = m.get("message", {}).get("reminderContent")
-            if reminder and isinstance(reminder, str) and reminder.strip():
-                name = m.get("send_user_name") or m.get("send_user_id") or "用户"
-                return f"{name}: {reminder.strip()}"
-            return None
-
-        lines = [t for m in messages if (t := _extract_text(m))]
-
-        if not lines:
-            return ""
-
-        recent = lines[-RECENT_WINDOW:]
-        midterm = lines[-(RECENT_WINDOW + MIDTERM_WINDOW):-RECENT_WINDOW]
-        early = lines[:-(RECENT_WINDOW + MIDTERM_WINDOW)]
-
-        parts = []
-
-        if early:
-            early_text = "\n".join(early)
-            early_summary = (
-                self._summarize_history(early_text)
-                or f"（早期对话 {len(early)} 条，已省略）"
-            )
-            parts.append(f"【早期对话摘要】\n{early_summary}")
-
-        if midterm:
-            mid_text = "\n".join(midterm)
-            mid_summary = (
-                self._summarize_history(mid_text)
-                or f"（中期对话 {len(midterm)} 条，已省略）"
-            )
-            parts.append(f"【近期对话摘要】\n{mid_summary}")
-
-        parts.append(f"【最新对话记录（{len(recent)} 条）】\n" + "\n".join(recent))
-
-        return "\n\n".join(parts)
-
     def _summarize_history(self, conversation_text: str, is_returning_customer: bool = False) -> Optional[str]:
         """
         Use LLM to summarize conversation history into a compact context.
