@@ -32,6 +32,7 @@ class ConversationMessage(BaseModel):
     user_nickname: Optional[str] = Field(None, description="User nickname (from reminderTitle)")
     seller_id: Optional[str] = Field(None, description="Seller ID (account owner)")
     item_id: Optional[str] = Field(None, description="Item ID if available")
+    message_id: Optional[str] = Field(None, description="Xianyu message ID for deduplication")
 
     # Message content
     message_content: str = Field(..., description="Message content")
