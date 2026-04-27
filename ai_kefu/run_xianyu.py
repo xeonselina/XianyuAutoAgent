@@ -32,6 +32,54 @@ from ai_kefu.config.settings import settings
 import json
 
 
+async def _wait_for_api_ready(
+    base_url: str,
+    timeout: float = 120.0,
+    interval: float = 3.0,
+) -> bool:
+    """
+    轮询 /health 端点，直到 API 就绪或超时。
+
+    拦截器和 API 可以任意顺序启动，此函数保证拦截器在 API
+    真正可用之前不会尝试转发消息，从而避免历史消息丢失。
+
+    Args:
+        base_url: API 根地址，如 http://localhost:8000
+        timeout:  最长等待秒数（默认 120 s）
+        interval: 每次探测间隔（默认 3 s）
+
+    Returns:
+        True  — API 已就绪
+        False — 超时仍未就绪（拦截器将继续运行，但历史消息可能丢失）
+    """
+    import httpx
+    health_url = f"{base_url.rstrip('/')}/health"
+    deadline = asyncio.get_event_loop().time() + timeout
+    attempt = 0
+
+    while asyncio.get_event_loop().time() < deadline:
+        attempt += 1
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(health_url)
+                if resp.status_code == 200:
+                    logger.info(f"✅ API 已就绪 (尝试 {attempt} 次): {health_url}")
+                    return True
+        except Exception:
+            pass
+
+        remaining = int(deadline - asyncio.get_event_loop().time())
+        logger.info(
+            f"⏳ 等待 API 就绪 (尝试 {attempt}，剩余 {remaining}s): {health_url}"
+        )
+        await asyncio.sleep(interval)
+
+    logger.warning(
+        f"⚠️ API {timeout}s 内未就绪，拦截器继续运行但历史消息可能无法保存。"
+    )
+    return False
+
+
 async def _save_history_messages_to_api(history_messages: list) -> None:
     """
     将解析出的历史消息通过 HTTP POST 到 /xianyu/history-inbound 保存到数据库。
@@ -83,9 +131,21 @@ async def _save_history_messages_to_api(history_messages: list) -> None:
                 },
             }
 
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(inbound_url, json=payload)
-                resp.raise_for_status()
+            # 短重试：最多 3 次，间隔 2 s（应对 API 刚重启的瞬间不可用）
+            last_exc = None
+            for attempt in range(3):
+                try:
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        resp = await client.post(inbound_url, json=payload)
+                        resp.raise_for_status()
+                    last_exc = None
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    if attempt < 2:
+                        await asyncio.sleep(2)
+            if last_exc:
+                logger.warning(f"保存历史消息失败 (chat_id={xianyu_message.chat_id}): {last_exc}")
 
         except Exception as e:
             logger.warning(f"保存历史消息失败 (chat_id={xianyu_message.chat_id}): {e}")
@@ -138,6 +198,9 @@ async def main():
     if not success:
         logger.error("浏览器启动失败")
         return
+
+    # 等待 API 就绪（不依赖启动顺序：API 先起、后起都没关系）
+    await _wait_for_api_ready(config.agent_service_url)
 
     # Push whatever cookies the browser has after launch (may already be valid)
     await _push_cookies_to_api(browser_controller, config.agent_service_url)
