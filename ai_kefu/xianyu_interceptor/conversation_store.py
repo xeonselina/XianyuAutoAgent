@@ -71,6 +71,7 @@ class ConversationStore:
                 user_nickname VARCHAR(255) COMMENT 'User nickname (from reminderTitle)',
                 seller_id VARCHAR(255) COMMENT 'Seller ID (owner of the account)',
                 item_id VARCHAR(255) COMMENT 'Item ID if available',
+                message_id VARCHAR(255) COMMENT 'Xianyu message ID for deduplication (NULL for real-time messages)',
 
                 message_content TEXT NOT NULL COMMENT 'Message content',
                 message_type ENUM('user', 'seller', 'system') NOT NULL COMMENT 'Message sender type',
@@ -83,6 +84,7 @@ class ConversationStore:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Message timestamp',
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Record update timestamp',
 
+                UNIQUE KEY uq_message_id (message_id),
                 INDEX idx_chat_id (chat_id),
                 INDEX idx_user_id (user_id),
                 INDEX idx_seller_id (seller_id),
@@ -190,6 +192,25 @@ class ConversationStore:
                         logger.info("Added 'user_nickname' column to conversations table")
                 except Exception as e:
                     logger.debug(f"user_nickname column check: {e}")
+
+                # 兼容已有数据库：自动添加 message_id 列 + 唯一索引（如果不存在）
+                try:
+                    cursor.execute("""
+                        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                        WHERE TABLE_SCHEMA = DATABASE()
+                          AND TABLE_NAME = 'conversations'
+                          AND COLUMN_NAME = 'message_id'
+                    """)
+                    if not cursor.fetchone():
+                        cursor.execute("""
+                            ALTER TABLE conversations
+                            ADD COLUMN message_id VARCHAR(255) COMMENT 'Xianyu message ID for deduplication (NULL for real-time messages)'
+                            AFTER item_id,
+                            ADD UNIQUE KEY uq_message_id (message_id)
+                        """)
+                        logger.info("Added 'message_id' column + unique key to conversations table")
+                except Exception as e:
+                    logger.debug(f"message_id column check: {e}")
 
                 # 兼容已有数据库：自动添加 interaction_id 和 local_turn_number 列（如果不存在）
                 try:
@@ -305,27 +326,32 @@ class ConversationStore:
                 
                 # Prepare context JSON
                 context_json = json.dumps(message.context) if message.context else None
-                
+
+                # Use INSERT IGNORE so that history messages with the same message_id
+                # (e.g. from repeated fetches after interceptor restarts) are silently
+                # skipped instead of creating duplicate rows.  Real-time messages have
+                # message_id=NULL and are never subject to the unique constraint.
                 sql = """
-                    INSERT INTO conversations (
-                        chat_id, user_id, user_nickname, seller_id, item_id,
+                    INSERT IGNORE INTO conversations (
+                        chat_id, user_id, user_nickname, seller_id, item_id, message_id,
                         message_content, message_type,
                         session_id, agent_response,
                         context, created_at
                     ) VALUES (
-                        %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s,
                         %s, %s,
                         %s, %s,
                         %s, %s
                     )
                 """
-                
+
                 values = (
                     message.chat_id,
                     message.user_id,
                     message.user_nickname,
                     message.seller_id,
                     message.item_id,
+                    getattr(message, 'message_id', None),
                     message.message_content,
                     message.message_type.value if isinstance(message.message_type, MessageType) else message.message_type,
                     message.session_id,
@@ -338,11 +364,18 @@ class ConversationStore:
                     cursor.execute(sql, values)
                     conn.commit()
                     row_id = cursor.lastrowid
-                    
-                logger.info(
-                    f"Saved message to database: chat_id={message.chat_id}, "
-                    f"type={message.message_type}, id={row_id}"
-                )
+
+                if row_id:
+                    logger.info(
+                        f"Saved message to database: chat_id={message.chat_id}, "
+                        f"type={message.message_type}, id={row_id}"
+                    )
+                else:
+                    # INSERT IGNORE silently skipped a duplicate message_id
+                    logger.debug(
+                        f"Skipped duplicate message: chat_id={message.chat_id}, "
+                        f"message_id={getattr(message, 'message_id', None)}"
+                    )
                 return row_id
                 
             except Exception as e:

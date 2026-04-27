@@ -164,6 +164,7 @@ async def _log_message(
             user_nickname=req.user_nickname,
             seller_id=None,
             item_id=req.item_id,
+            message_id=req.message_id or None,
             message_content=agent_response if agent_response else req.content,
             message_type=message_type,
             session_id=session_id,
