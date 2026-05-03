@@ -43,8 +43,10 @@ class ShippingSlipImageService:
         self.qr_codes_dir = os.path.join(self.project_root, 'frontend', 'src', 'assets')
 
         # 尝试加载字体,如果失败则使用默认字体（字体缩小10%）
-        # 字体路径优先级: macOS PingFang -> Linux Noto CJK -> PIL默认
+        # 字体路径优先级: 项目内置字体(优先，无需系统安装) -> macOS PingFang -> Linux Noto CJK -> PIL默认
+        _bundled_font = os.path.join(self.project_root, 'static', 'fonts', 'WenQuanYiMicroHei.ttf')
         font_paths = [
+            _bundled_font,  # 内置字体（跨平台，Docker 无需额外安装）
             "/System/Library/Fonts/PingFang.ttc",  # macOS
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",  # Linux Noto
             "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",  # 备选路径
@@ -184,21 +186,8 @@ class ShippingSlipImageService:
 
         y += 15  # 顶部留白
 
-        # 创建二维码标签专用字体
-        qr_label_size = 26
-        font_paths = [
-            "/System/Library/Fonts/PingFang.ttc",
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        ]
-
-        qr_label_font = self.font_small  # 默认使用小号字体
-        for font_path in font_paths:
-            try:
-                qr_label_font = ImageFont.truetype(font_path, qr_label_size)
-                break
-            except Exception:
-                continue
+        # 创建二维码标签专用字体（直接复用已加载的 self.font_small，字号一致无需重新加载）
+        qr_label_font = self.font_small
 
         draw = ImageDraw.Draw(img)
 
