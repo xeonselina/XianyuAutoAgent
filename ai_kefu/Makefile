@@ -1,7 +1,7 @@
 .PHONY: help install install-dev clean test lint format docker-build docker-up docker-down
 .PHONY: run-xianyu run-api run-api-dev init-knowledge check-env ui-dev ui-build ui-install
 .PHONY: build-api build-console build-all build-interceptor push-api push-console push-all push-interceptor build-push-all
-.PHONY: pack-interceptor deploy-nas
+.PHONY: pack-interceptor deploy-nas fetch-api-logs tail-api-logs
 .DEFAULT_GOAL := help
 
 # ============================================================
@@ -93,6 +93,11 @@ help: ## 显示帮助信息
 	@echo "  make deploy-nas      - 拉取新镜像并重启群晖上的容器"
 	@echo "  必须指定 tag: IMAGE_TAG=20260424-0903 make deploy-nas"
 	@echo "  依赖: brew install sshpass"
+	@echo ""
+	@echo "$(YELLOW)群晖 NAS 日志:$(NC)"
+	@echo "  make fetch-api-logs  - 下载 NAS 上的 API 日志到本地 ./logs/nas/"
+	@echo "  make tail-api-logs   - 实时 tail NAS 上最新的 API 日志文件"
+	@echo "  日志路径 (NAS): /volume1/docker/aikefu/logs/"
 	@echo ""
 
 # ============================================================
@@ -463,3 +468,30 @@ deploy-nas: ## 拉取新镜像并在群晖 NAS 上重启容器
 		exit 1; \
 	fi
 	@bash scripts/deploy_nas.sh "$(IMAGE_TAG)"
+
+# ── NAS 日志变量（与 deploy_nas.sh 保持一致）─────────────────
+NAS_HOST     := 192.168.50.132
+NAS_USER     := xeon_pan
+NAS_PASS     := oLwQpzUgXKae8Dae8UJC
+NAS_LOG_DIR  := /volume1/docker/aikefu/logs
+LOCAL_LOG_DIR := logs/nas
+
+fetch-api-logs: ## 下载 NAS 上的 API 日志到本地 ./logs/nas/
+	@echo "$(GREEN)正在从 NAS 下载 API 日志...$(NC)"
+	@mkdir -p $(LOCAL_LOG_DIR)
+	@sshpass -p "$(NAS_PASS)" \
+	    rsync -avz --progress \
+	    -e "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10" \
+	    "$(NAS_USER)@$(NAS_HOST):$(NAS_LOG_DIR)/" \
+	    "$(LOCAL_LOG_DIR)/"
+	@echo ""
+	@echo "$(GREEN)✓ 日志已下载到: $(LOCAL_LOG_DIR)/$(NC)"
+	@ls -lh $(LOCAL_LOG_DIR)/ 2>/dev/null || true
+
+tail-api-logs: ## 实时 tail NAS 上最新的 API 日志（Ctrl-C 退出）
+	@echo "$(GREEN)正在实时查看 NAS API 日志（Ctrl-C 退出）...$(NC)"
+	@echo "$(YELLOW)日志路径: $(NAS_HOST):$(NAS_LOG_DIR)/$(NC)"
+	@sshpass -p "$(NAS_PASS)" \
+	    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+	    "$(NAS_USER)@$(NAS_HOST)" \
+	    "tail -f \$$(ls -t $(NAS_LOG_DIR)/backend_*.log 2>/dev/null | head -1)"
