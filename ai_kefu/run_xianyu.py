@@ -60,7 +60,7 @@ async def _wait_for_api_ready(
     while asyncio.get_event_loop().time() < deadline:
         attempt += 1
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.get(health_url)
                 if resp.status_code == 200:
                     logger.info(f"✅ API 已就绪 (尝试 {attempt} 次): {health_url}")

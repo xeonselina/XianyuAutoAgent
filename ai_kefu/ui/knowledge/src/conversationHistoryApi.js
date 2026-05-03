@@ -68,3 +68,34 @@ export async function compareReplies(chatId) {
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
+
+/**
+ * Save (upsert) a rating for a single agent turn.
+ * @param {number} turnId    agent_turns.id
+ * @param {1|-1}   rating    1 = 👍, -1 = 👎
+ * @param {string} sessionId AI session ID (required)
+ * @param {string} comment   Free-text comment (optional)
+ */
+export async function saveTurnReview(turnId, rating, sessionId, comment = '') {
+  const res = await fetch(`${BASE}/turns/${turnId}/reviews`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rating, session_id: sessionId, comment }),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`HTTP ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+/**
+ * Fetch existing per-turn reviews for a session.
+ * Returns { session_id, reviews: { [agent_turn_id]: reviewObj } }
+ * @param {string} sessionId
+ */
+export async function fetchTurnReviews(sessionId) {
+  const res = await fetch(`${BASE}/turns/${encodeURIComponent(sessionId)}/reviews`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  return res.json()
+}
