@@ -24,5 +24,6 @@ cryptography==41.0.7
 dingtalk-stream>=0.24.0
 
 # 闲鱼签名算法（PyExecJS 需要系统安装 Node.js >= 18）
+# 注意：blackboxprotobuf 已用 xianyu_interceptor/upstream/blackboxprotobuf.py stub 替代，
+#       不在此安装，避免其 protobuf==3.10.0 与其他依赖的 protobuf>=4.x 冲突。
 PyExecJS>=1.5.1
-blackboxprotobuf>=1.0.1

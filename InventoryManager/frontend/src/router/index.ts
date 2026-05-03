@@ -5,6 +5,7 @@ import ShippingOrderView from '../views/ShippingOrderView.vue'
 import BatchShippingOrderView from '../views/BatchShippingOrderView.vue'
 import BatchShippingView from '../views/BatchShippingView.vue'
 import StatisticsView from '../views/StatisticsView.vue'
+import RentalStatsView from '../views/RentalStatsView.vue'
 import SFTrackingView from '../views/SFTrackingView.vue'
 import InspectionView from '../views/InspectionView.vue'
 import InspectionRecordsView from '../views/InspectionRecordsView.vue'
@@ -45,6 +46,11 @@ const router = createRouter({
       path: '/statistics',
       name: 'statistics',
       component: StatisticsView,
+    },
+    {
+      path: '/rental-stats',
+      name: 'rental-stats',
+      component: RentalStatsView,
     },
     {
       path: '/sf-tracking',

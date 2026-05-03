@@ -47,6 +47,7 @@ def unified_favicon():
 @bp.route('/batch-shipping-order')
 @bp.route('/batch-shipping')
 @bp.route('/statistics')
+@bp.route('/rental-stats')
 @bp.route('/sf-tracking')
 @bp.route('/inspection')
 @bp.route('/inspection-records')

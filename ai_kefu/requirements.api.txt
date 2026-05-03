@@ -32,3 +32,9 @@ tenacity==8.2.3
 
 # DingTalk Stream
 dingtalk-stream>=0.24.0
+
+# XianYu 签名 / 协议解析（cv-cat/XianYuApis 子模块依赖）
+# 运行前需确保容器内已安装 Node.js >= 18（execjs 运行时）
+# 注意：blackboxprotobuf 已用 xianyu_provider/upstream/blackboxprotobuf.py stub 替代，
+#       不在此安装，避免其 protobuf==3.10.0 与 chromadb 的 protobuf>=3.13 冲突。
+PyExecJS>=1.5.1

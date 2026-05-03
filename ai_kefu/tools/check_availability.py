@@ -15,7 +15,7 @@ def check_availability(
     start_date: str,
     end_date: str,
     logistics_days: int = 2,
-    model: Optional[str] = "1",  # 默认查询型号 1
+    model: Optional[str] = "1",  # 默认查询型号 1；型号 ID 映射：X300P=1, X200U=2, X300U=11；型号 ID 映射：X300P=1, X200U=2, X300U=11
     is_accessory: bool = False
 ) -> Dict[str, Any]:
     """
@@ -25,7 +25,7 @@ def check_availability(
         start_date: 租赁开始日期 (YYYY-MM-DD 格式, 用户实际使用开始日期)
         end_date: 租赁结束日期 (YYYY-MM-DD 格式, 用户实际使用结束日期)
         logistics_days: 物流所需天数 (默认2天)
-        model: 设备型号 ID (默认 "1", 可选值: "1", "2", "3" 等)
+        model: 设备型号 ID。对应关系：X300Pro="1", X200U="2", X300U="11"。默认 "1"
         is_accessory: 是否为配件 (默认 False)
         
     Returns:
@@ -284,6 +284,7 @@ def get_tool_definition() -> Dict[str, Any]:
 - start_date 是用户收到设备后开始使用的日期
 - end_date 是用户归还设备前最后使用的日期
 - logistics_days 由 calculate_logistics 工具计算得出
+- model 参数为设备型号 ID：X300Pro="1", X200U="2", X300U="11"
 """,
         "parameters": {
             "type": "object",
@@ -303,9 +304,9 @@ def get_tool_definition() -> Dict[str, Any]:
                 },
                 "model": {
                     "type": "string",
-                    "description": "设备型号 ID。可选值：'1' (默认), '2', '3' 等。如果用户没有指定型号，使用默认值 '1'",
+                    "description": "设备型号 ID。对应关系：X300Pro=\"1\", X200U=\"2\", X300U=\"11\"。如果用户没有指定型号，使用默认值 \"1\"",
                     "default": "1",
-                    "enum": ["1", "2", "3"]
+                    "enum": ["1", "2", "11"]
                 },
                 "is_accessory": {
                     "type": "boolean",
