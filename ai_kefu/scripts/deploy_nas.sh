@@ -49,6 +49,9 @@ CONSOLE_PORT="8080"
 # ChromaDB 持久化 volume（向量索引数据，重启/重新部署后不丢失）
 CHROMA_VOLUME="aikefu-chroma-data"
 
+# API 日志持久化目录（NAS 上的绑定挂载，容器重启后日志不丢失）
+NAS_LOG_DIR="/volume1/docker/aikefu/logs"
+
 # .env 文件：本地路径 → NAS 上的存放位置（放在用户 home，无需 sudo 即可 scp）
 LOCAL_ENV_FILE="$(dirname "$0")/../.env"
 NAS_ENV_FILE_REMOTE="~/aikefu.env"            # scp 目标（~ 由 NAS shell 展开）
@@ -132,6 +135,10 @@ nas_sudo "docker volume inspect $CHROMA_VOLUME" >/dev/null 2>&1 \
     || nas_sudo "docker volume create $CHROMA_VOLUME"
 success "ChromaDB volume: $CHROMA_VOLUME"
 
+# 确保日志目录存在于 NAS 上（bind mount 要求宿主机目录提前存在）
+nas_sudo "mkdir -p $NAS_LOG_DIR"
+success "日志目录: $NAS_LOG_DIR"
+
 # 停止容器（不存在时忽略错误）
 nas_sudo "docker stop $API_CONTAINER 2>/dev/null || true"
 nas_sudo "docker rm   $API_CONTAINER 2>/dev/null || true"
@@ -150,6 +157,7 @@ nas_sudo "docker run -d \
     --network bridge \
     --env-file $NAS_ENV_FILE_ABS \
     -v $CHROMA_VOLUME:/workspace/ai_kefu/chroma_data \
+    -v $NAS_LOG_DIR:/workspace/ai_kefu/logs \
     -p $API_PORT:8000 \
     $API_IMAGE:$IMAGE_TAG"
 success "API 容器已启动 → http://$NAS_HOST:$API_PORT"
@@ -178,4 +186,5 @@ echo ""
 echo -e "  API 后台  : ${BLUE}http://$NAS_HOST:$API_PORT${NC}"
 echo -e "  管理控制台: ${BLUE}http://$NAS_HOST:$CONSOLE_PORT${NC}"
 echo -e "  镜像版本  : ${YELLOW}$IMAGE_TAG${NC}"
+echo -e "  API 日志  : ${YELLOW}$NAS_LOG_DIR${NC}  (NAS 持久化)"
 echo ""
