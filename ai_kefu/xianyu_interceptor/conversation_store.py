@@ -167,6 +167,23 @@ class ConversationStore:
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             COMMENT='Operator reviews of AI conversation quality'
         """
+
+        create_agent_turn_reviews_sql = """
+            CREATE TABLE IF NOT EXISTS agent_turn_reviews (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                agent_turn_id BIGINT NOT NULL COMMENT 'References agent_turns.id',
+                session_id VARCHAR(255) NOT NULL COMMENT 'AI Agent session ID (denormalised for easy query)',
+                rating TINYINT NOT NULL COMMENT '1=thumbs up, -1=thumbs down',
+                comment TEXT COMMENT 'Operator free-text comment',
+                reviewer VARCHAR(255) DEFAULT 'operator' COMMENT 'Reviewer identifier',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_agent_turn_id (agent_turn_id),
+                INDEX idx_session_id (session_id),
+                INDEX idx_created_at (created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            COMMENT='Per-agent-turn operator quality ratings'
+        """
         try:
             conn = self._get_connection()
             with conn.cursor() as cursor:
@@ -174,6 +191,7 @@ class ConversationStore:
                 cursor.execute(create_xianyu_orders_sql)
                 cursor.execute(create_agent_turns_sql)
                 cursor.execute(create_conversation_reviews_sql)
+                cursor.execute(create_agent_turn_reviews_sql)
 
                 # 兼容已有数据库：自动添加 user_nickname 列（如果不存在）
                 try:
@@ -253,8 +271,27 @@ class ConversationStore:
                 except Exception as e:
                     logger.debug(f"agent_turns confidence column migration check: {e}")
 
+                # 兼容已有数据库：自动添加 chat_id 列到 agent_turns（如果不存在）
+                try:
+                    cursor.execute("""
+                        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                        WHERE TABLE_SCHEMA = DATABASE()
+                          AND TABLE_NAME = 'agent_turns'
+                          AND COLUMN_NAME = 'chat_id'
+                    """)
+                    if not cursor.fetchone():
+                        cursor.execute("""
+                            ALTER TABLE agent_turns
+                            ADD COLUMN chat_id VARCHAR(255) COMMENT 'Xianyu chat_id (denormalised for direct lookup)'
+                            AFTER session_id,
+                            ADD INDEX idx_chat_id (chat_id)
+                        """)
+                        logger.info("Added 'chat_id' column + index to agent_turns table")
+                except Exception as e:
+                    logger.debug(f"agent_turns chat_id column migration check: {e}")
+
                 conn.commit()
-            logger.info("Ensured 'conversations', 'xianyu_orders', 'agent_turns' and 'conversation_reviews' tables exist")
+            logger.info("Ensured 'conversations', 'xianyu_orders', 'agent_turns', 'conversation_reviews' and 'agent_turn_reviews' tables exist")
         except Exception as e:
             logger.error(f"Failed to ensure tables exist: {e}")
 
@@ -857,11 +894,12 @@ class ConversationStore:
         interaction_id: Optional[str] = None,
         local_turn_number: Optional[int] = None,
         confidence_percent: Optional[int] = None,
-        response_suppressed: bool = False
+        response_suppressed: bool = False,
+        chat_id: Optional[str] = None
     ) -> int:
         """
         Save an agent turn record for debugging.
-        
+
         Args:
             session_id: Agent session ID
             turn_number: Global turn sequence number (cumulative across interactions)
@@ -878,7 +916,9 @@ class ConversationStore:
             local_turn_number: Turn number within this interaction (starts from 1)
             confidence_percent: Response confidence score (0-100)
             response_suppressed: Whether response was suppressed by confidence guard
-            
+            chat_id: Xianyu chat_id (denormalised for direct lookup, especially useful
+                     when confidence suppression prevents any seller message from being saved)
+
         Returns:
             The ID of the inserted row
         """
@@ -886,17 +926,17 @@ class ConversationStore:
             conn = None
             try:
                 conn = self._get_connection()
-                
+
                 sql = """
                     INSERT INTO agent_turns (
-                        session_id, turn_number, interaction_id, local_turn_number,
+                        session_id, chat_id, turn_number, interaction_id, local_turn_number,
                         user_query,
                         llm_input, llm_output, response_text,
                         tool_calls, tool_results,
                         duration_ms, success, error_message,
                         confidence_percent, response_suppressed
                     ) VALUES (
-                        %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s,
                         %s,
                         %s, %s, %s,
                         %s, %s,
@@ -904,7 +944,7 @@ class ConversationStore:
                         %s, %s
                     )
                 """
-                
+
                 def safe_json_dumps(obj):
                     if obj is None:
                         return None
@@ -912,9 +952,10 @@ class ConversationStore:
                         return json.dumps(obj, ensure_ascii=False, default=str)
                     except Exception:
                         return json.dumps(str(obj), ensure_ascii=False)
-                
+
                 values = (
                     session_id,
+                    chat_id,
                     turn_number,
                     interaction_id,
                     local_turn_number,
@@ -960,29 +1001,29 @@ class ConversationStore:
     ) -> List[Dict[str, Any]]:
         """
         Get all turn records for a session.
-        
+
         Args:
             session_id: Agent session ID
             limit: Maximum number of turns to return
             offset: Pagination offset
-            
+
         Returns:
             List of turn records
         """
         try:
             conn = self._get_connection()
-            
+
             sql = """
                 SELECT * FROM agent_turns
                 WHERE session_id = %s
                 ORDER BY turn_number ASC
                 LIMIT %s OFFSET %s
             """
-            
+
             with conn.cursor() as cursor:
                 cursor.execute(sql, (session_id, limit, offset))
                 rows = cursor.fetchall()
-            
+
             turns = []
             for row in rows:
                 for json_field in ('llm_input', 'llm_output', 'tool_calls', 'tool_results'):
@@ -992,12 +1033,69 @@ class ConversationStore:
                         except:
                             pass
                 turns.append(row)
-            
+
             logger.debug(f"Retrieved {len(turns)} turns for session={session_id}")
             return turns
-            
+
         except Exception as e:
             logger.error(f"Failed to get turns by session: {e}")
+            raise
+
+    def get_turns_by_chat_id(
+        self,
+        chat_id: str,
+        limit: int = 200,
+        offset: int = 0
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Get all agent turn records associated with a chat_id, grouped by session_id.
+
+        This is the fallback query used when confidence suppression prevents any
+        seller message from being saved — in that case no rows in `conversations`
+        carry a session_id, so the normal session-lookup path returns nothing.
+
+        Args:
+            chat_id: Xianyu chat ID
+            limit: Maximum number of turns to return
+            offset: Pagination offset
+
+        Returns:
+            Dict mapping session_id → list of turn dicts  (same shape as
+            turns_by_session in get_conversation_detail)
+        """
+        try:
+            conn = self._get_connection()
+
+            sql = """
+                SELECT * FROM agent_turns
+                WHERE chat_id = %s
+                ORDER BY session_id, turn_number ASC
+                LIMIT %s OFFSET %s
+            """
+
+            with conn.cursor() as cursor:
+                cursor.execute(sql, (chat_id, limit, offset))
+                rows = cursor.fetchall()
+
+            turns_by_session: Dict[str, List[Dict[str, Any]]] = {}
+            for row in rows:
+                for json_field in ('llm_input', 'llm_output', 'tool_calls', 'tool_results'):
+                    if row.get(json_field):
+                        try:
+                            row[json_field] = json.loads(row[json_field])
+                        except Exception:
+                            pass
+                sid = row.get('session_id', '')
+                turns_by_session.setdefault(sid, []).append(row)
+
+            logger.debug(
+                f"Retrieved {sum(len(v) for v in turns_by_session.values())} turns "
+                f"for chat_id={chat_id} across {len(turns_by_session)} sessions"
+            )
+            return turns_by_session
+
+        except Exception as e:
+            logger.error(f"Failed to get turns by chat_id: {e}")
             raise
 
     def get_recent_turns(
@@ -1142,6 +1240,87 @@ class ConversationStore:
             return list(rows)
         except Exception as e:
             logger.error(f"Failed to get reviews for chat_id={chat_id}: {e}")
+            raise
+
+    def save_turn_review(
+        self,
+        agent_turn_id: int,
+        session_id: str,
+        rating: int,
+        comment: Optional[str] = None,
+        reviewer: str = "operator",
+    ) -> int:
+        """
+        Save (upsert) an operator review for a single agent turn.
+
+        One review per agent_turn_id is maintained; re-submitting updates it.
+
+        Args:
+            agent_turn_id: References agent_turns.id
+            session_id:    AI session ID (denormalised for easy lookup)
+            rating:        1 = thumbs up, -1 = thumbs down
+            comment:       Free-text operator comment (optional)
+            reviewer:      Reviewer identifier (defaults to "operator")
+
+        Returns:
+            The row ID of the inserted / updated record, or -1 on failure.
+        """
+        with self._lock:
+            conn = None
+            try:
+                conn = self._get_connection()
+                sql = """
+                    INSERT INTO agent_turn_reviews
+                        (agent_turn_id, session_id, rating, comment, reviewer)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        rating     = VALUES(rating),
+                        comment    = VALUES(comment),
+                        reviewer   = VALUES(reviewer),
+                        updated_at = CURRENT_TIMESTAMP
+                """
+                with conn.cursor() as cursor:
+                    cursor.execute(sql, (agent_turn_id, session_id, rating, comment, reviewer))
+                    conn.commit()
+                    row_id = cursor.lastrowid or -1
+                logger.info(
+                    f"Saved turn review: agent_turn_id={agent_turn_id}, rating={rating}, id={row_id}"
+                )
+                return row_id
+            except Exception as e:
+                logger.error(f"Failed to save turn review: {e}")
+                if conn:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                return -1
+
+    def get_turn_reviews_by_session(self, session_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all turn reviews for a specific session.
+
+        Args:
+            session_id: AI Agent session ID
+
+        Returns:
+            List of review dicts keyed by agent_turn_id (may be empty)
+        """
+        try:
+            conn = self._get_connection()
+            sql = """
+                SELECT id, agent_turn_id, session_id, rating, comment, reviewer,
+                       created_at, updated_at
+                FROM agent_turn_reviews
+                WHERE session_id = %s
+                ORDER BY created_at DESC
+            """
+            with conn.cursor() as cursor:
+                cursor.execute(sql, (session_id,))
+                rows = cursor.fetchall()
+            return list(rows)
+        except Exception as e:
+            logger.error(f"Failed to get turn reviews for session_id={session_id}: {e}")
             raise
 
     def __enter__(self):

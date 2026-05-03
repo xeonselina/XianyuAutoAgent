@@ -21,6 +21,12 @@ class ReviewRequest(BaseModel):
     session_id: Optional[str] = None
 
 
+class TurnReviewRequest(BaseModel):
+    rating: int  # 1 = thumbs up, -1 = thumbs down
+    comment: Optional[str] = None
+    session_id: str  # required so we can store it denormalised
+
+
 # ─── Fixed-path routes (MUST be before /{chat_id} to avoid conflicts) ─────
 
 
@@ -163,6 +169,47 @@ async def get_session_turns(
         raise HTTPException(status_code=500, detail=f"Failed to fetch session turns: {str(e)}")
 
 
+@router.post("/turns/{turn_id}/reviews")
+async def save_turn_review(turn_id: int, body: TurnReviewRequest):
+    """
+    Save (upsert) an operator rating for a single agent turn.
+    One review per turn; re-submitting updates the previous rating/comment.
+    """
+    if body.rating not in (1, -1):
+        raise HTTPException(status_code=422, detail="rating must be 1 (thumbs up) or -1 (thumbs down)")
+    try:
+        store = get_conversation_store()
+        row_id = store.save_turn_review(
+            agent_turn_id=turn_id,
+            session_id=body.session_id,
+            rating=body.rating,
+            comment=body.comment,
+        )
+        return {"ok": True, "id": row_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save turn review: {str(e)}")
+
+
+@router.get("/turns/{session_id}/reviews")
+async def get_turn_reviews(session_id: str):
+    """
+    Get all turn reviews for a specific agent session.
+    Returns a dict keyed by agent_turn_id for easy lookup.
+    """
+    try:
+        store = get_conversation_store()
+        reviews = store.get_turn_reviews_by_session(session_id)
+        for r in reviews:
+            for key in ('created_at', 'updated_at'):
+                if r.get(key) and isinstance(r[key], datetime):
+                    r[key] = r[key].isoformat()
+        # Build a lookup dict  {agent_turn_id: review}
+        reviews_by_turn = {r['agent_turn_id']: r for r in reviews}
+        return {"session_id": session_id, "reviews": reviews_by_turn}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch turn reviews: {str(e)}")
+
+
 # ─── Dynamic path routes (MUST be last) ────────────────────────────────────
 
 
@@ -239,7 +286,7 @@ async def get_conversation_detail(
         for msg_dict in result:
             if msg_dict.get('session_id'):
                 session_ids.add(msg_dict['session_id'])
-        
+
         turns_by_session = {}
         for sid in session_ids:
             try:
@@ -248,6 +295,20 @@ async def get_conversation_detail(
                     if turn.get('created_at') and isinstance(turn['created_at'], datetime):
                         turn['created_at'] = turn['created_at'].isoformat()
                 turns_by_session[sid] = turns
+            except Exception:
+                pass
+
+        # Fallback: if no session_ids were found via conversations rows (e.g. all
+        # responses were confidence-suppressed and no seller message was saved), query
+        # agent_turns directly by chat_id so we can still show the AI reasoning.
+        if not turns_by_session:
+            try:
+                extra = store.get_turns_by_chat_id(chat_id)
+                for sid, turns in extra.items():
+                    for turn in turns:
+                        if turn.get('created_at') and isinstance(turn['created_at'], datetime):
+                            turn['created_at'] = turn['created_at'].isoformat()
+                turns_by_session.update(extra)
             except Exception:
                 pass
         
