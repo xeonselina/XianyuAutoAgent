@@ -160,6 +160,8 @@ nas_sudo "docker run -d \
     --restart unless-stopped \
     --network bridge \
     --env-file $NAS_ENV_FILE_ABS \
+    -e API_HOST=$NAS_HOST \
+    -e API_PORT=$API_PORT \
     -p $CONSOLE_PORT:80 \
     $CONSOLE_IMAGE:$IMAGE_TAG"
 success "控制台容器已启动 → http://$NAS_HOST:$CONSOLE_PORT"

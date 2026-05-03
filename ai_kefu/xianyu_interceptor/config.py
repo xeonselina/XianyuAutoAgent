@@ -7,14 +7,20 @@ suppress_duration, session_mapper_type, manual_mode_timeout, etc.) have moved
 to ai_kefu/config/settings.py and are consumed by the AI API layer.
 """
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Always resolve .env relative to this file's location (ai_kefu/.env),
+# so the config works regardless of the process working directory.
+_ENV_FILE = Path(__file__).parent.parent / ".env"
 
 
 class XianyuInterceptorConfig(BaseSettings):
     """Transport-level config for the Xianyu Interceptor relay."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",

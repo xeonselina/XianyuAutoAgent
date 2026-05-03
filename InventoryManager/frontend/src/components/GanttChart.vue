@@ -62,6 +62,10 @@
                   <el-icon><DataAnalysis /></el-icon>
                   统计数据
                 </el-dropdown-item>
+                <el-dropdown-item command="rental-stats">
+                  <el-icon><TrendCharts /></el-icon>
+                  出租周期统计
+                </el-dropdown-item>
                 <el-dropdown-item command="sf-tracking">
                   <el-icon><Location /></el-icon>
                   物流查询
@@ -352,7 +356,7 @@ import { ref, computed, onMounted, watch, nextTick, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGanttStore, type Device, type Rental, type DeviceModel, type ModelAccessory } from '@/stores/gantt'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, ArrowLeft, ArrowRight, Search, DataAnalysis, ArrowDown, Location, CircleCheck } from '@element-plus/icons-vue'
+import { Plus, Refresh, ArrowLeft, ArrowRight, Search, DataAnalysis, ArrowDown, Location, CircleCheck, TrendCharts } from '@element-plus/icons-vue'
 import axios from 'axios'
 import GanttRow from './GanttRow.vue'
 import BookingDialog from './BookingDialog.vue'
@@ -857,6 +861,9 @@ const handleMoreCommand = (command: string) => {
   switch (command) {
     case 'statistics':
       router.push('/statistics')
+      break
+    case 'rental-stats':
+      router.push('/rental-stats')
       break
     case 'sf-tracking':
       router.push('/sf-tracking')

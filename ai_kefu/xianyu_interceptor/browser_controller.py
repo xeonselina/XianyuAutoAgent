@@ -210,21 +210,11 @@ class BrowserController:
 
                             console.log('[WS_CREATED]', url);
 
-                            // 拦截 onmessage（接收消息）
-                            const originalOnMessage = this.onmessage;
-                            Object.defineProperty(this, 'onmessage', {
-                                set: function(handler) {
-                                    this._onmessageHandler = function(event) {
-                                        // 输出接收到的消息
-                                        console.log('[WS_MESSAGE_RECEIVED]', event.data);
-                                        // 调用原始处理器
-                                        if (handler) handler.call(this, event);
-                                    };
-                                    OriginalWebSocket.prototype.__lookupSetter__('onmessage').call(this, this._onmessageHandler);
-                                },
-                                get: function() {
-                                    return this._onmessageHandler;
-                                }
+                            // 拦截消息接收：使用 addEventListener 确保捕获所有消息
+                            // （闲鱼使用 ws.addEventListener('message', fn) 而非 ws.onmessage = fn，
+                            //   Object.defineProperty 无法拦截 addEventListener 方式）
+                            this.addEventListener('message', function(event) {
+                                console.log('[WS_MESSAGE_RECEIVED]', event.data);
                             });
 
                             // 拦截 send（发送消息）
@@ -236,6 +226,10 @@ class BrowserController:
 
                             this.addEventListener('open', () => {
                                 console.log('[WS_OPENED]', url);
+                            });
+
+                            this.addEventListener('close', (event) => {
+                                console.log('[WS_CLOSED]', url, 'code=' + event.code);
                             });
                         }
 
