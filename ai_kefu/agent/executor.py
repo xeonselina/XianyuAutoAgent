@@ -387,7 +387,8 @@ class AgentExecutor:
                             interaction_id=interaction_id,
                             local_turn_number=local_turn_counter,
                             confidence_percent=turn_result.metadata.get("confidence_percent"),
-                            response_suppressed=turn_result.metadata.get("response_suppressed", False)
+                            response_suppressed=turn_result.metadata.get("response_suppressed", False),
+                            chat_id=chat_id
                         )
                     except Exception as e:
                         logger.warning(f"Failed to persist turn data (non-fatal): {e}")

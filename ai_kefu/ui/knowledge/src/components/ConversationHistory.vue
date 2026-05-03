@@ -152,6 +152,66 @@
                     <div class="ctx-summary">{{ msg.context.context_summary }}</div>
                   </div>
                 </div>
+
+                <!-- Agent Turns Panel -->
+                <div v-if="hasAgentTurns(msg)" class="ai-context-toggle turns-toggle" @click="toggleTurns(msg.id)">
+                  {{ turnsVisible[msg.id] ? '▲ 收起 AI 推理过程' : '▼ 查看 AI 推理过程 (' + getAgentTurns(msg).length + ' 轮)' }}
+                </div>
+                <div v-if="turnsVisible[msg.id] && hasAgentTurns(msg)" class="agent-turns-panel">
+                  <div
+                    v-for="(turn, tidx) in getAgentTurns(msg)"
+                    :key="tidx"
+                    class="agent-turn-item"
+                  >
+                    <div class="agent-turn-header">
+                      <span class="turn-index">Turn {{ turn.turn_number != null ? turn.turn_number : (tidx + 1) }}</span>
+                      <span v-if="turn.confidence_percent != null" class="turn-confidence" :class="confidenceClass(turn.confidence_percent)">
+                        置信度 {{ turn.confidence_percent }}%
+                      </span>
+                      <span v-if="turn.response_suppressed" class="badge-suppressed">🔇 已抑制</span>
+                      <span v-else-if="turn.response_text" class="badge-sent">✅ 已发送</span>
+                      <span v-if="turn.duration_ms" class="turn-duration">{{ turn.duration_ms }}ms</span>
+                    </div>
+
+                    <!-- Tool Calls -->
+                    <div v-if="turn.tool_calls && formatToolCalls(turn.tool_calls).length > 0" class="ctx-section">
+                      <div class="ctx-section-title">🔧 工具调用</div>
+                      <div class="tool-call-list">
+                        <div
+                          v-for="(tc, tcidx) in formatToolCalls(turn.tool_calls)"
+                          :key="tcidx"
+                          class="tool-call-item"
+                        >
+                          <span class="tool-name">{{ tc.name }}</span>
+                          <div v-if="tc.args" class="tool-args">{{ argsDisplay(tc.args) }}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Tool Results -->
+                    <div v-if="turn.tool_results && formatToolResults(turn.tool_results).length > 0" class="ctx-section">
+                      <div class="ctx-section-title">📤 工具结果</div>
+                      <div class="tool-call-list">
+                        <div
+                          v-for="(tr, tridx) in formatToolResults(turn.tool_results)"
+                          :key="tridx"
+                          class="tool-call-item"
+                        >
+                          <div class="tool-result">{{ tr.content }}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- AI Response -->
+                    <div v-if="turn.response_text" class="ctx-section">
+                      <div class="ctx-section-title">
+                        💬 AI 回复
+                        <span v-if="turn.response_suppressed" class="suppressed-label">（因置信度不足未发送）</span>
+                      </div>
+                      <div class="turn-response-text" :class="{ 'response-suppressed': turn.response_suppressed }">{{ turn.response_text }}</div>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div class="msg-avatar">🤖</div>
             </template>
@@ -172,59 +232,100 @@
           <span class="legend-item legend-ai">🤖 AI 回复</span>
         </div>
 
-        <!-- Review Form -->
-        <div class="review-form card">
-          <h3>对话评价</h3>
-          <p class="review-hint">对本对话中 AI 回复质量进行整体评价</p>
+        <!-- AI Turn Ratings Section (replaces per-conversation review form) -->
+        <div class="turn-ratings-section card">
+          <h3>🤖 AI 推理评价</h3>
+          <p class="review-hint">对每一轮 AI 推理进行评分，含置信度抑制的轮次</p>
 
-          <!-- Persisted review display -->
-          <div v-if="savedReview" class="saved-review-display">
-            <span class="saved-rating" :class="savedReview.rating === 1 ? 'rating-up' : 'rating-down'">
-              {{ savedReview.rating === 1 ? '👍 好评' : '👎 差评' }}
-            </span>
-            <span v-if="savedReview.comment" class="saved-comment">{{ savedReview.comment }}</span>
-            <span class="saved-time">已于 {{ formatTime(savedReview.updated_at) }} 保存</span>
-            <button class="btn-link" @click="savedReview = null">修改评价</button>
+          <div v-if="Object.keys(turnsBySession).length === 0" class="empty-state" style="padding: 1.5rem 0;">
+            暂无 AI 推理记录
           </div>
 
-          <template v-if="!savedReview">
-            <div v-if="reviewSaved" class="alert alert-success">评价已保存 ✓</div>
-            <div v-if="reviewError" class="alert alert-error">{{ reviewError }}</div>
-
-            <div class="rating-row">
-              <button
-                class="btn-rating"
-                :class="{ active: reviewRating === 1 }"
-                @click="reviewRating = 1"
-                title="AI 回复质量好"
-              >👍 好评</button>
-              <button
-                class="btn-rating btn-rating-down"
-                :class="{ active: reviewRating === -1 }"
-                @click="reviewRating = -1"
-                title="AI 回复质量差"
-              >👎 差评</button>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">补充说明（可选）</label>
-              <textarea
-                v-model="reviewComment"
-                class="form-textarea"
-                rows="3"
-                placeholder="描述 AI 哪里回复得好或不好…"
-              ></textarea>
-            </div>
-
-            <button
-              class="btn btn-primary"
-              :disabled="reviewRating === 0 || savingReview"
-              @click="submitReview"
+          <div v-else class="turn-rating-sessions">
+            <div
+              v-for="(turns, sessionId) in turnsBySession"
+              :key="sessionId"
+              class="turn-rating-session"
             >
-              {{ savingReview ? '保存中…' : '提交评价' }}
-            </button>
-          </template>
+              <div class="session-label">
+                会话 <code>{{ sessionId.slice(-8) }}</code>
+                <span class="turn-count-badge">{{ turns.length }} 轮</span>
+              </div>
 
+              <div
+                v-for="(turn, tidx) in turns"
+                :key="turn.id || tidx"
+                class="turn-rating-item"
+              >
+                <div class="agent-turn-header">
+                  <span class="turn-index">Turn {{ turn.turn_number != null ? turn.turn_number : (tidx + 1) }}</span>
+                  <span v-if="turn.confidence_percent != null" class="turn-confidence" :class="confidenceClass(turn.confidence_percent)">
+                    置信度 {{ turn.confidence_percent }}%
+                  </span>
+                  <span v-if="turn.response_suppressed" class="badge-suppressed">🔇 已抑制</span>
+                  <span v-else-if="turn.response_text" class="badge-sent">✅ 已发送</span>
+                  <span v-if="turn.duration_ms" class="turn-duration">{{ turn.duration_ms }}ms</span>
+                </div>
+
+                <div v-if="turn.response_text" class="turn-response-text" :class="{ 'response-suppressed': turn.response_suppressed }">
+                  {{ turn.response_text }}
+                </div>
+
+                <!-- Inline rating row -->
+                <div class="turn-inline-rating">
+                  <!-- State 1: already saved a review -->
+                  <div v-if="getTurnReview(sessionId, turn.id)" class="turn-saved-rating">
+                    <span class="saved-rating" :class="getTurnReview(sessionId, turn.id).rating === 1 ? 'rating-up' : 'rating-down'">
+                      {{ getTurnReview(sessionId, turn.id).rating === 1 ? '👍 好评' : '👎 差评' }}
+                    </span>
+                    <span v-if="getTurnReview(sessionId, turn.id).comment" class="saved-comment">「{{ getTurnReview(sessionId, turn.id).comment }}」</span>
+                    <span class="saved-time">{{ formatTime(getTurnReview(sessionId, turn.id).updated_at) }}</span>
+                    <button class="btn-link" @click="clearTurnReview(sessionId, turn.id)">修改</button>
+                  </div>
+                  <!-- State 2: rating selected, waiting for comment + confirm -->
+                  <div v-else-if="pendingRating[turn.id] !== undefined" class="turn-pending-rating">
+                    <div class="pending-rating-header">
+                      <span class="pending-emoji">{{ pendingRating[turn.id] === 1 ? '👍' : '👎' }}</span>
+                      <span class="pending-label">{{ pendingRating[turn.id] === 1 ? '好评' : '差评' }}</span>
+                      <button class="btn-link pending-switch" @click="pendingRating = { ...pendingRating, [turn.id]: pendingRating[turn.id] === 1 ? -1 : 1 }">切换</button>
+                    </div>
+                    <textarea
+                      class="turn-comment-input"
+                      :value="pendingComment[turn.id]"
+                      @input="pendingComment = { ...pendingComment, [turn.id]: $event.target.value }"
+                      placeholder="可选：填写文字点评（直接点确认也可以）"
+                      rows="2"
+                    ></textarea>
+                    <div class="pending-actions">
+                      <button
+                        class="btn btn-primary btn-sm"
+                        :disabled="savingTurnReview[turn.id]"
+                        @click="submitTurnReview(turn, sessionId)"
+                      >{{ savingTurnReview[turn.id] ? '保存中…' : '确认' }}</button>
+                      <button class="btn btn-secondary btn-sm" @click="cancelTurnRating(turn.id)">取消</button>
+                      <span v-if="turnReviewError[turn.id]" class="turn-review-error">{{ turnReviewError[turn.id] }}</span>
+                    </div>
+                  </div>
+                  <!-- State 3: initial — show 👍/👎 buttons -->
+                  <div v-else class="turn-rating-buttons">
+                    <button
+                      class="btn-turn-rate btn-turn-up"
+                      :disabled="savingTurnReview[turn.id]"
+                      @click="selectTurnRating(turn.id, 1)"
+                      title="这轮回复质量好"
+                    >👍</button>
+                    <button
+                      class="btn-turn-rate btn-turn-down"
+                      :disabled="savingTurnReview[turn.id]"
+                      @click="selectTurnRating(turn.id, -1)"
+                      title="这轮回复质量差"
+                    >👎</button>
+                    <span v-if="turnReviewError[turn.id]" class="turn-review-error">{{ turnReviewError[turn.id] }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- AI Evaluation / Comparison Section -->
@@ -317,6 +418,8 @@ import {
   fetchReviews,
   saveReview,
   compareReplies,
+  saveTurnReview,
+  fetchTurnReviews,
 } from '../conversationHistoryApi.js'
 
 export default {
@@ -348,16 +451,23 @@ export default {
       messages: [],
       loadingDetail: false,
 
-      // Review form
-      reviewRating: 0,   // 0 = not selected
-      reviewComment: '',
-      savingReview: false,
-      reviewSaved: false,
-      reviewError: '',
-      savedReview: null,  // persisted review loaded from DB / just submitted
+      // Per-turn reviews: { [sessionId]: { [turnId]: reviewObj } }
+      turnReviewsBySession: {},
+      // Saving state per turn: { [turnId]: bool }
+      savingTurnReview: {},
+      // Error per turn: { [turnId]: string }
+      turnReviewError: {},
+      // Pending state: rating selected but comment not yet submitted
+      // { [turnId]: 1 | -1 }
+      pendingRating: {},
+      // Pending comment text: { [turnId]: string }
+      pendingComment: {},
 
       // AI context panel
       contextVisible: {},   // { msg_id: bool }
+      // Agent turns panel
+      turnsBySession: {},
+      turnsVisible: {},
     }
   },
 
@@ -417,27 +527,31 @@ export default {
     async loadDetail(chatId) {
       this.loadingDetail = true
       this.messages = []
-      this.reviewRating = 0
-      this.reviewComment = ''
-      this.reviewSaved = false
-      this.reviewError = ''
-      this.savedReview = null
+      this.turnsBySession = {}
+      this.turnsVisible = {}
+      this.turnReviewsBySession = {}
+      this.savingTurnReview = {}
+      this.turnReviewError = {}
+      this.pendingRating = {}
+      this.pendingComment = {}
       this.contextVisible = {}
       this.aiComparisons = null
       this.comparisonError = ''
       this.comparisonVisible = false
       try {
-        const [convData, reviewData] = await Promise.all([
-          fetchConversation(chatId),
-          fetchReviews(chatId),
-        ])
+        const convData = await fetchConversation(chatId)
         this.messages = convData.messages || []
-        if (reviewData.reviews && reviewData.reviews.length > 0) {
-          const r = reviewData.reviews[0]
-          this.reviewRating = r.rating || 0
-          this.reviewComment = r.comment || ''
-          this.savedReview = r
-        }
+        this.turnsBySession = convData.turns_by_session || {}
+
+        // Load per-turn reviews for every session
+        const sessionIds = Object.keys(this.turnsBySession)
+        await Promise.all(sessionIds.map(async (sid) => {
+          try {
+            const data = await fetchTurnReviews(sid)
+            this.turnReviewsBySession[sid] = data.reviews || {}
+          } catch (_) { /* ignore */ }
+        }))
+
         // Auto-load AI comparison
         try {
           this.aiComparisons = await compareReplies(chatId)
@@ -467,27 +581,69 @@ export default {
       this.loadList()
     },
 
-    async submitReview() {
-      if (!this.reviewRating) return
-      this.savingReview = true
-      this.reviewSaved = false
-      this.reviewError = ''
+    // ── Per-turn review helpers ────────────────────────────────────
+
+    getTurnReview(sessionId, turnId) {
+      const bySession = this.turnReviewsBySession[sessionId]
+      if (!bySession) return null
+      return bySession[turnId] || null
+    },
+
+    clearTurnReview(sessionId, turnId) {
+      if (this.turnReviewsBySession[sessionId]) {
+        const updated = { ...this.turnReviewsBySession[sessionId] }
+        delete updated[turnId]
+        this.turnReviewsBySession = {
+          ...this.turnReviewsBySession,
+          [sessionId]: updated,
+        }
+      }
+    },
+
+    selectTurnRating(turnId, rating) {
+      this.pendingRating = { ...this.pendingRating, [turnId]: rating }
+      if (this.pendingComment[turnId] === undefined) {
+        this.pendingComment = { ...this.pendingComment, [turnId]: '' }
+      }
+      this.turnReviewError = { ...this.turnReviewError, [turnId]: '' }
+    },
+
+    cancelTurnRating(turnId) {
+      const pr = { ...this.pendingRating }
+      const pc = { ...this.pendingComment }
+      delete pr[turnId]
+      delete pc[turnId]
+      this.pendingRating = pr
+      this.pendingComment = pc
+    },
+
+    async submitTurnReview(turn, sessionId) {
+      const turnId = turn.id
+      const rating = this.pendingRating[turnId]
+      const comment = (this.pendingComment[turnId] || '').trim()
+      if (rating === undefined) return
+      this.savingTurnReview = { ...this.savingTurnReview, [turnId]: true }
+      this.turnReviewError = { ...this.turnReviewError, [turnId]: '' }
       try {
-        // Find primary session_id from messages (first AI reply)
-        const aiMsg = this.messages.find(m => m.session_id)
-        const sessionId = aiMsg ? aiMsg.session_id : null
-        await saveReview(this.selectedChatId, this.reviewRating, this.reviewComment, sessionId)
-        this.savedReview = {
-          rating: this.reviewRating,
-          comment: this.reviewComment,
+        await saveTurnReview(turnId, rating, sessionId, comment)
+        const reviewObj = {
+          agent_turn_id: turnId,
+          session_id: sessionId,
+          rating,
+          comment,
           updated_at: new Date().toISOString(),
         }
-        this.reviewSaved = true
-        setTimeout(() => { this.reviewSaved = false }, 3000)
+        const existing = this.turnReviewsBySession[sessionId] || {}
+        this.turnReviewsBySession = {
+          ...this.turnReviewsBySession,
+          [sessionId]: { ...existing, [turnId]: reviewObj },
+        }
+        // Clear pending state
+        this.cancelTurnRating(turnId)
       } catch (e) {
-        this.reviewError = `保存失败: ${e.message}`
+        this.turnReviewError = { ...this.turnReviewError, [turnId]: `保存失败: ${e.message}` }
       } finally {
-        this.savingReview = false
+        this.savingTurnReview = { ...this.savingTurnReview, [turnId]: false }
       }
     },
 
@@ -512,6 +668,77 @@ export default {
         ...this.contextVisible,
         [msgId]: !this.contextVisible[msgId],
       }
+    },
+
+    // ── Agent turns helpers ─────────────────────────────────────────
+
+    getAgentTurns(msg) {
+      const sid = msg.session_id
+      if (!sid || !this.turnsBySession) return []
+      return this.turnsBySession[sid] || []
+    },
+
+    hasAgentTurns(msg) {
+      return this.getAgentTurns(msg).length > 0
+    },
+
+    toggleTurns(msgId) {
+      this.turnsVisible = {
+        ...this.turnsVisible,
+        [msgId]: !this.turnsVisible[msgId],
+      }
+    },
+
+    parseJsonField(val) {
+      if (!val) return null
+      if (typeof val === 'object') return val
+      try { return JSON.parse(val) } catch (_) { return val }
+    },
+
+    formatToolCalls(rawCalls) {
+      const parsed = this.parseJsonField(rawCalls)
+      if (!parsed) return []
+      const arr = Array.isArray(parsed) ? parsed : [parsed]
+      return arr.map(tc => {
+        // Handle OpenAI tool-call schema: { function: { name, arguments }, id }
+        if (tc.function) {
+          const args = this.parseJsonField(tc.function.arguments)
+          return { name: tc.function.name, args }
+        }
+        // Handle flat schema: { tool_name, tool_input }
+        if (tc.tool_name || tc.name) {
+          return { name: tc.tool_name || tc.name, args: tc.tool_input || tc.input || tc.args }
+        }
+        return { name: '(unknown)', args: tc }
+      })
+    },
+
+    formatToolResults(rawResults) {
+      const parsed = this.parseJsonField(rawResults)
+      if (!parsed) return []
+      const arr = Array.isArray(parsed) ? parsed : [parsed]
+      return arr.map(tr => {
+        // OpenAI tool_result schema: { tool_use_id, content }
+        if (tr.content !== undefined) {
+          const content = Array.isArray(tr.content)
+            ? tr.content.map(c => (typeof c === 'object' ? (c.text || JSON.stringify(c)) : c)).join('\n')
+            : (typeof tr.content === 'string' ? tr.content : JSON.stringify(tr.content))
+          return { id: tr.tool_use_id || '', content }
+        }
+        // Flat result string
+        return { id: '', content: typeof tr === 'string' ? tr : JSON.stringify(tr) }
+      })
+    },
+
+    argsDisplay(args) {
+      if (!args) return ''
+      return typeof args === 'string' ? args : JSON.stringify(args, null, 2)
+    },
+
+    confidenceClass(pct) {
+      if (pct >= 70) return 'confidence-high'
+      if (pct >= 40) return 'confidence-medium'
+      return 'confidence-low'
     },
 
 
@@ -1075,5 +1302,273 @@ export default {
   padding: 0.85rem 1.1rem;
   font-size: 0.9rem;
   margin-top: 0.5rem;
+}
+
+/* ── Agent Turns Panel ── */
+.turns-toggle {
+  color: #722ed1;
+  margin-top: 0.3rem;
+}
+
+.agent-turns-panel {
+  margin-top: 0.5rem;
+  background: #faf5ff;
+  border: 1px solid #d3adf7;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-size: 0.82rem;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.agent-turn-item {
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  padding: 0.6rem 0.9rem;
+}
+
+.agent-turn-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.turn-index {
+  font-weight: 600;
+  color: #722ed1;
+  font-size: 0.8rem;
+}
+
+.turn-confidence {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 10px;
+}
+
+.confidence-high {
+  background: #f6ffed;
+  color: #389e0d;
+  border: 1px solid #b7eb8f;
+}
+
+.confidence-medium {
+  background: #fffbe6;
+  color: #ad6800;
+  border: 1px solid #ffd591;
+}
+
+.confidence-low {
+  background: #fff2f0;
+  color: #cf1322;
+  border: 1px solid #ffccc7;
+}
+
+.badge-suppressed {
+  background: #fff2f0;
+  color: #cf1322;
+  border: 1px solid #ffccc7;
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.badge-sent {
+  background: #f6ffed;
+  color: #389e0d;
+  border: 1px solid #b7eb8f;
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.turn-duration {
+  font-size: 0.72rem;
+  color: #aaa;
+  margin-left: auto;
+}
+
+.turn-response-text {
+  background: #f9f0ff;
+  border-left: 3px solid #722ed1;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.83rem;
+  color: #333;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 0 4px 4px 0;
+}
+
+.turn-response-text.response-suppressed {
+  background: #fff2f0;
+  border-left-color: #ff4d4f;
+  color: #666;
+  opacity: 0.85;
+}
+
+.suppressed-label {
+  font-weight: 400;
+  color: #cf1322;
+  font-size: 0.75rem;
+}
+
+/* ── Per-turn ratings section ── */
+.turn-ratings-section h3 { margin-bottom: 0.25rem; }
+
+.turn-rating-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.turn-rating-session {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.session-label {
+  font-size: 0.78rem;
+  color: #888;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.session-label code {
+  background: #f0f0f0;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.76rem;
+  color: #555;
+}
+.turn-count-badge {
+  background: #f0f0f0;
+  color: #888;
+  border-radius: 10px;
+  padding: 0px 7px;
+  font-size: 0.72rem;
+}
+
+.turn-rating-item {
+  background: #faf5ff;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  padding: 0.65rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.turn-inline-rating {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.15rem;
+  width: 100%;
+}
+
+.turn-rating-buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.btn-turn-rate {
+  background: #fff;
+  border: 1.5px solid #d9d9d9;
+  border-radius: 6px;
+  padding: 2px 10px;
+  font-size: 1rem;
+  cursor: pointer;
+  line-height: 1.6;
+  transition: all 0.15s;
+}
+.btn-turn-up:hover  { border-color: #52c41a; background: #f6ffed; }
+.btn-turn-down:hover { border-color: #ff4d4f; background: #fff2f0; }
+.btn-turn-rate:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.turn-saved-rating {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.saved-comment {
+  font-size: 0.78rem;
+  color: #595959;
+  font-style: italic;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn-pending-rating {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  width: 100%;
+}
+.pending-rating-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.pending-emoji {
+  font-size: 1.1rem;
+}
+.pending-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #444;
+}
+.pending-switch {
+  font-size: 0.75rem;
+  margin-left: 0.2rem;
+}
+.turn-comment-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.82rem;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s;
+  color: #333;
+  background: #fff;
+}
+.turn-comment-input:focus {
+  border-color: #a78bfa;
+}
+.pending-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.btn-sm {
+  padding: 3px 14px;
+  font-size: 0.8rem;
+}
+
+.turn-saving {
+  font-size: 0.78rem;
+  color: #888;
+}
+.turn-review-error {
+  font-size: 0.78rem;
+  color: #cf1322;
 }
 </style>
