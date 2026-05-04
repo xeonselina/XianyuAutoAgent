@@ -1,19 +1,47 @@
 import asyncio
+import os
 import time
 from typing import Optional
 from playwright.async_api import async_playwright, Browser, Page, BrowserContext
+from playwright_stealth import stealth_async
 from loguru import logger
 from .dom_parser import GoofishDOMParser
+
+# 持久化用户数据目录（保留 Cookie / 登录状态）
+_DEFAULT_PROFILE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "goofish_profile")
+
+# 反检测启动参数
+_STEALTH_ARGS = [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-blink-features=AutomationControlled",  # 隐藏 webdriver 标志
+    "--disable-infobars",
+    "--disable-dev-shm-usage",
+    "--disable-extensions-except=",
+    "--no-first-run",
+    "--no-default-browser-check",
+]
 
 
 class PageManager:
     """页面管理器 - 负责浏览器页面的生命周期管理"""
 
-    def __init__(self, headless: bool = False, viewport_width: int = 1000, viewport_height: int = 800, user_agent: str = None):
+    def __init__(
+        self,
+        headless: bool = False,
+        viewport_width: int = 1280,
+        viewport_height: int = 800,
+        user_agent: str = None,
+        profile_dir: str = None,
+    ):
         self.headless = headless
         self.viewport_width = viewport_width
         self.viewport_height = viewport_height
-        self.user_agent = user_agent or "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        # user_agent=None 时使用浏览器自身真实 UA，避免版本与指纹不匹配
+        self.user_agent = user_agent
+        self.profile_dir = os.path.abspath(profile_dir or _DEFAULT_PROFILE_DIR)
+
+        # 使用持久化 context，不再单独持有 Browser 对象
         self.browser: Optional[Browser] = None
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
@@ -27,24 +55,38 @@ class PageManager:
     async def start(self) -> bool:
         """启动浏览器并打开咸鱼页面"""
         try:
+            os.makedirs(self.profile_dir, exist_ok=True)
+            logger.info(f"浏览器配置文件目录: {self.profile_dir}")
+
             playwright = await async_playwright().start()
-            self.browser = await playwright.chromium.launch(
+
+            # 使用持久化 context，保留 Cookie / localStorage / 登录态
+            ctx_kwargs = dict(
                 headless=self.headless,
-                args=['--no-sandbox', '--disable-setuid-sandbox']
+                args=_STEALTH_ARGS,
+                viewport={"width": self.viewport_width, "height": self.viewport_height},
+                locale="zh-CN",
+                timezone_id="Asia/Shanghai",
+                # 不传 user_agent，让 Chromium 使用自身真实 UA
+            )
+            if self.user_agent:
+                ctx_kwargs["user_agent"] = self.user_agent
+
+            self.context = await playwright.chromium.launch_persistent_context(
+                self.profile_dir, **ctx_kwargs
             )
 
-            self.context = await self.browser.new_context(
-                viewport={'width': self.viewport_width, 'height': self.viewport_height},
-                user_agent=self.user_agent
-            )
+            # 复用已有页面或新建
+            self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
 
-            self.page = await self.context.new_page()
+            # 注入反检测脚本（在所有页面导航前生效）
+            await self._inject_stealth_scripts()
 
             # 设置页面和上下文监听器
             await self._setup_page_listeners()
 
             # 导航到咸鱼页面
-            await self.page.goto('https://www.goofish.com', wait_until='domcontentloaded')
+            await self.page.goto("https://www.goofish.com", wait_until="domcontentloaded")
             logger.info("浏览器已启动，咸鱼页面已加载")
 
             # 初始化DOM解析器
@@ -55,6 +97,29 @@ class PageManager:
         except Exception as e:
             logger.error(f"启动浏览器失败: {e}")
             return False
+
+    async def _inject_stealth_scripts(self):
+        """注入反自动化检测脚本"""
+        try:
+            # playwright-stealth 统一处理（覆盖 navigator.webdriver 等多项指纹）
+            await stealth_async(self.page)
+
+            # 额外确保 navigator.webdriver 不可见
+            await self.page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined,
+                    configurable: true
+                });
+                // 隐藏自动化控制标志
+                delete window.__playwright;
+                delete window.__pw_manual;
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
+            """)
+            logger.info("反检测脚本注入成功")
+        except Exception as e:
+            logger.warning(f"注入反检测脚本失败: {e}")
 
     async def wait_for_login(self, timeout: int = 300000) -> bool:
         """等待用户登录"""
@@ -469,6 +534,15 @@ class PageManager:
         try:
             logger.info(f"🆕 检测到新页面: {page.url}")
 
+            # 新页面也注入反检测脚本
+            await stealth_async(page)
+            await page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined,
+                    configurable: true
+                });
+            """)
+
             # 切换到新页面
             await self._switch_to_active_page()
 
@@ -532,38 +606,16 @@ class PageManager:
         try:
             logger.info("开始关闭浏览器...")
 
-            # 关闭页面
-            if self.page and not self.page.is_closed():
-                try:
-                    await asyncio.wait_for(self.page.close(), timeout=3.0)
-                    logger.debug("页面已关闭")
-                except asyncio.TimeoutError:
-                    logger.warning("关闭页面超时，继续关闭浏览器")
-                except Exception as e:
-                    logger.warning(f"关闭页面失败: {e}")
-
-            # 关闭上下文
+            # 持久化 context 直接关闭即可（内部会保存状态并关闭所有页面）
             if self.context:
                 try:
-                    await asyncio.wait_for(self.context.close(), timeout=3.0)
-                    logger.debug("浏览器上下文已关闭")
+                    await asyncio.wait_for(self.context.close(), timeout=8.0)
+                    logger.info("浏览器上下文已关闭，Cookie/登录态已保存")
                 except asyncio.TimeoutError:
-                    logger.warning("关闭浏览器上下文超时，继续关闭浏览器")
-                except Exception as e:
-                    logger.warning(f"关闭浏览器上下文失败: {e}")
-
-            # 关闭浏览器
-            if self.browser:
-                try:
-                    await asyncio.wait_for(self.browser.close(), timeout=5.0)
-                    logger.debug("浏览器已关闭")
-                except asyncio.TimeoutError:
-                    logger.warning("关闭浏览器超时，尝试强制终止进程")
-                    # 尝试获取浏览器进程并强制终止
+                    logger.warning("关闭浏览器上下文超时，尝试强制终止进程")
                     try:
                         import signal
                         import psutil
-                        # Playwright的浏览器进程可能需要强制终止
                         current_process = psutil.Process()
                         children = current_process.children(recursive=True)
                         for child in children:
@@ -573,7 +625,7 @@ class PageManager:
                     except Exception as kill_error:
                         logger.warning(f"强制终止浏览器进程失败: {kill_error}")
                 except Exception as e:
-                    logger.warning(f"关闭浏览器失败: {e}")
+                    logger.warning(f"关闭浏览器上下文失败: {e}")
 
             logger.info("浏览器关闭完成")
 

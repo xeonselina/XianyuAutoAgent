@@ -33,7 +33,8 @@ class TurnReviewRequest(BaseModel):
 @router.get("/recent")
 async def get_recent_conversations(
     limit: int = Query(20, ge=1, le=100, description="Number of conversations to return"),
-    offset: int = Query(0, ge=0, description="Pagination offset")
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    date: Optional[str] = Query(None, description="Filter by date (YYYY-MM-DD)"),
 ):
     """
     Get recent conversations list with pagination.
@@ -41,7 +42,7 @@ async def get_recent_conversations(
     """
     try:
         store = get_conversation_store()
-        result = store.get_recent_conversations(limit=limit, offset=offset)
+        result = store.get_recent_conversations(limit=limit, offset=offset, date=date)
         
         for item in result['items']:
             for key in ('first_message_at', 'last_message_at'):
