@@ -10,10 +10,13 @@ load_dotenv()
 class BrowserConfig(BaseModel):
     """浏览器配置"""
     headless: bool = False
-    viewport_width: int = 1000
+    viewport_width: int = 1280
     viewport_height: int = 800
-    user_agent: str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    # 留空让 Playwright 使用 Chromium 自身的真实 UA，避免版本不匹配被风控
+    user_agent: str = ""
     login_timeout: int = 300000  # 5分钟
+    # 持久化用户数据目录（保留 Cookie/登录态，减少风控验证）
+    profile_dir: str = ""
 
 
 class AIConfig(BaseModel):

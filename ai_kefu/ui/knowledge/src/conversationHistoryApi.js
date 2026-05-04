@@ -9,9 +9,12 @@ const BASE = '/conversations'
  * Fetch paginated list of recent conversations.
  * @param {number} limit
  * @param {number} offset
+ * @param {string|null} date  ISO date string 'YYYY-MM-DD', or null for all dates
  */
-export async function fetchRecentConversations(limit = 30, offset = 0) {
-  const res = await fetch(`${BASE}/recent?limit=${limit}&offset=${offset}`)
+export async function fetchRecentConversations(limit = 30, offset = 0, date = null) {
+  let url = `${BASE}/recent?limit=${limit}&offset=${offset}`
+  if (date) url += `&date=${encodeURIComponent(date)}`
+  const res = await fetch(url)
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }

@@ -114,7 +114,15 @@
       "Bash(git -C /Users/jimmypan/git_repo/XianyuAutoAgent diff --cached --stat)",
       "Bash(git *)",
       "Bash(IMAGE_TAG=20260503-1900 make build-push-all)",
-      "Bash(IMAGE_TAG=20260503-1900 make deploy-nas *)"
+      "Bash(IMAGE_TAG=20260503-1900 make deploy-nas *)",
+      "Bash(IMAGE_TAG=20260503-1910 make build-push-all)",
+      "Bash(IMAGE_TAG=20260503-1910 make deploy-nas)",
+      "Bash(IMAGE_TAG=20260503-1920 make build-push-all)",
+      "Bash(IMAGE_TAG=20260503-1920 make deploy-nas)",
+      "Read(//opt/homebrew/bin/**)",
+      "Read(//usr/local/bin/**)",
+      "Bash(pip show *)",
+      "Bash(pip install *)"
     ]
   }
 }

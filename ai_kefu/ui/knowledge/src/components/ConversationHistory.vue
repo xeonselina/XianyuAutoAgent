@@ -8,6 +8,23 @@
         <p class="subtitle">选择一条对话，查看详情并对 AI 回复质量进行评价</p>
       </div>
 
+      <!-- Filter bar -->
+      <div class="filter-bar">
+        <label class="filter-label">📅 按日期筛选</label>
+        <input
+          type="date"
+          class="filter-date-input"
+          :value="filterDate"
+          @change="onDateChange($event.target.value)"
+        />
+        <button
+          v-if="filterDate"
+          class="btn btn-secondary btn-sm filter-clear-btn"
+          @click="onDateChange('')"
+        >✕ 清除</button>
+        <span v-if="filterDate" class="filter-active-hint">仅显示 {{ filterDate }} 的对话</span>
+      </div>
+
       <div v-if="loadingList" class="loading"><div class="spinner"></div></div>
       <div v-else-if="sessions.length === 0" class="empty-state">暂无对话记录</div>
 
@@ -27,6 +44,16 @@
                 :class="reviewMap[s.chat_id].rating === 1 ? 'review-icon-up' : 'review-icon-down'"
                 :title="reviewMap[s.chat_id].rating === 1 ? '已好评' : '已差评'"
               >{{ reviewMap[s.chat_id].rating === 1 ? '👍' : '👎' }}</span>
+              <span
+                v-if="s.suppressed_turn_count > 0"
+                class="badge-turns badge-suppressed-turns"
+                title="含置信度抑制轮次"
+              >🔇 {{ s.suppressed_turn_count }} 轮抑制</span>
+              <span
+                v-else-if="s.agent_turn_count > 0"
+                class="badge-turns"
+                title="含 AI 推理记录"
+              >🤖 {{ s.agent_turn_count }} 轮推理</span>
             </div>
             <div class="session-card-meta">
               <span v-if="s.user_id">买家: {{ s.user_id }}</span>
@@ -216,39 +243,48 @@
               <div class="msg-avatar">🤖</div>
             </template>
 
-            <!-- Suppressed AI turn bubble -->
-            <template v-else-if="msg._type === 'suppressed'">
+            <!-- Individual AI turn bubble (one per agent turn, sorted by created_at) -->
+            <template v-else-if="msg._type === 'turn-bubble'">
               <div class="msg-body suppressed-bubble-body">
-                <div class="msg-meta">AI 客服 · {{ formatTime(msg._time) }}</div>
-                <div class="msg-bubble suppressed-bubble">
-                  🔇 AI 客服置信度抑制
-                  <span class="suppressed-turn-count">（{{ msg._turns.length }} 轮推理）</span>
+                <div class="msg-meta">AI 客服 · {{ formatTime(msg._turn.created_at) }}</div>
+
+                <!-- Main bubble: show response text for sent turns, suppressed label otherwise -->
+                <div
+                  class="msg-bubble"
+                  :class="msg._turn.response_suppressed ? 'suppressed-bubble' : ''"
+                >
+                  <span v-if="msg._turn.response_suppressed">🔇 AI 置信度抑制</span>
+                  <span v-else>{{ msg._turn.response_text || '（无回复文本）' }}</span>
+                  <span
+                    v-if="msg._turn.confidence_percent != null"
+                    class="turn-confidence suppressed-turn-count"
+                    :class="confidenceClass(msg._turn.confidence_percent)"
+                    style="margin-left:0.5rem;"
+                  >置信度 {{ msg._turn.confidence_percent }}%</span>
                 </div>
-                <!-- Toggle to expand turns -->
-                <div class="ai-context-toggle turns-toggle" @click="toggleTurns(msg._key)">
-                  {{ turnsVisible[msg._key] ? '▲ 收起 AI 推理过程' : '▼ 查看 AI 推理过程 (' + msg._turns.length + ' 轮)' }}
+
+                <!-- Toggle: expand full turn details (tool calls, reasoning, etc.) -->
+                <div class="ai-context-toggle turns-toggle" @click="toggleTurns(msg._turn.id)">
+                  {{ turnsVisible[msg._turn.id] ? '▲ 收起推理详情' : '▼ 查看推理详情' }}
                 </div>
-                <div v-if="turnsVisible[msg._key]" class="agent-turns-panel suppressed-turns-panel">
-                  <div
-                    v-for="(turn, tidx) in msg._turns"
-                    :key="turn.id || tidx"
-                    class="agent-turn-item"
-                  >
+
+                <div v-if="turnsVisible[msg._turn.id]" class="agent-turns-panel suppressed-turns-panel">
+                  <div class="agent-turn-item">
                     <div class="agent-turn-header">
-                      <span class="turn-index">Turn {{ turn.turn_number != null ? turn.turn_number : (tidx + 1) }}</span>
-                      <span v-if="turn.confidence_percent != null" class="turn-confidence" :class="confidenceClass(turn.confidence_percent)">
-                        置信度 {{ turn.confidence_percent }}%
+                      <span class="turn-index">Turn {{ msg._turn.turn_number != null ? msg._turn.turn_number : 1 }}</span>
+                      <span v-if="msg._turn.confidence_percent != null" class="turn-confidence" :class="confidenceClass(msg._turn.confidence_percent)">
+                        置信度 {{ msg._turn.confidence_percent }}%
                       </span>
-                      <span v-if="turn.response_suppressed" class="badge-suppressed">🔇 已抑制</span>
-                      <span v-else-if="turn.response_text" class="badge-sent">✅ 已发送</span>
-                      <span v-if="turn.duration_ms" class="turn-duration">{{ turn.duration_ms }}ms</span>
+                      <span v-if="msg._turn.response_suppressed" class="badge-suppressed">🔇 已抑制</span>
+                      <span v-else-if="msg._turn.response_text" class="badge-sent">✅ 已发送</span>
+                      <span v-if="msg._turn.duration_ms" class="turn-duration">{{ msg._turn.duration_ms }}ms</span>
                     </div>
 
                     <!-- Tool Calls -->
-                    <div v-if="turn.tool_calls && formatToolCalls(turn.tool_calls).length > 0" class="ctx-section">
+                    <div v-if="msg._turn.tool_calls && formatToolCalls(msg._turn.tool_calls).length > 0" class="ctx-section">
                       <div class="ctx-section-title">🔧 工具调用</div>
                       <div class="tool-call-list">
-                        <div v-for="(tc, tcidx) in formatToolCalls(turn.tool_calls)" :key="tcidx" class="tool-call-item">
+                        <div v-for="(tc, tcidx) in formatToolCalls(msg._turn.tool_calls)" :key="tcidx" class="tool-call-item">
                           <span class="tool-name">{{ tc.name }}</span>
                           <div v-if="tc.args" class="tool-args">{{ argsDisplay(tc.args) }}</div>
                         </div>
@@ -256,63 +292,63 @@
                     </div>
 
                     <!-- Tool Results -->
-                    <div v-if="turn.tool_results && formatToolResults(turn.tool_results).length > 0" class="ctx-section">
+                    <div v-if="msg._turn.tool_results && formatToolResults(msg._turn.tool_results).length > 0" class="ctx-section">
                       <div class="ctx-section-title">📤 工具结果</div>
                       <div class="tool-call-list">
-                        <div v-for="(tr, tridx) in formatToolResults(turn.tool_results)" :key="tridx" class="tool-call-item">
+                        <div v-for="(tr, tridx) in formatToolResults(msg._turn.tool_results)" :key="tridx" class="tool-call-item">
                           <div class="tool-result">{{ tr.content }}</div>
                         </div>
                       </div>
                     </div>
 
-                    <!-- AI Response -->
-                    <div v-if="turn.response_text" class="ctx-section">
+                    <!-- AI Response (full text, shown even for suppressed) -->
+                    <div v-if="msg._turn.response_text" class="ctx-section">
                       <div class="ctx-section-title">
                         💬 AI 回复
-                        <span v-if="turn.response_suppressed" class="suppressed-label">（因置信度不足未发送）</span>
+                        <span v-if="msg._turn.response_suppressed" class="suppressed-label">（因置信度不足未发送）</span>
                       </div>
-                      <div class="turn-response-text" :class="{ 'response-suppressed': turn.response_suppressed }">{{ turn.response_text }}</div>
-                    </div>
-
-                    <!-- Inline rating -->
-                    <div class="turn-inline-rating">
-                      <div v-if="getTurnReview(msg._sessionId, turn.id)" class="turn-saved-rating">
-                        <span class="saved-rating" :class="getTurnReview(msg._sessionId, turn.id).rating === 1 ? 'rating-up' : 'rating-down'">
-                          {{ getTurnReview(msg._sessionId, turn.id).rating === 1 ? '👍 好评' : '👎 差评' }}
-                        </span>
-                        <span v-if="getTurnReview(msg._sessionId, turn.id).comment" class="saved-comment">「{{ getTurnReview(msg._sessionId, turn.id).comment }}」</span>
-                        <span class="saved-time">{{ formatTime(getTurnReview(msg._sessionId, turn.id).updated_at) }}</span>
-                        <button class="btn-link" @click="clearTurnReview(msg._sessionId, turn.id)">修改</button>
-                      </div>
-                      <div v-else-if="pendingRating[turn.id] !== undefined" class="turn-pending-rating">
-                        <div class="pending-rating-header">
-                          <span class="pending-emoji">{{ pendingRating[turn.id] === 1 ? '👍' : '👎' }}</span>
-                          <span class="pending-label">{{ pendingRating[turn.id] === 1 ? '好评' : '差评' }}</span>
-                          <button class="btn-link pending-switch" @click="pendingRating = { ...pendingRating, [turn.id]: pendingRating[turn.id] === 1 ? -1 : 1 }">切换</button>
-                        </div>
-                        <textarea
-                          class="turn-comment-input"
-                          :value="pendingComment[turn.id]"
-                          @input="pendingComment = { ...pendingComment, [turn.id]: $event.target.value }"
-                          placeholder="可选：填写文字点评"
-                          rows="2"
-                        ></textarea>
-                        <div class="pending-actions">
-                          <button class="btn btn-primary btn-sm" :disabled="savingTurnReview[turn.id]" @click="submitTurnReview(turn, msg._sessionId)">{{ savingTurnReview[turn.id] ? '保存中…' : '确认' }}</button>
-                          <button class="btn btn-secondary btn-sm" @click="cancelTurnRating(turn.id)">取消</button>
-                          <span v-if="turnReviewError[turn.id]" class="turn-review-error">{{ turnReviewError[turn.id] }}</span>
-                        </div>
-                      </div>
-                      <div v-else class="turn-rating-buttons">
-                        <button class="btn-turn-rate btn-turn-up" :disabled="savingTurnReview[turn.id]" @click="selectTurnRating(turn.id, 1)" title="这轮回复质量好">👍</button>
-                        <button class="btn-turn-rate btn-turn-down" :disabled="savingTurnReview[turn.id]" @click="selectTurnRating(turn.id, -1)" title="这轮回复质量差">👎</button>
-                        <span v-if="turnReviewError[turn.id]" class="turn-review-error">{{ turnReviewError[turn.id] }}</span>
-                      </div>
+                      <div class="turn-response-text" :class="{ 'response-suppressed': msg._turn.response_suppressed }">{{ msg._turn.response_text }}</div>
                     </div>
                   </div>
                 </div>
+
+                <!-- Inline per-turn rating -->
+                <div class="turn-inline-rating">
+                  <div v-if="getTurnReview(msg._sessionId, msg._turn.id)" class="turn-saved-rating">
+                    <span class="saved-rating" :class="getTurnReview(msg._sessionId, msg._turn.id).rating === 1 ? 'rating-up' : 'rating-down'">
+                      {{ getTurnReview(msg._sessionId, msg._turn.id).rating === 1 ? '👍 好评' : '👎 差评' }}
+                    </span>
+                    <span v-if="getTurnReview(msg._sessionId, msg._turn.id).comment" class="saved-comment">「{{ getTurnReview(msg._sessionId, msg._turn.id).comment }}」</span>
+                    <span class="saved-time">{{ formatTime(getTurnReview(msg._sessionId, msg._turn.id).updated_at) }}</span>
+                    <button class="btn-link" @click="clearTurnReview(msg._sessionId, msg._turn.id)">修改</button>
+                  </div>
+                  <div v-else-if="pendingRating[msg._turn.id] !== undefined" class="turn-pending-rating">
+                    <div class="pending-rating-header">
+                      <span class="pending-emoji">{{ pendingRating[msg._turn.id] === 1 ? '👍' : '👎' }}</span>
+                      <span class="pending-label">{{ pendingRating[msg._turn.id] === 1 ? '好评' : '差评' }}</span>
+                      <button class="btn-link pending-switch" @click="pendingRating = { ...pendingRating, [msg._turn.id]: pendingRating[msg._turn.id] === 1 ? -1 : 1 }">切换</button>
+                    </div>
+                    <textarea
+                      class="turn-comment-input"
+                      :value="pendingComment[msg._turn.id]"
+                      @input="pendingComment = { ...pendingComment, [msg._turn.id]: $event.target.value }"
+                      placeholder="可选：填写文字点评"
+                      rows="2"
+                    ></textarea>
+                    <div class="pending-actions">
+                      <button class="btn btn-primary btn-sm" :disabled="savingTurnReview[msg._turn.id]" @click="submitTurnReview(msg._turn, msg._sessionId)">{{ savingTurnReview[msg._turn.id] ? '保存中…' : '确认' }}</button>
+                      <button class="btn btn-secondary btn-sm" @click="cancelTurnRating(msg._turn.id)">取消</button>
+                      <span v-if="turnReviewError[msg._turn.id]" class="turn-review-error">{{ turnReviewError[msg._turn.id] }}</span>
+                    </div>
+                  </div>
+                  <div v-else class="turn-rating-buttons">
+                    <button class="btn-turn-rate btn-turn-up" :disabled="savingTurnReview[msg._turn.id]" @click="selectTurnRating(msg._turn.id, 1)" title="这轮回复质量好">👍</button>
+                    <button class="btn-turn-rate btn-turn-down" :disabled="savingTurnReview[msg._turn.id]" @click="selectTurnRating(msg._turn.id, -1)" title="这轮回复质量差">👎</button>
+                    <span v-if="turnReviewError[msg._turn.id]" class="turn-review-error">{{ turnReviewError[msg._turn.id] }}</span>
+                  </div>
+                </div>
               </div>
-              <div class="msg-avatar">🔇</div>
+              <div class="msg-avatar">{{ msg._turn.response_suppressed ? '🔇' : '🤖' }}</div>
             </template>
 
             <!-- System messages -->
@@ -446,6 +482,7 @@ export default {
       loadingList: false,
       pageSize: 30,
       offset: 0,
+      filterDate: '',
       // Review badge map: { [chat_id]: { rating, comment } }
       reviewMap: {},
 
@@ -487,45 +524,48 @@ export default {
 
   computed: {
     /**
-     * Merge real messages with synthetic "suppressed" entries derived from
-     * turnsBySession.  A suppressed entry is inserted when a session's turns
-     * are ALL suppressed AND no message in conversations carries that session_id
-     * (i.e. nothing was ever sent for that session).
+     * Merge real messages with synthetic per-turn bubbles derived from
+     * turnsBySession.  For every agent session whose session_id is NOT present
+     * in any conversations row (i.e. the AI responses were never persisted as
+     * seller messages), we create ONE synthetic entry per individual turn,
+     * positioned at that turn's own created_at.
      *
-     * The synthetic entry gets:
-     *   _type: 'suppressed'
-     *   _key:  'suppressed-<sessionId>'
+     * Each entry:
+     *   _type:      'turn-bubble'
+     *   _key:       'turn-<turn.id>'
      *   _sessionId: sessionId
-     *   _turns: [...all turns for that session]
-     *   _time:  created_at of the first turn (for display)
+     *   _turn:      the individual turn object
+     *   _sortTime:  turn.created_at  (for chronological sorting)
      */
     mergedTimeline() {
       const msgs = this.messages || []
       const bySession = this.turnsBySession || {}
 
-      // Collect session_ids that are already represented in real messages
+      // Collect session_ids already represented in real conversations rows
       const representedSessions = new Set(msgs.map(m => m.session_id).filter(Boolean))
 
-      // Build synthetic suppressed entries for sessions NOT in messages
-      const suppressedEntries = []
+      // One synthetic entry per turn (not per session)
+      const turnEntries = []
       for (const [sessionId, turns] of Object.entries(bySession)) {
         if (representedSessions.has(sessionId)) continue
         if (!turns || turns.length === 0) continue
-        suppressedEntries.push({
-          _type: 'suppressed',
-          _key: `suppressed-${sessionId}`,
-          _sessionId: sessionId,
-          _turns: turns,
-          _time: turns[0] && turns[0].created_at ? turns[0].created_at : null,
-        })
+        for (const turn of turns) {
+          turnEntries.push({
+            _type: 'turn-bubble',
+            _key: `turn-${turn.id}`,
+            _sessionId: sessionId,
+            _turn: turn,
+            _sortTime: turn.created_at || '',
+          })
+        }
       }
 
-      if (suppressedEntries.length === 0) return msgs
+      if (turnEntries.length === 0) return msgs
 
-      // Merge: sort all items by time
+      // Merge and sort by time
       const combined = [
         ...msgs.map(m => ({ ...m, _sortTime: m.created_at || '' })),
-        ...suppressedEntries.map(e => ({ ...e, _sortTime: e._time || '' })),
+        ...turnEntries,
       ]
       combined.sort((a, b) => {
         if (a._sortTime < b._sortTime) return -1
@@ -548,7 +588,7 @@ export default {
     async loadList() {
       this.loadingList = true
       try {
-        const data = await fetchRecentConversations(this.pageSize, this.offset)
+        const data = await fetchRecentConversations(this.pageSize, this.offset, this.filterDate || null)
         this.sessions = data.items || []
         this.totalSessions = data.total || 0
         // Fetch reviews for all visible sessions
@@ -635,6 +675,12 @@ export default {
       this.loadList()
     },
 
+    onDateChange(val) {
+      this.filterDate = val
+      this.offset = 0   // reset to first page on filter change
+      this.loadList()
+    },
+
     // ── Per-turn review helpers ────────────────────────────────────
 
     getTurnReview(sessionId, turnId) {
@@ -702,7 +748,7 @@ export default {
     },
 
     msgClass(msg) {
-      if (msg._type === 'suppressed') return 'msg-suppressed'
+      if (msg._type === 'turn-bubble') return 'msg-suppressed'
       if (msg.message_type === 'user') return 'msg-user'
       if (msg.message_type === 'seller' && msg.agent_response) return 'msg-ai'
       if (msg.message_type === 'seller') return 'msg-human'
@@ -876,6 +922,24 @@ export default {
 .review-icon-up  { filter: none; }
 .review-icon-down { filter: none; }
 
+.badge-turns {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: #f9f0ff;
+  color: #722ed1;
+  border: 1px solid #d3adf7;
+}
+.badge-suppressed-turns {
+  background: #fff2f0;
+  color: #cf1322;
+  border-color: #ffccc7;
+}
+
 .session-card-meta {
   display: flex;
   gap: 1rem;
@@ -893,6 +957,42 @@ export default {
 }
 .snippet-label { color: #aaa; margin-right: 0.25rem; }
 .session-card-time { font-size: 0.75rem; color: #bbb; margin-top: 0.3rem; text-align: right; }
+
+/* ── Filter bar ── */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+.filter-label {
+  font-size: 0.85rem;
+  color: #555;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.filter-date-input {
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 0.85rem;
+  color: #333;
+  background: #fff;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.filter-date-input:focus { border-color: #1890ff; }
+.filter-clear-btn { padding: 4px 10px; font-size: 0.8rem; }
+.filter-active-hint {
+  font-size: 0.78rem;
+  color: #1890ff;
+  background: #e6f7ff;
+  border: 1px solid #91d5ff;
+  border-radius: 10px;
+  padding: 2px 10px;
+}
 
 /* ── Pagination ── */
 .pagination {

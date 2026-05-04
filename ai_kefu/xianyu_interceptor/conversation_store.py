@@ -684,28 +684,40 @@ class ConversationStore:
     def get_recent_conversations(
         self,
         limit: int = 10,
-        offset: int = 0
+        offset: int = 0,
+        date: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Get summary of recent conversations with pagination.
-        
+
         Args:
             limit: Number of conversations to return
             offset: Number of conversations to skip
-            
+            date: Optional ISO date string 'YYYY-MM-DD'; when given, only return
+                  conversations that have at least one message on that day.
+
         Returns:
             Dict with 'items' (list of conversation summaries) and 'total' count
         """
         try:
             conn = self._get_connection()
-            
-            # Get total count
-            count_sql = """
+
+            # Build optional WHERE clause for date filtering
+            where_clause = ""
+            count_params: list = []
+            query_params: list = []
+            if date:
+                where_clause = "WHERE DATE(c.created_at) = %s"
+                count_params = [date]
+                query_params = [date]
+
+            count_sql = f"""
                 SELECT COUNT(DISTINCT chat_id) as total
-                FROM conversations
+                FROM conversations c
+                {where_clause}
             """
-            
-            sql = """
+
+            sql = f"""
                 SELECT
                     c.chat_id,
                     MAX(c.user_id) as user_id,
@@ -717,18 +729,29 @@ class ConversationStore:
                     SUM(CASE WHEN c.agent_response IS NOT NULL THEN 1 ELSE 0 END) as ai_replies,
                     SUM(CASE WHEN c.agent_response LIKE '【调试】%%' THEN 1 ELSE 0 END) as debug_replies,
                     MIN(c.created_at) as first_message_at,
-                    MAX(c.created_at) as last_message_at
+                    MAX(c.created_at) as last_message_at,
+                    COALESCE(at_counts.turn_count, 0) as agent_turn_count,
+                    COALESCE(at_counts.suppressed_count, 0) as suppressed_turn_count
                 FROM conversations c
+                LEFT JOIN (
+                    SELECT chat_id,
+                           COUNT(*) as turn_count,
+                           SUM(CASE WHEN response_suppressed = 1 THEN 1 ELSE 0 END) as suppressed_count
+                    FROM agent_turns
+                    WHERE chat_id IS NOT NULL
+                    GROUP BY chat_id
+                ) at_counts ON at_counts.chat_id = c.chat_id
+                {where_clause}
                 GROUP BY c.chat_id
                 ORDER BY MAX(c.created_at) DESC
                 LIMIT %s OFFSET %s
             """
-            
+
             with conn.cursor() as cursor:
-                cursor.execute(count_sql)
+                cursor.execute(count_sql, count_params)
                 total = cursor.fetchone()['total']
-                
-                cursor.execute(sql, (limit, offset))
+
+                cursor.execute(sql, query_params + [limit, offset])
                 rows = cursor.fetchall()
                 
                 # Get latest message content for each conversation
