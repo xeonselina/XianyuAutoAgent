@@ -122,7 +122,8 @@
       "Read(//opt/homebrew/bin/**)",
       "Read(//usr/local/bin/**)",
       "Bash(pip show *)",
-      "Bash(pip install *)"
+      "Bash(pip install *)",
+      "WebSearch"
     ]
   }
 }

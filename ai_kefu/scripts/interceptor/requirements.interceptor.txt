@@ -15,6 +15,7 @@ pydantic-settings==2.1.0
 
 # 浏览器自动化（闲鱼消息拦截核心）
 playwright>=1.40.0
+playwright-stealth>=2.0.0
 
 # 数据库（对话持久化）
 pymysql==1.1.0
