@@ -1,0 +1,217 @@
+<!-- Device Lifecycle Management Modal -->
+<div id="deviceLifecycleModal" class="modal fade" tabindex="-1" role="dialog" aria-labelledby="deviceLifecycleModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title" id="deviceLifecycleModalLabel">
+                    设备生命周期管理
+                </h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            
+            <div class="modal-body">
+                <form id="deviceLifecycleForm">
+                    <!-- Device Info -->
+                    <div class="form-group">
+                        <label for="lifecycleDeviceId">设备 ID</label>
+                        <input type="text" class="form-control" id="lifecycleDeviceId" readonly>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="lifecycleDeviceName">设备名称</label>
+                        <input type="text" class="form-control" id="lifecycleDeviceName" readonly>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="lifecycleDeviceSerial">序列号</label>
+                        <input type="text" class="form-control" id="lifecycleDeviceSerial" readonly>
+                    </div>
+                    
+                    <!-- Current Status -->
+                    <div class="form-group">
+                        <label>当前生命周期状态</label>
+                        <div id="currentLifecycleStatus" class="alert alert-info" role="alert">
+                            <!-- Status badge will be inserted here -->
+                        </div>
+                    </div>
+                    
+                    <!-- Lifecycle Status Selection -->
+                    <div class="form-group">
+                        <label for="lifecycleStatusSelect">变更为新状态 *</label>
+                        <select class="form-control" id="lifecycleStatusSelect" required>
+                            <option value="">-- 请选择状态 --</option>
+                            <option value="active">激活 (Active)</option>
+                            <option value="sold">已销售 (Sold)</option>
+                            <option value="decommissioned">已停用 (Decommissioned)</option>
+                            <option value="damaged">已损坏 (Damaged)</option>
+                            <option value="retired">已退役 (Retired)</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Reason -->
+                    <div class="form-group">
+                        <label for="lifecycleReason">变更原因</label>
+                        <textarea class="form-control" id="lifecycleReason" rows="3" placeholder="输入状态变更的原因..."></textarea>
+                    </div>
+                    
+                    <!-- Impact Notice -->
+                    <div class="alert alert-warning" role="alert">
+                        <strong>⚠️ 影响提示：</strong>
+                        <ul style="margin-bottom: 0; padding-left: 20px;">
+                            <li>将设备标记为 <strong>已销售</strong>、<strong>已停用</strong>、<strong>已损坏</strong> 或 <strong>已退役</strong> 将会：
+                                <ul>
+                                    <li>从租赁统计数据中排除该设备</li>
+                                    <li>防止为该设备创建新的租赁记录</li>
+                                    <li><strong>保留</strong>所有历史租赁数据（不会删除）</li>
+                                </ul>
+                            </li>
+                            <li>只有标记为 <strong>激活</strong> 的设备才能进行新的租赁</li>
+                        </ul>
+                    </div>
+                </form>
+            </div>
+            
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="saveLifecycleStatusBtn">保存变更</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- JavaScript for Device Lifecycle Modal -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Function to open modal with device info
+    window.openDeviceLifecycleModal = function(deviceId, deviceName, serialNumber, currentStatus) {
+        document.getElementById('lifecycleDeviceId').value = deviceId;
+        document.getElementById('lifecycleDeviceName').value = deviceName;
+        document.getElementById('lifecycleDeviceSerial').value = serialNumber;
+        
+        // Set current status badge
+        const statusBadge = getStatusBadge(currentStatus);
+        document.getElementById('currentLifecycleStatus').innerHTML = 
+            `<strong>当前状态:</strong> ${statusBadge}`;
+        
+        // Reset form
+        document.getElementById('lifecycleStatusSelect').value = '';
+        document.getElementById('lifecycleReason').value = '';
+        
+        // Store device ID for later use
+        document.getElementById('deviceLifecycleModal').dataset.deviceId = deviceId;
+        
+        // Show modal
+        $('#deviceLifecycleModal').modal('show');
+    };
+    
+    // Function to get status badge HTML
+    function getStatusBadge(status) {
+        const statusColors = {
+            'active': '<span class="badge badge-success">激活 (Active)</span>',
+            'sold': '<span class="badge badge-danger">已销售 (Sold)</span>',
+            'decommissioned': '<span class="badge badge-secondary">已停用 (Decommissioned)</span>',
+            'damaged': '<span class="badge badge-warning">已损坏 (Damaged)</span>',
+            'retired': '<span class="badge badge-info">已退役 (Retired)</span>'
+        };
+        return statusColors[status] || '<span class="badge badge-unknown">未知</span>';
+    }
+    
+    // Save button click handler
+    document.getElementById('saveLifecycleStatusBtn').addEventListener('click', function() {
+        const deviceId = document.getElementById('deviceLifecycleModal').dataset.deviceId;
+        const newStatus = document.getElementById('lifecycleStatusSelect').value;
+        const reason = document.getElementById('lifecycleReason').value;
+        
+        // Validation
+        if (!newStatus) {
+            alert('请选择新的状态');
+            return;
+        }
+        
+        // Show confirmation
+        const currentStatus = document.getElementById('currentLifecycleStatus').textContent;
+        if (!confirm(`确认要将设备状态变更为: ${newStatus}?`)) {
+            return;
+        }
+        
+        // Call API to update lifecycle status
+        updateDeviceLifecycleStatus(deviceId, newStatus, reason);
+    });
+    
+    // Function to update device lifecycle status via API
+    function updateDeviceLifecycleStatus(deviceId, lifecycleStatus, reason) {
+        const url = `/api/devices/${deviceId}/lifecycle`;
+        const data = {
+            lifecycle_status: lifecycleStatus,
+            lifecycle_reason: reason || undefined
+        };
+        
+        fetch(url, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Show success message
+                alert(`成功! 设备已更新为: ${lifecycleStatus}`);
+                
+                // Close modal
+                $('#deviceLifecycleModal').modal('hide');
+                
+                // Refresh the device list or update the current row
+                if (window.location.pathname.includes('/devices')) {
+                    location.reload();
+                } else if (typeof updateDeviceRow === 'function') {
+                    // Update row in table if function exists
+                    updateDeviceRow(deviceId, data.data);
+                }
+            } else {
+                alert(`错误: ${data.error}`);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('发生错误: ' + error.message);
+        });
+    }
+    
+    // Expose function for getting lifecycle summary
+    window.getDeviceLifecycleSummary = function() {
+        fetch('/api/devices/lifecycle/summary')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log('Device Lifecycle Summary:', data.data);
+                    return data.data;
+                }
+            })
+            .catch(error => console.error('Error fetching summary:', error));
+    };
+});
+</script>
+
+<style>
+#deviceLifecycleModal .modal-header {
+    border-bottom: 2px solid #ffc107;
+}
+
+#deviceLifecycleModal .alert-warning ul {
+    margin: 0;
+}
+
+#deviceLifecycleModal .alert-warning li {
+    margin-bottom: 5px;
+}
+
+.badge-success { background-color: #28a745; color: white; }
+.badge-danger { background-color: #dc3545; color: white; }
+.badge-secondary { background-color: #6c757d; color: white; }
+.badge-warning { background-color: #ffc107; color: #000; }
+.badge-info { background-color: #17a2b8; color: white; }
+</style>

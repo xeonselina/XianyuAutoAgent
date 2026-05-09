@@ -242,3 +242,201 @@ def delete_device(device_id):
         }), 500
 
 
+
+
+# ==================== Device Lifecycle Management Endpoints ====================
+
+@bp.route('/api/devices/<device_id>/lifecycle', methods=['PUT'])
+def update_device_lifecycle(device_id):
+    """更新设备生命周期状态"""
+    try:
+        device = Device.query.get(device_id)
+        if not device:
+            return jsonify({
+                'success': False,
+                'error': '设备不存在'
+            }), 404
+        
+        data = request.get_json()
+        
+        # 验证必填字段
+        if 'lifecycle_status' not in data:
+            return jsonify({
+                'success': False,
+                'error': '缺少必填字段: lifecycle_status'
+            }), 400
+        
+        new_status = data['lifecycle_status']
+        reason = data.get('lifecycle_reason')
+        
+        # 使用模型方法设置生命周期状态
+        success, message = device.set_lifecycle_status(new_status, reason)
+        
+        if not success:
+            return jsonify({
+                'success': False,
+                'error': message
+            }), 400
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': message,
+            'data': {
+                'id': device.id,
+                'name': device.name,
+                'lifecycle_status': device.lifecycle_status,
+                'lifecycle_reason': device.lifecycle_reason,
+                'lifecycle_date': device.lifecycle_date.isoformat() if device.lifecycle_date else None,
+                'is_in_service': device.is_in_service(),
+                'is_excluded_from_statistics': device.is_excluded_from_statistics()
+            }
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"更新设备生命周期状态失败: {e}")
+        return jsonify({
+            'success': False,
+            'error': '更新设备生命周期状态失败'
+        }), 500
+
+
+@bp.route('/api/devices/<device_id>/mark-sold', methods=['PUT'])
+def mark_device_sold(device_id):
+    """快速标记设备为已销售"""
+    try:
+        device = Device.query.get(device_id)
+        if not device:
+            return jsonify({
+                'success': False,
+                'error': '设备不存在'
+            }), 404
+        
+        data = request.get_json() or {}
+        reason = data.get('reason', '设备已销售')
+        
+        if device.mark_as_sold(reason):
+            device.updated_at = datetime.utcnow()
+            db.session.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': '设备已成功标记为销售',
+                'data': {
+                    'id': device.id,
+                    'name': device.name,
+                    'lifecycle_status': device.lifecycle_status,
+                    'lifecycle_reason': device.lifecycle_reason,
+                    'lifecycle_date': device.lifecycle_date.isoformat() if device.lifecycle_date else None
+                }
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': '设备已处于已销售状态'
+            }), 400
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"标记设备为销售失败: {e}")
+        return jsonify({
+            'success': False,
+            'error': '标记设备为销售失败'
+        }), 500
+
+
+@bp.route('/api/devices/lifecycle/summary', methods=['GET'])
+def get_lifecycle_summary():
+    """获取设备生命周期状态汇总"""
+    try:
+        # 按生命周期状态统计
+        stats = Device.query.with_entities(
+            Device.lifecycle_status,
+            db.func.count(Device.id).label('count')
+        ).group_by(Device.lifecycle_status).all()
+        
+        summary = {
+            'active': 0,
+            'sold': 0,
+            'decommissioned': 0,
+            'damaged': 0,
+            'retired': 0,
+            'total': 0
+        }
+        
+        for status, count in stats:
+            summary[status] = count
+            summary['total'] += count
+        
+        # 计算在服务中的设备
+        active_devices = Device.query.filter(
+            Device.lifecycle_status == 'active',
+            Device.status == 'online'
+        ).count()
+        
+        # 计算应从统计中排除的设备
+        excluded_devices = Device.query.filter(
+            Device.lifecycle_status.in_(['sold', 'decommissioned', 'damaged', 'retired'])
+        ).count()
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'lifecycle_status_summary': summary,
+                'active_and_online': active_devices,
+                'excluded_from_statistics': excluded_devices,
+                'available_for_rental': active_devices
+            }
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"获取生命周期汇总失败: {e}")
+        return jsonify({
+            'success': False,
+            'error': '获取生命周期汇总失败'
+        }), 500
+
+
+@bp.route('/api/devices/lifecycle/list', methods=['GET'])
+def get_devices_by_lifecycle_status():
+    """按生命周期状态过滤获取设备列表"""
+    try:
+        # 获取查询参数
+        status = request.args.get('status', 'all')  # all, active, sold, decommissioned, damaged, retired
+        
+        # 构建查询
+        query = Device.query
+        
+        if status != 'all':
+            valid_statuses = ['active', 'sold', 'decommissioned', 'damaged', 'retired']
+            if status not in valid_statuses:
+                return jsonify({
+                    'success': False,
+                    'error': f'无效的生命周期状态。有效值: {", ".join(valid_statuses)}'
+                }), 400
+            query = query.filter(Device.lifecycle_status == status)
+        
+        devices = query.order_by(Device.lifecycle_date.desc().nullsfirst(), Device.created_at.desc()).all()
+        
+        device_list = []
+        for device in devices:
+            device_info = device.to_dict()
+            device_info['is_in_service'] = device.is_in_service()
+            device_info['is_excluded_from_statistics'] = device.is_excluded_from_statistics()
+            device_list.append(device_info)
+        
+        return jsonify({
+            'success': True,
+            'data': device_list,
+            'total': len(device_list),
+            'filter': status
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"获取设备列表失败: {e}")
+        return jsonify({
+            'success': False,
+            'error': '获取设备列表失败'
+        }), 500

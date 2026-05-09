@@ -26,9 +26,23 @@ X200U_PURCHASE_DATE = date(2025, 8, 1)
 
 
 def _get_excluded_device_ids_from_db():
-    """返回需要排除的设备 ID 集合（按 name 字段匹配编号）"""
-    excluded = Device.query.filter(Device.name.in_(EXCLUDED_DEVICE_NAMES)).all()
-    return {d.id for d in excluded}
+    """返回需要排除的设备 ID 集合
+    
+    包括两类设备：
+    1. 按名称匹配的硬编码列表（EXCLUDED_DEVICE_NAMES）- 向后兼容
+    2. 生命周期状态为非活动的设备（sold, decommissioned, damaged, retired）
+    """
+    # 1. 获取硬编码排除列表中的设备
+    excluded_by_name = Device.query.filter(Device.name.in_(EXCLUDED_DEVICE_NAMES)).all()
+    excluded_ids = {d.id for d in excluded_by_name}
+    
+    # 2. 获取生命周期状态为非活动的设备
+    excluded_by_lifecycle = Device.query.filter(
+        Device.lifecycle_status.in_(['sold', 'decommissioned', 'damaged', 'retired'])
+    ).all()
+    excluded_ids.update({d.id for d in excluded_by_lifecycle})
+    
+    return excluded_ids
 
 
 def _get_model_id_by_name(model_name: str):
