@@ -1,0 +1,212 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - heading "Superpowers Brainstorming" [level=1] [ref=e3]:
+      - link "Superpowers Brainstorming" [ref=e4] [cursor=pointer]:
+        - /url: https://github.com/obra/superpowers
+    - generic [ref=e5]: Connected
+  - generic [ref=e7]:
+    - heading "移动端完整设计方案" [level=2] [ref=e8]
+    - paragraph [ref=e9]: 选定方案：固定 14 天压缩甘特图 + 底部抽屉详情 + Vant 4
+    - generic [ref=e10]:
+      - generic [ref=e11]:
+        - paragraph [ref=e12]: ① 甘特图主页
+        - generic [ref=e15]:
+          - generic [ref=e16]:
+            - generic [ref=e17]: 9:41
+            - generic [ref=e18]: ●●●
+          - generic [ref=e19]:
+            - generic [ref=e20]:
+              - generic [ref=e21]: 5月
+              - generic [ref=e22]: "2026"
+            - generic [ref=e23]:
+              - generic [ref=e24]: ← 上周
+              - generic [ref=e25]: 今天
+              - generic [ref=e26]: 下周 →
+            - generic [ref=e27]: ＋
+          - generic [ref=e28]:
+            - generic [ref=e29]: 可用 3
+            - generic [ref=e30]: 发出 2
+            - generic [ref=e31]: 归还 1
+            - generic [ref=e32]:
+              - generic [ref=e33]: 筛选
+              - generic [ref=e34]: 搜索
+          - generic [ref=e35]:
+            - generic [ref=e36]:
+              - generic [ref=e37]: 设备
+              - generic [ref=e38]:
+                - generic [ref=e39]:
+                  - text: "19"
+                  - text: 今
+                - generic [ref=e40]:
+                  - text: "20"
+                  - text: 三
+                - generic [ref=e41]:
+                  - text: "21"
+                  - text: 四
+                - generic [ref=e42]:
+                  - text: "22"
+                  - text: 五
+                - generic [ref=e43]:
+                  - text: "23"
+                  - text: 六
+                - generic [ref=e44]:
+                  - text: "24"
+                  - text: 日
+                - generic [ref=e45]:
+                  - text: "25"
+                  - text: 一
+                - generic [ref=e46]:
+                  - text: "26"
+                  - text: 二
+                - generic [ref=e47]:
+                  - text: "27"
+                  - text: 三
+                - generic [ref=e48]:
+                  - text: "28"
+                  - text: 四
+                - generic [ref=e49]:
+                  - text: "29"
+                  - text: 五
+                - generic [ref=e50]:
+                  - text: "30"
+                  - text: 六
+                - generic [ref=e51]:
+                  - text: "31"
+                  - text: 日
+                - generic [ref=e52]:
+                  - text: 6/1
+                  - text: 一
+            - generic [ref=e53]:
+              - generic [ref=e54]:
+                - generic [ref=e55]: iPhone 15P
+                - generic [ref=e56]: A001
+              - generic [ref=e58]: 张三
+            - generic [ref=e59]:
+              - generic [ref=e60]:
+                - generic [ref=e61]: iPhone 14
+                - generic [ref=e62]: A002
+              - generic [ref=e64]: 李四
+            - generic [ref=e65]:
+              - generic [ref=e66]:
+                - generic [ref=e67]: iPad Pro
+                - generic [ref=e68]: B001
+              - generic [ref=e70]: 空闲
+            - generic [ref=e71]:
+              - generic [ref=e72]:
+                - generic [ref=e73]: MacBook P
+                - generic [ref=e74]: C001
+              - generic [ref=e76]: 王五 (长租)
+            - generic [ref=e77]:
+              - generic [ref=e78]:
+                - generic [ref=e79]: DJI Mini 4
+                - generic [ref=e80]: D001
+              - generic [ref=e81]:
+                - generic [ref=e82]: 赵
+                - generic [ref=e83]: 钱
+            - generic [ref=e84]:
+              - generic [ref=e85]:
+                - generic [ref=e86]: Sony A7M5
+                - generic [ref=e87]: E001
+              - generic [ref=e89]: 孙六
+            - generic [ref=e90]:
+              - generic [ref=e91]:
+                - generic [ref=e92]: Nikon Z6III
+                - generic [ref=e93]: E002
+              - generic [ref=e95]: 空闲
+          - generic [ref=e96]:
+            - generic [ref=e97]:
+              - generic [ref=e98]: 📅
+              - generic [ref=e99]: 甘特图
+            - generic [ref=e100]:
+              - generic [ref=e101]: 📦
+              - generic [ref=e102]: 批量发货
+      - generic [ref=e103]:
+        - paragraph [ref=e104]: ② 点击租赁条 → 底部抽屉
+        - generic [ref=e107]:
+          - generic [ref=e108]:
+            - generic [ref=e109]: 9:41
+            - generic [ref=e110]: ●●●
+          - generic [ref=e115]: iPhone 15P
+          - generic [ref=e122]:
+            - generic [ref=e125]:
+              - generic [ref=e126]:
+                - generic [ref=e127]: iPhone 15 Pro · A001
+                - generic [ref=e128]: 张三
+              - generic [ref=e129]: 租赁中
+            - generic [ref=e130]:
+              - generic [ref=e131]:
+                - generic [ref=e132]: 租赁日期
+                - generic [ref=e133]: 5/19 → 5/22
+              - generic [ref=e134]:
+                - generic [ref=e135]: 收货地址
+                - generic [ref=e136]: 上海市浦东新区陆家嘴
+              - generic [ref=e137]:
+                - generic [ref=e138]: 发出运单
+                - generic [ref=e139]: SF1234567890
+              - generic [ref=e140]:
+                - generic [ref=e141]: 归还运单
+                - generic [ref=e142]: — 待填写 —
+              - generic [ref=e143]:
+                - generic [ref=e144]: 闲鱼订单
+                - generic [ref=e145]: "#4620857138"
+            - generic [ref=e146]:
+              - generic [ref=e147]: 编辑
+              - generic [ref=e148]: 合同
+              - generic [ref=e149]: 删除
+      - generic [ref=e150]:
+        - paragraph [ref=e151]: ③ 批量发货页
+        - generic [ref=e154]:
+          - generic [ref=e155]:
+            - generic [ref=e156]: 9:41
+            - generic [ref=e157]: ●●●
+          - generic [ref=e159]: 批量发货
+          - generic [ref=e160]:
+            - generic [ref=e161]: 5/19
+            - generic [ref=e162]: 至
+            - generic [ref=e163]: 5/20
+            - generic [ref=e164]: 查询
+          - generic [ref=e165]:
+            - generic [ref=e166]: 共 3 单，已选 1
+            - generic [ref=e167]: 全选
+          - generic [ref=e169]:
+            - generic [ref=e170]:
+              - generic [ref=e172]: ✓
+              - generic [ref=e173]:
+                - generic [ref=e174]: iPhone 15 Pro · 张三
+                - generic [ref=e175]: "发货日: 5/19 · 上海浦东新区陆家嘴"
+              - generic [ref=e176]: 待发货
+            - generic [ref=e177]: 📦 运单号：— 待填写
+          - generic [ref=e179]:
+            - generic [ref=e180]:
+              - generic [ref=e182]:
+                - generic [ref=e183]: MacBook Pro · 李四
+                - generic [ref=e184]: "发货日: 5/19 · 北京市朝阳区"
+              - generic [ref=e185]: 已预约
+            - generic [ref=e186]: 📦 SF9876543210
+          - generic [ref=e189]:
+            - generic [ref=e191]:
+              - generic [ref=e192]: iPad Pro · 王五
+              - generic [ref=e193]: 5/19 · SF1122334455
+            - generic [ref=e194]: 已发货
+          - generic [ref=e195]:
+            - generic [ref=e196]:
+              - generic [ref=e197]:
+                - generic [ref=e198]: 📅
+                - generic [ref=e199]: 甘特图
+              - generic [ref=e200]:
+                - generic [ref=e201]: 📦
+                - generic [ref=e202]: 批量发货
+            - generic [ref=e203]:
+              - generic [ref=e204]: 预约发货 (1)
+              - generic [ref=e205]: 打印面单 (1)
+    - generic [ref=e206]:
+      - paragraph [ref=e207]: 方案确认 · 选定设计
+      - list [ref=e208]:
+        - listitem [ref=e209]: 甘特图：固定 14 天压缩格 · 左侧设备列 56px · 每格 ≈ (屏幕宽-56)/14 px
+        - listitem [ref=e210]: 详情：点击租赁条 → Vant Popup bottom-sheet · 背景遮罩 · 展示完整租赁信息
+        - listitem [ref=e211]: 批量发货：卡片列表 + 全选 + 底部操作栏 · 支持预约发货 / 打印面单
+        - listitem [ref=e212]: 框架：Vant 4 · Vue 3 + TypeScript · 独立 frontend-mobile/ app
+        - listitem [ref=e213]: 导航：底部 2-Tab（甘特图 | 批量发货）
+        - listitem [ref=e214]: E2E：Playwright · iPhone 14 390×844 viewport
+    - paragraph [ref=e215]: ✅ 这是完整设计方案。请确认，或在终端提出修改意见
+  - generic [ref=e216]: Click an option above, then return to the terminal
