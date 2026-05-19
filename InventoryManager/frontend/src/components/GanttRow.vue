@@ -101,7 +101,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, defineAsyncComponent, onUnmounted } from 'vue'
+import { ref, computed, defineAsyncComponent, onUnmounted, type CSSProperties } from 'vue'
 import type { Device, Rental } from '../stores/gantt'
 import {
   toDateString,
@@ -365,7 +365,7 @@ const getRentalStyle = (rental: Rental, date: Date) => {
 }
 
 // NEW: 计算物流期间的叠加样式
-const getRentalShipOverlayStyle = (rental: Rental, date: Date) => {
+const getRentalShipOverlayStyle = (rental: Rental, date: Date): CSSProperties => {
   if (!rental.ship_out_time || !rental.ship_in_time) {
     return {}
   }
@@ -415,8 +415,8 @@ const getRentalShipOverlayStyle = (rental: Rental, date: Date) => {
     opacity: '0.4',
     borderRadius: '4px',
     zIndex: 0,
-    pointerEvents: 'none'
-  }
+    pointerEvents: 'none' as const
+  } as CSSProperties
 }
 
 // 生成随机颜色的函数
