@@ -1,0 +1,185 @@
+<h2>移动端甘特图：布局方式</h2>
+<p class="subtitle">核心问题：在 iPhone 的小屏幕上，如何呈现甘特图？</p>
+
+<div class="cards">
+
+  <!-- Option A -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8f9ff;padding:12px;">
+      <div style="display:flex;gap:0;border:1.5px solid #c0c4cc;border-radius:8px;overflow:hidden;font-size:10px;">
+        <!-- Sticky device column -->
+        <div style="min-width:70px;background:#f0f2f5;border-right:2px solid #c0c4cc;">
+          <div style="padding:4px 6px;font-weight:700;background:#e4e7ed;border-bottom:1px solid #c0c4cc;font-size:9px;color:#606266;">设备</div>
+          <div style="padding:3px 6px;border-bottom:1px solid #eee;color:#303133;">iPhone 15</div>
+          <div style="padding:3px 6px;border-bottom:1px solid #eee;color:#303133;">iPhone 14</div>
+          <div style="padding:3px 6px;border-bottom:1px solid #eee;color:#303133;">iPad Pro</div>
+          <div style="padding:3px 6px;color:#303133;">MacBook</div>
+        </div>
+        <!-- Scrollable timeline area -->
+        <div style="flex:1;overflow:hidden;position:relative;">
+          <div style="display:flex;background:#e4e7ed;border-bottom:1px solid #c0c4cc;">
+            <div style="min-width:30px;text-align:center;padding:2px 0;font-size:8px;color:#606266;border-right:1px solid #ddd;">5/19<br><span style="color:#409eff;">今</span></div>
+            <div style="min-width:30px;text-align:center;padding:2px 0;font-size:8px;color:#606266;border-right:1px solid #ddd;">5/20<br>二</div>
+            <div style="min-width:30px;text-align:center;padding:2px 0;font-size:8px;color:#606266;border-right:1px solid #ddd;">5/21<br>三</div>
+            <div style="min-width:30px;text-align:center;padding:2px 0;font-size:8px;color:#606266;border-right:1px solid #ddd;">5/22<br>四</div>
+            <div style="min-width:30px;text-align:center;padding:2px 0;font-size:8px;color:#606266;">5/23<br>五</div>
+          </div>
+          <!-- Row 1 -->
+          <div style="display:flex;align-items:center;border-bottom:1px solid #eee;height:22px;position:relative;">
+            <div style="min-width:30px;height:22px;border-right:1px solid #eee;"></div>
+            <div style="position:absolute;left:30px;width:90px;height:14px;top:4px;background:#409eff;border-radius:3px;font-size:8px;color:#fff;padding:0 3px;line-height:14px;">张三 →5/22</div>
+          </div>
+          <!-- Row 2 -->
+          <div style="display:flex;align-items:center;border-bottom:1px solid #eee;height:22px;position:relative;">
+            <div style="min-width:30px;height:22px;border-right:1px solid #eee;"></div>
+            <div style="min-width:30px;height:22px;border-right:1px solid #eee;background:#f5f7fa;"></div>
+            <div style="position:absolute;left:60px;width:60px;height:14px;top:4px;background:#67c23a;border-radius:3px;font-size:8px;color:#fff;padding:0 3px;line-height:14px;">李四</div>
+          </div>
+          <!-- Row 3 -->
+          <div style="display:flex;align-items:center;border-bottom:1px solid #eee;height:22px;position:relative;">
+            <div style="background:#f5f7fa;min-width:150px;height:22px;border-right:1px solid #eee;display:flex;align-items:center;padding-left:4px;font-size:8px;color:#909399;">空闲</div>
+          </div>
+          <!-- Row 4 -->
+          <div style="display:flex;align-items:center;height:22px;position:relative;">
+            <div style="min-width:30px;height:22px;border-right:1px solid #eee;"></div>
+            <div style="position:absolute;left:0;width:120px;height:14px;top:4px;background:#e6a23c;border-radius:3px;font-size:8px;color:#fff;padding:0 3px;line-height:14px;">王五 5/19-5/23</div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:8px;display:flex;justify-content:center;gap:4px;">
+        <div style="font-size:9px;color:#909399;">👈 左右滑动查看更多日期</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A · 横向滚动甘特图</h3>
+      <p>左侧设备列固定，右侧时间轴可左右滑动。一次显示约 5-7 天，手势滑动切换日期范围，最多可查看 14 天+。与 PC 版结构完全一致，用户学习成本低。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优点</h4><ul><li>与 PC 版体验一致</li><li>信息密度高</li><li>横向滑动直觉性强</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>每格较窄，操作精度要求高</li><li>需要精细的触摸优化</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option B -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8f9ff;padding:12px;">
+      <!-- iPhone frame mockup - device cards -->
+      <div style="border:1.5px solid #c0c4cc;border-radius:8px;overflow:hidden;font-size:10px;max-width:200px;margin:0 auto;">
+        <!-- Date strip at top -->
+        <div style="background:#409eff;padding:4px 8px;color:#fff;font-size:9px;font-weight:700;display:flex;justify-content:space-between;">
+          <span>← 上周</span>
+          <span>5月19日 - 6月1日</span>
+          <span>下周 →</span>
+        </div>
+        <!-- Mini timeline header -->
+        <div style="display:flex;background:#e4e7ed;border-bottom:1px solid #c0c4cc;">
+          <div style="width:55px;padding:2px 4px;font-size:8px;color:#606266;border-right:1px solid #ddd;">设备</div>
+          <div style="flex:1;display:flex;">
+            <div style="flex:1;text-align:center;font-size:7px;color:#f56c6c;border-right:1px solid #ddd;">19</div>
+            <div style="flex:1;text-align:center;font-size:7px;color:#606266;border-right:1px solid #ddd;">20</div>
+            <div style="flex:1;text-align:center;font-size:7px;color:#606266;border-right:1px solid #ddd;">21</div>
+            <div style="flex:1;text-align:center;font-size:7px;color:#606266;border-right:1px solid #ddd;">22</div>
+            <div style="flex:1;text-align:center;font-size:7px;color:#606266;border-right:1px solid #ddd;">23</div>
+            <div style="flex:1;text-align:center;font-size:7px;color:#606266;border-right:1px solid #ddd;">24</div>
+            <div style="flex:1;text-align:center;font-size:7px;color:#606266;">25</div>
+          </div>
+        </div>
+        <!-- Device rows -->
+        <div style="display:flex;border-bottom:1px solid #eee;align-items:center;height:20px;">
+          <div style="width:55px;padding:1px 4px;font-size:8px;color:#303133;border-right:1px solid #ddd;white-space:nowrap;overflow:hidden;">iPhone15</div>
+          <div style="flex:1;display:flex;position:relative;height:20px;">
+            <div style="position:absolute;left:0;right:0;height:12px;top:4px;background:#409eff;border-radius:2px;font-size:7px;color:#fff;padding:0 2px;line-height:12px;overflow:hidden;">张三</div>
+          </div>
+        </div>
+        <div style="display:flex;border-bottom:1px solid #eee;align-items:center;height:20px;">
+          <div style="width:55px;padding:1px 4px;font-size:8px;color:#303133;border-right:1px solid #ddd;white-space:nowrap;overflow:hidden;">iPhone14</div>
+          <div style="flex:1;display:flex;position:relative;height:20px;">
+            <div style="flex:2;"></div>
+            <div style="position:absolute;left:28%;right:0;height:12px;top:4px;background:#67c23a;border-radius:2px;font-size:7px;color:#fff;padding:0 2px;line-height:12px;overflow:hidden;">李四</div>
+          </div>
+        </div>
+        <div style="display:flex;border-bottom:1px solid #eee;align-items:center;height:20px;">
+          <div style="width:55px;padding:1px 4px;font-size:8px;color:#303133;border-right:1px solid #ddd;white-space:nowrap;overflow:hidden;">iPad Pro</div>
+          <div style="flex:1;background:#f5f7fa;display:flex;align-items:center;padding-left:4px;font-size:7px;color:#c0c4cc;">空闲</div>
+        </div>
+        <div style="display:flex;align-items:center;height:20px;">
+          <div style="width:55px;padding:1px 4px;font-size:8px;color:#303133;border-right:1px solid #ddd;white-space:nowrap;overflow:hidden;">MacBook</div>
+          <div style="flex:1;display:flex;position:relative;height:20px;">
+            <div style="position:absolute;left:0;width:70%;height:12px;top:4px;background:#e6a23c;border-radius:2px;font-size:7px;color:#fff;padding:0 2px;line-height:12px;overflow:hidden;">王五</div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:8px;text-align:center;font-size:9px;color:#909399;">固定 2 周视图（14天），点击格子查看详情</div>
+    </div>
+    <div class="card-body">
+      <h3>B · 固定 2 周压缩视图</h3>
+      <p>始终显示固定的 14 天范围，每格宽度压缩但内容可见。设备名称列较窄，日期格均等分配屏幕宽度。点击租赁条查看详情弹窗。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优点</h4><ul><li>满足"至少 2 周"需求</li><li>无需横向滚动</li><li>一屏看全所有时间</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>每格极窄，文字显示受限</li><li>点击精度差</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option C -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8f9ff;padding:12px;">
+      <div style="border:1.5px solid #c0c4cc;border-radius:8px;overflow:hidden;font-size:10px;max-width:200px;margin:0 auto;">
+        <!-- Top nav -->
+        <div style="background:#303133;padding:4px 8px;color:#fff;font-size:9px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="color:#409eff;">← 5/12</span>
+          <span style="font-weight:700;">5/19 周一</span>
+          <span style="color:#409eff;">5/26 →</span>
+        </div>
+        <!-- Day column: show devices available today -->
+        <div style="background:#fff;">
+          <div style="padding:4px 8px;background:#ecf5ff;border-bottom:1px solid #d9ecff;font-size:9px;color:#409eff;font-weight:600;">📅 5月19日 · 今天 · 需发货 3 台</div>
+          <!-- Device card -->
+          <div style="padding:6px 8px;border-bottom:1px solid #eee;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-weight:600;color:#303133;font-size:10px;">iPhone 15 Pro · A001</span>
+              <span style="background:#e1f3d8;color:#67c23a;font-size:8px;padding:1px 4px;border-radius:3px;">发货日</span>
+            </div>
+            <div style="color:#606266;font-size:8px;margin-top:2px;">张三 · 上海市浦东新区...</div>
+            <div style="display:flex;gap:4px;margin-top:3px;">
+              <span style="font-size:7px;background:#f0f9eb;color:#67c23a;padding:1px 3px;border-radius:2px;">5/19→5/22</span>
+              <span style="font-size:7px;background:#fdf6ec;color:#e6a23c;padding:1px 3px;border-radius:2px;">待发货</span>
+            </div>
+          </div>
+          <div style="padding:6px 8px;border-bottom:1px solid #eee;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-weight:600;color:#303133;font-size:10px;">iPad Pro · B002</span>
+              <span style="background:#fdf6ec;color:#e6a23c;font-size:8px;padding:1px 4px;border-radius:3px;">空闲</span>
+            </div>
+            <div style="color:#c0c4cc;font-size:8px;margin-top:2px;">— 暂无租赁 —</div>
+          </div>
+          <div style="padding:6px 8px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-weight:600;color:#303133;font-size:10px;">MacBook Pro · C003</span>
+              <span style="background:#fef0f0;color:#f56c6c;font-size:8px;padding:1px 4px;border-radius:3px;">租赁中</span>
+            </div>
+            <div style="color:#606266;font-size:8px;margin-top:2px;">王五 · 5/15→5/23</div>
+          </div>
+        </div>
+        <!-- Bottom nav -->
+        <div style="background:#f5f7fa;border-top:1px solid #e4e7ed;display:flex;justify-content:space-around;padding:4px 0;">
+          <div style="text-align:center;font-size:8px;color:#409eff;">📅<br>日程</div>
+          <div style="text-align:center;font-size:8px;color:#909399;">📦<br>发货</div>
+          <div style="text-align:center;font-size:8px;color:#909399;">➕<br>预定</div>
+        </div>
+      </div>
+      <div style="margin-top:8px;text-align:center;font-size:9px;color:#909399;">左右滑动切换日期，列表展示当日所有设备状态</div>
+    </div>
+    <div class="card-body">
+      <h3>C · 日历卡片视图</h3>
+      <p>以「天」为单位展示，顶部切换日期，列表显示每台设备当天状态。滑动切换日期，底部 Tab 栏导航。每个设备信息完整展示，适合移动端操作。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优点</h4><ul><li>信息展示充分</li><li>操作精度高</li><li>更适合手机交互</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>缺乏"一眼看全"的甘特图感</li><li>无法同时对比多天</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:16px;text-align:center;">💡 点击方案进行选择，也可以在终端告诉我你的想法</p>

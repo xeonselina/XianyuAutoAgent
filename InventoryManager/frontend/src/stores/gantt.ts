@@ -44,6 +44,9 @@ export interface Device {
   device_model?: DeviceModel
   is_accessory: boolean
   status: 'online' | 'offline'
+  lifecycle_status: 'active' | 'sold' | 'decommissioned' | 'damaged' | 'retired'
+  lifecycle_reason?: string
+  lifecycle_date?: string
   created_at: string
   updated_at: string
 }
@@ -329,6 +332,27 @@ export const useGanttStore = defineStore('gantt', () => {
     }
   }
 
+  // 更新设备生命周期状态
+  const updateDeviceLifecycle = async (deviceId: number, lifecycleStatus: string, reason?: string) => {
+    try {
+      const response = await axios.put(`/api/devices/${deviceId}/lifecycle`, {
+        lifecycle_status: lifecycleStatus,
+        lifecycle_reason: reason
+      })
+      if (response.data.success) {
+        const device = devices.value.find(d => d.id === deviceId)
+        if (device) {
+          device.lifecycle_status = lifecycleStatus as Device['lifecycle_status']
+        }
+        return response.data
+      } else {
+        throw new Error(response.data.error || '更新生命周期状态失败')
+      }
+    } catch (err: any) {
+      throw new Error(err.response?.data?.error || err.message || '更新生命周期状态失败')
+    }
+  }
+
   // 添加设备
   const addDevice = async (deviceData: {
     name: string;
@@ -388,6 +412,7 @@ export const useGanttStore = defineStore('gantt', () => {
     getRentalById,
     shipRentalToXianyu,
     updateDeviceStatus,
+    updateDeviceLifecycle,
     addDevice
   }
 })

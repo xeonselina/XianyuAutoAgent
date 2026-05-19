@@ -1,0 +1,353 @@
+<h2>移动端完整设计方案（更新版）</h2>
+<p class="subtitle">每个租赁显示双层 Bar · 底部抽屉展示全部 4 个时间 · 按钮仅编辑+删除</p>
+
+<div style="display:flex;gap:24px;flex-wrap:wrap;justify-content:center;align-items:flex-start;margin-top:8px;">
+
+  <!-- Screen 1: Gantt View with dual bars -->
+  <div style="text-align:center;">
+    <p style="font-size:12px;color:#606266;margin-bottom:8px;font-weight:600;">① 甘特图（双层 Bar）</p>
+    <div style="width:220px;background:#1a1a1a;border-radius:36px;padding:12px 8px;box-shadow:0 8px 32px rgba(0,0,0,0.35);display:inline-block;">
+      <div style="width:70px;height:16px;background:#1a1a1a;border-radius:0 0 12px 12px;margin:0 auto 2px;"></div>
+      <div style="background:#f5f7fa;border-radius:24px;overflow:hidden;height:460px;position:relative;">
+
+        <!-- Status bar -->
+        <div style="background:#303133;height:20px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;">
+          <span style="color:#fff;font-size:8px;">9:41</span>
+          <span style="color:#fff;font-size:7px;">●●●</span>
+        </div>
+
+        <!-- Nav bar -->
+        <div style="background:#303133;padding:6px 10px;display:flex;align-items:center;gap:6px;">
+          <div style="flex:1;display:flex;align-items:center;gap:4px;">
+            <div style="background:#409eff;color:#fff;border-radius:4px;padding:2px 6px;font-size:8px;font-weight:600;">5月</div>
+            <span style="color:#fff;font-size:9px;font-weight:700;">2026</span>
+          </div>
+          <div style="display:flex;gap:4px;">
+            <div style="background:#555;color:#ccc;border-radius:3px;padding:2px 5px;font-size:8px;">← 上周</div>
+            <div style="background:#409eff;color:#fff;border-radius:3px;padding:2px 5px;font-size:8px;font-weight:600;">今天</div>
+            <div style="background:#555;color:#ccc;border-radius:3px;padding:2px 5px;font-size:8px;">下周 →</div>
+          </div>
+          <div style="color:#409eff;font-size:8px;">＋</div>
+        </div>
+
+        <!-- Stats row -->
+        <div style="background:#ecf5ff;border-bottom:1px solid #d9ecff;padding:3px 8px;display:flex;gap:8px;">
+          <span style="font-size:7px;color:#409eff;">可用 <b>3</b></span>
+          <span style="font-size:7px;color:#e6a23c;">发出 <b>2</b></span>
+          <span style="font-size:7px;color:#67c23a;">归还 <b>1</b></span>
+          <div style="margin-left:auto;display:flex;gap:4px;">
+            <div style="background:#f5f7fa;border:1px solid #ddd;border-radius:3px;padding:1px 4px;font-size:7px;color:#606266;">筛选</div>
+            <div style="background:#f5f7fa;border:1px solid #ddd;border-radius:3px;padding:1px 4px;font-size:7px;color:#606266;">搜索</div>
+          </div>
+        </div>
+
+        <!-- Legend -->
+        <div style="background:#fff;border-bottom:1px solid #eee;padding:2px 8px;display:flex;gap:8px;align-items:center;">
+          <span style="font-size:6.5px;color:#909399;">图例：</span>
+          <span style="display:inline-flex;align-items:center;gap:2px;">
+            <span style="width:14px;height:5px;background:#409eff;border-radius:1px;display:inline-block;"></span>
+            <span style="font-size:6px;color:#606266;">租赁期</span>
+          </span>
+          <span style="display:inline-flex;align-items:center;gap:2px;">
+            <span style="width:14px;height:4px;background:#a0cfff;border-radius:1px;display:inline-block;opacity:0.8;"></span>
+            <span style="font-size:6px;color:#606266;">物流期</span>
+          </span>
+        </div>
+
+        <!-- Gantt grid -->
+        <div style="overflow-x:hidden;background:#fff;">
+          <!-- Date header -->
+          <div style="display:flex;border-bottom:1px solid #c0c4cc;background:#e4e7ed;position:sticky;top:0;z-index:10;">
+            <div style="min-width:54px;padding:3px 4px;font-size:7px;color:#606266;border-right:2px solid #c0c4cc;font-weight:600;">设备</div>
+            <div style="flex:1;display:flex;">
+              <div style="flex:1;text-align:center;font-size:6.5px;padding:2px 0;border-right:1px solid #ddd;background:#ecf5ff;color:#409eff;font-weight:700;">19<br>今</div>
+              <div style="flex:1;text-align:center;font-size:6.5px;padding:2px 0;border-right:1px solid #ddd;color:#606266;">20</div>
+              <div style="flex:1;text-align:center;font-size:6.5px;padding:2px 0;border-right:1px solid #ddd;color:#606266;">21</div>
+              <div style="flex:1;text-align:center;font-size:6.5px;padding:2px 0;border-right:1px solid #ddd;color:#606266;">22</div>
+              <div style="flex:1;text-align:center;font-size:6.5px;padding:2px 0;border-right:1px solid #ddd;color:#f56c6c;">23</div>
+              <div style="flex:1;text-align:center;font-size:6.5px;padding:2px 0;border-right:1px solid #ddd;color:#f56c6c;">24</div>
+              <div style="flex:1;text-align:center;font-size:6.5px;padding:2px 0;border-right:1px solid #ddd;color:#606266;">25</div>
+              <div style="flex:1;text-align:center;font-size:6.5px;padding:2px 0;border-right:1px solid #ddd;color:#606266;">26</div>
+              <div style="flex:1;text-align:center;font-size:6.5px;padding:2px 0;border-right:1px solid #ddd;color:#606266;">27</div>
+              <div style="flex:1;text-align:center;font-size:6.5px;padding:2px 0;border-right:1px solid #ddd;color:#606266;">28</div>
+              <div style="flex:1;text-align:center;font-size:6.5px;padding:2px 0;border-right:1px solid #ddd;color:#606266;">29</div>
+              <div style="flex:1;text-align:center;font-size:6.5px;padding:2px 0;border-right:1px solid #ddd;color:#f56c6c;">30</div>
+              <div style="flex:1;text-align:center;font-size:6.5px;padding:2px 0;border-right:1px solid #ddd;color:#f56c6c;">31</div>
+              <div style="flex:1;text-align:center;font-size:6.5px;padding:2px 0;color:#606266;">6/1</div>
+            </div>
+          </div>
+
+          <!-- Row 1: iPhone 15P — dual bar: rental 19→22, logistics 18→23 -->
+          <!-- Each row is 34px tall to fit 2 bars (top bar at 4px, bottom bar at 20px) -->
+          <div style="display:flex;border-bottom:1px solid #eee;height:34px;align-items:stretch;">
+            <div style="min-width:54px;padding:2px 4px;font-size:7px;color:#303133;border-right:2px solid #eee;display:flex;flex-direction:column;justify-content:center;line-height:1.2;">
+              <div style="font-weight:600;overflow:hidden;white-space:nowrap;">iPhone15P</div>
+              <div style="color:#909399;font-size:6px;">A001</div>
+            </div>
+            <div style="flex:1;position:relative;height:34px;">
+              <!-- Bar 1 (rental period): start_date 19→end_date 22 = 4/14 = 28.6% -->
+              <div style="position:absolute;left:0%;width:28.6%;height:10px;top:4px;background:#409eff;border-radius:2px;font-size:5.5px;color:#fff;padding:0 2px;line-height:10px;overflow:hidden;white-space:nowrap;">张三 租期</div>
+              <!-- Bar 2 (logistics): ship_out 18→ship_in 24 = straddles left edge, show from 0 width 42.8% -->
+              <div style="position:absolute;left:0%;width:42.8%;height:8px;top:18px;background:#a0cfff;border-radius:2px;opacity:0.85;font-size:5px;color:#336;padding:0 2px;line-height:8px;overflow:hidden;white-space:nowrap;">物流</div>
+            </div>
+          </div>
+
+          <!-- Row 2: iPhone 14 — rental 21→25, no logistics yet -->
+          <div style="display:flex;border-bottom:1px solid #eee;height:34px;align-items:stretch;">
+            <div style="min-width:54px;padding:2px 4px;font-size:7px;color:#303133;border-right:2px solid #eee;display:flex;flex-direction:column;justify-content:center;line-height:1.2;">
+              <div style="font-weight:600;overflow:hidden;white-space:nowrap;">iPhone14</div>
+              <div style="color:#909399;font-size:6px;">A002</div>
+            </div>
+            <div style="flex:1;position:relative;height:34px;">
+              <!-- Bar 1: 21→25 = start at 2/14=14.3%, width 4/14=28.6% -->
+              <div style="position:absolute;left:14.3%;width:28.6%;height:10px;top:4px;background:#e6a23c;border-radius:2px;font-size:5.5px;color:#fff;padding:0 2px;line-height:10px;overflow:hidden;white-space:nowrap;">李四 待发</div>
+              <!-- No ship_out_time yet → no bar 2 -->
+            </div>
+          </div>
+
+          <!-- Row 3: iPad Pro — empty -->
+          <div style="display:flex;border-bottom:1px solid #eee;height:34px;align-items:stretch;">
+            <div style="min-width:54px;padding:2px 4px;font-size:7px;color:#303133;border-right:2px solid #eee;display:flex;flex-direction:column;justify-content:center;line-height:1.2;">
+              <div style="font-weight:600;">iPad Pro</div>
+              <div style="color:#909399;font-size:6px;">B001</div>
+            </div>
+            <div style="flex:1;position:relative;height:34px;background:#fafafa;">
+              <span style="position:absolute;left:4px;top:12px;font-size:6px;color:#c0c4cc;">空闲</span>
+            </div>
+          </div>
+
+          <!-- Row 4: MacBook Pro — dual bar long rental -->
+          <div style="display:flex;border-bottom:1px solid #eee;height:34px;align-items:stretch;">
+            <div style="min-width:54px;padding:2px 4px;font-size:7px;color:#303133;border-right:2px solid #eee;display:flex;flex-direction:column;justify-content:center;line-height:1.2;">
+              <div style="font-weight:600;overflow:hidden;white-space:nowrap;">MacBook P</div>
+              <div style="color:#909399;font-size:6px;">C001</div>
+            </div>
+            <div style="flex:1;position:relative;height:34px;">
+              <!-- Bar 1: 19→30 = 11/14 = 78.6% -->
+              <div style="position:absolute;left:0%;width:78.6%;height:10px;top:4px;background:#67c23a;border-radius:2px;font-size:5.5px;color:#fff;padding:0 2px;line-height:10px;overflow:hidden;white-space:nowrap;">王五 已发货</div>
+              <!-- Bar 2: logistics 18→29 = 0→78.6% -->
+              <div style="position:absolute;left:0%;width:71.4%;height:8px;top:18px;background:#b3e19d;border-radius:2px;opacity:0.85;font-size:5px;color:#2a6;padding:0 2px;line-height:8px;overflow:hidden;white-space:nowrap;">物流</div>
+            </div>
+          </div>
+
+          <!-- Row 5: DJI Mini — two separate rentals -->
+          <div style="display:flex;border-bottom:1px solid #eee;height:34px;align-items:stretch;">
+            <div style="min-width:54px;padding:2px 4px;font-size:7px;color:#303133;border-right:2px solid #eee;display:flex;flex-direction:column;justify-content:center;line-height:1.2;">
+              <div style="font-weight:600;overflow:hidden;white-space:nowrap;">DJI Mini4</div>
+              <div style="color:#909399;font-size:6px;">D001</div>
+            </div>
+            <div style="flex:1;position:relative;height:34px;">
+              <!-- rental A: 19→20 -->
+              <div style="position:absolute;left:0%;width:7.1%;height:10px;top:4px;background:#909399;border-radius:2px;font-size:5.5px;color:#fff;padding:0 1px;line-height:10px;overflow:hidden;">赵</div>
+              <!-- rental B: 22→25 -->
+              <div style="position:absolute;left:21.4%;width:21.4%;height:10px;top:4px;background:#9b59b6;border-radius:2px;font-size:5.5px;color:#fff;padding:0 2px;line-height:10px;overflow:hidden;white-space:nowrap;">钱六</div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Bottom tab bar -->
+        <div style="position:absolute;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #e4e7ed;display:flex;height:48px;">
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#409eff;">
+            <span style="font-size:14px;">📅</span>
+            <span style="font-size:7px;font-weight:600;">甘特图</span>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#909399;">
+            <span style="font-size:14px;">📦</span>
+            <span style="font-size:7px;">批量发货</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Screen 2: Bottom Sheet — 4 dates, 2 buttons -->
+  <div style="text-align:center;">
+    <p style="font-size:12px;color:#606266;margin-bottom:8px;font-weight:600;">② 底部抽屉（4 个时间 · 2 个按钮）</p>
+    <div style="width:220px;background:#1a1a1a;border-radius:36px;padding:12px 8px;box-shadow:0 8px 32px rgba(0,0,0,0.35);display:inline-block;">
+      <div style="width:70px;height:16px;background:#1a1a1a;border-radius:0 0 12px 12px;margin:0 auto 2px;"></div>
+      <div style="background:#f5f7fa;border-radius:24px;overflow:hidden;height:460px;position:relative;">
+
+        <div style="background:#303133;height:20px;"></div>
+        <div style="background:#303133;opacity:0.5;padding:6px 10px;height:28px;"></div>
+
+        <!-- Gantt dimmed -->
+        <div style="opacity:0.25;background:#fff;height:130px;overflow:hidden;">
+          <div style="background:#e4e7ed;height:22px;"></div>
+          <div style="display:flex;border-bottom:1px solid #eee;height:34px;">
+            <div style="min-width:54px;border-right:2px solid #eee;"></div>
+            <div style="flex:1;position:relative;">
+              <div style="position:absolute;left:0%;width:28.6%;height:10px;top:4px;background:#409eff;border-radius:2px;"></div>
+            </div>
+          </div>
+          <div style="height:34px;border-bottom:1px solid #eee;"></div>
+          <div style="height:34px;"></div>
+        </div>
+
+        <!-- Dark overlay -->
+        <div style="position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.45);"></div>
+
+        <!-- Bottom sheet: full 4-date view -->
+        <div style="position:absolute;bottom:0;left:0;right:0;background:#fff;border-radius:16px 16px 0 0;box-shadow:0 -4px 20px rgba(0,0,0,0.2);padding:0 14px 16px;">
+          <div style="text-align:center;padding:8px 0 4px;"><div style="width:32px;height:3px;background:#ddd;border-radius:2px;margin:0 auto;"></div></div>
+
+          <!-- Header -->
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <div>
+              <div style="font-size:11px;font-weight:700;color:#303133;">iPhone 15 Pro · A001</div>
+              <div style="font-size:8px;color:#909399;margin-top:1px;">张三</div>
+            </div>
+            <span style="background:#ecf5ff;color:#409eff;font-size:8px;padding:2px 6px;border-radius:4px;font-weight:600;">已发货</span>
+          </div>
+
+          <!-- Section: 租赁期 -->
+          <div style="border-top:1px solid #f0f0f0;padding-top:8px;">
+            <div style="font-size:7.5px;color:#909399;font-weight:600;margin-bottom:4px;letter-spacing:0.5px;">租赁期</div>
+            <div style="display:flex;justify-content:space-between;font-size:8px;margin-bottom:4px;">
+              <span style="color:#606266;">开始</span>
+              <span style="color:#303133;font-weight:600;">2026-05-19</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:8px;">
+              <span style="color:#606266;">结束</span>
+              <span style="color:#303133;font-weight:600;">2026-05-22</span>
+            </div>
+          </div>
+
+          <!-- Section: 物流期 -->
+          <div style="border-top:1px solid #f0f0f0;padding-top:8px;margin-top:8px;">
+            <div style="font-size:7.5px;color:#909399;font-weight:600;margin-bottom:4px;letter-spacing:0.5px;">物流期</div>
+            <div style="display:flex;justify-content:space-between;font-size:8px;margin-bottom:4px;">
+              <span style="color:#606266;">发出时间</span>
+              <span style="color:#303133;font-weight:600;">5/18 14:30</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:8px;">
+              <span style="color:#606266;">归还时间</span>
+              <span style="color:#c0c4cc;">— 未归还 —</span>
+            </div>
+          </div>
+
+          <!-- Section: 其他信息 -->
+          <div style="border-top:1px solid #f0f0f0;padding-top:8px;margin-top:8px;">
+            <div style="display:flex;justify-content:space-between;font-size:8px;margin-bottom:4px;">
+              <span style="color:#606266;">发出运单</span>
+              <span style="color:#409eff;">SF1234567890</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:8px;">
+              <span style="color:#606266;">收货地址</span>
+              <span style="color:#303133;font-size:7px;text-align:right;max-width:120px;">上海市浦东新区陆家嘴</span>
+            </div>
+          </div>
+
+          <!-- 2 buttons only -->
+          <div style="display:flex;gap:10px;margin-top:12px;">
+            <div style="flex:1;background:#409eff;color:#fff;border-radius:6px;padding:8px 0;text-align:center;font-size:9px;font-weight:600;">编辑</div>
+            <div style="flex:1;background:#fef0f0;color:#f56c6c;border:1px solid #fde2e2;border-radius:6px;padding:8px 0;text-align:center;font-size:9px;font-weight:600;">删除</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Screen 3: Batch Shipping (unchanged) -->
+  <div style="text-align:center;">
+    <p style="font-size:12px;color:#606266;margin-bottom:8px;font-weight:600;">③ 批量发货页</p>
+    <div style="width:220px;background:#1a1a1a;border-radius:36px;padding:12px 8px;box-shadow:0 8px 32px rgba(0,0,0,0.35);display:inline-block;">
+      <div style="width:70px;height:16px;background:#1a1a1a;border-radius:0 0 12px 12px;margin:0 auto 2px;"></div>
+      <div style="background:#f5f7fa;border-radius:24px;overflow:hidden;height:460px;position:relative;">
+        <div style="background:#303133;height:20px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;">
+          <span style="color:#fff;font-size:8px;">9:41</span>
+          <span style="color:#fff;font-size:7px;">●●●</span>
+        </div>
+        <div style="background:#303133;padding:6px 10px;display:flex;align-items:center;">
+          <span style="color:#fff;font-size:9px;font-weight:700;flex:1;text-align:center;">批量发货</span>
+        </div>
+        <div style="background:#ecf5ff;border-bottom:1px solid #d9ecff;padding:5px 10px;display:flex;align-items:center;gap:6px;">
+          <span style="font-size:8px;color:#606266;">5/19</span>
+          <span style="font-size:8px;color:#c0c4cc;">至</span>
+          <span style="font-size:8px;color:#606266;">5/20</span>
+          <div style="margin-left:auto;background:#409eff;color:#fff;border-radius:4px;padding:2px 8px;font-size:8px;">查询</div>
+        </div>
+        <div style="background:#f5f7fa;border-bottom:1px solid #eee;padding:3px 10px;display:flex;justify-content:space-between;font-size:8px;">
+          <span style="color:#606266;">共 3 单，已选 <b style="color:#409eff;">1</b></span>
+          <span style="color:#409eff;">全选</span>
+        </div>
+        <div style="margin:6px 8px 0;background:#fff;border-radius:6px;border:1.5px solid #409eff;overflow:hidden;">
+          <div style="padding:6px 8px;">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <div style="width:14px;height:14px;background:#409eff;border-radius:3px;flex-shrink:0;display:flex;align-items:center;justify-content:center;"><span style="color:#fff;font-size:8px;">✓</span></div>
+              <div style="flex:1;">
+                <div style="font-size:9px;font-weight:600;color:#303133;">iPhone 15 Pro · 张三</div>
+                <div style="font-size:7px;color:#606266;margin-top:1px;">发货日: 5/19 · 上海浦东新区陆家嘴</div>
+              </div>
+              <span style="background:#fdf6ec;color:#e6a23c;font-size:7px;padding:1px 4px;border-radius:3px;">待发货</span>
+            </div>
+            <div style="font-size:7px;color:#c0c4cc;margin-top:3px;padding-left:20px;">📦 运单号：— 待填写</div>
+          </div>
+        </div>
+        <div style="margin:4px 8px 0;background:#fff;border-radius:6px;border:1px solid #eee;overflow:hidden;">
+          <div style="padding:6px 8px;">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <div style="width:14px;height:14px;border:1.5px solid #ddd;border-radius:3px;flex-shrink:0;"></div>
+              <div style="flex:1;">
+                <div style="font-size:9px;font-weight:600;color:#303133;">MacBook Pro · 李四</div>
+                <div style="font-size:7px;color:#606266;margin-top:1px;">发货日: 5/19 · 北京市朝阳区</div>
+              </div>
+              <span style="background:#e1f3d8;color:#67c23a;font-size:7px;padding:1px 4px;border-radius:3px;">已预约</span>
+            </div>
+            <div style="font-size:7px;color:#606266;margin-top:3px;padding-left:20px;">📦 SF9876543210</div>
+          </div>
+        </div>
+        <div style="margin:4px 8px 0;background:#f9f9f9;border-radius:6px;border:1px solid #eee;overflow:hidden;opacity:0.7;">
+          <div style="padding:6px 8px;">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <div style="width:14px;height:14px;border:1.5px solid #eee;border-radius:3px;flex-shrink:0;"></div>
+              <div style="flex:1;">
+                <div style="font-size:9px;font-weight:600;color:#909399;">iPad Pro · 王五</div>
+                <div style="font-size:7px;color:#c0c4cc;margin-top:1px;">5/19 · SF1122334455</div>
+              </div>
+              <span style="background:#f4f4f5;color:#909399;font-size:7px;padding:1px 4px;border-radius:3px;">已发货</span>
+            </div>
+          </div>
+        </div>
+        <div style="position:absolute;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #e4e7ed;">
+          <div style="display:flex;">
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#909399;padding:4px 0;">
+              <span style="font-size:14px;">📅</span><span style="font-size:7px;">甘特图</span>
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#409eff;padding:4px 0;">
+              <span style="font-size:14px;">📦</span><span style="font-size:7px;font-weight:600;">批量发货</span>
+            </div>
+          </div>
+          <div style="padding:6px 8px;display:flex;gap:6px;">
+            <div style="flex:1;background:#e6a23c;color:#fff;border-radius:6px;padding:7px 0;text-align:center;font-size:9px;font-weight:600;">预约发货 (1)</div>
+            <div style="flex:1;background:#67c23a;color:#fff;border-radius:6px;padding:7px 0;text-align:center;font-size:9px;font-weight:600;">打印面单 (1)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Design summary -->
+<div style="margin-top:24px;padding:14px 18px;background:#f8f9ff;border-radius:8px;border-left:3px solid #409eff;max-width:720px;margin-left:auto;margin-right:auto;">
+  <p style="font-size:11px;color:#303133;font-weight:700;margin:0 0 8px;">设计要点 · 确认版</p>
+
+  <p style="font-size:10px;color:#303133;margin:0 0 4px;font-weight:600;">甘特图行高与双层 Bar</p>
+  <ul style="font-size:10px;color:#606266;margin:0 0 10px;padding-left:16px;line-height:1.8;">
+    <li>每行高度 34px（PC 版行高更大，此处压缩）</li>
+    <li>上层 Bar (top:4px, h:10px)：<b>start_date → end_date</b>，颜色按 status（not_shipped=橙 / shipped=绿 / returned=蓝 / completed=灰）</li>
+    <li>下层 Bar (top:18px, h:8px)：<b>ship_out_time → ship_in_time</b>，淡色物流条，仅在两个时间均有值时才显示</li>
+    <li>两层 Bar 均按 rental_id 哈希着色（与 PC 版一致）</li>
+  </ul>
+
+  <p style="font-size:10px;color:#303133;margin:0 0 4px;font-weight:600;">底部抽屉 4 个时间展示</p>
+  <ul style="font-size:10px;color:#606266;margin:0 0 10px;padding-left:16px;line-height:1.8;">
+    <li>「租赁期」分组：开始日期（start_date）+ 结束日期（end_date）</li>
+    <li>「物流期」分组：发出时间（ship_out_time）+ 归还时间（ship_in_time），未填写显示「—」</li>
+    <li>按钮：仅保留「编辑」和「删除」两个</li>
+  </ul>
+</div>
+
+<p class="subtitle" style="margin-top:16px;text-align:center;">✅ 请确认设计，或提出修改意见</p>

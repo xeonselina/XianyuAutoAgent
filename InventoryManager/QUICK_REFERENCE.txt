@@ -1,0 +1,236 @@
+═══════════════════════════════════════════════════════════════════════════════
+RENTAL FORM COMPLEXITY - QUICK REFERENCE
+═══════════════════════════════════════════════════════════════════════════════
+
+FILES & STRUCTURE:
+─────────────────
+Create Flow:    BookingDialog.vue (302 lines) + 3 sub-components
+Edit Flow:      EditRentalDialogNew.vue (580 lines) + 3 sub-components
+Shared Comps:   RentalBasicForm.vue (238)
+                RentalShippingForm.vue (186)
+                RentalAccessorySelector.vue (309)
+Validation:     useRentalFormValidation.ts
+Availability:   useAvailabilityCheck.ts + useConflictDetection.ts
+
+TOTAL FORM FIELDS: 17 fields
+─────────────────
+
+Basic Info:
+  • startDate (CREATE only)
+  • endDate (both)
+  • logisticsDays (CREATE only)
+  • deviceId
+  • customerName (CREATE only)
+  • customerPhone (watch-dependent)
+  • destination (watch-dependent)
+  • xianyuOrderNo
+  • orderAmount
+  • buyerId (disabled, auto-filled)
+
+Shipping:
+  • shipOutTrackingNo
+  • shipInTrackingNo
+  • shipOutTime (DateTime picker)
+  • shipInTime (DateTime picker)
+  • status (enum: not_shipped/shipped/returned/completed/cancelled)
+
+Accessories:
+  • bundledAccessories (array: 'handle' | 'lens_mount')
+  • phoneHolderId (optional inventory)
+  • tripodId (optional inventory)
+  • photoTransfer (boolean)
+
+═════════════════════════════════════════════════════════════════════════════
+
+KEY COMPLEXITY DRIVERS FOR MOBILE:
+──────────────────────────────────
+
+1. DATE INTERDEPENDENCY
+   • startDate changes → clears endDate if invalid
+   • endDate changes → triggers availability check
+   • Both changes → resets entire availability state
+   • minSelectableDate computed from rental.start_date
+
+2. WATCH AUTO-FILLING
+   • destination field → auto-extracts phone number
+   • ONLY fills customerPhone if currently empty
+   • Uses regex pattern: /^1[3-9]\d{9}$/
+   • Shows success message after extraction
+
+3. ASYNC DATA FETCHING
+   • xianyuOrderNo button → POST /api/rentals/fetch-xianyu-order
+   • Auto-fills: destination, buyerId, orderAmount, customerPhone
+   • Converts: pay_amount (cents) → yuan with .toFixed(2)
+   • Destination format: "name phone prov+city+area+town+address"
+
+4. AVAILABILITY CHECKING
+   • Triggered on device selector focus
+   • Triggered on accessory selector focus
+   • Checks enabled only AFTER dates selected
+   • Shows "档期不可用" tags on conflicted items
+   • Disables select options if unavailable & checked
+
+5. DEVICE/ACCESSORY FILTERING
+   • Devices: filtered by name including serial_number display
+   • Phone holders: filtered by name/model matching "手机支架" or "phone"
+   • Tripods: filtered by name/model matching "三脚架" or "tripod"
+   • All filters use .includes() + .toLowerCase() matching
+
+6. ACCESSORY SUMMARY (Conditional Display)
+   • Section visible ONLY if: hasSelectedAccessories = true
+   • hasSelectedAccessories = bundledAccessories.length > 0 
+                            || phoneHolderId !== null 
+                            || tripodId !== null
+   • Shows bundled & inventory items with remove buttons
+   • Bundled items: labeled "(配套附件)"
+   • Inventory items: labeled "(库存)" with delete buttons
+
+7. FORM TRANSFORMATION
+   CREATE payload:
+   {
+     device_id, start_date, end_date, customer_name, customer_phone,
+     destination, ship_out_time, ship_in_time,
+     includes_handle (boolean), includes_lens_mount (boolean),
+     accessories (array of IDs), xianyu_order_no, order_amount,
+     buyer_id, photo_transfer
+   }
+   
+   EDIT payload:
+   Same as CREATE but NO start_date, customerName field
+   (Also includes tracking numbers & status)
+
+8. VALIDATION RULES
+   CREATE requires:
+   ✓ startDate, endDate, logisticsDays, customerName
+   ✗ customerPhone (optional, regex if provided)
+   ✗ destination (optional)
+   
+   EDIT requires:
+   ✓ deviceId, endDate
+   ✗ customerPhone (optional, regex if provided)
+   ✗ destination (optional)
+
+9. CONFLICT DETECTION
+   Device conflict:
+   • Checked when device selector changes
+   • Shows MessageBox warning if conflict detected
+   • Resets to previous deviceId if user cancels
+   
+   Accessory conflict:
+   • Checked when accessory selector changes
+   • Shows MessageBox warning if conflict detected
+   • Removes accessory from form if user cancels
+   
+   Duplicate check:
+   • Checked before CREATE submit
+   • Compares customerName + destination
+   • Shows all duplicates if found
+   • Requires user confirmation to proceed
+
+═════════════════════════════════════════════════════════════════════════════
+
+MOBILE DESIGN IMPLICATIONS:
+──────────────────────────
+
+COLLAPSE STRATEGY:
+  1. Create Form: 3 sections (Basic / Shipping / Accessories)
+     → Use expandable panels or steps
+  
+  2. Edit Form: Same 3 sections
+     → Pre-populate with existing data
+  
+  3. Accessory section:
+     → Bundle the 2-3 checkboxes into one toggle group
+     → Show summary inline (not separate section)
+  
+  4. DateTime pickers:
+     → Use native mobile date/time pickers
+     → Consider vertical layout (not inline)
+
+TOUCH INTERACTIONS:
+  • Tracking number query buttons → Make wider/taller
+  • Xianyu order fetch button → Full-width
+  • Conflict MessageBoxes → Full-width dialogs
+  • Device/Accessory selects → Dropdown vs segmented selector
+
+CONDITIONAL LOADING:
+  • Load devices/accessories on demand (when selector focused)
+  • Show loading state during availability check
+  • Cache results to avoid re-fetching
+
+FORM VALIDATION:
+  • Show errors inline (not validation summary)
+  • Phone regex validation on blur only
+  • Date picker prevents invalid dates at UI level
+
+═════════════════════════════════════════════════════════════════════════════
+
+API ENDPOINTS CALLED:
+────────────────────
+
+1. POST /api/rentals/fetch-xianyu-order
+   Request: { order_no: string }
+   Response: { success, data: {...}, message }
+   Auto-fills: destination, buyerId, orderAmount, customerPhone
+
+2. ganttStore.createRental(data)
+   Creates new rental record
+
+3. ganttStore.updateRental(id, data)
+   Updates existing rental record
+
+4. ganttStore.findAvailableSlot(startDate, endDate, logisticsDays, modelId, isAccessory)
+   Finds available device/accessory for dates
+
+5. conflictDetection.checkDeviceConflict({deviceId, startDate, endDate, excludeRentalId})
+   Checks if device has conflicts
+
+6. conflictDetection.checkDuplicateRental({customerName, destination})
+   Checks for duplicate bookings
+
+7. availability.checkDevicesAvailability(devices, params)
+   Checks all devices availability
+
+8. availability.checkAccessoriesAvailability(accessories, params)
+   Checks all accessories availability
+
+═════════════════════════════════════════════════════════════════════════════
+
+CODE SNIPPET LOCATIONS:
+──────────────────────
+
+Watch destination → phone extraction:
+  RentalShippingForm.vue:161-171
+  BookingDialog.vue:821-831
+
+Watch startDate change:
+  BookingDialog.vue:419-433
+
+Watch endDate change:
+  BookingDialog.vue:435-445
+
+Watch dialog open → initForm:
+  EditRentalDialogNew.vue:536-553
+
+initForm() → load rental & populate:
+  EditRentalDialogNew.vue:463-533
+
+handleFetchOrderInfo():
+  RentalBasicForm.vue:143-229
+  BookingDialog.vue:601-693
+
+handleDeviceChange() → conflict check:
+  EditRentalDialogNew.vue:270-305
+
+handleAccessorySelectorFocus() → lazy load accessories:
+  EditRentalDialogNew.vue:370-375
+  BookingDialog.vue:476-485
+
+hasSelectedAccessories computed:
+  RentalAccessorySelector.vue:223-227
+
+Form submit transformation:
+  BookingDialog.vue:750-772
+  EditRentalDialogNew.vue:223-246
+
+═════════════════════════════════════════════════════════════════════════════

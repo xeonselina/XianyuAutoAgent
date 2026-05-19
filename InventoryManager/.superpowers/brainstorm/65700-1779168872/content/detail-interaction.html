@@ -1,0 +1,165 @@
+<h2>点击租赁条后的详情展示方式</h2>
+<p class="subtitle">2 周压缩视图中，点击一个租赁条后如何查看/操作？</p>
+
+<div class="cards">
+
+  <!-- Option A: Bottom Sheet -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8f9ff;padding:10px;">
+      <div style="border:1.5px solid #c0c4cc;border-radius:8px;overflow:hidden;font-size:9px;max-width:190px;margin:0 auto;position:relative;height:220px;">
+        <!-- Gantt (dimmed) -->
+        <div style="background:#f5f7fa;padding:4px 0;opacity:0.4;">
+          <div style="display:flex;background:#e4e7ed;border-bottom:1px solid #c0c4cc;">
+            <div style="width:50px;padding:2px 4px;font-size:8px;border-right:1px solid #ddd;">设备</div>
+            <div style="flex:1;display:flex;">
+              <div style="flex:1;text-align:center;font-size:7px;border-right:1px solid #ddd;">19</div>
+              <div style="flex:1;text-align:center;font-size:7px;border-right:1px solid #ddd;">20</div>
+              <div style="flex:1;text-align:center;font-size:7px;border-right:1px solid #ddd;">21</div>
+              <div style="flex:1;text-align:center;font-size:7px;border-right:1px solid #ddd;">22</div>
+              <div style="flex:1;text-align:center;font-size:7px;">23</div>
+            </div>
+          </div>
+          <div style="display:flex;border-bottom:1px solid #eee;height:18px;">
+            <div style="width:50px;border-right:1px solid #eee;"></div>
+            <div style="flex:1;position:relative;">
+              <div style="position:absolute;left:0;right:0;height:11px;top:3px;background:#409eff;border-radius:2px;"></div>
+            </div>
+          </div>
+          <div style="display:flex;height:18px;">
+            <div style="width:50px;border-right:1px solid #eee;"></div>
+            <div style="flex:1;position:relative;">
+              <div style="position:absolute;left:28%;right:0;height:11px;top:3px;background:#67c23a;border-radius:2px;"></div>
+            </div>
+          </div>
+        </div>
+        <!-- Bottom sheet sliding up -->
+        <div style="position:absolute;bottom:0;left:0;right:0;background:#fff;border-radius:12px 12px 0 0;box-shadow:0 -3px 12px rgba(0,0,0,0.15);padding:0 10px 8px;">
+          <div style="text-align:center;padding:6px 0 4px;"><div style="width:30px;height:3px;background:#ddd;border-radius:2px;margin:0 auto;"></div></div>
+          <div style="font-weight:700;color:#303133;font-size:10px;">iPhone 15 Pro · 张三</div>
+          <div style="color:#606266;font-size:8px;margin-top:3px;">📅 5/19 → 5/22 &nbsp;&nbsp; 📍 上海浦东</div>
+          <div style="color:#606266;font-size:8px;margin-top:1px;">📦 运单：SF1234567890</div>
+          <div style="margin-top:6px;display:flex;gap:4px;">
+            <div style="flex:1;background:#409eff;color:#fff;border-radius:4px;padding:3px 0;text-align:center;font-size:8px;">编辑</div>
+            <div style="flex:1;background:#f56c6c;color:#fff;border-radius:4px;padding:3px 0;text-align:center;font-size:8px;">删除</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A · 底部抽屉（Bottom Sheet）</h3>
+      <p>点击租赁条后，从底部滑出一个抽屉面板，展示完整租赁信息和操作按钮。背景甘特图变暗。下滑或点击背景关闭。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优点</h4><ul><li>iOS 原生感强</li><li>操作区域大，拇指易及</li><li>可展示完整信息</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>遮挡甘特图</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option B: Inline expand -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8f9ff;padding:10px;">
+      <div style="border:1.5px solid #c0c4cc;border-radius:8px;overflow:hidden;font-size:9px;max-width:190px;margin:0 auto;">
+        <!-- Gantt header -->
+        <div style="display:flex;background:#e4e7ed;border-bottom:1px solid #c0c4cc;">
+          <div style="width:50px;padding:2px 4px;font-size:8px;border-right:1px solid #ddd;">设备</div>
+          <div style="flex:1;display:flex;">
+            <div style="flex:1;text-align:center;font-size:7px;border-right:1px solid #ddd;">19</div>
+            <div style="flex:1;text-align:center;font-size:7px;border-right:1px solid #ddd;">20</div>
+            <div style="flex:1;text-align:center;font-size:7px;border-right:1px solid #ddd;">21</div>
+            <div style="flex:1;text-align:center;font-size:7px;border-right:1px solid #ddd;">22</div>
+            <div style="flex:1;text-align:center;font-size:7px;">23</div>
+          </div>
+        </div>
+        <!-- Row 1 - normal -->
+        <div style="display:flex;border-bottom:1px solid #eee;height:18px;">
+          <div style="width:50px;border-right:1px solid #eee;font-size:8px;padding:3px 4px;color:#606266;">iPhone14</div>
+          <div style="flex:1;position:relative;">
+            <div style="position:absolute;left:28%;right:0;height:11px;top:3px;background:#67c23a;border-radius:2px;font-size:7px;color:#fff;padding:0 2px;line-height:11px;">李四</div>
+          </div>
+        </div>
+        <!-- Row 2 - EXPANDED (selected) -->
+        <div style="border-bottom:1px solid #eee;background:#ecf5ff;">
+          <div style="display:flex;height:18px;border-bottom:1px solid #d9ecff;">
+            <div style="width:50px;border-right:1px solid #c8e3ff;font-size:8px;padding:3px 4px;color:#409eff;font-weight:700;">iPhone15 ▾</div>
+            <div style="flex:1;position:relative;">
+              <div style="position:absolute;left:0;right:0;height:11px;top:3px;background:#409eff;border-radius:2px;font-size:7px;color:#fff;padding:0 2px;line-height:11px;">张三 ✓</div>
+            </div>
+          </div>
+          <!-- Expanded detail -->
+          <div style="padding:4px 6px;font-size:8px;color:#303133;">
+            <div>👤 张三 &nbsp; 📍 上海浦东新区</div>
+            <div style="margin-top:1px;">📅 5/19 → 5/22 &nbsp; 📦 SF1234567890</div>
+            <div style="display:flex;gap:4px;margin-top:4px;">
+              <div style="background:#409eff;color:#fff;border-radius:3px;padding:2px 6px;font-size:7px;">编辑</div>
+              <div style="background:#fef0f0;color:#f56c6c;border-radius:3px;padding:2px 6px;font-size:7px;">删除</div>
+            </div>
+          </div>
+        </div>
+        <!-- Row 3 - normal -->
+        <div style="display:flex;height:18px;">
+          <div style="width:50px;border-right:1px solid #eee;font-size:8px;padding:3px 4px;color:#606266;">MacBook</div>
+          <div style="flex:1;position:relative;">
+            <div style="position:absolute;left:0;width:70%;height:11px;top:3px;background:#e6a23c;border-radius:2px;font-size:7px;color:#fff;padding:0 2px;line-height:11px;">王五</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B · 行内展开</h3>
+      <p>点击某设备行后，该行向下展开，在甘特图内嵌入详情区域。甘特图其他行正常显示，不遮挡。再次点击折叠。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优点</h4><ul><li>不遮挡其他设备</li><li>上下文清晰</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>展开后需要滚动</li><li>操作按钮偏小</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Option C: Full screen detail -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8f9ff;padding:10px;">
+      <div style="border:1.5px solid #c0c4cc;border-radius:8px;overflow:hidden;font-size:9px;max-width:190px;margin:0 auto;">
+        <!-- Navigation bar -->
+        <div style="background:#303133;padding:5px 8px;color:#fff;font-size:9px;display:flex;align-items:center;gap:6px;">
+          <span style="color:#409eff;">← 返回</span>
+          <span style="flex:1;text-align:center;font-weight:700;">租赁详情</span>
+        </div>
+        <!-- Detail content -->
+        <div style="padding:8px;background:#fff;">
+          <div style="font-size:11px;font-weight:700;color:#303133;margin-bottom:6px;">iPhone 15 Pro · A001</div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <div style="display:flex;justify-content:space-between;font-size:8px;padding:3px 0;border-bottom:1px solid #f0f0f0;">
+              <span style="color:#909399;">租客</span><span style="color:#303133;font-weight:600;">张三</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:8px;padding:3px 0;border-bottom:1px solid #f0f0f0;">
+              <span style="color:#909399;">日期</span><span style="color:#303133;">5/19 → 5/22</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:8px;padding:3px 0;border-bottom:1px solid #f0f0f0;">
+              <span style="color:#909399;">地址</span><span style="color:#303133;">上海市浦东新区</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:8px;padding:3px 0;border-bottom:1px solid #f0f0f0;">
+              <span style="color:#909399;">运单号</span><span style="color:#409eff;">SF1234567890</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:8px;padding:3px 0;">
+              <span style="color:#909399;">状态</span><span style="background:#e1f3d8;color:#67c23a;padding:1px 4px;border-radius:3px;">已发货</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:8px;">
+            <div style="flex:1;background:#409eff;color:#fff;border-radius:5px;padding:5px 0;text-align:center;font-size:9px;font-weight:600;">编辑租赁</div>
+            <div style="flex:1;background:#fef0f0;color:#f56c6c;border-radius:5px;padding:5px 0;text-align:center;font-size:9px;font-weight:600;">删除</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C · 跳转详情页</h3>
+      <p>点击租赁条跳转到独立的详情页面，信息展示最完整，操作按钮最大。点击返回回到甘特图，会记住滚动位置。</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优点</h4><ul><li>信息展示最完整</li><li>操作区域大</li><li>易于扩展更多操作</li></ul></div>
+        <div class="cons"><h4>缺点</h4><ul><li>来回跳转，效率稍低</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:16px;text-align:center;">💡 点击方案选择，也可在终端说明你的想法</p>

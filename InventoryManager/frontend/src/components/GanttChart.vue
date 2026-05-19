@@ -223,6 +223,7 @@
                 @edit-rental="handleEditRental"
                 @delete-rental="handleDeleteRental"
                 @update-device-status="handleUpdateDeviceStatus"
+                @update-device-lifecycle="handleUpdateDeviceLifecycle"
               />
             </div>
           </div>
@@ -849,6 +850,21 @@ const handleUpdateDeviceStatus = async (device: Device, newStatus: string) => {
       // 重新加载数据以确保状态同步
       await ganttStore.loadData()
     }
+  }
+}
+
+const handleUpdateDeviceLifecycle = async (device: Device, newLifecycle: string) => {
+  try {
+    await ganttStore.updateDeviceLifecycle(device.id, newLifecycle)
+    const labels: Record<string, string> = {
+      active: '使用中', sold: '已售出', damaged: '已损坏',
+      decommissioned: '已停用', retired: '已退役'
+    }
+    ElMessage.success(`设备 ${device.name} 已标记为「${labels[newLifecycle] || newLifecycle}」`)
+    await ganttStore.loadData()
+  } catch (error) {
+    ElMessage.error('更新失败：' + (error as Error).message)
+    await ganttStore.loadData()
   }
 }
 

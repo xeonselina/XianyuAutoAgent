@@ -54,11 +54,11 @@ class Rental(db.Model):
     parent_rental_id = db.Column(db.Integer, db.ForeignKey('rentals.id', ondelete='CASCADE'), nullable=True, comment='父租赁记录ID（用于关联主设备和附件）')
     
     # 配套附件标记（手柄和镜头支架已与设备1:1配齐）
-    includes_handle = db.Column(db.Boolean, default=False, nullable=False, comment='是否包含手柄（配套附件）')
-    includes_lens_mount = db.Column(db.Boolean, default=False, nullable=False, comment='是否包含镜头支架（配套附件）')
-    
+    includes_handle = db.Column(db.Boolean, default=False, server_default='0', nullable=False, comment='是否包含手柄（配套附件）')
+    includes_lens_mount = db.Column(db.Boolean, default=False, server_default='0', nullable=False, comment='是否包含镜头支架（配套附件）')
+
     # 代传照片标记
-    photo_transfer = db.Column(db.Boolean, default=False, nullable=False, comment='是否代传照片')
+    photo_transfer = db.Column(db.Boolean, default=False, server_default='0', nullable=False, comment='是否代传照片')
     
     # 关系
     audit_logs = db.relationship('AuditLog', backref='rental', lazy='dynamic')
