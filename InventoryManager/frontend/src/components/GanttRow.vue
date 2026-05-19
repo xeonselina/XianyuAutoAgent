@@ -1,6 +1,6 @@
 <template>
   <div class="gantt-row">
-    <div class="device-cell" :class="`device-status-${device.status}`">
+    <div class="device-cell" :class="[`device-status-${device.status}`, `device-lifecycle-${device.lifecycle_status || 'active'}`]">
       <div class="device-info">
         <div class="device-name">{{ device.name }}</div>
         <div class="device-details">
@@ -8,11 +8,25 @@
           <el-select
             :model-value="device.status"
             size="small"
-            style="width: 100px;"
+            style="width: 80px;"
             @change="updateDeviceStatus"
           >
             <el-option label="在线" value="online" />
             <el-option label="离线" value="offline" />
+          </el-select>
+        </div>
+        <div class="device-lifecycle">
+          <el-select
+            :model-value="device.lifecycle_status || 'active'"
+            size="small"
+            style="width: 100px;"
+            @change="updateLifecycleStatus"
+          >
+            <el-option label="🟢 使用中" value="active" />
+            <el-option label="💰 已售出" value="sold" />
+            <el-option label="🔧 已损坏" value="damaged" />
+            <el-option label="⛔ 已停用" value="decommissioned" />
+            <el-option label="📦 已退役" value="retired" />
           </el-select>
         </div>
       </div>
@@ -28,7 +42,7 @@
         'is-empty': isDateEmpty(date)
       }"
     >
-      <!-- 原有的rental时间段标记（棕色） -->
+      <!-- Consolidated rental bar with shipping overlay -->
       <div
         v-for="rental in getRentalsForDate(date)"
         :key="`rental-${rental.id}`"
@@ -40,6 +54,13 @@
         @mouseenter="handleRentalHover(rental, $event)"
         @mouseleave="handleRentalLeave"
       >
+        <!-- Shipping period overlay (transparent background layer) -->
+        <div
+          v-if="rental.ship_out_time && rental.ship_in_time"
+          class="rental-ship-overlay"
+          :style="getRentalShipOverlayStyle(rental, date)"
+        />
+        
         <div class="rental-content">
           <div class="rental-customer-line">
             <span class="rental-customer">
@@ -64,39 +85,6 @@
         >
           ⚠️
         </span>
-      </div>
-      
-      <!-- 新的ship_out_time到ship_in_time时间段标记（随机颜色） -->
-      <div
-        v-for="rental in getShipTimeRentalsForDate(date)"
-        :key="`ship-${rental.id}`"
-        v-show="shouldShowShipTimeBar(rental, date)"
-        class="rental-bar ship-time-period"
-        :style="getShipTimeStyle(rental, date)"
-        @click="$emit('edit-rental', rental)"
-        @dblclick="$emit('delete-rental', rental)"
-        @mouseenter="handleRentalHover(rental, $event)"
-        @mouseleave="handleRentalLeave"
-      >
-        <div class="rental-content">
-          <div class="rental-customer-line">
-            <span class="rental-customer">
-              <span v-if="rental.status === 'shipped'" class="status-icon shipped-icon">🚀</span>
-              <span v-else-if="rental.status === 'returned'" class="status-icon returned-icon">✅</span>
-              <span v-else-if="rental.status === 'not_shipped'" class="status-icon">📦</span>
-              <span v-if="rental.status === 'not_shipped'">待发货</span>
-              <span v-else-if="rental.status === 'shipped'">运输中</span>
-              <span v-else-if="rental.status === 'returned'">已收回</span>
-              <span v-else-if="rental.status === 'completed'">已完成</span>
-              <span v-else-if="rental.status === 'cancelled'">已取消</span>
-              <span v-else>物流</span>
-            </span>
-            <el-icon v-if="hasAccessories(rental)" class="accessory-icon" title="包含附件">
-              <Tools />
-            </el-icon>
-          </div>
-          <span class="rental-phone">{{ rental.customer_name }}</span>
-        </div>
       </div>
     </div>
     
@@ -151,6 +139,7 @@ const emit = defineEmits<{
   'edit-rental': [rental: Rental]
   'delete-rental': [rental: Rental]
   'update-device-status': [device: Device, newStatus: string]
+  'update-device-lifecycle': [device: Device, newLifecycle: string]
 }>()
 
 // Tooltip相关状态
@@ -163,6 +152,11 @@ let hideTimer: number | null = null
 // 更新设备状态
 const updateDeviceStatus = (newStatus: string) => {
   emit('update-device-status', props.device, newStatus)
+}
+
+// 更新设备生命周期状态
+const updateLifecycleStatus = (newLifecycle: string) => {
+  emit('update-device-lifecycle', props.device, newLifecycle)
 }
 
 // 检查租赁是否包含附件
@@ -247,7 +241,6 @@ const showConflictDetails = (rental: Rental) => {
 onUnmounted(() => {
   clearAllTimers()
   rentalDateCache.clear()
-  shipTimeCache.clear()
 })
 
 // 计算属性
@@ -298,7 +291,6 @@ const currentRentalConflictInfo = computed(() => {
 
 // 缓存租赁数据计算结果
 const rentalDateCache = new Map<string, Rental[]>()
-const shipTimeCache = new Map<string, Rental[]>()
 
 const getRentalsForDate = (date: Date) => {
   const dateStr = dayjs(date).format('YYYY-MM-DD')
@@ -328,42 +320,6 @@ const getRentalsForDate = (date: Date) => {
   }
 
   rentalDateCache.set(cacheKey, result)
-  return result
-}
-
-const getShipTimeRentalsForDate = (date: Date) => {
-  const dateStr = dayjs(date).format('YYYY-MM-DD')
-  // 添加status、日期和ship时间到缓存key中，确保任何相关字段变化时缓存失效
-  const statusAndTimeHash = props.rentals.map(r => `${r.id}:${r.status}:${r.start_date}:${r.end_date}:${r.ship_out_time || ''}:${r.ship_in_time || ''}`).join('|')
-  const cacheKey = `ship_${dateStr}_${props.rentals.length}_${statusAndTimeHash}`
-
-  if (shipTimeCache.has(cacheKey)) {
-    return shipTimeCache.get(cacheKey)!
-  }
-
-  const result = props.rentals.filter(rental => {
-    // 检查是否有ship_out_time和ship_in_time
-    if (!rental.ship_out_time || !rental.ship_in_time) {
-      return false
-    }
-
-    // 简单的日期字符串比较，不进行时区转换
-    const shipOutDate = toDateString(rental.ship_out_time!)
-    const shipInDate = toDateString(rental.ship_in_time!)
-    const currentDate = dateStr
-
-    return (currentDate >= shipOutDate) && (currentDate <= shipInDate)
-  })
-
-  // 限制缓存大小
-  if (shipTimeCache.size > 50) {
-    const firstKey = shipTimeCache.keys().next().value
-    if (firstKey) {
-      shipTimeCache.delete(firstKey)
-    }
-  }
-
-  shipTimeCache.set(cacheKey, result)
   return result
 }
 
@@ -408,10 +364,15 @@ const getRentalStyle = (rental: Rental, date: Date) => {
   }
 }
 
-const getShipTimeStyle = (rental: Rental, date: Date) => {
+// NEW: 计算物流期间的叠加样式
+const getRentalShipOverlayStyle = (rental: Rental, date: Date) => {
+  if (!rental.ship_out_time || !rental.ship_in_time) {
+    return {}
+  }
+
   // 简单的日期字符串处理
-  const shipOutDateStr = toDateString(rental.ship_out_time!)
-  const shipInDateStr = toDateString(rental.ship_in_time!)
+  const shipOutDateStr = toDateString(rental.ship_out_time)
+  const shipInDateStr = toDateString(rental.ship_in_time)
   const currentDateStr = toDateString(date)
 
   const shipOutDate = parseDate(shipOutDateStr)
@@ -435,20 +396,26 @@ const getShipTimeStyle = (rental: Rental, date: Date) => {
 
   const bgColor = generateRandomColor(rental.id)
   return {
+    position: 'absolute',
+    top: 0,
+    left: marginLeft,
     width,
-    marginLeft,
+    height: '100%',
     background: `
       repeating-linear-gradient(
         to right,
         transparent,
         transparent 79px,
-        rgba(255, 255, 255, 0.6) 79px,
-        rgba(255, 255, 255, 0.6) 80px
+        rgba(255, 255, 255, 0.4) 79px,
+        rgba(255, 255, 255, 0.4) 80px
       ),
       ${bgColor}
     `,
     backgroundPosition: '-2px 0',
-    opacity: '0.8'
+    opacity: '0.4',
+    borderRadius: '4px',
+    zIndex: 0,
+    pointerEvents: 'none'
   }
 }
 
@@ -528,31 +495,6 @@ const shouldShowRentalBar = (rental: Rental, date: Date) => {
   return isRentalFirstVisibleDay(rental, date)
 }
 
-// Check if ship time bar should be shown on this date (only show on first visible day)
-const shouldShowShipTimeBar = (rental: Rental, date: Date) => {
-  if (!rental.ship_out_time || !rental.ship_in_time) {
-    return false
-  }
-
-  const shipOutDateStr = toDateString(rental.ship_out_time)
-  const currentDateStr = toDateString(date)
-  const shipOutDate = parseDate(shipOutDateStr)
-  const currentDate = parseDate(currentDateStr)
-  const firstVisibleDate = props.dates.length > 0 ? parseDate(toDateString(props.dates[0])) : currentDate
-
-  // 如果是实际物流开始日期
-  if (currentDateStr === shipOutDateStr) {
-    return true
-  }
-
-  // 如果物流开始日期在可见范围之前，且当前是可见范围的第一天
-  if (shipOutDate.isBefore(firstVisibleDate) && currentDate.isSame(firstVisibleDate, 'day')) {
-    return true
-  }
-
-  return false
-}
-
 // Calculate rental duration in days
 const getRentalDuration = (rental: Rental) => {
   const startDate = parseDate(rental.start_date)
@@ -570,8 +512,7 @@ const formatRentalDateRange = (rental: Rental) => {
 // Check if date has no rentals for this device
 const isDateEmpty = (date: Date) => {
   const rentalsForDate = getRentalsForDate(date)
-  const shipTimeRentalsForDate = getShipTimeRentalsForDate(date)
-  return rentalsForDate.length === 0 && shipTimeRentalsForDate.length === 0
+  return rentalsForDate.length === 0
 }
 
 </script>
@@ -635,6 +576,26 @@ const isDateEmpty = (date: Date) => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.device-lifecycle {
+  margin-top: 4px;
+}
+
+.device-cell.device-lifecycle-sold {
+  opacity: 0.55;
+  border-left: 4px solid #fa8c16 !important;
+}
+
+.device-cell.device-lifecycle-damaged {
+  opacity: 0.55;
+  border-left: 4px solid #eb2f96 !important;
+}
+
+.device-cell.device-lifecycle-decommissioned,
+.device-cell.device-lifecycle-retired {
+  opacity: 0.45;
+  border-left: 4px solid #8c8c8c !important;
 }
 
 .device-sn {
@@ -716,26 +677,27 @@ const isDateEmpty = (date: Date) => {
   color: white;
   font-size: 12px;
   border: 1px solid rgba(255, 255, 255, 0.3);
-}
-
-/* 租赁时间段标记 */
-.rental-period {
-  top: 8px;
+  position: relative;
   z-index: 2;
-}
-
-/* 物流时间段标记 */
-.ship-time-period {
-  top: 24px;
-  height: 35px;
-  z-index: 1;
-  opacity: 0.8;
 }
 
 .rental-bar:hover {
   transform: translateY(-1px);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   z-index: 10;
+}
+
+/* Shipping overlay - positioned absolutely within rental bar */
+.rental-ship-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 4px;
+  z-index: 0;
+  opacity: 0.4;
+  pointer-events: none;
 }
 
 /* 档期冲突警告图标 */
@@ -762,6 +724,8 @@ const isDateEmpty = (date: Date) => {
   gap: 2px;
   width: 100%;
   overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
 .rental-customer-line {
