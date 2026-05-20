@@ -58,6 +58,32 @@ def vue_router_routes(subpath=None):
 
 
 # =============================================================================
+# 移动端前端路由 (Vant 4 移动版)
+# =============================================================================
+
+@bp.route('/mobile')
+@bp.route('/mobile/')
+def mobile_index():
+    """移动端 Vue 应用入口"""
+    mobile_dist_path = os.path.join(current_app.root_path, '..', 'static', 'vue-mobile-dist')
+    return send_from_directory(mobile_dist_path, 'index.html')
+
+
+@bp.route('/mobile/assets/<path:filename>')
+def mobile_assets(filename):
+    """移动端静态资源"""
+    assets_path = os.path.join(current_app.root_path, '..', 'static', 'vue-mobile-dist', 'assets')
+    return send_from_directory(assets_path, filename)
+
+
+@bp.route('/mobile/<path:subpath>')
+def mobile_router_routes(subpath):
+    """处理所有移动端 Vue Router 路由 - 返回 index.html 让前端路由处理"""
+    mobile_dist_path = os.path.join(current_app.root_path, '..', 'static', 'vue-mobile-dist')
+    return send_from_directory(mobile_dist_path, 'index.html')
+
+
+# =============================================================================
 # PC端前端路由 (向后兼容)
 # =============================================================================
 
