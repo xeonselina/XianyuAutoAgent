@@ -194,15 +194,35 @@ frontend-install: ## 安装前端依赖
 	cd frontend && npm install
 
 .PHONY: frontend-build
-frontend-build: frontend-install ## 构建前端应用
-	@echo "构建Vue应用..."
+frontend-build: frontend-install ## 构建PC端前端应用
+	@echo "构建Vue PC端应用..."
 	cd frontend && npm run build
-	@echo "前端构建完成，输出到: static/vue-dist/"
+	@echo "PC端前端构建完成，输出到: static/vue-dist/"
+
+.PHONY: frontend-mobile-install
+frontend-mobile-install: ## 安装移动端前端依赖
+	@echo "安装移动端前端依赖..."
+	cd frontend-mobile && npm install
+
+.PHONY: frontend-mobile-build
+frontend-mobile-build: frontend-mobile-install ## 构建移动端前端应用
+	@echo "构建Vue移动端应用..."
+	cd frontend-mobile && npm run build-only
+	@echo "移动端前端构建完成，输出到: static/vue-mobile-dist/"
+
+.PHONY: frontend-all-build
+frontend-all-build: frontend-build frontend-mobile-build ## 构建全部前端（PC端 + 移动端）
+	@echo "全部前端构建完成"
 
 .PHONY: frontend-dev
 frontend-dev: frontend-install ## 启动前端开发服务器
 	@echo "启动前端开发服务器..."
 	cd frontend && npm run dev
+
+.PHONY: frontend-mobile-dev
+frontend-mobile-dev: frontend-mobile-install ## 启动移动端前端开发服务器
+	@echo "启动移动端前端开发服务器..."
+	cd frontend-mobile && npm run dev
 
 # =============================================================================
 # Docker 构建和部署命令
@@ -263,13 +283,13 @@ build: frontend-build docker-build-multiplatform ## 完整构建：前端+后端
 	@echo "==============================================="
 
 .PHONY: build-arm
-build-arm: frontend-build ## 构建ARM64版本（前端+Docker）
+build-arm: frontend-all-build ## 构建ARM64版本（PC端+移动端前端+Docker）
 	@echo "构建ARM64版本..."
 	docker build --platform linux/arm64 -t $(DOCKER_IMAGE):arm64-local .
 	@echo "ARM64构建完成: $(DOCKER_IMAGE):arm64-local"
 
 .PHONY: build-x86
-build-x86: frontend-build ## 构建x86版本（前端+Docker）
+build-x86: frontend-all-build ## 构建x86版本（PC端+移动端前端+Docker）
 	@echo "构建x86版本..."
 	docker build --platform linux/amd64 -t $(DOCKER_IMAGE):x86-local .
 	@echo "x86构建完成: $(DOCKER_IMAGE):x86-local"
