@@ -3,12 +3,23 @@ Vue应用路由
 PC端前端
 """
 
-from flask import Blueprint, send_from_directory, current_app
+from flask import Blueprint, send_from_directory, current_app, request, redirect
 import os
 import logging
+import re
 
 bp = Blueprint('vue_app', __name__)
 logger = logging.getLogger(__name__)
+
+# 匹配手机 UA 的正则（不含平板，iPad 等走 PC 端体验更佳可按需调整）
+_MOBILE_UA_RE = re.compile(
+    r'(Android.*Mobile|iPhone|iPod|BlackBerry|IEMobile|Opera Mini)',
+    re.IGNORECASE
+)
+
+def _is_mobile() -> bool:
+    ua = request.headers.get('User-Agent', '')
+    return bool(_MOBILE_UA_RE.search(ua))
 
 
 # =============================================================================
@@ -18,7 +29,9 @@ logger = logging.getLogger(__name__)
 @bp.route('/')
 @bp.route('/app/')
 def unified_index():
-    """统一入口路由 - 返回桌面版前端"""
+    """统一入口路由 - 手机自动跳移动端，桌面返回 PC 端"""
+    if _is_mobile():
+        return redirect('/mobile/')
     dist_path = os.path.join(current_app.root_path, '..', 'static', 'vue-dist')
     return send_from_directory(dist_path, 'index.html')
 
