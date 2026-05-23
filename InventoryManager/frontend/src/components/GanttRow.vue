@@ -5,15 +5,6 @@
         <div class="device-name">{{ device.name }}</div>
         <div class="device-details">
           <span class="device-sn">{{ device.serial_number }}</span>
-          <el-select
-            :model-value="device.status"
-            size="small"
-            style="width: 80px;"
-            @change="updateDeviceStatus"
-          >
-            <el-option label="在线" value="online" />
-            <el-option label="离线" value="offline" />
-          </el-select>
         </div>
         <div class="device-lifecycle">
           <el-select
