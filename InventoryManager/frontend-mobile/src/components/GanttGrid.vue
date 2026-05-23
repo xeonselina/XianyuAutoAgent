@@ -12,6 +12,10 @@
         >
           <span class="date-num">{{ date.day }}</span>
           <span class="date-week">{{ date.week }}</span>
+          <span v-if="dailyStats?.[date.key]" class="date-stats">
+            <span class="stat-idle">{{ dailyStats[date.key].available_count }}闲</span>
+            <span v-if="dailyStats[date.key].ship_out_count > 0" class="stat-ship">{{ dailyStats[date.key].ship_out_count }}寄</span>
+          </span>
         </div>
       </div>
     </div>
@@ -83,6 +87,7 @@ const props = defineProps<{
   rentals: Rental[]
   windowStart: string   // YYYY-MM-DD
   loading: boolean
+  dailyStats?: Record<string, { available_count: number; ship_out_count: number; accessory_ship_out_count: number }>
 }>()
 
 const emit = defineEmits<{
@@ -236,7 +241,7 @@ const getRentalPeriodBarStyle = (rental: Rental) => {
 /* 表头 */
 .gantt-header {
   display: flex;
-  height: 36px;
+  height: 50px;
   border-bottom: 1px solid #e8e8e8;
   flex-shrink: 0;
   background: #fafafa;
@@ -297,6 +302,24 @@ const getRentalPeriodBarStyle = (rental: Rental) => {
   font-size: 8px;
   color: #999;
   line-height: 1.2;
+}
+
+.date-stats {
+  display: flex;
+  gap: 1px;
+  margin-top: 1px;
+}
+
+.stat-idle {
+  font-size: 7px;
+  color: #52c41a;
+  line-height: 1;
+}
+
+.stat-ship {
+  font-size: 7px;
+  color: #fa8c16;
+  line-height: 1;
 }
 
 /* 甘特主体 */

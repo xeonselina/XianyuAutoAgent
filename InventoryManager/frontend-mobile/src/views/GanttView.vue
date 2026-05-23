@@ -23,6 +23,7 @@
       :rentals="ganttStore.rentals"
       :window-start="windowStart"
       :loading="ganttStore.loading"
+      :daily-stats="dailyStats"
       @bar-click="openSheet"
     />
 
@@ -39,6 +40,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
+import axios from 'axios'
 import { useGanttStore } from '@/stores/gantt'
 import type { Rental } from '@/stores/gantt'
 import GanttGrid from '@/components/GanttGrid.vue'
@@ -62,9 +64,30 @@ const windowLabel = computed(() => {
 const sheetVisible = ref(false)
 const selectedRental = ref<Rental | null>(null)
 
+// 每日统计数据
+const dailyStats = ref<Record<string, { available_count: number; ship_out_count: number; accessory_ship_out_count: number }>>({})
+
+const DAYS = 14
+
+const fetchDailyStats = async () => {
+  const start = dayjs(windowStart.value)
+  const dates = Array.from({ length: DAYS }, (_, i) => start.add(i, 'day').format('YYYY-MM-DD'))
+  const results = await Promise.allSettled(
+    dates.map(date => axios.get('/api/gantt/daily-stats', { params: { date } }))
+  )
+  const stats: typeof dailyStats.value = {}
+  results.forEach((result, i) => {
+    if (result.status === 'fulfilled' && result.value.data?.success) {
+      stats[dates[i]] = result.value.data.data
+    }
+  })
+  dailyStats.value = stats
+}
+
 const shiftWindow = (days: number) => {
   windowOffset.value += days / 7
   ganttStore.loadData()
+  fetchDailyStats()
 }
 
 const openSheet = (rental: Rental) => {
@@ -74,6 +97,7 @@ const openSheet = (rental: Rental) => {
 
 const onDeleted = () => {
   ganttStore.loadData()
+  fetchDailyStats()
 }
 
 const goCreate = () => {
@@ -82,6 +106,7 @@ const goCreate = () => {
 
 onMounted(() => {
   ganttStore.loadData()
+  fetchDailyStats()
 })
 </script>
 
