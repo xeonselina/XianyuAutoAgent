@@ -141,19 +141,6 @@
         </el-col>
 
         <el-col :span="4">
-          <el-select
-            v-model="selectedStatus"
-            placeholder="设备状态"
-            clearable
-            @change="applyFilters"
-          >
-            <el-option label="全部状态" value="" />
-            <el-option label="在线" value="online" />
-            <el-option label="离线" value="offline" />
-          </el-select>
-        </el-col>
-
-        <el-col :span="4">
           <el-button @click="clearFilters">清除过滤</el-button>
         </el-col>
       </el-row>
@@ -384,13 +371,13 @@ const selectedRental = ref<Rental | null>(null)
 const searchKeyword = ref<string>('')
 const selectedDeviceModel = ref<string>('')
 const selectedDeviceType = ref<string[]>([])
-const selectedStatus = ref('')
+const selectedStatus = ref('')  // 保留但不使用，避免影响 clearFilters
 const selectedDatePicker = ref<Date>(ganttStore.currentDate)
 const dailyStats = ref<Record<string, {available_count: number, ship_out_count: number, accessory_ship_out_count: number}>>({})
 
 // 虚拟滚动相关
 const ganttBodyRef = ref<HTMLElement>()
-const itemHeight = 60  // 每行高度
+const itemHeight = 44  // 每行高度
 const visibleCount = ref(10)  // 可见行数
 const scrollTop = ref(0)
 const startIndex = ref(0)
@@ -474,6 +461,9 @@ const filteredDevices = computed(() => {
   // 过滤掉附件设备（手柄）
   devices = devices.filter(device => !device.is_accessory)
 
+  // 过滤掉非 active 生命周期的设备（已售、已损坏、已停用、已退役）
+  devices = devices.filter(device => !device.lifecycle_status || device.lifecycle_status === 'active')
+
   // 按搜索关键词筛选（基于租赁数据）
   if (searchKeyword.value.trim()) {
     const keyword = searchKeyword.value.toLowerCase().trim()
@@ -505,12 +495,7 @@ const filteredDevices = computed(() => {
     )
   }
 
-  // 按设备状态筛选
-  if (selectedStatus.value) {
-    devices = devices.filter(device =>
-      device.status === selectedStatus.value
-    )
-  }
+  // 按设备状态筛选（已在 filteredDevices 中过滤 lifecycle，此处保留扩展空间）
 
   return devices
 })

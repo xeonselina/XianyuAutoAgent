@@ -521,7 +521,7 @@ const isDateEmpty = (date: Date) => {
 .gantt-row {
   display: flex;
   border-bottom: 2px solid #e0e0e0;
-  min-height: 60px;
+  min-height: 44px;
   position: relative;
   width: 100%;
   min-width: max-content;
@@ -530,7 +530,7 @@ const isDateEmpty = (date: Date) => {
 .device-cell {
   min-width: 200px;
   width: 200px;
-  padding: 12px 16px;
+  padding: 6px 12px;
   border-right: 2px solid #d0d0d0;
   background: #f5f5f5;
   position: sticky;
