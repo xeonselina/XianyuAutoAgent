@@ -33,49 +33,48 @@
         'is-empty': isDateEmpty(date)
       }"
     >
-      <!-- Consolidated rental bar with shipping overlay -->
+      <!-- 外层半透明条：跨越 ship_out_time → ship_in_time -->
       <div
         v-for="rental in getRentalsForDate(date)"
         :key="`rental-${rental.id}`"
         v-show="shouldShowRentalBar(rental, date)"
-        class="rental-bar rental-period"
-        :style="getRentalStyle(rental, date)"
+        class="rental-bar"
+        :style="getShipRangeStyle(rental, date)"
         @click="$emit('edit-rental', rental)"
         @dblclick="$emit('delete-rental', rental)"
         @mouseenter="handleRentalHover(rental, $event)"
         @mouseleave="handleRentalLeave"
       >
-        <!-- Shipping period overlay (transparent background layer) -->
+        <!-- 内层实色条：跨越 start_date → end_date -->
         <div
-          v-if="rental.ship_out_time && rental.ship_in_time"
-          class="rental-ship-overlay"
-          :style="getRentalShipOverlayStyle(rental, date)"
-        />
-        
-        <div class="rental-content">
-          <div class="rental-customer-line">
-            <span class="rental-customer">
-              <span v-if="rental.status === 'shipped'" class="status-icon shipped-icon">🚀</span>
-              <span v-else-if="rental.status === 'returned'" class="status-icon returned-icon">✅</span>
-              <span v-else-if="rental.status === 'not_shipped'" class="status-icon">📦</span>
-              {{ rental.customer_name }}
-            </span>
-            <el-icon v-if="hasAccessories(rental)" class="accessory-icon" title="包含附件">
-              <Tools />
-            </el-icon>
-          </div>
-          <span class="rental-phone">{{ rental.customer_phone }}</span>
-        </div>
-
-        <!-- 档期冲突警告图标 -->
-        <span
-          v-if="rentalConflicts.get(rental.id)?.hasConflict"
-          class="conflict-warning-icon"
-          @click.stop="showConflictDetails(rental)"
-          title="档期冲突警告"
+          class="rental-period"
+          :style="getRentalPeriodStyle(rental, date)"
         >
-          ⚠️
-        </span>
+          <div class="rental-content">
+            <div class="rental-customer-line">
+              <span class="rental-customer">
+                <span v-if="rental.status === 'shipped'" class="status-icon shipped-icon">🚀</span>
+                <span v-else-if="rental.status === 'returned'" class="status-icon returned-icon">✅</span>
+                <span v-else-if="rental.status === 'not_shipped'" class="status-icon">📦</span>
+                {{ rental.customer_name }}
+              </span>
+              <el-icon v-if="hasAccessories(rental)" class="accessory-icon" title="包含附件">
+                <Tools />
+              </el-icon>
+            </div>
+            <span class="rental-phone">{{ rental.customer_phone }}</span>
+          </div>
+
+          <!-- 档期冲突警告图标 -->
+          <span
+            v-if="rentalConflicts.get(rental.id)?.hasConflict"
+            class="conflict-warning-icon"
+            @click.stop="showConflictDetails(rental)"
+            title="档期冲突警告"
+          >
+            ⚠️
+          </span>
+        </div>
       </div>
     </div>
     
@@ -92,7 +91,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, defineAsyncComponent, onUnmounted, type CSSProperties } from 'vue'
+import { ref, computed, defineAsyncComponent, onUnmounted } from 'vue'
 import type { Device, Rental } from '../stores/gantt'
 import {
   toDateString,
@@ -283,10 +282,19 @@ const currentRentalConflictInfo = computed(() => {
 // 缓存租赁数据计算结果
 const rentalDateCache = new Map<string, Rental[]>()
 
+// 获取有效的条条开始时间（ship_out_time 优先，无则用 start_date）
+const getBarStart = (rental: Rental): string => {
+  return rental.ship_out_time ? toDateString(rental.ship_out_time) : rental.start_date
+}
+// 获取有效的条条结束时间（ship_in_time 优先，无则用 end_date）
+const getBarEnd = (rental: Rental): string => {
+  return rental.ship_in_time ? toDateString(rental.ship_in_time) : rental.end_date
+}
+
 const getRentalsForDate = (date: Date) => {
   const dateStr = dayjs(date).format('YYYY-MM-DD')
-  // 添加status和日期到缓存key中，确保状态或日期变化时缓存失效
-  const statusHash = props.rentals.map(r => `${r.id}:${r.status}:${r.start_date}:${r.end_date}`).join('|')
+  // 包含 ship_out_time / ship_in_time，确保这两个字段变化时缓存失效
+  const statusHash = props.rentals.map(r => `${r.id}:${r.status}:${r.start_date}:${r.end_date}:${r.ship_out_time}:${r.ship_in_time}`).join('|')
   const cacheKey = `${dateStr}_${props.rentals.length}_${statusHash}`
 
   if (rentalDateCache.has(cacheKey)) {
@@ -294,12 +302,12 @@ const getRentalsForDate = (date: Date) => {
   }
 
   const result = props.rentals.filter(rental => {
-    const startDate = parseDate(rental.start_date)
-    const endDate = parseDate(rental.end_date)
+    const barStart = parseDate(getBarStart(rental))
+    const barEnd = parseDate(getBarEnd(rental))
     const currentDate = parseDate(dateStr)
 
-    return (currentDate.isAfter(startDate) || currentDate.isSame(startDate, 'day')) &&
-           (currentDate.isBefore(endDate) || currentDate.isSame(endDate, 'day'))
+    return (currentDate.isAfter(barStart) || currentDate.isSame(barStart, 'day')) &&
+           (currentDate.isBefore(barEnd) || currentDate.isSame(barEnd, 'day'))
   })
 
   // 限制缓存大小
@@ -314,145 +322,100 @@ const getRentalsForDate = (date: Date) => {
   return result
 }
 
-const getRentalStyle = (rental: Rental, date: Date) => {
-  const startDate = parseDate(rental.start_date)
-  const endDate = parseDate(rental.end_date)
-  const currentDate = parseDate(toDateString(date))
-
-  // 找到可见范围内的第一天
-  const firstVisibleDate = props.dates.length > 0 ? parseDate(toDateString(props.dates[0])) : currentDate
-
-  // 计算在当前日期格子中的显示样式
-  let width = '100%'
-  let marginLeft = '0%'
-
-  // 如果是租赁的第一天，或者是可见范围内的第一天（当rental开始日期在可见范围之前）
-  const isRentalStart = currentDate.isSame(startDate, 'day')
-  const isFirstVisible = currentDate.isSame(firstVisibleDate, 'day') && startDate.isBefore(firstVisibleDate)
-
-  if (isRentalStart || isFirstVisible) {
-    // 计算从当前日期到结束日期的天数
-    const daysToEnd = endDate.diff(currentDate, 'day') + 1
-    width = `${daysToEnd * 100}%`
-  }
-
-  const bgColor = getRentalColor(rental.status)
-  return {
-    width,
-    marginLeft,
-    background: `
-      repeating-linear-gradient(
-        to right,
-        transparent,
-        transparent 79px,
-        rgba(255, 255, 255, 0.6) 79px,
-        rgba(255, 255, 255, 0.6) 80px
-      ),
-      ${bgColor}
-    `,
-    backgroundPosition: '-2px 0',
-    opacity: getRentalOpacity(rental)
-  }
-}
-
-// NEW: 计算物流期间的叠加样式
-const getRentalShipOverlayStyle = (rental: Rental, date: Date): CSSProperties => {
-  if (!rental.ship_out_time || !rental.ship_in_time) {
-    return {}
-  }
-
-  // 简单的日期字符串处理
-  const shipOutDateStr = toDateString(rental.ship_out_time)
-  const shipInDateStr = toDateString(rental.ship_in_time)
-  const currentDateStr = toDateString(date)
-
-  const shipOutDate = parseDate(shipOutDateStr)
-  const shipInDate = parseDate(shipInDateStr)
-  const currentDate = parseDate(currentDateStr)
-  const firstVisibleDate = props.dates.length > 0 ? parseDate(toDateString(props.dates[0])) : currentDate
-
-  // 计算在当前日期格子中的显示样式
-  let width = '100%'
-  let marginLeft = '0%'
-
-  // 如果是物流的第一天，或者是可见范围内的第一天（当ship开始日期在可见范围之前）
-  const isShipStart = currentDateStr === shipOutDateStr
-  const isFirstVisible = currentDate.isSame(firstVisibleDate, 'day') && shipOutDate.isBefore(firstVisibleDate)
-
-  if (isShipStart || isFirstVisible) {
-    // 计算从当前日期到结束日期的天数
-    const daysToEnd = shipInDate.diff(currentDate, 'day') + 1
-    width = `${daysToEnd * 100}%`
-  }
-
-  const bgColor = generateRandomColor(rental.id)
-  return {
-    position: 'absolute',
-    top: 0,
-    left: marginLeft,
-    width,
-    height: '100%',
-    background: `
-      repeating-linear-gradient(
-        to right,
-        transparent,
-        transparent 79px,
-        rgba(255, 255, 255, 0.4) 79px,
-        rgba(255, 255, 255, 0.4) 80px
-      ),
-      ${bgColor}
-    `,
-    backgroundPosition: '-2px 0',
-    opacity: '0.4',
-    borderRadius: '4px',
-    zIndex: 0,
-    pointerEvents: 'none' as const
-  } as CSSProperties
-}
-
-// 生成随机颜色的函数
-const generateRandomColor = (rentalId: number) => {
-  // 使用rentalId作为种子，确保同一个rental总是得到相同的颜色
+const generateRandomColor = (rentalId: number): string => {
   const colors = [
-    '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
-    '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9',
-    '#F8C471', '#82E0AA', '#F1948A', '#85C1E9', '#D7BDE2',
-    '#F9E79F', '#D5A6BD', '#A9CCE3', '#FAD7A0', '#D2B4DE',
-    '#FF8A80', '#80CBC4', '#81C784', '#FFB74D', '#BA68C8',
-    '#64B5F6', '#A1887F', '#90A4AE', '#FFAB91', '#C5E1A5',
-    '#BCAAA4', '#B39DDB', '#F48FB1', '#80DEEA', '#DCEDC8',
-    '#FFE082', '#FFCDD2', '#D1C4E9', '#C8E6C9', '#FFF3E0',
-    '#FF7043', '#26A69A', '#AB47BC', '#5C6BC0', '#EF5350',
-    '#66BB6A', '#FFA726', '#EC407A', '#42A5F5', '#FFCA28',
-    '#26C6DA', '#7E57C2', '#FF5722', '#009688', '#795548',
-    '#607D8B', '#FFC107', '#9C27B0', '#3F51B5', '#F44336',
-    '#4CAF50', '#FF9800', '#E91E63', '#2196F3', '#CDDC39',
-    '#00BCD4', '#673AB7', '#FF6F00', '#E65100', '#BF360C',
-    '#1B5E20', '#0D47A1', '#4A148C', '#B71C1C', '#33691E'
+    '#f44336', '#e91e63', '#9c27b0', '#673ab7', '#3f51b5',
+    '#2196f3', '#03a9f4', '#00bcd4', '#009688', '#4caf50',
+    '#8bc34a', '#cddc39', '#ffc107', '#ff9800', '#ff5722',
+    '#795548', '#607d8b', '#e53935', '#d81b60', '#8e24aa',
+    '#5e35b1', '#3949ab', '#1e88e5', '#039be5', '#00acc1',
+    '#00897b', '#43a047', '#7cb342', '#c0ca33', '#ffb300',
+    '#fb8c00', '#f4511e', '#6d4c41', '#546e7a', '#c62828',
+    '#ad1457', '#6a1b9a', '#4527a0', '#283593', '#1565c0',
+    '#0277bd', '#00838f', '#00695c', '#2e7d32', '#558b2f',
+    '#9e9d24', '#f9a825', '#ff6f00', '#e65100', '#bf360c',
+    '#4e342e', '#37474f', '#b71c1c', '#880e4f', '#4a148c',
+    '#311b92', '#1a237e', '#0d47a1', '#01579b', '#006064',
+    '#004d40', '#1b5e20', '#33691e', '#827717', '#f57f17',
+    '#ff6d00', '#dd2c00', '#3e2723', '#263238', '#d32f2f',
+    '#c2185b', '#7b1fa2', '#512da8', '#303f9f', '#0288d1'
   ]
   return colors[rentalId % colors.length]
 }
 
-const getRentalColor = (status: string) => {
-  const colorMap: Record<string, string> = {
-    'not_shipped': '#e6a23c',  // 未发货 - 橙色
-    'shipped': '#67c23a',      // 已发货 - 绿色
-    'returned': '#409eff',     // 已收回 - 蓝色
-    'completed': '#909399',    // 已完成 - 灰色
-    'cancelled': '#f56c6c',    // 已取消 - 红色
-    'default': '#409eff'       // 默认 - 蓝色
-  }
-  return colorMap[status] || colorMap.default
+const hexToRgba = (hex: string, alpha: number): string => {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
-const getRentalOpacity = (rental: Rental) => {
-  // 根据寄出时间和收回时间调整透明度
-  if (rental.ship_out_time && rental.ship_in_time) {
-    return '0.9'
-  } else if (rental.ship_out_time) {
-    return '0.7'
+/** 外层条：跨越 ship_out_time → ship_in_time，半透明背景 */
+const getShipRangeStyle = (rental: Rental, date: Date) => {
+  const barStart = parseDate(getBarStart(rental))
+  const barEnd = parseDate(getBarEnd(rental))
+  const currentDate = parseDate(toDateString(date))
+  const firstVisibleDate = props.dates.length > 0 ? parseDate(toDateString(props.dates[0])) : currentDate
+
+  const isBarStart = currentDate.isSame(barStart, 'day')
+  const isFirstVisible = currentDate.isSame(firstVisibleDate, 'day') && barStart.isBefore(firstVisibleDate)
+
+  if (!isBarStart && !isFirstVisible) {
+    return {}
   }
-  return '0.5'
+
+  const daysToEnd = barEnd.diff(currentDate, 'day') + 1
+  const color = generateRandomColor(rental.id)
+
+  return {
+    width: `${daysToEnd * 100}%`,
+    background: hexToRgba(color, 0.22),
+    border: `1px solid ${hexToRgba(color, 0.4)}`,
+  }
+}
+
+/** 内层条：跨越 start_date → end_date，不透明，绝对定位在外层条内 */
+const getRentalPeriodStyle = (rental: Rental, date: Date) => {
+  const barStart = parseDate(getBarStart(rental))
+  const barEnd = parseDate(getBarEnd(rental))
+  const currentDate = parseDate(toDateString(date))
+  const firstVisibleDate = props.dates.length > 0 ? parseDate(toDateString(props.dates[0])) : currentDate
+
+  // 外层条实际开始渲染的日期（被可见范围裁剪后）
+  const effectiveBarStart = barStart.isBefore(firstVisibleDate) ? firstVisibleDate : barStart
+
+  const startDate = parseDate(rental.start_date)
+  const endDate = parseDate(rental.end_date)
+
+  // 内层条裁剪到外层条范围内
+  const innerStart = startDate.isBefore(effectiveBarStart) ? effectiveBarStart : startDate
+  const innerEnd = endDate.isAfter(barEnd) ? barEnd : endDate
+
+  const totalOuterDays = barEnd.diff(effectiveBarStart, 'day') + 1
+  const leftPercent = innerStart.diff(effectiveBarStart, 'day') / totalOuterDays * 100
+  const widthPercent = (innerEnd.diff(innerStart, 'day') + 1) / totalOuterDays * 100
+
+  if (widthPercent <= 0) {
+    return { display: 'none' }
+  }
+
+  const color = generateRandomColor(rental.id)
+
+  return {
+    position: 'absolute' as const,
+    top: '0',
+    bottom: '0',
+    left: `${leftPercent}%`,
+    width: `${widthPercent}%`,
+    background: color,
+    borderRadius: '4px',
+    display: 'flex',
+    alignItems: 'center',
+    padding: '0 8px',
+    color: 'white',
+    fontSize: '12px',
+    overflow: 'hidden',
+  }
 }
 
 // Check if this date is the first day of rental
@@ -462,19 +425,19 @@ const isRentalFirstDay = (rental: Rental, date: Date) => {
   return currentDate.isSame(startDate, 'day')
 }
 
-// Check if this is the first visible day for the rental (either actual start or first visible date)
+// Check if this is the first visible day for the rental (either actual bar start or first visible date)
 const isRentalFirstVisibleDay = (rental: Rental, date: Date) => {
-  const startDate = parseDate(rental.start_date)
+  const barStart = parseDate(getBarStart(rental))
   const currentDate = parseDate(toDateString(date))
   const firstVisibleDate = props.dates.length > 0 ? parseDate(toDateString(props.dates[0])) : currentDate
 
-  // 如果是实际开始日期
-  if (currentDate.isSame(startDate, 'day')) {
+  // 如果是实际开始日期（ship_out_time 或 start_date）
+  if (currentDate.isSame(barStart, 'day')) {
     return true
   }
 
   // 如果开始日期在可见范围之前，且当前是可见范围的第一天
-  if (startDate.isBefore(firstVisibleDate) && currentDate.isSame(firstVisibleDate, 'day')) {
+  if (barStart.isBefore(firstVisibleDate) && currentDate.isSame(firstVisibleDate, 'day')) {
     return true
   }
 
@@ -658,37 +621,32 @@ const isDateEmpty = (date: Date) => {
   left: 2px;
   right: 2px;
   height: 44px;
-  min-width: 120px;
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s;
+  position: relative;
+  z-index: 2;
+  overflow: hidden;
+}
+
+.rental-period {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 4px;
   display: flex;
   align-items: center;
   padding: 0 8px;
   color: white;
   font-size: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  position: relative;
-  z-index: 2;
+  overflow: hidden;
+  min-width: 20px;
 }
 
 .rental-bar:hover {
   transform: translateY(-1px);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   z-index: 10;
-}
-
-/* Shipping overlay - positioned absolutely within rental bar */
-.rental-ship-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  border-radius: 4px;
-  z-index: 0;
-  opacity: 0.4;
-  pointer-events: none;
 }
 
 /* 档期冲突警告图标 */
