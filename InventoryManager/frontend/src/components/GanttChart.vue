@@ -141,6 +141,21 @@
         </el-col>
 
         <el-col :span="4">
+          <el-select
+            v-model="selectedLifecycleStatus"
+            placeholder="设备状态"
+            @change="applyFilters"
+          >
+            <el-option label="🟢 使用中" value="active" />
+            <el-option label="📦 全部设备" value="all" />
+            <el-option label="💰 已售出" value="sold" />
+            <el-option label="🔧 已损坏" value="damaged" />
+            <el-option label="⛔ 已停用" value="decommissioned" />
+            <el-option label="📦 已退役" value="retired" />
+          </el-select>
+        </el-col>
+
+        <el-col :span="4">
           <el-button @click="clearFilters">清除过滤</el-button>
         </el-col>
       </el-row>
@@ -371,7 +386,7 @@ const selectedRental = ref<Rental | null>(null)
 const searchKeyword = ref<string>('')
 const selectedDeviceModel = ref<string>('')
 const selectedDeviceType = ref<string[]>([])
-const selectedStatus = ref('')  // 保留但不使用，避免影响 clearFilters
+const selectedLifecycleStatus = ref<string>('active')  // 默认只显示使用中设备
 const selectedDatePicker = ref<Date>(ganttStore.currentDate)
 const dailyStats = ref<Record<string, {available_count: number, ship_out_count: number, accessory_ship_out_count: number}>>({})
 
@@ -461,8 +476,13 @@ const filteredDevices = computed(() => {
   // 过滤掉附件设备（手柄）
   devices = devices.filter(device => !device.is_accessory)
 
-  // 过滤掉非 active 生命周期的设备（已售、已损坏、已停用、已退役）
-  devices = devices.filter(device => !device.lifecycle_status || device.lifecycle_status === 'active')
+  // 按生命周期状态筛选（默认只显示使用中）
+  if (selectedLifecycleStatus.value !== 'all') {
+    const status = selectedLifecycleStatus.value
+    devices = devices.filter(device =>
+      (device.lifecycle_status || 'active') === status
+    )
+  }
 
   // 按搜索关键词筛选（基于租赁数据）
   if (searchKeyword.value.trim()) {
@@ -495,7 +515,7 @@ const filteredDevices = computed(() => {
     )
   }
 
-  // 按设备状态筛选（已在 filteredDevices 中过滤 lifecycle，此处保留扩展空间）
+  // 按设备状态筛选（由 selectedLifecycleStatus 驱动，见上方）
 
   return devices
 })
@@ -543,7 +563,7 @@ const clearFilters = () => {
   searchKeyword.value = ''
   selectedDeviceModel.value = ''
   selectedDeviceType.value = []
-  selectedStatus.value = ''
+  selectedLifecycleStatus.value = 'active'
 }
 
 // 搜索相关方法
