@@ -1,159 +1,166 @@
-# 快速参考卡片
+# Quick Reference: Lifecycle Status Bug
 
-## 🚀 一键部署
-
-```bash
-make build-and-run-x86
-```
-
-**访问地址**:
-- PC端: http://localhost:5002/vue
-- 移动端: http://localhost:5002/mobile
-- API: http://localhost:5002/api
+## One-Line Summary
+**Gantt API endpoint `/api/gantt/data` returns device data WITHOUT the `lifecycle_status` field, causing the frontend to show "🟢 使用中" for all devices instead of the correct status.**
 
 ---
 
-## 📦 常用命令
+## Files & Line Numbers
 
-### 前端构建
-```bash
-# 构建所有前端 (PC + 移动)
-make frontend-build-all
+### Critical Issue
+| File | Lines | Problem |
+|------|-------|---------|
+| `app/routes/gantt_api.py` | **79-90** | Missing `lifecycle_status`, `lifecycle_reason`, `lifecycle_date` in device dict |
 
-# 仅构建 PC端
-make frontend-build
-
-# 仅构建移动端
-make frontend-mobile-build
-```
-
-### Docker 操作
-```bash
-# 构建 x86 镜像
-make build-x86
-
-# 构建 ARM 镜像
-make build-arm
-
-# 构建并运行 x86
-make build-and-run-x86
-
-# 查看运行中的容器
-docker ps
-
-# 查看日志
-docker logs -f <container_id>
-
-# 停止容器
-docker stop <container_id>
-```
-
-### 开发模式
-```bash
-# PC端开发 (端口 5173)
-cd frontend && npm run dev
-
-# 移动端开发 (端口 5174)
-cd frontend-mobile && npm run dev
-
-# 后端开发 (端口 5000)
-make run
-```
+### Components (Status: ✅ OK)
+| File | Lines | Status |
+|------|-------|--------|
+| `app/models/device.py` | 31-47, 60-76 | ✅ Model defines fields and includes in `to_dict()` |
+| `frontend/src/components/GanttRow.vue` | 3, 20, 25-29, 585-599 | ✅ Component correctly displays lifecycle_status |
+| `frontend/src/stores/gantt.ts` | 38-52 | ✅ Interface defined correctly |
+| `frontend/src/components/GanttChart.vue` | 856-869 | ✅ Update handler works correctly |
 
 ---
 
-## 📁 目录结构
+## The Missing 3 Lines
 
+In `app/routes/gantt_api.py` at **line 88** (before `'rentals': []`), add:
+
+```python
+'lifecycle_status': device.lifecycle_status,
+'lifecycle_reason': device.lifecycle_reason,
+'lifecycle_date': device.lifecycle_date.isoformat() if device.lifecycle_date else None,
 ```
-InventoryManager/
-├── frontend/           # PC端前端
-├── frontend-mobile/    # 移动端前端
-├── static/            
-│   ├── vue-dist/      # PC端构建产物
-│   └── mobile-dist/   # 移动端构建产物
-├── app/               # Flask 后端
-├── Makefile           # 构建脚本
-└── Dockerfile         # Docker 配置
+
+### Before (lines 79-90):
+```python
+device_data = {
+    'id': device.id,
+    'name': device.name,
+    'serial_number': device.serial_number,
+    'model': getattr(device, 'model', 'x200u'),
+    'model_id': device.model_id,
+    'device_model': device.device_model.to_dict() if device.device_model else None,
+    'is_accessory': getattr(device, 'is_accessory', False),
+    'status': device.status,
+    'rentals': []
+}
+```
+
+### After:
+```python
+device_data = {
+    'id': device.id,
+    'name': device.name,
+    'serial_number': device.serial_number,
+    'model': getattr(device, 'model', 'x200u'),
+    'model_id': device.model_id,
+    'device_model': device.device_model.to_dict() if device.device_model else None,
+    'is_accessory': getattr(device, 'is_accessory', False),
+    'status': device.status,
+    'lifecycle_status': device.lifecycle_status,           # ← ADD
+    'lifecycle_reason': device.lifecycle_reason,           # ← ADD
+    'lifecycle_date': device.lifecycle_date.isoformat() if device.lifecycle_status else None,  # ← ADD
+    'rentals': []
+}
 ```
 
 ---
 
-## 🌐 访问地址
+## Why This Bug Happens
 
-| 环境 | PC端 | 移动端 | API |
-|------|------|--------|-----|
-| 生产 | http://localhost:5002/vue | http://localhost:5002/mobile | http://localhost:5002/api |
-| PC开发 | http://localhost:5173 | - | http://localhost:5000/api |
-| 移动开发 | - | http://localhost:5174 | http://localhost:5000/api |
-
----
-
-## 🔧 故障排查
-
-### 问题: 容器启动失败
-```bash
-# 检查日志
-docker logs <container_id>
-
-# 验证环境变量
-docker exec <container_id> env | grep DATABASE_URL
 ```
-
-### 问题: 前端页面404
-```bash
-# 重新构建前端
-make frontend-build-all
-
-# 验证产物
-ls -la static/vue-dist
-ls -la static/mobile-dist
-```
-
-### 问题: API 请求失败
-```bash
-# 检查后端服务
-curl http://localhost:5002/api/devices
-
-# 查看容器日志
-docker logs <container_id>
-```
-
-### 问题: 端口冲突
-```bash
-# 停止占用端口的容器
-docker stop $(docker ps -q --filter "publish=5002")
+DB: Device(id=1, lifecycle_status='sold') ✅
+  ↓
+Device.to_dict() includes lifecycle_status ✅
+  ↓
+BUT gantt_api.py manually builds dict ❌
+  ↓
+Manually built dict missing lifecycle fields ❌
+  ↓
+Frontend receives undefined ❌
+  ↓
+Frontend fallback: device.lifecycle_status || 'active' ❌
+  ↓
+Shows "🟢 使用中" instead of "💰 已售出" ❌
 ```
 
 ---
 
-## 📚 文档索引
+## Testing the Fix
 
-### 快速开始
-- [快速开始 (移动端)](MOBILE_QUICKSTART.md)
-- [集成部署指南](docs/integrated-deployment-guide.md)
+1. Mark a device as sold:
+   ```bash
+   curl -X PUT http://localhost:5000/api/devices/1/lifecycle \
+     -H "Content-Type: application/json" \
+     -d '{"lifecycle_status":"sold"}'
+   ```
 
-### 详细文档
-- [移动端 README](frontend-mobile/README.md)
-- [移动端技术选型](docs/mobile-frontend-research.md)
-- [移动端部署](docs/mobile-frontend-deployment.md)
-- [移动端实现总结](docs/mobile-frontend-implementation-summary.md)
-- [移动端集成总结](docs/mobile-integration-summary.md)
+2. Check API response includes lifecycle_status:
+   ```bash
+   curl http://localhost:5000/api/gantt/data | jq '.data.devices[0]'
+   # Should see: "lifecycle_status": "sold"
+   ```
 
-### 主项目文档
-- [主 README](README.md)
-- [Makefile 使用说明](docs/Makefile使用说明.md)
-- [环境变量配置](docs/环境变量配置说明.md)
-
----
-
-## 💡 提示
-
-- 🖥️ PC端适合桌面浏览器 (完整功能)
-- 📱 移动端适合手机浏览器 (简化版)
-- 🔄 开发时前端和后端可独立运行
-- 📦 生产时所有服务打包在一个容器
-- 🚀 使用 `make build-and-run-x86` 一键部署
+3. Refresh Gantt chart in browser - should now show:
+   - Dropdown: "💰 已售出" ✅
+   - Border: Orange ✅
+   - Opacity: 0.55 ✅
 
 ---
 
-**最后更新**: 2025-12-31
+## Impact Summary
+
+| Aspect | Before Fix | After Fix |
+|--------|-----------|-----------|
+| API Response | Missing lifecycle_status | Includes lifecycle_status |
+| UI Display | "🟢 使用中" for all devices | Correct status shown |
+| Visual Styling | Default styling | Orange/gray/pink as appropriate |
+| User Confusion | High - can't tell sold devices | None - clear indication |
+
+---
+
+## Related Code Paths
+
+### When User Clicks Dropdown to Mark Device as Sold:
+1. `GanttRow.vue` line 159 → emits `update-device-lifecycle`
+2. `GanttChart.vue` line 856-869 → calls `ganttStore.updateDeviceLifecycle()`
+3. `gantt.ts` line 336-354 → PUT to `/api/devices/<id>/lifecycle`
+4. `device_api.py` line 249-292 → Updates DB + returns updated device
+5. `ganttStore.loadData()` → Reloads from `/api/gantt/data`
+6. ⚠️ **At step 5, lifecycle_status should now be included** (after fix)
+
+---
+
+## Alternative Fix (More Comprehensive)
+
+Instead of adding 3 lines, refactor to use `device.to_dict()`:
+
+```python
+# Current approach (manual dict construction)
+device_data = {
+    'id': device.id,
+    'name': device.name,
+    # ... 10+ manual fields
+}
+
+# Better approach (use to_dict())
+device_data = device.to_dict()
+# This automatically includes ALL fields including lifecycle_status
+```
+
+But be careful: `to_dict()` includes `created_at`, `updated_at` which frontend may not need. Keep the 3-line fix if you want to be minimal and explicit.
+
+---
+
+## Severity: **CRITICAL** 🔴
+
+- **Users can't see which devices are sold/decommissioned**
+- **Visual indicators (color, opacity) don't appear**
+- **Can mislead operations staff about device availability**
+- **Fix is trivial: add 3 lines of code**
+
+---
+
+For full analysis, see: `BUG_ANALYSIS_LIFECYCLE_STATUS.md`
+For data flow diagram, see: `BUG_FLOW_DIAGRAM.txt`

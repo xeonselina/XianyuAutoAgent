@@ -33,6 +33,7 @@ class RentalHandlers:
             start_date = request.args.get('start_date')
             end_date = request.args.get('end_date')
             phone = request.args.get('phone')
+            destination = request.args.get('destination')
 
             # 调用服务层
             result = RentalService.get_rentals_with_filters(
@@ -43,7 +44,8 @@ class RentalHandlers:
                 status=status,
                 start_date=start_date,
                 end_date=end_date,
-                phone=phone
+                phone=phone,
+                destination=destination
             )
 
             return success(data=result)
@@ -51,6 +53,50 @@ class RentalHandlers:
         except Exception as e:
             current_app.logger.error(f"获取租赁记录失败: {e}")
             return server_error('获取租赁记录失败')
+
+    @staticmethod
+    def handle_search_rentals() -> ApiResponse:
+        """处理租赁记录搜索请求 - 支持多字段组合搜索"""
+        try:
+            # 获取查询参数
+            data = request.get_json() or {}
+            
+            page = int(data.get('page', 1))
+            per_page = min(int(data.get('per_page', 20)), 100)
+            
+            # 搜索条件
+            query = data.get('q')  # 通用搜索（客户名称、电话、地址）
+            customer_name = data.get('customer_name')
+            phone = data.get('phone')
+            destination = data.get('destination')
+            device_id = data.get('device_id', type=int) if data.get('device_id') else None
+            status = data.get('status')
+            start_date = data.get('start_date')
+            end_date = data.get('end_date')
+            
+            # 如果提供了通用搜索q，则忽略具体的字段
+            if query:
+                customer_name = query
+                # 也会尝试匹配电话和地址，由服务层处理
+            
+            # 调用服务层
+            result = RentalService.get_rentals_with_filters(
+                page=page,
+                per_page=per_page,
+                device_id=device_id,
+                customer_name=customer_name or query,
+                status=status,
+                start_date=start_date,
+                end_date=end_date,
+                phone=phone,
+                destination=destination
+            )
+            
+            return success(data=result)
+
+        except Exception as e:
+            current_app.logger.error(f"搜索租赁记录失败: {e}")
+            return server_error('搜索失败')
 
     @staticmethod
     def handle_get_rental(rental_id: str) -> ApiResponse:

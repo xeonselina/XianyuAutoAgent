@@ -1,0 +1,144 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - heading "AI 客服管理中心" [level=1] [ref=e5]
+    - navigation [ref=e6]:
+      - link "知识库" [ref=e7] [cursor=pointer]:
+        - /url: "#/"
+      - link "System Prompt" [ref=e8] [cursor=pointer]:
+        - /url: "#/prompts"
+      - link "消息过滤" [ref=e9] [cursor=pointer]:
+        - /url: "#/ignore-patterns"
+      - link "Eval 回放" [ref=e10] [cursor=pointer]:
+        - /url: "#/eval"
+      - link "历史对话" [ref=e11] [cursor=pointer]:
+        - /url: "#/history"
+      - link "系统设置" [ref=e12] [cursor=pointer]:
+        - /url: "#/settings"
+  - main [ref=e13]:
+    - generic [ref=e15]:
+      - generic [ref=e16]:
+        - button "← 返回列表" [ref=e17] [cursor=pointer]
+        - heading "对话详情：60757582299" [level=2] [ref=e18]
+      - generic [ref=e21]:
+        - generic [ref=e22]:
+          - generic [ref=e23]: 👤
+          - generic [ref=e24]:
+            - generic [ref=e25]: 买家 · 05/03 21:15
+            - generic [ref=e26]: 订单已签收
+        - generic [ref=e27]:
+          - generic [ref=e28]: 👤
+          - generic [ref=e29]:
+            - generic [ref=e30]: 买家 · 05/03 22:14
+            - generic [ref=e31]: 这几个地方是裂了的
+        - generic [ref=e32]:
+          - generic [ref=e33]:
+            - generic [ref=e34]: 人工回复 · 05/03 22:14
+            - generic [ref=e35]: 嗯嗯
+          - generic [ref=e36]: 🧑‍💼
+        - generic [ref=e37]:
+          - generic [ref=e38]:
+            - generic [ref=e39]: AI 客服 · 05/03 22:14
+            - generic [ref=e40]:
+              - text: 🔇 AI 客服置信度抑制
+              - generic [ref=e41]: （4 轮推理）
+            - generic [ref=e42] [cursor=pointer]: ▲ 收起 AI 推理过程
+            - generic [ref=e89]:
+              - generic [ref=e90]:
+                - generic [ref=e91]:
+                  - generic [ref=e92]: Turn 1
+                  - generic [ref=e93]: 置信度 80%
+                  - generic [ref=e94]: ✅ 已发送
+                  - generic [ref=e95]: 11138ms
+                - generic [ref=e96]:
+                  - generic [ref=e97]: 💬 AI 回复
+                  - generic [ref=e98]: 拍个照片发我看看哈
+                - generic [ref=e100]:
+                  - button "👍" [ref=e101] [cursor=pointer]
+                  - button "👎" [ref=e102] [cursor=pointer]
+              - generic [ref=e103]:
+                - generic [ref=e104]:
+                  - generic [ref=e105]: Turn 2
+                  - generic [ref=e106]: 置信度 90%
+                  - generic [ref=e107]: ✅ 已发送
+                  - generic [ref=e108]: 14287ms
+                - generic [ref=e109]:
+                  - generic [ref=e110]: 💬 AI 回复
+                  - generic [ref=e111]: 打开相机，点屏幕上的数字（比如3.5x、10x）或者滑动变焦条就能切长焦啦~
+                - generic [ref=e113]:
+                  - button "👍" [ref=e114] [cursor=pointer]
+                  - button "👎" [ref=e115] [cursor=pointer]
+              - generic [ref=e116]:
+                - generic [ref=e117]:
+                  - generic [ref=e118]: Turn 3
+                  - generic [ref=e119]: 置信度 45%
+                  - generic [ref=e120]: 🔇 已抑制
+                  - generic [ref=e121]: 15470ms
+                - generic [ref=e122]:
+                  - generic [ref=e123]:
+                    - text: 💬 AI 回复
+                    - generic [ref=e124]: （因置信度不足未发送）
+                  - generic [ref=e125]: 是不是镜头被挡住了？你切回普通模式看看画面正常不？
+                - generic [ref=e127]:
+                  - button "👍" [ref=e128] [cursor=pointer]
+                  - button "👎" [ref=e129] [cursor=pointer]
+              - generic [ref=e130]:
+                - generic [ref=e131]:
+                  - generic [ref=e132]: Turn 3
+                  - generic [ref=e133]: 置信度 70%
+                  - generic [ref=e134]: 🔇 已抑制
+                  - generic [ref=e135]: 22875ms
+                - generic [ref=e136]:
+                  - generic [ref=e137]:
+                    - text: 💬 AI 回复
+                    - generic [ref=e138]: （因置信度不足未发送）
+                  - generic [ref=e139]: 画面有放大吗？没反应的话截个图发我看看~
+                - generic [ref=e141]:
+                  - button "👍" [ref=e142] [cursor=pointer]
+                  - button "👎" [ref=e143] [cursor=pointer]
+          - generic [ref=e43]: 🔇
+        - generic [ref=e44]:
+          - generic [ref=e45]: 👤
+          - generic [ref=e46]:
+            - generic [ref=e47]: 买家 · 05/03 22:15
+            - generic [ref=e48]: 这个模式怎么变成长焦呀
+        - generic [ref=e49]:
+          - generic [ref=e50]: 👤
+          - generic [ref=e51]:
+            - generic [ref=e52]: 买家 · 05/03 22:17
+            - generic [ref=e53]: 直接黑色了
+        - generic [ref=e54]:
+          - generic [ref=e55]: 👤
+          - generic [ref=e56]:
+            - generic [ref=e57]: 买家 · 05/03 22:17
+            - generic [ref=e58]: 点了之后
+        - generic [ref=e59]:
+          - generic [ref=e60]: 👤
+          - generic [ref=e61]:
+            - generic [ref=e62]: 买家 · 05/03 22:18
+            - generic [ref=e63]: 可以了 镜头盖子忘了取[破涕为笑]
+        - generic [ref=e64]:
+          - generic [ref=e65]:
+            - generic [ref=e66]: 人工回复 · 05/03 22:18
+            - generic [ref=e67]: 嗯嗯
+          - generic [ref=e68]: 🧑‍💼
+        - generic [ref=e69]:
+          - generic [ref=e70]:
+            - generic [ref=e71]: 人工回复 · 05/03 22:18
+            - generic [ref=e72]: "[破涕为笑]"
+          - generic [ref=e73]: 🧑‍💼
+        - generic [ref=e74]:
+          - generic [ref=e75]:
+            - generic [ref=e76]: AI 客服 · 05/03 22:18
+            - generic [ref=e77]:
+              - text: 🔇 AI 客服置信度抑制
+              - generic [ref=e78]: （1 轮推理）
+            - generic [ref=e79] [cursor=pointer]: ▼ 查看 AI 推理过程 (1 轮)
+          - generic [ref=e80]: 🔇
+      - generic [ref=e81]:
+        - generic [ref=e82]: 👤 买家消息
+        - generic [ref=e83]: 🧑‍💼 人工回复
+        - generic [ref=e84]: 🤖 AI 回复
+      - generic [ref=e85]:
+        - heading "🤖 AI 对比评估" [level=3] [ref=e86]
+        - paragraph [ref=e87]: AI 自动对比人工回复和 AI 回复的相似度
+        - generic [ref=e88]: ℹ️ 该对话中没有找到对应的人工回复和 AI 回复对进行对比。

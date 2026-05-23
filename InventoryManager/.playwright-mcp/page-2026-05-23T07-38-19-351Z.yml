@@ -1,0 +1,103 @@
+- generic [ref=e5]:
+  - generic [ref=e7]:
+    - generic [ref=e8]:
+      - generic [ref=e9]:
+        - button "上周" [ref=e10] [cursor=pointer]:
+          - generic [ref=e11]:
+            - img [ref=e13]
+            - text: 上周
+        - button "今天" [ref=e15] [cursor=pointer]:
+          - generic [ref=e16]: 今天
+        - button "下周" [ref=e17] [cursor=pointer]:
+          - generic [ref=e18]:
+            - text: 下周
+            - img [ref=e20]
+      - generic [ref=e23]:
+        - img [ref=e26]
+        - combobox "跳转到日期" [ref=e28]: 2026-05-23
+    - generic [ref=e29]: 2026年05月08日 - 2026年06月07日 (共31天)
+    - generic [ref=e30]:
+      - button "添加设备" [ref=e31] [cursor=pointer]:
+        - img [ref=e33]
+        - generic [ref=e35]: 添加设备
+      - button "预定设备" [ref=e36] [cursor=pointer]:
+        - img [ref=e38]
+        - generic [ref=e40]: 预定设备
+      - button "📦 批量发货" [ref=e41] [cursor=pointer]:
+        - generic [ref=e42]: 📦 批量发货
+      - button "更多" [ref=e44] [cursor=pointer]:
+        - generic [ref=e45]:
+          - text: 更多
+          - img [ref=e47]
+      - button "刷新" [disabled]:
+        - generic:
+          - img
+        - generic: 刷新
+  - generic [ref=e50]:
+    - generic [ref=e53]:
+      - img [ref=e56]
+      - textbox "搜索租赁人名/地址" [ref=e58]
+    - generic [ref=e61] [cursor=pointer]:
+      - generic:
+        - combobox [ref=e63]
+        - generic [ref=e64]: 设备型号
+      - img [ref=e67]
+    - generic [ref=e71] [cursor=pointer]:
+      - generic:
+        - combobox [ref=e73]
+        - generic [ref=e74]: 设备名称
+      - img [ref=e77]
+    - button "清除过滤" [ref=e80] [cursor=pointer]:
+      - generic [ref=e81]: 清除过滤
+  - generic [ref=e82]:
+    - generic [ref=e84]:
+      - generic [ref=e85]: 设备
+      - generic [ref=e86] [cursor=pointer]:
+        - generic [ref=e87]: "5.18"
+        - generic [ref=e88]: 一
+      - generic [ref=e89] [cursor=pointer]:
+        - generic [ref=e90]: "5.19"
+        - generic [ref=e91]: 二
+      - generic [ref=e92] [cursor=pointer]:
+        - generic [ref=e93]: "5.20"
+        - generic [ref=e94]: 三
+      - generic [ref=e95] [cursor=pointer]:
+        - generic [ref=e96]: "5.21"
+        - generic [ref=e97]: 四
+      - generic [ref=e98] [cursor=pointer]:
+        - generic [ref=e99]: "5.22"
+        - generic [ref=e100]: 五
+      - generic [ref=e101] [cursor=pointer]:
+        - generic [ref=e102]: "5.23"
+        - generic [ref=e103]: 六
+      - generic [ref=e104] [cursor=pointer]:
+        - generic [ref=e105]: "5.24"
+        - generic [ref=e106]: 日
+      - generic [ref=e107] [cursor=pointer]:
+        - generic [ref=e108]: "5.25"
+        - generic [ref=e109]: 一
+      - generic [ref=e110] [cursor=pointer]:
+        - generic [ref=e111]: "5.26"
+        - generic [ref=e112]: 二
+      - generic [ref=e113] [cursor=pointer]:
+        - generic [ref=e114]: "5.27"
+        - generic [ref=e115]: 三
+      - generic [ref=e116] [cursor=pointer]:
+        - generic [ref=e117]: "5.28"
+        - generic [ref=e118]: 四
+      - generic [ref=e119] [cursor=pointer]:
+        - generic [ref=e120]: "5.29"
+        - generic [ref=e121]: 五
+      - generic [ref=e122] [cursor=pointer]:
+        - generic [ref=e123]: "5.30"
+        - generic [ref=e124]: 六
+      - generic [ref=e125] [cursor=pointer]:
+        - generic [ref=e126]: "5.31"
+        - generic [ref=e127]: 日
+      - generic [ref=e128] [cursor=pointer]:
+        - generic [ref=e129]: "6.1"
+        - generic [ref=e130]: 一
+      - generic [ref=e131] [cursor=pointer]:
+        - generic [ref=e132]: "6.2"
+        - generic [ref=e133]: 二
+    - img [ref=e137]

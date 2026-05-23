@@ -1,0 +1,20 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - heading "AI 客服管理中心" [level=1] [ref=e5]
+    - navigation [ref=e6]:
+      - link "知识库" [ref=e7] [cursor=pointer]:
+        - /url: "#/"
+      - link "System Prompt" [ref=e8] [cursor=pointer]:
+        - /url: "#/prompts"
+      - link "消息过滤" [ref=e9] [cursor=pointer]:
+        - /url: "#/ignore-patterns"
+      - link "Eval 回放" [ref=e10] [cursor=pointer]:
+        - /url: "#/eval"
+      - link "历史对话" [ref=e11] [cursor=pointer]:
+        - /url: "#/history"
+      - link "系统设置" [ref=e12] [cursor=pointer]:
+        - /url: "#/settings"
+  - main [ref=e13]:
+    - generic [ref=e16]:
+      - button "← 返回列表" [ref=e17] [cursor=pointer]
+      - heading "对话详情：60757582299" [level=2] [ref=e18]

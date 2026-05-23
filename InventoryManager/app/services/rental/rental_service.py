@@ -23,9 +23,25 @@ class RentalService:
         status: Optional[str] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
-        phone: Optional[str] = None
+        phone: Optional[str] = None,
+        destination: Optional[str] = None
     ) -> Dict[str, Any]:
-        """获取带过滤条件的租赁记录"""
+        """获取带过滤条件的租赁记录
+        
+        Args:
+            page: 页码（从1开始）
+            per_page: 每页数量（最多100）
+            device_id: 设备ID
+            customer_name: 客户名称（模糊查询）
+            status: 租赁状态
+            start_date: 起始日期（YYYY-MM-DD格式）
+            end_date: 结束日期（YYYY-MM-DD格式）
+            phone: 客户电话（模糊查询）
+            destination: 收货地址（模糊查询）
+        
+        Returns:
+            Dict: 包含rentals列表、分页信息
+        """
         try:
             query = Rental.query
 
@@ -41,6 +57,9 @@ class RentalService:
 
             if phone:
                 query = query.filter(Rental.customer_phone.like(f'%{phone}%'))
+            
+            if destination:
+                query = query.filter(Rental.destination.like(f'%{destination}%'))
 
             if start_date and end_date:
                 start_date_obj, end_date_obj = parse_date_strings(start_date, end_date)
@@ -72,7 +91,6 @@ class RentalService:
         except Exception as e:
             current_app.logger.error(f"获取租赁记录失败: {e}")
             raise
-
     @staticmethod
     def get_rental_by_id(rental_id: int) -> Optional[Rental]:
         """根据ID获取租赁记录"""

@@ -1,0 +1,1155 @@
+"""
+Conversation storage layer for MySQL persistence.
+
+This module provides the ConversationStore class for saving and retrieving
+Xianyu conversation messages from MySQL database.
+"""
+
+import json
+import threading
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+import pymysql
+from pymysql.cursors import DictCursor
+from contextlib import contextmanager
+from loguru import logger
+
+from .conversation_models import ConversationMessage, MessageType
+
+
+class ConversationStore:
+    """
+    MySQL-based conversation storage.
+    
+    Handles connection pooling, message persistence, and query operations.
+    """
+    
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        user: str,
+        password: str,
+        database: str,
+        pool_size: int = 5
+    ):
+        """
+        Initialize the conversation store.
+        
+        Args:
+            host: MySQL host address
+            port: MySQL port
+            user: MySQL username
+            password: MySQL password
+            database: MySQL database name
+            pool_size: Connection pool size (not used with pymysql, kept for API compatibility)
+        """
+        self.config = {
+            'host': host,
+            'port': port,
+            'user': user,
+            'password': password,
+            'database': database,
+            'charset': 'utf8mb4',
+            'cursorclass': DictCursor,
+            'autocommit': False
+        }
+        self._connection = None
+        self._lock = threading.Lock()  # Protect connection from concurrent thread access
+        logger.info(f"ConversationStore initialized for database: {database}@{host}:{port}")
+        self._ensure_table_exists()
+    
+    def _ensure_table_exists(self):
+        """
+        Ensure the conversations and agent_turns tables exist, create them if not.
+        """
+        create_conversations_sql = """
+            CREATE TABLE IF NOT EXISTS conversations (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT 'Auto-increment primary key',
+                chat_id VARCHAR(255) NOT NULL COMMENT 'Xianyu chat ID',
+                user_id VARCHAR(255) NOT NULL COMMENT 'User ID who sent the message',
+                user_nickname VARCHAR(255) COMMENT 'User nickname (from reminderTitle)',
+                seller_id VARCHAR(255) COMMENT 'Seller ID (owner of the account)',
+                item_id VARCHAR(255) COMMENT 'Item ID if available',
+                message_id VARCHAR(255) COMMENT 'Xianyu message ID for deduplication (NULL for real-time messages)',
+
+                message_content TEXT NOT NULL COMMENT 'Message content',
+                message_type ENUM('user', 'seller', 'system') NOT NULL COMMENT 'Message sender type',
+
+                session_id VARCHAR(255) COMMENT 'AI Agent session ID if AI was used',
+                agent_response TEXT COMMENT 'AI Agent response if this was an AI reply',
+
+                context JSON COMMENT 'Additional context metadata',
+
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Message timestamp',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Record update timestamp',
+
+                UNIQUE KEY uq_message_id (message_id),
+                INDEX idx_chat_id (chat_id),
+                INDEX idx_user_id (user_id),
+                INDEX idx_seller_id (seller_id),
+                INDEX idx_created_at (created_at),
+                INDEX idx_chat_created (chat_id, created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            COMMENT='Xianyu conversation history'
+        """
+
+        create_xianyu_orders_sql = """
+            CREATE TABLE IF NOT EXISTS xianyu_orders (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT 'Auto-increment primary key',
+                chat_id VARCHAR(255) NOT NULL COMMENT 'Xianyu chat ID',
+                user_id VARCHAR(255) NOT NULL COMMENT 'Buyer user ID',
+                item_id VARCHAR(255) COMMENT 'Item ID',
+                order_id VARCHAR(255) NOT NULL COMMENT 'Xianyu order ID (订单号)',
+                order_status VARCHAR(64) COMMENT 'Raw order status code',
+                order_status_label VARCHAR(128) COMMENT 'Human-readable order status',
+                order_amount VARCHAR(64) COMMENT 'Payment amount in 元',
+                sku TEXT COMMENT 'SKU / spec info',
+                quantity VARCHAR(32) COMMENT 'Purchase quantity',
+                buyer_nickname VARCHAR(255) COMMENT 'Buyer nickname',
+                item_title TEXT COMMENT 'Item title at time of order',
+                raw_detail JSON COMMENT 'Parsed order fields returned by get_order_detail()',
+                raw_api_response JSON COMMENT 'Complete unmodified JSON from Xianyu API (res[data])',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Record creation time',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Last upsert time',
+
+                UNIQUE KEY uq_order_id (order_id),
+                INDEX idx_chat_id (chat_id),
+                INDEX idx_user_id (user_id),
+                INDEX idx_created_at (created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            COMMENT='Xianyu order details recorded when buyer places an order'
+        """
+
+        create_agent_turns_sql = """
+            CREATE TABLE IF NOT EXISTS agent_turns (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT 'Auto-increment primary key',
+                session_id VARCHAR(255) NOT NULL COMMENT 'Agent session ID',
+                turn_number INT NOT NULL COMMENT 'Global turn sequence number within session (cumulative across interactions)',
+                interaction_id VARCHAR(255) COMMENT 'Unique ID for one user-message interaction (groups all LLM rounds triggered by a single user message)',
+                local_turn_number INT COMMENT 'Turn sequence number within one interaction (starts from 1 per user message)',
+                user_query TEXT COMMENT 'Original user query that triggered this agent run',
+
+                llm_input LONGTEXT COMMENT 'Full messages array sent to LLM (JSON)',
+                llm_output LONGTEXT COMMENT 'Raw LLM response (JSON)',
+                response_text TEXT COMMENT 'LLM text response content',
+
+                tool_calls JSON COMMENT 'Tool calls made in this turn (JSON array)',
+                tool_results JSON COMMENT 'Tool execution results (JSON array)',
+
+                duration_ms INT COMMENT 'Turn execution duration in milliseconds',
+                success BOOLEAN DEFAULT TRUE COMMENT 'Whether turn succeeded',
+                error_message TEXT COMMENT 'Error message if turn failed',
+
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Turn timestamp',
+
+                INDEX idx_session_id (session_id),
+                INDEX idx_session_turn (session_id, turn_number),
+                INDEX idx_interaction_id (interaction_id),
+                INDEX idx_created_at (created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            COMMENT='Agent turn-level LLM input/output records for debugging'
+        """
+
+        create_conversation_reviews_sql = """
+            CREATE TABLE IF NOT EXISTS conversation_reviews (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                chat_id VARCHAR(255) NOT NULL COMMENT 'Xianyu chat ID being reviewed',
+                session_id VARCHAR(255) COMMENT 'AI Agent session ID if applicable',
+                rating TINYINT NOT NULL COMMENT '1=thumbs up (good), -1=thumbs down (bad)',
+                comment TEXT COMMENT 'Operator free-text comment',
+                reviewer VARCHAR(255) DEFAULT 'operator' COMMENT 'Reviewer identifier',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_chat_id (chat_id),
+                INDEX idx_session_id (session_id),
+                INDEX idx_created_at (created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            COMMENT='Operator reviews of AI conversation quality'
+        """
+        try:
+            conn = self._get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute(create_conversations_sql)
+                cursor.execute(create_xianyu_orders_sql)
+                cursor.execute(create_agent_turns_sql)
+                cursor.execute(create_conversation_reviews_sql)
+
+                # 兼容已有数据库：自动添加 user_nickname 列（如果不存在）
+                try:
+                    cursor.execute("""
+                        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                        WHERE TABLE_SCHEMA = DATABASE()
+                          AND TABLE_NAME = 'conversations'
+                          AND COLUMN_NAME = 'user_nickname'
+                    """)
+                    if not cursor.fetchone():
+                        cursor.execute("""
+                            ALTER TABLE conversations
+                            ADD COLUMN user_nickname VARCHAR(255) COMMENT 'User nickname (from reminderTitle)'
+                            AFTER user_id
+                        """)
+                        logger.info("Added 'user_nickname' column to conversations table")
+                except Exception as e:
+                    logger.debug(f"user_nickname column check: {e}")
+
+                # 兼容已有数据库：自动添加 message_id 列 + 唯一索引（如果不存在）
+                try:
+                    cursor.execute("""
+                        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                        WHERE TABLE_SCHEMA = DATABASE()
+                          AND TABLE_NAME = 'conversations'
+                          AND COLUMN_NAME = 'message_id'
+                    """)
+                    if not cursor.fetchone():
+                        cursor.execute("""
+                            ALTER TABLE conversations
+                            ADD COLUMN message_id VARCHAR(255) COMMENT 'Xianyu message ID for deduplication (NULL for real-time messages)'
+                            AFTER item_id,
+                            ADD UNIQUE KEY uq_message_id (message_id)
+                        """)
+                        logger.info("Added 'message_id' column + unique key to conversations table")
+                except Exception as e:
+                    logger.debug(f"message_id column check: {e}")
+
+                # 兼容已有数据库：自动添加 interaction_id 和 local_turn_number 列（如果不存在）
+                try:
+                    cursor.execute("""
+                        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                        WHERE TABLE_SCHEMA = DATABASE()
+                          AND TABLE_NAME = 'agent_turns'
+                          AND COLUMN_NAME = 'interaction_id'
+                    """)
+                    if not cursor.fetchone():
+                        cursor.execute("""
+                            ALTER TABLE agent_turns
+                            ADD COLUMN interaction_id VARCHAR(255) COMMENT 'Unique ID for one user-message interaction'
+                            AFTER turn_number,
+                            ADD COLUMN local_turn_number INT COMMENT 'Turn sequence number within one interaction (starts from 1)'
+                            AFTER interaction_id,
+                            ADD INDEX idx_interaction_id (interaction_id)
+                        """)
+                        logger.info("Added 'interaction_id' and 'local_turn_number' columns to agent_turns table")
+                except Exception as e:
+                    logger.debug(f"agent_turns column migration check: {e}")
+
+                # 兼容已有数据库：自动添加置信度相关列（如果不存在）
+                try:
+                    cursor.execute("""
+                        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                        WHERE TABLE_SCHEMA = DATABASE()
+                          AND TABLE_NAME = 'agent_turns'
+                          AND COLUMN_NAME = 'confidence_percent'
+                    """)
+                    if not cursor.fetchone():
+                        cursor.execute("""
+                            ALTER TABLE agent_turns
+                            ADD COLUMN confidence_percent INT COMMENT 'Response confidence score (0-100)'
+                            AFTER error_message,
+                            ADD COLUMN response_suppressed BOOLEAN DEFAULT FALSE COMMENT 'Whether response was suppressed by confidence guard'
+                            AFTER confidence_percent
+                        """)
+                        logger.info("Added 'confidence_percent' and 'response_suppressed' columns to agent_turns table")
+                except Exception as e:
+                    logger.debug(f"agent_turns confidence column migration check: {e}")
+
+                conn.commit()
+            logger.info("Ensured 'conversations', 'xianyu_orders', 'agent_turns' and 'conversation_reviews' tables exist")
+        except Exception as e:
+            logger.error(f"Failed to ensure tables exist: {e}")
+
+    def _get_connection(self) -> pymysql.Connection:
+        """
+        Get or create a database connection with auto-reconnect.
+        
+        Returns:
+            Active MySQL connection
+        """
+        if self._connection is None or not self._ping():
+            try:
+                self._connection = pymysql.connect(**self.config)
+                logger.debug("Created new MySQL connection")
+            except Exception as e:
+                logger.error(f"Failed to connect to MySQL: {e}")
+                raise
+        return self._connection
+    
+    def _ping(self) -> bool:
+        """
+        Check if connection is alive.
+        
+        Returns:
+            True if connection is alive, False otherwise
+        """
+        try:
+            if self._connection:
+                self._connection.ping(reconnect=False)
+                return True
+        except:
+            pass
+        return False
+    
+    def health_check(self) -> bool:
+        """
+        Perform a health check on the database connection.
+        
+        Returns:
+            True if connection is healthy, False otherwise
+        """
+        try:
+            conn = self._get_connection()
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+            return True
+        except Exception as e:
+            logger.warning(f"Database health check failed: {e}")
+            return False
+    
+    def save_message(self, message: ConversationMessage) -> int:
+        """
+        Save a conversation message to the database.
+        
+        Args:
+            message: The message to save
+            
+        Returns:
+            The ID of the inserted row
+            
+        Raises:
+            Exception: If database operation fails
+        """
+        with self._lock:
+            conn = None
+            try:
+                conn = self._get_connection()
+                
+                # Prepare context JSON
+                context_json = json.dumps(message.context) if message.context else None
+
+                # Use INSERT IGNORE so that history messages with the same message_id
+                # (e.g. from repeated fetches after interceptor restarts) are silently
+                # skipped instead of creating duplicate rows.  Real-time messages have
+                # message_id=NULL and are never subject to the unique constraint.
+                sql = """
+                    INSERT IGNORE INTO conversations (
+                        chat_id, user_id, user_nickname, seller_id, item_id, message_id,
+                        message_content, message_type,
+                        session_id, agent_response,
+                        context, created_at
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s,
+                        %s, %s,
+                        %s, %s,
+                        %s, %s
+                    )
+                """
+
+                values = (
+                    message.chat_id,
+                    message.user_id,
+                    message.user_nickname,
+                    message.seller_id,
+                    message.item_id,
+                    getattr(message, 'message_id', None),
+                    message.message_content,
+                    message.message_type.value if isinstance(message.message_type, MessageType) else message.message_type,
+                    message.session_id,
+                    message.agent_response,
+                    context_json,
+                    message.created_at or datetime.now()
+                )
+                
+                with conn.cursor() as cursor:
+                    cursor.execute(sql, values)
+                    conn.commit()
+                    row_id = cursor.lastrowid
+
+                if row_id:
+                    logger.info(
+                        f"Saved message to database: chat_id={message.chat_id}, "
+                        f"type={message.message_type}, id={row_id}"
+                    )
+                else:
+                    # INSERT IGNORE silently skipped a duplicate message_id
+                    logger.debug(
+                        f"Skipped duplicate message: chat_id={message.chat_id}, "
+                        f"message_id={getattr(message, 'message_id', None)}"
+                    )
+                return row_id
+                
+            except Exception as e:
+                logger.error(f"Failed to save message to database: {e}")
+                if conn:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                raise
+    
+    def save_order_detail(
+        self,
+        chat_id: str,
+        user_id: str,
+        order_id: str,
+        item_id: Optional[str],
+        order_detail: Dict[str, Any],
+    ) -> int:
+        """
+        Upsert a Xianyu order detail record into the xianyu_orders table.
+
+        Uses INSERT ... ON DUPLICATE KEY UPDATE so that if the same order_id
+        is recorded again (e.g. after payment confirmation) the row is refreshed
+        with the latest status and raw data rather than creating a duplicate.
+
+        Args:
+            chat_id:      Xianyu chat ID
+            user_id:      Buyer's user ID
+            order_id:     Xianyu order ID (订单号)
+            item_id:      Item ID (may be None if not available)
+            order_detail: Full dict returned by get_order_detail()
+                          May contain '_raw_api_response' key with the
+                          unmodified Xianyu API payload.
+
+        Returns:
+            The ID of the inserted/updated row, or -1 on failure.
+        """
+        with self._lock:
+            conn = None
+            try:
+                conn = self._get_connection()
+
+                raw_api = order_detail.pop("_raw_api_response", None)
+
+                sql = """
+                    INSERT INTO xianyu_orders (
+                        chat_id, user_id, item_id, order_id,
+                        order_status, order_status_label, order_amount,
+                        sku, quantity, buyer_nickname, item_title,
+                        raw_detail, raw_api_response
+                    ) VALUES (
+                        %s, %s, %s, %s,
+                        %s, %s, %s,
+                        %s, %s, %s, %s,
+                        %s, %s
+                    )
+                    ON DUPLICATE KEY UPDATE
+                        order_status       = VALUES(order_status),
+                        order_status_label = VALUES(order_status_label),
+                        order_amount       = VALUES(order_amount),
+                        sku                = VALUES(sku),
+                        quantity           = VALUES(quantity),
+                        buyer_nickname     = VALUES(buyer_nickname),
+                        item_title         = VALUES(item_title),
+                        raw_detail         = VALUES(raw_detail),
+                        raw_api_response   = VALUES(raw_api_response)
+                """
+
+                values = (
+                    chat_id,
+                    user_id,
+                    item_id or order_detail.get("item_id") or "",
+                    order_id,
+                    order_detail.get("status") or "",
+                    order_detail.get("status_label") or "",
+                    order_detail.get("amount") or "",
+                    order_detail.get("sku") or "",
+                    order_detail.get("quantity") or "",
+                    order_detail.get("buyer_nickname") or "",
+                    order_detail.get("item_title") or "",
+                    json.dumps(order_detail, ensure_ascii=False, default=str),
+                    json.dumps(raw_api, ensure_ascii=False, default=str) if raw_api is not None else None,
+                )
+
+                with conn.cursor() as cursor:
+                    cursor.execute(sql, values)
+                    conn.commit()
+                    row_id = cursor.lastrowid or 0
+
+                logger.info(
+                    f"Upserted order detail: chat_id={chat_id}, order_id={order_id}, "
+                    f"status={order_detail.get('status_label')!r}, row_id={row_id}"
+                )
+                return row_id
+
+            except Exception as e:
+                logger.error(f"Failed to save order detail: {e}")
+                if conn:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                return -1
+
+    def get_conversation_fingerprint(self, chat_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a lightweight fingerprint of a conversation for cache invalidation.
+        Only queries COUNT(*) and MAX(created_at), avoiding full row retrieval.
+        
+        Args:
+            chat_id: The chat ID to query
+            
+        Returns:
+            Dict with 'message_count' and 'last_message_at', or None if no messages
+        """
+        try:
+            conn = self._get_connection()
+            sql = """
+                SELECT COUNT(*) as message_count, MAX(created_at) as last_message_at
+                FROM conversations
+                WHERE chat_id = %s
+            """
+            with conn.cursor() as cursor:
+                cursor.execute(sql, (chat_id,))
+                row = cursor.fetchone()
+            
+            if not row or row['message_count'] == 0:
+                return None
+            
+            return {
+                'message_count': row['message_count'],
+                'last_message_at': str(row['last_message_at']) if row['last_message_at'] else None
+            }
+        except Exception as e:
+            logger.warning(f"Failed to get conversation fingerprint for chat_id={chat_id}: {e}")
+            return None
+
+    def get_conversation_history(
+        self,
+        chat_id: str,
+        limit: int = 50,
+        offset: int = 0
+    ) -> List[ConversationMessage]:
+        """
+        Retrieve conversation history for a chat.
+        
+        Args:
+            chat_id: The chat ID to query
+            limit: Maximum number of messages to return
+            offset: Number of messages to skip (for pagination)
+            
+        Returns:
+            List of ConversationMessage objects
+        """
+        try:
+            conn = self._get_connection()
+            
+            sql = """
+                SELECT * FROM conversations
+                WHERE chat_id = %s
+                ORDER BY created_at ASC
+                LIMIT %s OFFSET %s
+            """
+            
+            with conn.cursor() as cursor:
+                cursor.execute(sql, (chat_id, limit, offset))
+                rows = cursor.fetchall()
+            
+            messages = []
+            for row in rows:
+                # Parse context JSON
+                if row.get('context'):
+                    try:
+                        row['context'] = json.loads(row['context'])
+                    except:
+                        row['context'] = None
+                
+                messages.append(ConversationMessage(**row))
+            
+            logger.debug(f"Retrieved {len(messages)} messages for chat_id={chat_id}")
+            return messages
+            
+        except Exception as e:
+            logger.error(f"Failed to retrieve conversation history: {e}")
+            raise
+
+    def get_conversation_history_by_user_id(
+        self,
+        user_id: str,
+        limit: int = 100,
+    ) -> List[ConversationMessage]:
+        """
+        Retrieve all conversation history for a user across all chat_ids.
+
+        Ordered by created_at ASC so older messages come first — ready for
+        time-proximity compression in the agent layer.
+
+        Args:
+            user_id: The buyer's Xianyu user ID
+            limit: Maximum number of messages to return (default 100)
+
+        Returns:
+            List of ConversationMessage objects ordered oldest-first
+        """
+        try:
+            conn = self._get_connection()
+            sql = """
+                SELECT * FROM conversations
+                WHERE user_id = %s
+                ORDER BY created_at ASC
+                LIMIT %s
+            """
+            with conn.cursor() as cursor:
+                cursor.execute(sql, (user_id, limit))
+                rows = cursor.fetchall()
+
+            messages = []
+            for row in rows:
+                if row.get('context'):
+                    try:
+                        row['context'] = json.loads(row['context'])
+                    except Exception:
+                        row['context'] = None
+                messages.append(ConversationMessage(**row))
+
+            logger.debug(f"Retrieved {len(messages)} messages across all chats for user_id={user_id}")
+            return messages
+
+        except Exception as e:
+            logger.error(f"Failed to retrieve cross-conversation history for user_id={user_id}: {e}")
+            raise
+
+    def get_user_fingerprint(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a lightweight fingerprint of all conversations for a user.
+
+        Used for Redis cache invalidation: the cached summary is stale when
+        message_count or last_message_at changes.
+
+        Args:
+            user_id: The buyer's Xianyu user ID
+
+        Returns:
+            Dict with 'message_count' and 'last_message_at', or None if no messages
+        """
+        try:
+            conn = self._get_connection()
+            sql = """
+                SELECT COUNT(*) as message_count, MAX(created_at) as last_message_at
+                FROM conversations
+                WHERE user_id = %s
+            """
+            with conn.cursor() as cursor:
+                cursor.execute(sql, (user_id,))
+                row = cursor.fetchone()
+
+            if not row or row['message_count'] == 0:
+                return None
+
+            return {
+                'message_count': row['message_count'],
+                'last_message_at': str(row['last_message_at']) if row['last_message_at'] else None,
+            }
+        except Exception as e:
+            logger.warning(f"Failed to get user fingerprint for user_id={user_id}: {e}")
+            return None
+
+    def get_recent_conversations(
+        self,
+        limit: int = 10,
+        offset: int = 0
+    ) -> Dict[str, Any]:
+        """
+        Get summary of recent conversations with pagination.
+        
+        Args:
+            limit: Number of conversations to return
+            offset: Number of conversations to skip
+            
+        Returns:
+            Dict with 'items' (list of conversation summaries) and 'total' count
+        """
+        try:
+            conn = self._get_connection()
+            
+            # Get total count
+            count_sql = """
+                SELECT COUNT(DISTINCT chat_id) as total
+                FROM conversations
+            """
+            
+            sql = """
+                SELECT
+                    c.chat_id,
+                    MAX(c.user_id) as user_id,
+                    MAX(c.seller_id) as seller_id,
+                    MAX(c.item_id) as item_id,
+                    COUNT(*) as message_count,
+                    SUM(CASE WHEN c.message_type = 'user' THEN 1 ELSE 0 END) as user_messages,
+                    SUM(CASE WHEN c.message_type = 'seller' THEN 1 ELSE 0 END) as seller_messages,
+                    SUM(CASE WHEN c.agent_response IS NOT NULL THEN 1 ELSE 0 END) as ai_replies,
+                    SUM(CASE WHEN c.agent_response LIKE '【调试】%%' THEN 1 ELSE 0 END) as debug_replies,
+                    MIN(c.created_at) as first_message_at,
+                    MAX(c.created_at) as last_message_at
+                FROM conversations c
+                GROUP BY c.chat_id
+                ORDER BY MAX(c.created_at) DESC
+                LIMIT %s OFFSET %s
+            """
+            
+            with conn.cursor() as cursor:
+                cursor.execute(count_sql)
+                total = cursor.fetchone()['total']
+                
+                cursor.execute(sql, (limit, offset))
+                rows = cursor.fetchall()
+                
+                # Get latest message content for each conversation
+                for row in rows:
+                    latest_sql = """
+                        SELECT message_content, message_type, agent_response
+                        FROM conversations 
+                        WHERE chat_id = %s
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    """
+                    cursor.execute(latest_sql, (row['chat_id'],))
+                    latest = cursor.fetchone()
+                    if latest:
+                        row['latest_message'] = latest['message_content'][:100]
+                        row['latest_message_type'] = latest['message_type']
+                        row['latest_agent_response'] = (latest['agent_response'] or '')[:100] if latest['agent_response'] else None
+            
+            logger.debug(f"Retrieved {len(rows)} recent conversations (total: {total})")
+            return {'items': rows, 'total': total}
+            
+        except Exception as e:
+            logger.error(f"Failed to retrieve recent conversations: {e}")
+            raise
+
+    def search_messages(
+        self,
+        keyword: Optional[str] = None,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        message_type: Optional[str] = None,
+        has_agent_response: Optional[bool] = None,
+        debug_only: bool = False,
+        limit: int = 50,
+        offset: int = 0
+    ) -> Dict[str, Any]:
+        """
+        Search messages with various filters.
+        
+        Args:
+            keyword: Search keyword in message content or agent response
+            start_time: Start time filter (ISO format)
+            end_time: End time filter (ISO format)
+            message_type: Filter by message type (user/seller/system)
+            has_agent_response: Filter messages that have AI responses
+            debug_only: Only return debug mode responses
+            limit: Maximum number of results
+            offset: Pagination offset
+            
+        Returns:
+            Dict with 'items' (list of messages) and 'total' count
+        """
+        try:
+            conn = self._get_connection()
+            
+            conditions = []
+            params = []
+            
+            if keyword:
+                conditions.append("(message_content LIKE %s OR agent_response LIKE %s)")
+                like_param = f"%{keyword}%"
+                params.extend([like_param, like_param])
+            
+            if start_time:
+                conditions.append("created_at >= %s")
+                params.append(start_time)
+            
+            if end_time:
+                conditions.append("created_at <= %s")
+                params.append(end_time)
+            
+            if message_type:
+                conditions.append("message_type = %s")
+                params.append(message_type)
+            
+            if has_agent_response is True:
+                conditions.append("agent_response IS NOT NULL AND agent_response != ''")
+            elif has_agent_response is False:
+                conditions.append("(agent_response IS NULL OR agent_response = '')")
+            
+            if debug_only:
+                conditions.append("agent_response LIKE '【调试】%%'")
+            
+            where_clause = " AND ".join(conditions) if conditions else "1=1"
+            
+            count_sql = f"SELECT COUNT(*) as total FROM conversations WHERE {where_clause}"
+            sql = f"""
+                SELECT * FROM conversations
+                WHERE {where_clause}
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+            """
+            
+            with conn.cursor() as cursor:
+                cursor.execute(count_sql, params)
+                total = cursor.fetchone()['total']
+                
+                cursor.execute(sql, params + [limit, offset])
+                rows = cursor.fetchall()
+            
+            messages = []
+            for row in rows:
+                if row.get('context'):
+                    try:
+                        row['context'] = json.loads(row['context'])
+                    except:
+                        row['context'] = None
+                messages.append(row)
+            
+            logger.debug(f"Search found {total} messages (returning {len(messages)})")
+            return {'items': messages, 'total': total}
+            
+        except Exception as e:
+            logger.error(f"Failed to search messages: {e}")
+            raise
+
+    def get_conversation_stats(self) -> Dict[str, Any]:
+        """
+        Get overall conversation statistics.
+        
+        Returns:
+            Dict with statistics
+        """
+        try:
+            conn = self._get_connection()
+            
+            sql = """
+                SELECT 
+                    COUNT(*) as total_messages,
+                    COUNT(DISTINCT chat_id) as total_conversations,
+                    SUM(CASE WHEN message_type = 'user' THEN 1 ELSE 0 END) as user_messages,
+                    SUM(CASE WHEN message_type = 'seller' THEN 1 ELSE 0 END) as seller_messages,
+                    SUM(CASE WHEN agent_response IS NOT NULL THEN 1 ELSE 0 END) as ai_replies,
+                    SUM(CASE WHEN agent_response LIKE '【调试】%%' THEN 1 ELSE 0 END) as debug_replies,
+                    MIN(created_at) as earliest_message,
+                    MAX(created_at) as latest_message
+                FROM conversations
+            """
+            
+            with conn.cursor() as cursor:
+                cursor.execute(sql)
+                stats = cursor.fetchone()
+            
+            return stats or {}
+            
+        except Exception as e:
+            logger.error(f"Failed to get conversation stats: {e}")
+            raise
+    
+    def save_turn(
+        self,
+        session_id: str,
+        turn_number: int,
+        user_query: Optional[str],
+        llm_input: Optional[Any],
+        llm_output: Optional[Any],
+        response_text: Optional[str],
+        tool_calls: Optional[List],
+        tool_results: Optional[List],
+        duration_ms: Optional[int],
+        success: bool = True,
+        error_message: Optional[str] = None,
+        interaction_id: Optional[str] = None,
+        local_turn_number: Optional[int] = None,
+        confidence_percent: Optional[int] = None,
+        response_suppressed: bool = False
+    ) -> int:
+        """
+        Save an agent turn record for debugging.
+        
+        Args:
+            session_id: Agent session ID
+            turn_number: Global turn sequence number (cumulative across interactions)
+            user_query: Original user query
+            llm_input: Full messages array sent to LLM
+            llm_output: Raw LLM response
+            response_text: LLM text response
+            tool_calls: Tool calls made in this turn
+            tool_results: Tool execution results
+            duration_ms: Turn duration
+            success: Whether turn succeeded
+            error_message: Error message if failed
+            interaction_id: Unique ID grouping all turns from one user message
+            local_turn_number: Turn number within this interaction (starts from 1)
+            confidence_percent: Response confidence score (0-100)
+            response_suppressed: Whether response was suppressed by confidence guard
+            
+        Returns:
+            The ID of the inserted row
+        """
+        with self._lock:
+            conn = None
+            try:
+                conn = self._get_connection()
+                
+                sql = """
+                    INSERT INTO agent_turns (
+                        session_id, turn_number, interaction_id, local_turn_number,
+                        user_query,
+                        llm_input, llm_output, response_text,
+                        tool_calls, tool_results,
+                        duration_ms, success, error_message,
+                        confidence_percent, response_suppressed
+                    ) VALUES (
+                        %s, %s, %s, %s,
+                        %s,
+                        %s, %s, %s,
+                        %s, %s,
+                        %s, %s, %s,
+                        %s, %s
+                    )
+                """
+                
+                def safe_json_dumps(obj):
+                    if obj is None:
+                        return None
+                    try:
+                        return json.dumps(obj, ensure_ascii=False, default=str)
+                    except Exception:
+                        return json.dumps(str(obj), ensure_ascii=False)
+                
+                values = (
+                    session_id,
+                    turn_number,
+                    interaction_id,
+                    local_turn_number,
+                    user_query,
+                    safe_json_dumps(llm_input),
+                    safe_json_dumps(llm_output),
+                    response_text,
+                    safe_json_dumps(tool_calls),
+                    safe_json_dumps(tool_results),
+                    duration_ms,
+                    success,
+                    error_message,
+                    confidence_percent,
+                    response_suppressed
+                )
+                
+                with conn.cursor() as cursor:
+                    cursor.execute(sql, values)
+                    conn.commit()
+                    row_id = cursor.lastrowid
+                
+                logger.info(
+                    f"Saved turn record: session={session_id}, "
+                    f"turn={turn_number}, success={success}, id={row_id}"
+                )
+                return row_id
+                
+            except Exception as e:
+                logger.error(f"Failed to save turn record: {e}")
+                if conn:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                # Don't raise - turn logging should not break the agent flow
+                return -1
+
+    def get_turns_by_session(
+        self,
+        session_id: str,
+        limit: int = 100,
+        offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """
+        Get all turn records for a session.
+        
+        Args:
+            session_id: Agent session ID
+            limit: Maximum number of turns to return
+            offset: Pagination offset
+            
+        Returns:
+            List of turn records
+        """
+        try:
+            conn = self._get_connection()
+            
+            sql = """
+                SELECT * FROM agent_turns
+                WHERE session_id = %s
+                ORDER BY turn_number ASC
+                LIMIT %s OFFSET %s
+            """
+            
+            with conn.cursor() as cursor:
+                cursor.execute(sql, (session_id, limit, offset))
+                rows = cursor.fetchall()
+            
+            turns = []
+            for row in rows:
+                for json_field in ('llm_input', 'llm_output', 'tool_calls', 'tool_results'):
+                    if row.get(json_field):
+                        try:
+                            row[json_field] = json.loads(row[json_field])
+                        except:
+                            pass
+                turns.append(row)
+            
+            logger.debug(f"Retrieved {len(turns)} turns for session={session_id}")
+            return turns
+            
+        except Exception as e:
+            logger.error(f"Failed to get turns by session: {e}")
+            raise
+
+    def get_recent_turns(
+        self,
+        limit: int = 50,
+        offset: int = 0
+    ) -> Dict[str, Any]:
+        """
+        Get recent turn records across all sessions for debugging overview.
+        
+        Args:
+            limit: Maximum number of turns to return
+            offset: Pagination offset
+            
+        Returns:
+            Dict with 'items' and 'total'
+        """
+        try:
+            conn = self._get_connection()
+            
+            count_sql = "SELECT COUNT(*) as total FROM agent_turns"
+            sql = """
+                SELECT * FROM agent_turns
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+            """
+            
+            with conn.cursor() as cursor:
+                cursor.execute(count_sql)
+                total = cursor.fetchone()['total']
+                
+                cursor.execute(sql, (limit, offset))
+                rows = cursor.fetchall()
+            
+            turns = []
+            for row in rows:
+                for json_field in ('llm_input', 'llm_output', 'tool_calls', 'tool_results'):
+                    if row.get(json_field):
+                        try:
+                            row[json_field] = json.loads(row[json_field])
+                        except:
+                            pass
+                turns.append(row)
+            
+            return {'items': turns, 'total': total}
+            
+        except Exception as e:
+            logger.error(f"Failed to get recent turns: {e}")
+            raise
+
+    def close(self):
+        """Close the database connection."""
+        if self._connection:
+            try:
+                self._connection.close()
+                logger.info("Closed MySQL connection")
+            except Exception as e:
+                logger.warning(f"Error closing MySQL connection: {e}")
+            finally:
+                self._connection = None
+
+    def save_review(
+        self,
+        chat_id: str,
+        rating: int,
+        comment: Optional[str] = None,
+        session_id: Optional[str] = None,
+        reviewer: str = "operator",
+    ) -> int:
+        """
+        Save (upsert) an operator review for a conversation.
+
+        One review per chat_id is maintained: if a review already exists for
+        the chat_id it is updated in place; otherwise a new row is inserted.
+
+        Args:
+            chat_id:    Xianyu chat ID
+            rating:     1 = thumbs up, -1 = thumbs down
+            comment:    Free-text operator comment (optional)
+            session_id: AI session ID (optional, for reference)
+            reviewer:   Reviewer identifier (defaults to "operator")
+
+        Returns:
+            The row ID of the inserted / updated record, or -1 on failure.
+        """
+        with self._lock:
+            conn = None
+            try:
+                conn = self._get_connection()
+                sql = """
+                    INSERT INTO conversation_reviews
+                        (chat_id, session_id, rating, comment, reviewer)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        session_id = VALUES(session_id),
+                        rating     = VALUES(rating),
+                        comment    = VALUES(comment),
+                        reviewer   = VALUES(reviewer),
+                        updated_at = CURRENT_TIMESTAMP
+                """
+                # Note: ON DUPLICATE KEY relies on a UNIQUE index on chat_id.
+                # We add that index below via migration if it doesn't exist.
+                with conn.cursor() as cursor:
+                    cursor.execute(sql, (chat_id, session_id, rating, comment, reviewer))
+                    conn.commit()
+                    row_id = cursor.lastrowid or -1
+                logger.info(
+                    f"Saved review: chat_id={chat_id}, rating={rating}, id={row_id}"
+                )
+                return row_id
+            except Exception as e:
+                logger.error(f"Failed to save review: {e}")
+                if conn:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                return -1
+
+    def get_reviews_by_chat(self, chat_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all reviews for a specific chat_id.
+
+        Args:
+            chat_id: Xianyu chat ID
+
+        Returns:
+            List of review dicts (may be empty)
+        """
+        try:
+            conn = self._get_connection()
+            sql = """
+                SELECT id, chat_id, session_id, rating, comment, reviewer,
+                       created_at, updated_at
+                FROM conversation_reviews
+                WHERE chat_id = %s
+                ORDER BY created_at DESC
+            """
+            with conn.cursor() as cursor:
+                cursor.execute(sql, (chat_id,))
+                rows = cursor.fetchall()
+            return list(rows)
+        except Exception as e:
+            logger.error(f"Failed to get reviews for chat_id={chat_id}: {e}")
+            raise
+
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit."""
+        self.close()
+        return False
+

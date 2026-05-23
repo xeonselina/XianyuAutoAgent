@@ -1,0 +1,60 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - heading "AI 客服管理中心" [level=1] [ref=e5]
+    - navigation [ref=e6]:
+      - link "知识库" [ref=e7] [cursor=pointer]:
+        - /url: "#/"
+      - link "System Prompt" [ref=e8] [cursor=pointer]:
+        - /url: "#/prompts"
+      - link "消息过滤" [ref=e9] [cursor=pointer]:
+        - /url: "#/ignore-patterns"
+      - link "Eval 回放" [ref=e10] [cursor=pointer]:
+        - /url: "#/eval"
+      - link "历史对话" [ref=e11] [cursor=pointer]:
+        - /url: "#/history"
+      - link "系统设置" [ref=e12] [cursor=pointer]:
+        - /url: "#/settings"
+  - main [ref=e13]:
+    - generic [ref=e15]:
+      - generic [ref=e16]:
+        - button "← 返回列表" [ref=e17] [cursor=pointer]
+        - heading "对话详情：61245946903" [level=2] [ref=e18]
+      - generic [ref=e19]:
+        - generic [ref=e20]:
+          - generic [ref=e21]: 👤
+          - generic [ref=e22]:
+            - generic [ref=e23]: 买家 · 05/03 14:24
+            - generic [ref=e24]: 你好问一下Vivox200ultra+增距镜7月23收到27寄回多少钱呢
+        - generic [ref=e25]:
+          - generic [ref=e26]:
+            - generic [ref=e27]: 人工回复 · 05/03 14:24
+            - generic [ref=e28]: 欢迎光临[得意]请问阁下需要几号收到，几号寄出，寄到哪里？我们马上为您报价[送花]
+          - generic [ref=e29]: 🧑‍💼
+        - generic [ref=e30]:
+          - generic [ref=e31]:
+            - generic [ref=e32]: 人工回复 · 05/03 14:25
+            - generic [ref=e33]: 218 包单程顺丰
+          - generic [ref=e34]: 🧑‍💼
+        - generic [ref=e35]:
+          - generic [ref=e36]: 👤
+          - generic [ref=e37]:
+            - generic [ref=e38]: 买家 · 05/03 14:25
+            - generic [ref=e39]: 谢谢不用了
+      - generic [ref=e40]:
+        - generic [ref=e41]: 👤 买家消息
+        - generic [ref=e42]: 🧑‍💼 人工回复
+        - generic [ref=e43]: 🤖 AI 回复
+      - generic [ref=e44]:
+        - heading "对话评价" [level=3] [ref=e45]
+        - paragraph [ref=e46]: 对本对话中 AI 回复质量进行整体评价
+        - generic [ref=e47]:
+          - button "👍 好评" [ref=e48] [cursor=pointer]
+          - button "👎 差评" [ref=e49] [cursor=pointer]
+        - generic [ref=e50]:
+          - generic [ref=e51]: 补充说明（可选）
+          - textbox "描述 AI 哪里回复得好或不好…" [ref=e52]
+        - button "提交评价" [disabled] [ref=e53]
+      - generic [ref=e54]:
+        - heading "🤖 AI 对比评估" [level=3] [ref=e55]
+        - paragraph [ref=e56]: AI 自动对比人工回复和 AI 回复的相似度
+        - generic [ref=e57]: ℹ️ 该对话中没有找到对应的人工回复和 AI 回复对进行对比。

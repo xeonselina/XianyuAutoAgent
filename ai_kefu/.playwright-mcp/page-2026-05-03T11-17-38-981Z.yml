@@ -1,0 +1,135 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - heading "AI 客服管理中心" [level=1] [ref=e5]
+    - navigation [ref=e6]:
+      - link "知识库" [ref=e7] [cursor=pointer]:
+        - /url: "#/"
+      - link "System Prompt" [ref=e8] [cursor=pointer]:
+        - /url: "#/prompts"
+      - link "消息过滤" [ref=e9] [cursor=pointer]:
+        - /url: "#/ignore-patterns"
+      - link "Eval 回放" [ref=e10] [cursor=pointer]:
+        - /url: "#/eval"
+      - link "历史对话" [ref=e11] [cursor=pointer]:
+        - /url: "#/history"
+      - link "系统设置" [ref=e12] [cursor=pointer]:
+        - /url: "#/settings"
+  - main [ref=e13]:
+    - generic [ref=e15]:
+      - generic [ref=e16]:
+        - button "← 返回列表" [ref=e17] [cursor=pointer]
+        - heading "对话详情：60896491381" [level=2] [ref=e58]
+      - generic [ref=e59]:
+        - generic [ref=e60]:
+          - generic [ref=e61]: 👤
+          - generic [ref=e62]:
+            - generic [ref=e63]: 买家 · 05/03 17:53
+            - generic [ref=e64]: 你好 我收拾装箱 邮寄回去了 然后特别不好意思 我发现镜头盖丢失了 [流泪] 我到时候赔付给你 别的我自己看了一下~没啥问题 到时候你再看下~有问题咱们再联系 非常抱歉了
+        - generic [ref=e65]:
+          - generic [ref=e66]:
+            - generic [ref=e67]: 人工回复 · 05/03 17:53
+            - generic [ref=e68]: 欢迎光临[得意]请问阁下需要几号收到，几号寄出，寄到哪里？我们马上为您报价[送花]
+          - generic [ref=e69]: 🧑‍💼
+        - generic [ref=e70]:
+          - generic [ref=e71]:
+            - generic [ref=e72]: 人工回复 · 05/03 17:54
+            - generic [ref=e73]: 镜头盖不用赔的 没关系
+          - generic [ref=e74]: 🧑‍💼
+        - generic [ref=e75]:
+          - generic [ref=e76]: 👤
+          - generic [ref=e77]:
+            - generic [ref=e78]: 买家 · 05/03 17:56
+            - generic [ref=e79]: 别别别~真的很不好意思~到时候你再看看~[送花][送花][送花]以后还来咱们这~
+        - generic [ref=e80]:
+          - generic [ref=e81]:
+            - generic [ref=e82]: 人工回复 · 05/03 17:57
+            - generic [ref=e83]: "[送花][送花] 的确不用陪 这东西经常丢的 我们有备件"
+          - generic [ref=e84]: 🧑‍💼
+        - generic [ref=e85]:
+          - generic [ref=e86]: 👤
+          - generic [ref=e87]:
+            - generic [ref=e88]: 买家 · 05/03 18:04
+            - generic [ref=e89]: SF0215481483937
+        - generic [ref=e90]:
+          - generic [ref=e91]: 👤
+          - generic [ref=e92]:
+            - generic [ref=e93]: 买家 · 05/03 18:04
+            - generic [ref=e94]: 这是订单号~我本来合计在我这边给配一个来着 省的把镜头磨了 [流泪]没有适合大小的
+        - generic [ref=e95]:
+          - generic [ref=e96]: 👤
+          - generic [ref=e97]:
+            - generic [ref=e98]: 买家 · 05/03 18:04
+            - generic [ref=e99]: 好的好的~
+        - generic [ref=e100]:
+          - generic [ref=e101]:
+            - generic [ref=e102]: 人工回复 · 05/03 18:04
+            - generic [ref=e103]: 啊 不用的
+          - generic [ref=e104]: 🧑‍💼
+        - generic [ref=e105]:
+          - generic [ref=e106]: 👤
+          - generic [ref=e107]:
+            - generic [ref=e108]: 买家 · 05/03 18:04
+            - generic [ref=e109]: 我以为要把开箱视频不好意思发给你[破涕为笑]
+        - generic [ref=e110]:
+          - generic [ref=e111]:
+            - generic [ref=e112]: 人工回复 · 05/03 18:04
+            - generic [ref=e113]: "啊(´･_･`)什么"
+          - generic [ref=e114]: 🧑‍💼
+        - generic [ref=e115]:
+          - generic [ref=e116]:
+            - generic [ref=e117]: 人工回复 · 05/03 18:04
+            - generic [ref=e118]: 亲，我现在不在线，商品还在，可以直接拍。一天+x200ultra：168¥，多一天+30¥。x300pro：178¥，多一天+30¥，x300ultra：238¥，多一天+40¥，收到和寄出两天不算租期，所有商品从深圳寄出，包单程顺丰，包激光险。目前五一期间没有了
+          - generic [ref=e119]: 🧑‍💼
+        - generic [ref=e120]:
+          - generic [ref=e121]: 👤
+          - generic [ref=e122]:
+            - generic [ref=e123]: 买家 · 05/03 18:04
+            - generic [ref=e124]: 没啥问题~感觉
+        - generic [ref=e125]:
+          - generic [ref=e126]:
+            - generic [ref=e127]: 人工回复 · 05/03 18:04
+            - generic [ref=e128]: 请收到货拍摄开箱视频，使用完毕请包装好设备，于归还日 16:00 前用顺丰（寄付）寄回地址：广东省深圳市南山区西丽街道松坪村竹苑 9 栋 4 单元 415 张女士 13510224947
+          - generic [ref=e129]: 🧑‍💼
+        - generic [ref=e130]:
+          - generic [ref=e131]: 👤
+          - generic [ref=e132]:
+            - generic [ref=e133]: 买家 · 05/03 18:04
+            - generic [ref=e134]: 好的
+        - generic [ref=e135]:
+          - generic [ref=e136]:
+            - generic [ref=e137]: 人工回复 · 05/03 18:04
+            - generic [ref=e138]: 不需要保险
+          - generic [ref=e139]: 🧑‍💼
+        - generic [ref=e140]:
+          - generic [ref=e141]: 👤
+          - generic [ref=e142]:
+            - generic [ref=e143]: 买家 · 05/03 18:04
+            - generic [ref=e144]: 好的 寄回顺丰需要买保险么？
+        - generic [ref=e145]:
+          - generic [ref=e146]:
+            - generic [ref=e147]: 人工回复 · 05/03 18:04
+            - generic [ref=e148]: 请收到货拍摄开箱视频，使用完毕请包装好设备，于归还日 16:00 前用顺丰（寄付）寄回地址：广东省深圳市南山区西丽街道松坪村竹苑 9 栋 4 单元 415 张女士 13510224947
+          - generic [ref=e149]: 🧑‍💼
+        - generic [ref=e150]:
+          - generic [ref=e151]: 👤
+          - generic [ref=e152]:
+            - generic [ref=e153]: 买家 · 05/03 18:10
+            - generic [ref=e154]: "[流泪][流泪]真的很抱歉"
+      - generic [ref=e155]:
+        - generic [ref=e156]: 👤 买家消息
+        - generic [ref=e157]: 🧑‍💼 人工回复
+        - generic [ref=e158]: 🤖 AI 回复
+      - generic [ref=e159]:
+        - heading "对话评价" [level=3] [ref=e160]
+        - paragraph [ref=e161]: 对本对话中 AI 回复质量进行整体评价
+        - generic [ref=e162]:
+          - button "👍 好评" [ref=e163] [cursor=pointer]
+          - button "👎 差评" [ref=e164] [cursor=pointer]
+        - generic [ref=e165]:
+          - generic [ref=e166]: 补充说明（可选）
+          - textbox "描述 AI 哪里回复得好或不好…" [ref=e167]
+        - button "提交评价" [disabled] [ref=e168]
+      - generic [ref=e169]:
+        - heading "🤖 AI 对比评估" [level=3] [ref=e170]
+        - paragraph [ref=e171]: AI 自动对比人工回复和 AI 回复的相似度
+        - generic [ref=e172]: ℹ️ 该对话中没有找到对应的人工回复和 AI 回复对进行对比。

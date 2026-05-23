@@ -1,0 +1,89 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - heading "AI 客服管理中心" [level=1] [ref=e5]
+    - navigation [ref=e6]:
+      - link "知识库" [ref=e7] [cursor=pointer]:
+        - /url: "#/"
+      - link "System Prompt" [ref=e8] [cursor=pointer]:
+        - /url: "#/prompts"
+      - link "消息过滤" [ref=e9] [cursor=pointer]:
+        - /url: "#/ignore-patterns"
+      - link "Eval 回放" [ref=e10] [cursor=pointer]:
+        - /url: "#/eval"
+      - link "历史对话" [ref=e11] [cursor=pointer]:
+        - /url: "#/history"
+      - link "系统设置" [ref=e12] [cursor=pointer]:
+        - /url: "#/settings"
+  - main [ref=e13]:
+    - generic [ref=e15]:
+      - generic [ref=e16]:
+        - button "← 返回列表" [ref=e17] [cursor=pointer]
+        - heading "对话详情：60047369891" [level=2] [ref=e18]
+      - generic [ref=e19]:
+        - generic [ref=e20]:
+          - generic [ref=e21]:
+            - generic [ref=e22]: 人工回复 · 04/14 19:42
+            - generic [ref=e23]: 订单已发货~ 物流公司：顺丰速运 物流单号：SF0224721762679 后续复购可以点右上角↓按钮，再次购买~
+          - generic [ref=e24]: 🧑‍💼
+        - generic [ref=e25]:
+          - generic [ref=e26]:
+            - generic [ref=e27]: 人工回复 · 04/14 21:20
+            - generic [ref=e28]: 感谢惠顾~期待与您再次相遇 麻烦给小店来个好评或加个关注呀~
+          - generic [ref=e29]: 🧑‍💼
+        - generic [ref=e30]:
+          - generic [ref=e31]:
+            - generic [ref=e32]: 人工回复 · 04/14 21:20
+            - generic [ref=e33]: "[我完成了评价]"
+          - generic [ref=e34]: 🧑‍💼
+        - generic [ref=e35]:
+          - generic [ref=e36]:
+            - generic [ref=e37]: 人工回复 · 04/14 21:20
+            - generic [ref=e38]: 感谢惠顾~期待与您再次相遇麻烦给小店来个好评或加个关注呀~
+          - generic [ref=e39]: 🧑‍💼
+        - generic [ref=e40]:
+          - generic [ref=e41]: 👤
+          - generic [ref=e42]:
+            - generic [ref=e43]: 买家 · 04/14 21:21
+            - generic [ref=e44]: "[我完成了评价]"
+        - generic [ref=e45]:
+          - generic [ref=e46]:
+            - generic [ref=e47]: AI 回复 · 04/14 21:21
+            - generic [ref=e48]: 【调试】好的 感谢支持~
+            - generic [ref=e49] [cursor=pointer]: ▼ 查看 AI 上下文
+            - generic [ref=e50] [cursor=pointer]: ▲ 收起 AI 推理过程
+            - generic [ref=e71]:
+              - generic [ref=e72]:
+                - generic [ref=e73]: Turn 1
+                - generic [ref=e74]: 置信度 100%
+                - generic [ref=e75]: ✅ 已发送
+                - generic [ref=e76]: 6183ms
+              - generic [ref=e77]:
+                - generic [ref=e78]: 🔧 工具调用
+                - generic [ref=e80]:
+                  - generic [ref=e81]: complete_task
+                  - generic [ref=e82]: "{ \"summary\": \"用户已完成评价，对话自然结束\", \"resolved\": true }"
+              - generic [ref=e83]:
+                - generic [ref=e84]: 📤 工具结果
+                - generic [ref=e87]: "{\"id\":\"call_e6192d81f6e142c6b9000e03\",\"name\":\"complete_task\",\"result\":{\"status\":\"completed\",\"message\":\"任务已完成，用户问题已解决\",\"success\":true,\"summary\":\"用户已完成评价，对话自然结束\",\"resolved\":true}}"
+              - generic [ref=e88]:
+                - generic [ref=e89]: 💬 AI 回复
+                - generic [ref=e90]: 好的 感谢支持~
+          - generic [ref=e51]: 🤖
+      - generic [ref=e52]:
+        - generic [ref=e53]: 👤 买家消息
+        - generic [ref=e54]: 🧑‍💼 人工回复
+        - generic [ref=e55]: 🤖 AI 回复
+      - generic [ref=e56]:
+        - heading "对话评价" [level=3] [ref=e57]
+        - paragraph [ref=e58]: 对本对话中 AI 回复质量进行整体评价
+        - generic [ref=e59]:
+          - button "👍 好评" [ref=e60] [cursor=pointer]
+          - button "👎 差评" [ref=e61] [cursor=pointer]
+        - generic [ref=e62]:
+          - generic [ref=e63]: 补充说明（可选）
+          - textbox "描述 AI 哪里回复得好或不好…" [ref=e64]
+        - button "提交评价" [disabled] [ref=e65]
+      - generic [ref=e66]:
+        - heading "🤖 AI 对比评估" [level=3] [ref=e67]
+        - paragraph [ref=e68]: AI 自动对比人工回复和 AI 回复的相似度
+        - generic [ref=e69]: ℹ️ 该对话中没有找到对应的人工回复和 AI 回复对进行对比。

@@ -1,0 +1,71 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - heading "AI 客服管理中心" [level=1] [ref=e5]
+    - navigation [ref=e6]:
+      - link "知识库" [ref=e7] [cursor=pointer]:
+        - /url: "#/"
+      - link "System Prompt" [ref=e8] [cursor=pointer]:
+        - /url: "#/prompts"
+      - link "消息过滤" [ref=e9] [cursor=pointer]:
+        - /url: "#/ignore-patterns"
+      - link "Eval 回放" [ref=e10] [cursor=pointer]:
+        - /url: "#/eval"
+      - link "历史对话" [ref=e11] [cursor=pointer]:
+        - /url: "#/history"
+      - link "系统设置" [ref=e12] [cursor=pointer]:
+        - /url: "#/settings"
+  - main [ref=e13]:
+    - generic [ref=e15]:
+      - generic [ref=e16]:
+        - button "← 返回列表" [ref=e17] [cursor=pointer]
+        - heading "对话详情：60047369891" [level=2] [ref=e173]
+      - generic [ref=e174]:
+        - generic [ref=e175]:
+          - generic [ref=e176]:
+            - generic [ref=e177]: 人工回复 · 04/14 19:42
+            - generic [ref=e178]: 订单已发货~ 物流公司：顺丰速运 物流单号：SF0224721762679 后续复购可以点右上角↓按钮，再次购买~
+          - generic [ref=e179]: 🧑‍💼
+        - generic [ref=e180]:
+          - generic [ref=e181]:
+            - generic [ref=e182]: 人工回复 · 04/14 21:20
+            - generic [ref=e183]: 感谢惠顾~期待与您再次相遇 麻烦给小店来个好评或加个关注呀~
+          - generic [ref=e184]: 🧑‍💼
+        - generic [ref=e185]:
+          - generic [ref=e186]:
+            - generic [ref=e187]: 人工回复 · 04/14 21:20
+            - generic [ref=e188]: "[我完成了评价]"
+          - generic [ref=e189]: 🧑‍💼
+        - generic [ref=e190]:
+          - generic [ref=e191]:
+            - generic [ref=e192]: 人工回复 · 04/14 21:20
+            - generic [ref=e193]: 感谢惠顾~期待与您再次相遇麻烦给小店来个好评或加个关注呀~
+          - generic [ref=e194]: 🧑‍💼
+        - generic [ref=e195]:
+          - generic [ref=e196]: 👤
+          - generic [ref=e197]:
+            - generic [ref=e198]: 买家 · 04/14 21:21
+            - generic [ref=e199]: "[我完成了评价]"
+        - generic [ref=e200]:
+          - generic [ref=e201]:
+            - generic [ref=e202]: AI 回复 · 04/14 21:21
+            - generic [ref=e203]: 【调试】好的 感谢支持~
+            - generic [ref=e204] [cursor=pointer]: ▼ 查看 AI 上下文
+          - generic [ref=e205]: 🤖
+      - generic [ref=e206]:
+        - generic [ref=e207]: 👤 买家消息
+        - generic [ref=e208]: 🧑‍💼 人工回复
+        - generic [ref=e209]: 🤖 AI 回复
+      - generic [ref=e210]:
+        - heading "对话评价" [level=3] [ref=e211]
+        - paragraph [ref=e212]: 对本对话中 AI 回复质量进行整体评价
+        - generic [ref=e213]:
+          - button "👍 好评" [ref=e214] [cursor=pointer]
+          - button "👎 差评" [ref=e215] [cursor=pointer]
+        - generic [ref=e216]:
+          - generic [ref=e217]: 补充说明（可选）
+          - textbox "描述 AI 哪里回复得好或不好…" [ref=e218]
+        - button "提交评价" [disabled] [ref=e219]
+      - generic [ref=e220]:
+        - heading "🤖 AI 对比评估" [level=3] [ref=e221]
+        - paragraph [ref=e222]: AI 自动对比人工回复和 AI 回复的相似度
+        - generic [ref=e223]: ℹ️ 该对话中没有找到对应的人工回复和 AI 回复对进行对比。
