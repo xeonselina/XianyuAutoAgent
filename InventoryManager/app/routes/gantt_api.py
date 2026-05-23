@@ -86,6 +86,9 @@ def gantt_data():
                 'device_model': device.device_model.to_dict() if device.device_model else None,
                 'is_accessory': getattr(device, 'is_accessory', False),  # 默认值防止旧数据报错
                 'status': device.status,
+                'lifecycle_status': device.lifecycle_status,
+                'lifecycle_reason': device.lifecycle_reason,
+                'lifecycle_date': device.lifecycle_date.isoformat() if device.lifecycle_date else None,
                 'rentals': []
             }
             
