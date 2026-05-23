@@ -1,0 +1,223 @@
+═══════════════════════════════════════════════════════════════════════════════
+  SYSTEM PROMPT FLOW: Code Execution Paths & Line Numbers
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ EXECUTOR: Main Agent Loop (executor.py)                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+executor.py:192-539  AgentExecutor.run(query, session_id, ...)
+
+  ├─ Line 219-222: Load/create session
+  │
+  ├─ Line 225-243: Optional context summarization
+  │
+  ├─ Line 300-307: SKILL DETECTION & PROMPT KEY SELECTION
+  │     active_skills = detect_skills(query)           [skill_selector.py:51]
+  │     active_skill_tools = get_active_tool_names()   [skill_selector.py:95]
+  │     active_prompt_key = get_prompt_key()           [skill_selector.py:130]
+  │
+  ├─ Line 326-509: MAIN TURN LOOP (while True)
+  │    │
+  │    ├─ Line 338-345: Call execute_turn()
+  │    │   │
+  │    │   ├─ session=session
+  │    │   ├─ user_message=query
+  │    │   ├─ is_tool_continue=not is_first_turn    <-- TOGGLE HERE
+  │    │   ├─ active_skill_tools=active_skill_tools
+  │    │   ├─ prompt_key=active_prompt_key
+  │    │   │
+  │    │   └─ CALLS: turn.py:execute_turn()
+  │    │
+  │    ├─ Line 360: session.messages.extend(turn_result.new_messages)
+  │    │
+  │    ├─ Line 366-396: Persist turn to agent_turns table
+  │    │   └─ save_turn(llm_input, llm_output, ...)
+  │    │
+  │    ├─ Line 423-433: Loop detection check
+  │    │
+  │    ├─ Line 436-445: Check if task completed
+  │    │
+  │    ├─ Line 450-453: If tool_calls, CONTINUE LOOP
+  │    │
+  │    └─ Line 456-504: If no tools & text, BREAK
+  │
+  └─ Line 512-539: Return result
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ TURN EXECUTOR: Single Turn (turn.py:167-547)                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+execute_turn(session, user_message, ..., is_tool_continue, prompt_key)
+
+  ├─ Line 196-204: LOAD SYSTEM PROMPT (if None)
+  │   │
+  │   ├─ system_prompt = _load_system_prompt(prompt_key)
+  │   │
+  │   └─ CALLS: turn.py:635-700 _load_system_prompt()
+  │       │
+  │       ├─ Check in-memory cache (turn.py:657-668)
+  │       │   [_system_prompt_cache, TTL=300s]
+  │       │
+  │       ├─ If cache miss:
+  │       │   ├─ Query DB: PromptStore.get_active(prompt_key)
+  │       │   ├─ Render template: render_system_prompt()
+  │       │   └─ Store in cache
+  │       │
+  │       ├─ If DB unavailable:
+  │       │   └─ Fallback: get_rental_system_prompt()
+  │       │
+  │       └─ RETURN: rendered prompt string
+  │
+  ├─ Line 206-246: INJECT CONTEXT INTO PROMPT
+  │   │
+  │   ├─ Line 209-240: Inject item_info (if available)
+  │   │   └─ Format: "## 当前商品信息\n商品标题：...\n价格：...\n..."
+  │   │
+  │   ├─ Line 243-246: Inject context_summary (if available)
+  │   │   └─ Format: "## 之前的对话上下文摘要\n{summary}"
+  │   │
+  │   └─ system_prompt now = base + item_info_slot + context_summary_slot
+  │
+  ├─ Line 251: log_turn_start()
+  │
+  ├─ Line 254-296: BUILD MESSAGE HISTORY
+  │   │
+  │   ├─ BRANCH A: is_tool_continue=False (First turn)
+  │   │   ├─ Line 257-263: Create new user message
+  │   │   └─ Line 266: messages = _build_message_history(session, user_msg, system_prompt)
+  │   │
+  │   └─ BRANCH B: is_tool_continue=True (Tool continuation)
+  │       ├─ Line 270: messages = [{"role": "system", "content": system_prompt}]
+  │       ├─ Line 273-296: Add ALL historical messages from session.messages
+  │       │   (including recent tool messages)
+  │       └─ NO new user message added
+  │
+  ├─ Line 300: Validate message sequence
+  │   └─ validate_message_sequence(messages, auto_fix=True)
+  │
+  ├─ Line 307: Get tools (filtered by active_skill_tools)
+  │   └─ tools = tools_registry.to_qwen_format(skill_names=active_skill_tools)
+  │
+  ├─ Line 314-318: CALL QWEN API
+  │   │
+  │   ├─ response = call_qwen(messages=messages, tools=tools)
+  │   │
+  │   └─ CALLS: qwen_client.py:107-158 call_qwen()
+  │       ├─ Creates OpenAI client
+  │       ├─ Sends full messages array to Qwen API
+  │       └─ RETURNS: response dict
+  │
+  ├─ Line 321-322: CAPTURE LLM I/O for persistence
+  │   ├─ llm_input_snapshot = [dict(m) for m in messages]
+  │   └─ llm_output_snapshot = response
+  │
+  ├─ Line 325-327: Parse response
+  │   ├─ assistant_message = response["choices"][0]["message"]
+  │   ├─ response_text = assistant_message.get("content", "")
+  │   └─ tool_calls_data = assistant_message.get("tool_calls", [])
+  │
+  ├─ Line 334-378: CONFIDENCE GUARD (if enabled)
+  │
+  ├─ Line 380-389: Create assistant message object
+  │
+  ├─ Line 394-492: EXECUTE TOOLS (if any tool_calls)
+  │   ├─ For each tool_call:
+  │   │   ├─ Parse tool name & arguments
+  │   │   ├─ Execute tool_registry.execute_tool()
+  │   │   ├─ Create tool response message
+  │   │   └─ Append to new_messages
+  │   │
+  │   └─ Line 495-498: Add tool_calls to assistant_msg
+  │
+  ├─ Line 501-506: INSERT MESSAGE AT CORRECT POSITION
+  │   ├─ If tool_continue: insert assistant at position 0
+  │   └─ Else: insert assistant at position 1
+  │
+  ├─ Line 509-510: Calculate duration
+  │
+  ├─ Line 512: log_turn_end()
+  │
+  └─ Line 514-535: RETURN TurnResult
+      ├─ success=True
+      ├─ response_text
+      ├─ tool_calls=[...]
+      ├─ new_messages=new_messages
+      ├─ llm_input=llm_input_snapshot  <-- Persisted to DB
+      └─ llm_output=llm_output_snapshot <-- Persisted to DB
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ MESSAGE HISTORY BUILDER: _build_message_history() (turn.py:550-604)        │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+_build_message_history(session, new_user_message, system_prompt)
+
+  └─ Returns: List[Dict] =
+     [
+       {"role": "system", "content": system_prompt},      <-- ALWAYS first
+       ... (historical messages from session.messages) ...
+       {"role": "user", "content": new_user_message}      <-- Appended last
+     ]
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ DATABASE PERSISTENCE: agent_turns Table                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Schema Location: conversation_store.py:122-150                              │
+│ Insert Location: executor.py:378                                            │
+│ Function: ConversationStore.save_turn(llm_input, llm_output, ...)          │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+FULL MESSAGE HISTORY (including system prompt) is stored as JSON in:
+  - llm_input:  Full messages array sent to LLM
+  - llm_output: Raw LLM response
+
+Example record:
+{
+  id: 42,
+  session_id: "abc-123",
+  turn_number: 1,
+  interaction_id: "interaction-xyz",  // Groups all turns from one user message
+  local_turn_number: 1,
+  user_query: "4月15号怎么租呢？",
+  llm_input: [                        // FULL messages sent to Qwen
+    {role: "system", content: "你是闲鱼平台..."},
+    {role: "user", content: "4月15号怎么租呢？"}
+  ],
+  llm_output: {                       // Raw Qwen response
+    choices: [{message: {content: "...", tool_calls: [...]}}]
+  },
+  response_text: "好的，让我查一下4月15号的档期",
+  tool_calls: [{id: "call_123", name: "check_availability", ...}],
+  tool_results: [{id: "call_123", result: {...}}],
+  confidence_percent: 95,
+  response_suppressed: false,
+  created_at: 2026-04-12 10:30:45
+}
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ KEY QUESTION ANSWERED                                                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Q: On tool-continuation turns (is_tool_continue=True), what system prompt is 
+   sent? Is the full long system prompt re-sent on every tool-continuation turn?
+
+A: YES - The FULL system prompt is RE-SENT on every tool-continuation turn.
+
+   ✓ System prompt loaded fresh (or from 5-min cache) each turn
+   ✓ System prompt is IDENTICAL across all turns within a run()
+   ✓ System prompt includes injected item_info & context_summary slots
+   ✓ System prompt is NOT omitted on tool-continuation
+   ✓ Qwen API receives full system prompt on EVERY turn
+   ✓ All messages (including system prompt) are persisted to agent_turns.llm_input
+
+   Code flow:
+   - Line 267-270 (turn.py): messages = [{"role": "system", "content": system_prompt}]
+   - Line 314-318: response = call_qwen(messages=messages, tools=tools)
+   - executor.py:382: llm_input = turn_result.llm_input  (captured)
+   - conversation_store.py:808: INSERT INTO agent_turns (..., llm_input, ...)
+
+═══════════════════════════════════════════════════════════════════════════════

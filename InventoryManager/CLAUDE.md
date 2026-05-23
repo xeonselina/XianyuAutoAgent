@@ -1,18 +1,5 @@
-<!-- OPENSPEC:START -->
-# OpenSpec Instructions
+# CLAUDE.md - InventoryManager 项目 AI 协作准则
 
-These instructions are for AI assistants working in this project.
+## 前端开发准则
 
-Always open `@/openspec/AGENTS.md` when the request:
-- Mentions planning or proposals (words like proposal, spec, change, plan)
-- Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
-- Sounds ambiguous and you need the authoritative spec before coding
-
-Use `@/openspec/AGENTS.md` to learn:
-- How to create and apply change proposals
-- Spec format and conventions
-- Project structure and guidelines
-
-Keep this managed block so 'openspec update' can refresh the instructions.
-
-<!-- OPENSPEC:END -->
+1. **所有前端改动都必须同时考虑 PC 端和移动端**。组件布局、交互和样式需确保在桌面浏览器和移动设备（尤其是 iPad）上均可正常使用。必要时使用响应式设计（媒体查询、弹性布局等）。

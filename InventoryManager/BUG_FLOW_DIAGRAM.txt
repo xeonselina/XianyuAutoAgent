@@ -1,0 +1,151 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║         BUG: Sold Devices Show as "🟢 使用中" on Gantt Chart                ║
+║                    Data Flow & Missing Field Analysis                         ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ DATABASE LAYER: devices table                                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Device #1                                                                   │
+│  ├─ id: 1                                                                   │
+│  ├─ name: "iPhone 14 Pro #001"                                              │
+│  ├─ status: "online"                       ✅ (working)                    │
+│  ├─ lifecycle_status: "sold"               ✅ (stored correctly)           │
+│  ├─ lifecycle_reason: "已销售"              ✅ (stored correctly)           │
+│  └─ lifecycle_date: 2025-05-20 10:30:00    ✅ (stored correctly)           │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              ↓ (via ORM)
+                        app/models/device.py
+                        Device.query.all()
+                         ✅ Data loaded OK
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ to_dict() METHOD: app/models/device.py (lines 60-76)                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Returns:                                                                     │
+│ {                                                                            │
+│   'id': 1,                                                                   │
+│   'name': 'iPhone 14 Pro #001',                                              │
+│   'status': 'online',                      ✅ (included)                    │
+│   'lifecycle_status': 'sold',              ✅ (included)                    │
+│   'lifecycle_reason': '已销售',             ✅ (included)                    │
+│   'lifecycle_date': '2025-05-20T10:30:00',✅ (included)                    │
+│   ... other fields                                                           │
+│ }                                                                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              ↓
+             BUT GANTT_API DOES NOT USE to_dict()
+                              ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ API ENDPOINT: app/routes/gantt_api.py (lines 79-90)                        │
+│ /api/gantt/data                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Manually constructs device_data dict:                                       │
+│                                                                              │
+│ device_data = {                                                              │
+│   'id': device.id,                                                           │
+│   'name': device.name,                                                       │
+│   'serial_number': device.serial_number,                                     │
+│   'model': getattr(device, 'model', 'x200u'),                                │
+│   'model_id': device.model_id,                                               │
+│   'device_model': device.device_model.to_dict() if device.device_model...,   │
+│   'is_accessory': getattr(device, 'is_accessory', False),                    │
+│   'status': device.status,                 ✅ (included)                    │
+│   'rentals': []                                                              │
+│   'lifecycle_status': ??? ❌ MISSING!                                        │
+│   'lifecycle_reason': ??? ❌ MISSING!                                        │
+│   'lifecycle_date': ??? ❌ MISSING!                                          │
+│ }                                                                            │
+│                                                                              │
+│ ⚠️ PROBLEM: Hardcoded dict does not include lifecycle fields                │
+│    Should use: device.to_dict() OR add missing fields manually             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              ↓
+           HTTP Response: {success: true, data: {...}}
+                              ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ FRONTEND STORE: frontend/src/stores/gantt.ts (line 155)                     │
+│ devices.value = response.data.data.devices                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Received Device object:                                                      │
+│ {                                                                            │
+│   id: 1,                                                                     │
+│   name: 'iPhone 14 Pro #001',                                                │
+│   status: 'online',                        ✅ (received)                    │
+│   lifecycle_status: undefined,             ❌ (NOT received)                │
+│   lifecycle_reason: undefined,             ❌ (NOT received)                │
+│   lifecycle_date: undefined,               ❌ (NOT received)                │
+│ }                                                                            │
+│                                                                              │
+│ ⚠️ Pinia store Device interface expects lifecycle_status but gets undefined │
+└─────────────────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ FRONTEND COMPONENT: frontend/src/components/GanttRow.vue (line 20)         │
+│ <el-select :model-value="device.lifecycle_status || 'active'">             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│ device.lifecycle_status = undefined                                          │
+│                          ↓                                                   │
+│ undefined || 'active' = 'active'                                             │
+│                          ↓                                                   │
+│ :model-value = 'active'                                                      │
+│                                                                              │
+│ ✅ Component logic is correct (fallback works)                              │
+│ ❌ But it's using the wrong fallback value!                                 │
+│                                                                              │
+│ Result: Dropdown shows "🟢 使用中" (active option)                          │
+│         even though device should be marked as "💰 已售出"                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ VISUAL RESULT ON GANTT CHART                                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│ Device Row: iPhone 14 Pro #001                                              │
+│ ┌──────────────────────────────────────────────────────────────┐            │
+│ │ Name: iPhone 14 Pro #001                                     │            │
+│ │ SN: ABC123456                                                │            │
+│ │ Status: [▼ 在线 ]  (device.status = 'online') ✅            │            │
+│ │ Lifecycle: [▼ 🟢 使用中] (should be 💰 已售出) ❌          │            │
+│ │                                                              │            │
+│ │ Border color: default (should be orange for 'sold')  ❌     │            │
+│ │ Opacity: 1.0 (should be 0.55 for 'sold')             ❌     │            │
+│ └──────────────────────────────────────────────────────────────┘            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          ROOT CAUSE SUMMARY                                  ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  The gantt_api.py endpoint constructs device_data manually instead of       ║
+║  using device.to_dict(). This manual dict is missing the lifecycle fields:  ║
+║                                                                              ║
+║  Missing in gantt_api.py line 79-90:                                        ║
+║    ❌ 'lifecycle_status': device.lifecycle_status                           ║
+║    ❌ 'lifecycle_reason': device.lifecycle_reason                           ║
+║    ❌ 'lifecycle_date': device.lifecycle_date.isoformat() if ...            ║
+║                                                                              ║
+║  Frontend receives undefined → falls back to 'active' → shows wrong status  ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                            THE FIX                                           ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  Add 3 lines to app/routes/gantt_api.py lines 79-90:                        ║
+║                                                                              ║
+║  device_data = {                                                             ║
+║      ...existing fields...                                                   ║
+║      'status': device.status,                                                ║
+║      'lifecycle_status': device.lifecycle_status,        ← ADD THIS        ║
+║      'lifecycle_reason': device.lifecycle_reason,        ← ADD THIS        ║
+║      'lifecycle_date': device.lifecycle_date.isoformat() if device.lifecycle_date else None,  ← ADD THIS ║
+║      'rentals': []                                                           ║
+║  }                                                                            ║
+║                                                                              ║
+║  Alternative: Use device.to_dict() instead of manual dict construction      ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝

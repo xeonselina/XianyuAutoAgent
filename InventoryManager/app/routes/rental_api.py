@@ -110,6 +110,16 @@ def fetch_xianyu_order():
     return RentalHandlers.handle_fetch_xianyu_order()
 
 
+
+
+# ===================== 搜索API =====================
+
+@bp.route('/api/rentals/search', methods=['POST'])
+@handle_response
+def search_rentals():
+    """搜索租赁记录 - 支持多字段搜索"""
+    return RentalHandlers.handle_search_rentals()
+
 # ===================== 批量打印API =====================
 
 @bp.route('/api/rentals/by-ship-date', methods=['GET'])
