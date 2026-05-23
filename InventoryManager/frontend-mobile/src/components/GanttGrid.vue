@@ -48,25 +48,22 @@
               :class="{ today: date.isToday }"
             />
 
-            <!-- 租赁条 -->
+            <!-- 租赁条（双层：外层半透明物流期 + 内层实色租赁期） -->
             <template v-for="rental in getRentalsForDevice(device.id)" :key="rental.id">
-              <!-- 租赁期条（上条） -->
+              <!-- 外层半透明条：ship_out_time → ship_in_time -->
               <div
-                v-if="getRentalBarStyle(rental, 'rental')"
-                class="rental-bar rental-bar--upper"
-                :style="getRentalBarStyle(rental, 'rental')"
+                v-if="getShipRangeBarStyle(rental)"
+                class="rental-bar ship-range-bar"
+                :style="getShipRangeBarStyle(rental)!"
+              />
+              <!-- 内层实色条：start_date → end_date -->
+              <div
+                v-if="getRentalPeriodBarStyle(rental)"
+                class="rental-bar rental-period-bar"
+                :style="getRentalPeriodBarStyle(rental)!"
                 @click.stop="$emit('bar-click', rental)"
               >
                 <span class="bar-label">{{ rental.customer_name }}</span>
-              </div>
-
-              <!-- 物流期条（下条），仅 ship_out_time 和 ship_in_time 都存在时才显示 -->
-              <div
-                v-if="rental.ship_out_time && rental.ship_in_time && getRentalBarStyle(rental, 'logistics')"
-                class="rental-bar rental-bar--lower"
-                :style="getRentalBarStyle(rental, 'logistics')"
-              >
-                <span class="bar-label">物流</span>
               </div>
             </template>
           </div>
@@ -118,48 +115,111 @@ const dateColumns = computed(() => {
 /** 每列宽度（百分比，相对 dates-cols 区域） */
 const colWidthPct = computed(() => `${100 / DAYS}%`)
 
-/** 获取某设备的租赁列表 */
-const getRentalsForDevice = (deviceId: number) => {
-  return props.rentals.filter(r => r.device_id === deviceId)
+/** 随机颜色（按 rentalId 确定性选取） */
+const generateRandomColor = (rentalId: number): string => {
+  const colors = [
+    '#f44336', '#e91e63', '#9c27b0', '#673ab7', '#3f51b5',
+    '#2196f3', '#03a9f4', '#00bcd4', '#009688', '#4caf50',
+    '#8bc34a', '#cddc39', '#ffc107', '#ff9800', '#ff5722',
+    '#795548', '#607d8b', '#e53935', '#d81b60', '#8e24aa',
+    '#5e35b1', '#3949ab', '#1e88e5', '#039be5', '#00acc1',
+    '#00897b', '#43a047', '#7cb342', '#c0ca33', '#ffb300',
+    '#fb8c00', '#f4511e', '#6d4c41', '#546e7a', '#c62828',
+    '#ad1457', '#6a1b9a', '#4527a0', '#283593', '#1565c0',
+    '#0277bd', '#00838f', '#00695c', '#2e7d32', '#558b2f',
+    '#9e9d24', '#f9a825', '#ff6f00', '#e65100', '#bf360c',
+    '#4e342e', '#37474f', '#b71c1c', '#880e4f', '#4a148c',
+    '#311b92', '#1a237e', '#0d47a1', '#01579b', '#006064',
+    '#004d40', '#1b5e20', '#33691e', '#827717', '#f57f17',
+    '#ff6d00', '#dd2c00', '#3e2723', '#263238', '#d32f2f',
+    '#c2185b', '#7b1fa2', '#512da8', '#303f9f', '#0288d1'
+  ]
+  return colors[rentalId % colors.length]
 }
 
-/**
- * 计算租赁条的 CSS position style
- * type: 'rental' | 'logistics'
- */
-const getRentalBarStyle = (rental: Rental, type: 'rental' | 'logistics') => {
+const hexToRgba = (hex: string, alpha: number): string => {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+/** 获取某设备的租赁列表（包含 ship_out_time 在窗口内的记录） */
+const getRentalsForDevice = (deviceId: number) => {
   const windowStartDay = dayjs(props.windowStart).startOf('day')
   const windowEndDay = windowStartDay.add(DAYS - 1, 'day').endOf('day')
 
-  let barStart: dayjs.Dayjs
-  let barEnd: dayjs.Dayjs
+  return props.rentals.filter(r => {
+    if (r.device_id !== deviceId) return false
+    // 外层条范围：ship_out_time → ship_in_time（如有），否则 start_date → end_date
+    const barStart = r.ship_out_time ? dayjs(r.ship_out_time).startOf('day') : dayjs(r.start_date).startOf('day')
+    const barEnd   = r.ship_in_time  ? dayjs(r.ship_in_time).startOf('day')  : dayjs(r.end_date).startOf('day')
+    return barEnd.isAfter(windowStartDay) && barStart.isBefore(windowEndDay.add(1, 'day'))
+  })
+}
 
-  if (type === 'rental') {
-    barStart = dayjs(rental.start_date).startOf('day')
-    barEnd = dayjs(rental.end_date).startOf('day')
-  } else {
-    if (!rental.ship_out_time || !rental.ship_in_time) return null
-    barStart = dayjs(rental.ship_out_time).startOf('day')
-    barEnd = dayjs(rental.ship_in_time).startOf('day')
-  }
+/**
+ * 外层半透明条：ship_out_time → ship_in_time（无则 start_date → end_date）
+ */
+const getShipRangeBarStyle = (rental: Rental) => {
+  const windowStartDay = dayjs(props.windowStart).startOf('day')
+  const windowEndDay = windowStartDay.add(DAYS - 1, 'day').endOf('day')
 
-  // 如果完全不在窗口内，不显示
+  const barStart = rental.ship_out_time ? dayjs(rental.ship_out_time).startOf('day') : dayjs(rental.start_date).startOf('day')
+  const barEnd   = rental.ship_in_time  ? dayjs(rental.ship_in_time).startOf('day')  : dayjs(rental.end_date).startOf('day')
+
   if (barEnd.isBefore(windowStartDay) || barStart.isAfter(windowEndDay)) return null
 
-  // 裁剪到窗口范围
   const clippedStart = barStart.isBefore(windowStartDay) ? windowStartDay : barStart
-  const clippedEnd = barEnd.isAfter(windowEndDay) ? windowEndDay : barEnd
+  const clippedEnd   = barEnd.isAfter(windowEndDay)       ? windowEndDay   : barEnd
 
-  const startOffset = clippedStart.diff(windowStartDay, 'day')
+  const startOffset  = clippedStart.diff(windowStartDay, 'day')
   const durationDays = clippedEnd.diff(clippedStart, 'day') + 1
 
-  const left = `${(startOffset / DAYS) * 100}%`
+  const left  = `${(startOffset / DAYS) * 100}%`
   const width = `calc(${(durationDays / DAYS) * 100}% - 2px)`
+  const color = generateRandomColor(rental.id)
 
-  if (type === 'rental') {
-    return { left, width, top: '3px', height: '9px' }
-  } else {
-    return { left, width, top: '14px', height: '7px' }
+  return {
+    left,
+    width,
+    top: '2px',
+    height: '22px',
+    background: hexToRgba(color, 0.22),
+    border: `1px solid ${hexToRgba(color, 0.4)}`,
+    zIndex: 1,
+  }
+}
+
+/**
+ * 内层实色条：start_date → end_date，绝对定位
+ */
+const getRentalPeriodBarStyle = (rental: Rental) => {
+  const windowStartDay = dayjs(props.windowStart).startOf('day')
+  const windowEndDay = windowStartDay.add(DAYS - 1, 'day').endOf('day')
+
+  const startDate = dayjs(rental.start_date).startOf('day')
+  const endDate   = dayjs(rental.end_date).startOf('day')
+
+  if (endDate.isBefore(windowStartDay) || startDate.isAfter(windowEndDay)) return null
+
+  const clippedStart = startDate.isBefore(windowStartDay) ? windowStartDay : startDate
+  const clippedEnd   = endDate.isAfter(windowEndDay)       ? windowEndDay   : endDate
+
+  const startOffset  = clippedStart.diff(windowStartDay, 'day')
+  const durationDays = clippedEnd.diff(clippedStart, 'day') + 1
+
+  const left  = `${(startOffset / DAYS) * 100}%`
+  const width = `calc(${(durationDays / DAYS) * 100}% - 2px)`
+  const color = generateRandomColor(rental.id)
+
+  return {
+    left,
+    width,
+    top: '2px',
+    height: '22px',
+    background: color,
+    zIndex: 2,
   }
 }
 </script>
@@ -314,23 +374,24 @@ const getRentalBarStyle = (rental: Rental, type: 'rental' | 'logistics') => {
   background: rgba(64, 158, 255, 0.05);
 }
 
-/* 租赁条 */
+/* 租赁条（通用） */
 .rental-bar {
   position: absolute;
   border-radius: 2px;
   overflow: hidden;
+}
+
+/* 外层半透明条（物流期） */
+.ship-range-bar {
+  cursor: default;
+}
+
+/* 内层实色条（租赁期） */
+.rental-period-bar {
   cursor: pointer;
   display: flex;
   align-items: center;
   padding: 0 2px;
-}
-
-.rental-bar--upper {
-  background: #409eff;
-}
-
-.rental-bar--lower {
-  background: #a0cfff;
 }
 
 .bar-label {
