@@ -6,45 +6,31 @@ from flask import Blueprint, request, jsonify, current_app
 from app.models.device import Device
 from app.models.rental import Rental
 from app.services.inventory_service import InventoryService
+from app.handlers.device_handlers import DeviceHandlers
+from app.utils.response import handle_response
 from app import db
 from datetime import datetime, date, timedelta
 
 bp = Blueprint('device_api', __name__)
 
 
-@bp.route('/api/devices')
-def get_devices():
-    """获取设备列表"""
-    try:
-        devices = Device.query.all()
-        device_list = []
-        
-        for device in devices:
-            device_info = {
-                'id': device.id,
-                'name': device.name,
-                'serial_number': device.serial_number,
-                'model': device.model,
-                'is_accessory': device.is_accessory,
-                'status': device.status,
-                'created_at': device.created_at.isoformat(),
-                'updated_at': device.updated_at.isoformat()
-            }
-            device_list.append(device_info)
-        
-        return jsonify({
-            'success': True,
-            'data': device_list,
-            'total': len(device_list)
-        })
-        
-    except Exception as e:
-        current_app.logger.error(f"获取设备列表失败: {e}")
-        return jsonify({
-            'success': False,
-            'error': '获取设备列表失败'
-        }), 500
+# ===================== 增强的设备查询API =====================
 
+@bp.route('/api/devices')
+@handle_response
+def get_devices():
+    """获取设备列表 - 支持过滤和搜索"""
+    return DeviceHandlers.handle_get_devices()
+
+
+@bp.route('/api/devices/search', methods=['POST'])
+@handle_response
+def search_devices():
+    """搜索设备 - 支持多字段搜索"""
+    return DeviceHandlers.handle_search_devices()
+
+
+# ===================== 单个设备操作 =====================
 
 @bp.route('/api/devices/<device_id>')
 def get_device(device_id):
