@@ -1,0 +1,14 @@
+{
+  "extends": "@vue/tsconfig/tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "types": ["node"],
+    "strict": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "../dist-e2e"
+  },
+  "include": ["./**/*.ts"]
+}

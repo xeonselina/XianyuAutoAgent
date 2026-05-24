@@ -60,8 +60,11 @@ class DeviceService:
                 query = query.filter(Device.is_accessory == is_accessory)
             
             # 按生命周期日期降序排列（最新的在前面），然后按创建日期降序
+            # 使用 MySQL 兼容写法：IS NULL DESC 将 NULL 排在前面
+            from sqlalchemy import text as sa_text
             query = query.order_by(
-                Device.lifecycle_date.desc().nullsfirst(),
+                sa_text('lifecycle_date IS NULL DESC'),
+                Device.lifecycle_date.desc(),
                 Device.created_at.desc()
             )
             

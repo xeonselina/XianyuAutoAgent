@@ -10,6 +10,27 @@
       <template #right>
         <van-button
           size="small"
+          :type="selectedModel ? 'primary' : 'default'"
+          plain
+          style="margin-right: 6px"
+          @click="showModelFilter = true"
+        >{{ selectedModel || '筛选' }}</van-button>
+        <van-button
+          size="small"
+          icon="search"
+          plain
+          style="margin-right: 4px"
+          @click="router.push({ name: 'search' })"
+        />
+        <van-button
+          size="small"
+          icon="setting-o"
+          plain
+          style="margin-right: 4px"
+          @click="router.push({ name: 'device-status' })"
+        />
+        <van-button
+          size="small"
           type="primary"
           icon="plus"
           @click="goCreate"
@@ -19,7 +40,7 @@
 
     <!-- 甘特图表格 -->
     <GanttGrid
-      :devices="ganttStore.availableDevices"
+      :devices="filteredDevices"
       :rentals="ganttStore.rentals"
       :window-start="windowStart"
       :loading="ganttStore.loading"
@@ -32,6 +53,14 @@
       v-model="sheetVisible"
       :rental="selectedRental"
       @deleted="onDeleted"
+    />
+
+    <!-- 型号筛选 action sheet -->
+    <van-action-sheet
+      v-model:show="showModelFilter"
+      :actions="modelFilterActions"
+      cancel-text="取消"
+      @select="onModelSelect"
     />
   </div>
 </template>
@@ -103,6 +132,30 @@ const onDeleted = () => {
 const goCreate = () => {
   router.push({ name: 'create-rental' })
 }
+
+// ── 型号筛选 ──────────────────────────────────────────
+const selectedModel = ref<string | null>(null)
+const showModelFilter = ref(false)
+
+const availableModels = computed(() => {
+  const models = new Set(ganttStore.availableDevices.map(d => d.model).filter(Boolean))
+  return Array.from(models).sort()
+})
+
+const modelFilterActions = computed(() => [
+  { name: '全部型号', value: null },
+  ...availableModels.value.map(m => ({ name: m, value: m }))
+])
+
+const onModelSelect = (action: { name: string; value: string | null }) => {
+  selectedModel.value = action.value
+  showModelFilter.value = false
+}
+
+const filteredDevices = computed(() => {
+  if (!selectedModel.value) return ganttStore.availableDevices
+  return ganttStore.availableDevices.filter(d => d.model === selectedModel.value)
+})
 
 onMounted(() => {
   ganttStore.loadData()

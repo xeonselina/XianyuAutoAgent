@@ -550,29 +550,47 @@ class RentalHandlers:
             query_end_date = datetime.combine(end_date, datetime.max.time())
             query_start_date = datetime.combine(start_date, datetime.min.time())
 
-            # 查询已发货的订单（使用 ship_out_time）和预约发货的订单（使用 scheduled_ship_time）
+            from sqlalchemy import or_, and_
 
+            # 综合查询：
+            #   - 待发货订单 (not_shipped)：按开始日期匹配（start_date 即计划发货日）
+            #   - 已预约订单 (scheduled_for_shipping)：按预约时间匹配
+            #   - 已发货/完成/退回：按实际发货时间匹配
             rentals = Rental.query.filter(
-                Rental.ship_out_time >= query_start_date,
-                Rental.ship_out_time <= query_end_date,
                 Rental.parent_rental_id.is_(None),
-                Rental.status != 'cancelled'
+                Rental.status != 'cancelled',
+                or_(
+                    and_(
+                        Rental.status == 'not_shipped',
+                        Rental.start_date >= start_date,
+                        Rental.start_date <= end_date
+                    ),
+                    and_(
+                        Rental.status == 'scheduled_for_shipping',
+                        Rental.scheduled_ship_time >= query_start_date,
+                        Rental.scheduled_ship_time <= query_end_date
+                    ),
+                    and_(
+                        Rental.status.in_(['shipped', 'returned', 'completed']),
+                        Rental.ship_out_time >= query_start_date,
+                        Rental.ship_out_time <= query_end_date
+                    )
+                )
             ).order_by(
-                # 按实际发货时间或预约时间排序
-                Rental.ship_out_time.asc()
+                Rental.start_date.asc()
             ).all()
 
-            # 构建响应数据,包含上一单状态
+            # 构建响应数据，包含上一单状态
             rentals_data = []
             for rental in rentals:
                 rental_dict = rental.to_dict()
 
-                # 查询该设备的上一单(当前订单发货时间之前的最近一单)
+                # 查询该设备的上一单（按开始日期对比，适用所有状态）
                 previous_rental = Rental.query.filter(
                     Rental.device_id == rental.device_id,
-                    Rental.ship_out_time < rental.ship_out_time,
+                    Rental.start_date < rental.start_date,
                     Rental.parent_rental_id.is_(None)
-                ).order_by(Rental.ship_out_time.desc()).first()
+                ).order_by(Rental.start_date.desc()).first()
 
                 if previous_rental:
                     rental_dict['has_previous_rental'] = True

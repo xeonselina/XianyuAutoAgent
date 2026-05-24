@@ -66,8 +66,15 @@
                 class="rental-bar rental-period-bar"
                 :style="getRentalPeriodBarStyle(rental)!"
                 @click.stop="$emit('bar-click', rental)"
+              />
+              <!-- 浮动标签：与内层条左对齐，不受条条宽度限制 -->
+              <div
+                v-if="getBarLabelStyle(rental)"
+                class="bar-label-float"
+                :style="getBarLabelStyle(rental)!"
               >
-                <span class="bar-label">{{ rental.customer_name }}</span>
+                <span class="bar-label-name">{{ rental.customer_name }}</span>
+                <span v-if="rental.customer_phone" class="bar-label-phone">·{{ rental.customer_phone.slice(-4) }}</span>
               </div>
             </template>
           </div>
@@ -120,27 +127,16 @@ const dateColumns = computed(() => {
 /** 每列宽度（百分比，相对 dates-cols 区域） */
 const colWidthPct = computed(() => `${100 / DAYS}%`)
 
-/** 随机颜色（按 rentalId 确定性选取） */
-const generateRandomColor = (rentalId: number): string => {
-  const colors = [
-    '#f44336', '#e91e63', '#9c27b0', '#673ab7', '#3f51b5',
-    '#2196f3', '#03a9f4', '#00bcd4', '#009688', '#4caf50',
-    '#8bc34a', '#cddc39', '#ffc107', '#ff9800', '#ff5722',
-    '#795548', '#607d8b', '#e53935', '#d81b60', '#8e24aa',
-    '#5e35b1', '#3949ab', '#1e88e5', '#039be5', '#00acc1',
-    '#00897b', '#43a047', '#7cb342', '#c0ca33', '#ffb300',
-    '#fb8c00', '#f4511e', '#6d4c41', '#546e7a', '#c62828',
-    '#ad1457', '#6a1b9a', '#4527a0', '#283593', '#1565c0',
-    '#0277bd', '#00838f', '#00695c', '#2e7d32', '#558b2f',
-    '#9e9d24', '#f9a825', '#ff6f00', '#e65100', '#bf360c',
-    '#4e342e', '#37474f', '#b71c1c', '#880e4f', '#4a148c',
-    '#311b92', '#1a237e', '#0d47a1', '#01579b', '#006064',
-    '#004d40', '#1b5e20', '#33691e', '#827717', '#f57f17',
-    '#ff6d00', '#dd2c00', '#3e2723', '#263238', '#d32f2f',
-    '#c2185b', '#7b1fa2', '#512da8', '#303f9f', '#0288d1'
-  ]
-  return colors[rentalId % colors.length]
+/** 按租赁状态返回对应颜色 */
+const STATUS_COLORS: Record<string, string> = {
+  not_shipped:              '#c8860a', // 棕黄色 — 待发货
+  scheduled_for_shipping:   '#1989fa', // 蓝色   — 已预约
+  shipped:                  '#07c160', // 绿色   — 已发货
+  returned:                 '#7232dd', // 紫色   — 已还租
+  completed:                '#909399', // 灰色   — 已完成
+  cancelled:                '#c8c9cc', // 浅灰   — 已取消
 }
+const getStatusColor = (status: string): string => STATUS_COLORS[status] ?? '#909399'
 
 const hexToRgba = (hex: string, alpha: number): string => {
   const r = parseInt(hex.slice(1, 3), 16)
@@ -183,7 +179,7 @@ const getShipRangeBarStyle = (rental: Rental) => {
 
   const left  = `${(startOffset / DAYS) * 100}%`
   const width = `calc(${(durationDays / DAYS) * 100}% - 2px)`
-  const color = generateRandomColor(rental.id)
+  const color = getStatusColor(rental.status)
 
   return {
     left,
@@ -216,7 +212,7 @@ const getRentalPeriodBarStyle = (rental: Rental) => {
 
   const left  = `${(startOffset / DAYS) * 100}%`
   const width = `calc(${(durationDays / DAYS) * 100}% - 2px)`
-  const color = generateRandomColor(rental.id)
+  const color = getStatusColor(rental.status)
 
   return {
     left,
@@ -225,6 +221,17 @@ const getRentalPeriodBarStyle = (rental: Rental) => {
     height: '22px',
     background: color,
     zIndex: 2,
+  }
+}
+
+/** 浮动标签：与内层实色条左端对齐，高度与条条一致，不设宽度 */
+const getBarLabelStyle = (rental: Rental) => {
+  const periodStyle = getRentalPeriodBarStyle(rental)
+  if (!periodStyle) return null
+  return {
+    left: periodStyle.left,
+    top: '2px',
+    height: '22px',
   }
 }
 </script>
@@ -367,6 +374,7 @@ const getRentalPeriodBarStyle = (rental: Rental) => {
 .row-dates-area {
   position: relative;
   flex: 1;
+  overflow: hidden;
 }
 
 /* 背景格子 */
@@ -412,17 +420,40 @@ const getRentalPeriodBarStyle = (rental: Rental) => {
 /* 内层实色条（租赁期） */
 .rental-period-bar {
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  padding: 0 2px;
 }
 
-.bar-label {
-  font-size: 6px;
-  color: #fff;
+/* 浮动标签：不受条条宽度限制，文字始终可读 */
+.bar-label-float {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 2px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  pointer-events: none;
+  z-index: 4;
+  padding: 0 3px;
   line-height: 1;
+}
+
+.bar-label-name {
+  font-size: 9px;
+  color: #fff;
+  line-height: 1;
+  text-shadow:
+    1px  1px 0 rgba(0,0,0,0.6),
+    -1px -1px 0 rgba(0,0,0,0.6),
+    1px -1px 0 rgba(0,0,0,0.6),
+    -1px  1px 0 rgba(0,0,0,0.6);
+}
+
+.bar-label-phone {
+  font-size: 8px;
+  color: rgba(255,255,255,0.9);
+  line-height: 1;
+  text-shadow:
+    1px  1px 0 rgba(0,0,0,0.6),
+    -1px -1px 0 rgba(0,0,0,0.6),
+    1px -1px 0 rgba(0,0,0,0.6),
+    -1px  1px 0 rgba(0,0,0,0.6);
 }
 </style>

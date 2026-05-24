@@ -168,6 +168,24 @@
             </template>
           </van-field>
 
+          <van-field
+            v-model="selectedPhoneHolderName"
+            readonly
+            clickable
+            label="手机支架"
+            placeholder="无"
+            @click="showPhoneHolderPicker = true"
+          />
+
+          <van-field
+            v-model="selectedTripodName"
+            readonly
+            clickable
+            label="三脚架"
+            placeholder="无"
+            @click="showTripodPicker = true"
+          />
+
           <van-field label="代传照片">
             <template #input>
               <van-switch v-model="form.photoTransfer" size="20" />
@@ -183,6 +201,14 @@
             native-type="submit"
             :loading="submitting"
           >保存修改</van-button>
+          <van-button
+            v-if="form.status === 'not_shipped'"
+            type="warning"
+            block
+            :loading="shippingToXianyu"
+            style="margin-top: 8px"
+            @click="onShipToXianyu"
+          >发货到闲鱼</van-button>
         </div>
       </van-form>
     </div>
@@ -275,6 +301,28 @@
         </div>
       </div>
     </van-popup>
+
+    <!-- 手机支架选择器 -->
+    <van-popup v-model:show="showPhoneHolderPicker" position="bottom" round>
+      <van-picker
+        :columns="phoneHolderColumns"
+        @confirm="onPhoneHolderConfirm"
+        @cancel="showPhoneHolderPicker = false"
+        show-toolbar
+        title="选择手机支架"
+      />
+    </van-popup>
+
+    <!-- 三脚架选择器 -->
+    <van-popup v-model:show="showTripodPicker" position="bottom" round>
+      <van-picker
+        :columns="tripodColumns"
+        @confirm="onTripodConfirm"
+        @cancel="showTripodPicker = false"
+        show-toolbar
+        title="选择三脚架"
+      />
+    </van-popup>
   </div>
 </template>
 
@@ -298,6 +346,7 @@ const rentalId = computed(() => Number(route.params.id))
 // 加载状态
 const initialLoading = ref(true)
 const submitting = ref(false)
+const shippingToXianyu = ref(false)
 const checkingConflict = ref(false)
 const conflictWarning = ref(false)
 const queryingShipOut = ref(false)
@@ -309,6 +358,8 @@ const showStatusPicker = ref(false)
 const showEndDatePicker = ref(false)
 const showShipOutDatePicker = ref(false)
 const showShipInDatePicker = ref(false)
+const showPhoneHolderPicker = ref(false)
+const showTripodPicker = ref(false)
 
 // 表单数据
 const form = ref({
@@ -327,7 +378,9 @@ const form = ref({
   shipInTime: '',    // ISO string
   status: 'not_shipped',
   bundledAccessories: [] as string[],
-  photoTransfer: false
+  photoTransfer: false,
+  phoneHolderId: null as number | null,
+  tripodId: null as number | null
 })
 
 const formRef = ref()
@@ -335,6 +388,11 @@ const formRef = ref()
 // 选中名称（显示用）
 const selectedDeviceName = ref('')
 const selectedStatusLabel = ref('')
+const selectedPhoneHolderName = ref('')
+const selectedTripodName = ref('')
+
+// 配件数据
+const accessories = ref<{ phoneHolders: Device[], tripods: Device[] }>({ phoneHolders: [], tripods: [] })
 
 // 日期 picker 的数组状态
 const endDateParts = ref<string[]>([])
@@ -369,6 +427,15 @@ const deviceColumns = computed(() =>
     .map(d => ({ text: d.name, value: d.id }))
 )
 
+const phoneHolderColumns = computed(() => [
+  { text: '无', value: null },
+  ...accessories.value.phoneHolders.map(d => ({ text: d.name, value: d.id }))
+])
+const tripodColumns = computed(() => [
+  { text: '无', value: null },
+  ...accessories.value.tripods.map(d => ({ text: d.name, value: d.id }))
+])
+
 const STATUS_OPTS = [
   { text: '待发货',  value: 'not_shipped' },
   { text: '已预约',  value: 'scheduled_for_shipping' },
@@ -399,6 +466,22 @@ const initForm = (rental: Rental) => {
   if (rental.includes_handle) form.value.bundledAccessories.push('handle')
   if (rental.includes_lens_mount) form.value.bundledAccessories.push('lens_mount')
   form.value.photoTransfer = rental.photo_transfer || false
+
+  // 配件（手机支架、三脚架）
+  form.value.phoneHolderId = null
+  form.value.tripodId = null
+  selectedPhoneHolderName.value = ''
+  selectedTripodName.value = ''
+  const rentedAccessories = (rental as any).accessories || []
+  for (const acc of rentedAccessories) {
+    if (acc.model?.toLowerCase().includes('phone_holder') || acc.name?.includes('手机支架')) {
+      form.value.phoneHolderId = acc.id
+      selectedPhoneHolderName.value = acc.name || '手机支架'
+    } else if (acc.model?.toLowerCase().includes('tripod') || acc.name?.includes('三脚架')) {
+      form.value.tripodId = acc.id
+      selectedTripodName.value = acc.name || '三脚架'
+    }
+  }
 
   // 设备名称
   selectedDeviceName.value = rental.device?.name || `设备${rental.device_id}`
@@ -448,6 +531,18 @@ const onEndDateConfirm = ({ selectedValues }: any) => {
   form.value.endDate = selectedValues.join('-')
   endDateParts.value = selectedValues
   showEndDatePicker.value = false
+}
+
+const onPhoneHolderConfirm = ({ selectedValues, selectedOptions }: any) => {
+  form.value.phoneHolderId = selectedValues[0] ?? null
+  selectedPhoneHolderName.value = selectedValues[0] ? (selectedOptions[0]?.text ?? '') : ''
+  showPhoneHolderPicker.value = false
+}
+
+const onTripodConfirm = ({ selectedValues, selectedOptions }: any) => {
+  form.value.tripodId = selectedValues[0] ?? null
+  selectedTripodName.value = selectedValues[0] ? (selectedOptions[0]?.text ?? '') : ''
+  showTripodPicker.value = false
 }
 
 const onShipOutTimeConfirm = () => {
@@ -541,7 +636,11 @@ const onSubmit = async () => {
       status: form.value.status,
       includes_handle: form.value.bundledAccessories.includes('handle'),
       includes_lens_mount: form.value.bundledAccessories.includes('lens_mount'),
-      photo_transfer: form.value.photoTransfer
+      photo_transfer: form.value.photoTransfer,
+      accessories: [
+        ...(form.value.phoneHolderId ? [{ id: form.value.phoneHolderId, is_bundled: false }] : []),
+        ...(form.value.tripodId ? [{ id: form.value.tripodId, is_bundled: false }] : [])
+      ]
     }
 
     await ganttStore.updateRental(rentalId.value, updateData)
@@ -555,6 +654,38 @@ const onSubmit = async () => {
   }
 }
 
+const onShipToXianyu = async () => {
+  shippingToXianyu.value = true
+  try {
+    await ganttStore.shipRentalToXianyu(rentalId.value)
+    showToast({ message: '发货成功', type: 'success' })
+    router.back()
+  } catch (e: any) {
+    showToast({ message: e.message || '发货失败', type: 'fail' })
+  } finally {
+    shippingToXianyu.value = false
+  }
+}
+
+const loadAccessories = async () => {
+  try {
+    const res = await axios.get('/api/devices', { params: { is_accessory: true, per_page: 100 } })
+    if (res.data.success) {
+      const all: Device[] = res.data.data?.devices || []
+      accessories.value.phoneHolders = all.filter(d =>
+        d.model?.toLowerCase().includes('phone_holder') ||
+        d.name?.includes('手机支架')
+      )
+      accessories.value.tripods = all.filter(d =>
+        d.model?.toLowerCase().includes('tripod') ||
+        d.name?.includes('三脚架')
+      )
+    }
+  } catch (e) {
+    console.error('加载配件数据失败:', e)
+  }
+}
+
 onMounted(async () => {
   try {
     // 加载设备列表
@@ -562,6 +693,7 @@ onMounted(async () => {
       await ganttStore.loadData()
     }
     allDevices.value = ganttStore.devices
+    await loadAccessories()
 
     // 加载租赁数据
     const rental = await ganttStore.getRentalById(rentalId.value)
