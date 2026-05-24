@@ -433,11 +433,12 @@ const fetchOrderInfo = async () => {
     })
     if (res.data.success) {
       const d = res.data.data
-      form.value.customerName = d.customer_name || form.value.customerName
-      form.value.customerPhone = d.customer_phone || form.value.customerPhone
-      form.value.destination = d.destination || form.value.destination
-      form.value.buyerId = d.buyer_id || form.value.buyerId
-      form.value.orderAmount = d.order_amount ? String(d.order_amount) : form.value.orderAmount
+      form.value.customerName = d.buyer_nick || d.receiver_name || form.value.customerName
+      form.value.customerPhone = d.receiver_mobile || form.value.customerPhone
+      const fullAddress = [d.receiver_name, d.receiver_mobile, d.prov_name, d.city_name, d.area_name, d.town_name, d.address].filter(Boolean).join(' ')
+      form.value.destination = fullAddress || form.value.destination
+      form.value.buyerId = d.buyer_eid || form.value.buyerId
+      form.value.orderAmount = d.pay_amount ? String(d.pay_amount / 100) : form.value.orderAmount
       showToast({ message: '订单信息已填充', type: 'success' })
     } else {
       showToast({ message: res.data.error || '拉取失败', type: 'fail' })
@@ -531,7 +532,7 @@ const loadInitData = async () => {
       deviceModels.value = modelsRes.data.data || []
     }
     if (accessoriesRes.data.success) {
-      const all: Device[] = accessoriesRes.data.data || []
+      const all: Device[] = accessoriesRes.data.data?.devices || []
       accessories.value.phoneHolders = all.filter(d =>
         d.model?.toLowerCase().includes('phone_holder') ||
         d.name?.includes('手机支架')

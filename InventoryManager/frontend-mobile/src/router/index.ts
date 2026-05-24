@@ -30,6 +30,16 @@ const router = createRouter({
       path: '/edit-rental/:id',
       name: 'edit-rental',
       component: EditRentalView
+    },
+    {
+      path: '/device-status',
+      name: 'device-status',
+      component: () => import('@/views/DeviceStatusView.vue')
+    },
+    {
+      path: '/search',
+      name: 'search',
+      component: () => import('@/views/SearchView.vue')
     }
   ],
   scrollBehavior(to, from, savedPosition) {

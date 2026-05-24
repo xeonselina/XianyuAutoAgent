@@ -61,7 +61,7 @@
         block
         size="normal"
         :loading="scheduling"
-        @click="onSchedule"
+        @click="showScheduleTimePicker = true"
       >预约发货 ({{ selectedCount }})</van-button>
       <van-button
         type="default"
@@ -92,6 +92,16 @@
       />
     </van-popup>
 
+    <!-- 预约发货时间选择器 -->
+    <van-popup v-model:show="showScheduleTimePicker" position="bottom" round>
+      <van-date-picker
+        v-model="scheduleTimeParts"
+        title="选择预约发货日期"
+        @confirm="onScheduleTimeConfirm"
+        @cancel="showScheduleTimePicker = false"
+      />
+    </van-popup>
+
     <!-- 状态筛选 ActionSheet -->
     <van-action-sheet
       v-model:show="filterSheetVisible"
@@ -104,7 +114,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, reactive } from 'vue'
-import { showToast } from 'vant'
+import { showToast, showDialog } from 'vant'
 import dayjs from 'dayjs'
 import axios from 'axios'
 import type { Rental } from '@/stores/gantt'
@@ -116,6 +126,7 @@ const printing = ref(false)
 const filterSheetVisible = ref(false)
 const showStartDatePicker = ref(false)
 const showEndDatePicker = ref(false)
+const showScheduleTimePicker = ref(false)
 
 // 默认：今天 → 明天
 const startDate = ref(dayjs().format('YYYY-MM-DD'))
@@ -127,6 +138,14 @@ const endDateText = ref(endDate.value)
 // van-date-picker 需要 [yyyy, MM, DD] 数组
 const startDateParts = ref(startDate.value.split('-'))
 const endDateParts = ref(endDate.value.split('-'))
+
+// 预约发货时间（默认明天上午10点）
+const scheduledTime = ref(dayjs().add(1, 'day').format('YYYY-MM-DD') + 'T10:00:00')
+const scheduleTimeParts = ref([
+  dayjs().add(1, 'day').format('YYYY'),
+  dayjs().add(1, 'day').format('MM'),
+  dayjs().add(1, 'day').format('DD')
+])
 
 const statusFilter = ref<string>('all')
 const rentals = ref<Rental[]>([])
@@ -174,6 +193,14 @@ const onEndDateConfirm = ({ selectedValues }: any) => {
   showEndDatePicker.value = false
 }
 
+const onScheduleTimeConfirm = ({ selectedValues }: any) => {
+  const dateStr = selectedValues.join('-')
+  scheduledTime.value = dateStr + 'T10:00:00'
+  scheduleTimeParts.value = selectedValues
+  showScheduleTimePicker.value = false
+  onSchedule()
+}
+
 const onQuery = async () => {
   loading.value = true
   // 清空选中状态
@@ -183,7 +210,7 @@ const onQuery = async () => {
       params: { start_date: startDate.value, end_date: endDate.value }
     })
     if (res.data.success) {
-      rentals.value = res.data.data || []
+      rentals.value = res.data.data?.rentals || []
     } else {
       showToast({ message: res.data.error || '查询失败', type: 'fail' })
     }
@@ -206,7 +233,10 @@ const toggleSelectAll = () => {
 const onSchedule = async () => {
   scheduling.value = true
   try {
-    const res = await axios.post('/api/shipping-batch/schedule', { rental_ids: selectedIds.value })
+    const res = await axios.post('/api/shipping-batch/schedule', {
+      rental_ids: selectedIds.value,
+      scheduled_time: scheduledTime.value
+    })
     if (res.data.success) {
       showToast({ message: '预约发货成功', type: 'success' })
       await onQuery()
@@ -309,6 +339,8 @@ onMounted(() => {
   background: #fff;
   border-top: 1px solid #eee;
   flex-shrink: 0;
+  position: relative;
+  z-index: 100;
 }
 
 .bottom-action-bar .van-button {

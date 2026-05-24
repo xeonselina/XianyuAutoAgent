@@ -322,26 +322,15 @@ const getRentalsForDate = (date: Date) => {
   return result
 }
 
-const generateRandomColor = (rentalId: number): string => {
-  const colors = [
-    '#f44336', '#e91e63', '#9c27b0', '#673ab7', '#3f51b5',
-    '#2196f3', '#03a9f4', '#00bcd4', '#009688', '#4caf50',
-    '#8bc34a', '#cddc39', '#ffc107', '#ff9800', '#ff5722',
-    '#795548', '#607d8b', '#e53935', '#d81b60', '#8e24aa',
-    '#5e35b1', '#3949ab', '#1e88e5', '#039be5', '#00acc1',
-    '#00897b', '#43a047', '#7cb342', '#c0ca33', '#ffb300',
-    '#fb8c00', '#f4511e', '#6d4c41', '#546e7a', '#c62828',
-    '#ad1457', '#6a1b9a', '#4527a0', '#283593', '#1565c0',
-    '#0277bd', '#00838f', '#00695c', '#2e7d32', '#558b2f',
-    '#9e9d24', '#f9a825', '#ff6f00', '#e65100', '#bf360c',
-    '#4e342e', '#37474f', '#b71c1c', '#880e4f', '#4a148c',
-    '#311b92', '#1a237e', '#0d47a1', '#01579b', '#006064',
-    '#004d40', '#1b5e20', '#33691e', '#827717', '#f57f17',
-    '#ff6d00', '#dd2c00', '#3e2723', '#263238', '#d32f2f',
-    '#c2185b', '#7b1fa2', '#512da8', '#303f9f', '#0288d1'
-  ]
-  return colors[rentalId % colors.length]
+const STATUS_COLORS: Record<string, string> = {
+  not_shipped:              '#c8860a', // 棕黄色 — 待发货
+  scheduled_for_shipping:   '#1989fa', // 蓝色   — 已预约
+  shipped:                  '#07c160', // 绿色   — 已发货
+  returned:                 '#7232dd', // 紫色   — 已还租
+  completed:                '#909399', // 灰色   — 已完成
+  cancelled:                '#c8c9cc', // 浅灰   — 已取消
 }
+const getStatusColor = (status: string): string => STATUS_COLORS[status] ?? '#909399'
 
 const hexToRgba = (hex: string, alpha: number): string => {
   const r = parseInt(hex.slice(1, 3), 16)
@@ -365,7 +354,7 @@ const getShipRangeStyle = (rental: Rental, date: Date) => {
   }
 
   const daysToEnd = barEnd.diff(currentDate, 'day') + 1
-  const color = generateRandomColor(rental.id)
+  const color = getStatusColor(rental.status)
 
   return {
     width: `${daysToEnd * 100}%`,
@@ -399,7 +388,7 @@ const getRentalPeriodStyle = (rental: Rental, date: Date) => {
     return { display: 'none' }
   }
 
-  const color = generateRandomColor(rental.id)
+  const color = getStatusColor(rental.status)
 
   return {
     position: 'absolute' as const,
@@ -414,7 +403,6 @@ const getRentalPeriodStyle = (rental: Rental, date: Date) => {
     padding: '0 8px',
     color: 'white',
     fontSize: '12px',
-    overflow: 'hidden',
   }
 }
 
@@ -626,7 +614,7 @@ const isDateEmpty = (date: Date) => {
   transition: all 0.2s;
   position: relative;
   z-index: 2;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .rental-period {
@@ -639,7 +627,7 @@ const isDateEmpty = (date: Date) => {
   padding: 0 8px;
   color: white;
   font-size: 12px;
-  overflow: hidden;
+  overflow: visible;
   min-width: 20px;
 }
 
@@ -672,7 +660,8 @@ const isDateEmpty = (date: Date) => {
   flex-direction: column;
   gap: 2px;
   width: 100%;
-  overflow: hidden;
+  min-width: 100px;
+  overflow: visible;
   position: relative;
   z-index: 1;
 }
@@ -688,10 +677,14 @@ const isDateEmpty = (date: Date) => {
 .rental-customer {
   font-weight: 600;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
   flex: 1;
   min-width: 0;
+  text-shadow:
+    1px  1px 0 rgba(0,0,0,0.5),
+    -1px -1px 0 rgba(0,0,0,0.5),
+    1px -1px 0 rgba(0,0,0,0.5),
+    -1px  1px 0 rgba(0,0,0,0.5);
 }
 
 .accessory-icon {
@@ -711,8 +704,12 @@ const isDateEmpty = (date: Date) => {
   font-size: 10px;
   opacity: 0.9;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
+  text-shadow:
+    1px  1px 0 rgba(0,0,0,0.5),
+    -1px -1px 0 rgba(0,0,0,0.5),
+    1px -1px 0 rgba(0,0,0,0.5),
+    -1px  1px 0 rgba(0,0,0,0.5);
 }
 
 .status-icon {
