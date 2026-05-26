@@ -553,7 +553,8 @@ class RentalHandlers:
             from sqlalchemy import or_, and_
 
             # 综合查询：
-            #   - 待发货订单 (not_shipped)：按开始日期匹配（start_date 即计划发货日）
+            #   - 待发货订单 (not_shipped)：按 ship_out_time（计划发货日）匹配；
+            #     兜底：若 ship_out_time 为空（旧数据），则按 start_date 匹配
             #   - 已预约订单 (scheduled_for_shipping)：按预约时间匹配
             #   - 已发货/完成/退回：按实际发货时间匹配
             rentals = Rental.query.filter(
@@ -562,8 +563,20 @@ class RentalHandlers:
                 or_(
                     and_(
                         Rental.status == 'not_shipped',
-                        Rental.start_date >= start_date,
-                        Rental.start_date <= end_date
+                        or_(
+                            # 主路径：用计划发货时间（创建时写入的 ship_out_time）
+                            and_(
+                                Rental.ship_out_time.isnot(None),
+                                Rental.ship_out_time >= query_start_date,
+                                Rental.ship_out_time <= query_end_date
+                            ),
+                            # 兜底路径：旧数据 ship_out_time 为空，退回用 start_date
+                            and_(
+                                Rental.ship_out_time.is_(None),
+                                Rental.start_date >= start_date,
+                                Rental.start_date <= end_date
+                            )
+                        )
                     ),
                     and_(
                         Rental.status == 'scheduled_for_shipping',
