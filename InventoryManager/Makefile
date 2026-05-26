@@ -9,6 +9,19 @@ DOCKER_PLATFORM = linux/amd64  # 目标平台为 x86_64
 FLASK_APP = app.py
 FLASK_ENV = development
 
+# ── 镜像仓库 / 远程部署 ──────────────────────────────────────
+REGISTRY     := docker.cnb.cool/tdcc-demo/jimmy
+IM_IMAGE     := $(REGISTRY)/inventory-manager
+# 镜像标签：日期+时间格式 YYYYMMDD-HHMM（可命令行覆盖）
+# 示例: make build-push-all IMAGE_TAG=20260526-1030
+IMAGE_TAG    ?= $(shell date +%Y%m%d-%H%M)
+
+# ── NAS 连接配置 ─────────────────────────────────────────────
+NAS_HOST     := 192.168.50.132
+NAS_USER     := xeon_pan
+NAS_PASS     := oLwQpzUgXKae8Dae8UJC
+NAS_LOG_DIR  := /volume1/docker/inventory/logs
+
 # 从.env文件加载环境变量（如果存在）
 ifneq (,$(wildcard ./.env))
     include .env
@@ -18,7 +31,7 @@ endif
 # 默认目标
 .DEFAULT_GOAL := help
 
-.PHONY: help
+.PHONY: help build-im push-im pull-nas-im build-push-all
 help: ## 显示帮助信息
 	@echo "库存管理系统构建脚本"
 	@echo "=================="
@@ -464,6 +477,46 @@ docker-x86-deploy: ## 构建x86镜像并部署（用于生产环境）
 	$(MAKE) docker-build
 	$(MAKE) docker-compose-up
 	@echo "x86环境部署完成"
+
+# =============================================================================
+# Registry 构建、推送和 NAS 部署
+# =============================================================================
+
+.PHONY: build-im
+build-im: frontend-all-build ## 构建 x86 Registry 镜像（PC端+移动端前端 + Docker）
+	@echo "构建 x86 镜像 [linux/amd64]..."
+	@echo "镜像: $(IM_IMAGE):$(IMAGE_TAG)"
+	docker build \
+		--platform linux/amd64 \
+		--tag $(IM_IMAGE):$(IMAGE_TAG) \
+		.
+	@echo "构建完成: $(IM_IMAGE):$(IMAGE_TAG)"
+
+.PHONY: push-im
+push-im: ## 推送镜像到 Registry
+	@echo "推送镜像到 Registry..."
+	docker push $(IM_IMAGE):$(IMAGE_TAG)
+	@echo "推送完成: $(IM_IMAGE):$(IMAGE_TAG)"
+
+.PHONY: pull-nas-im
+pull-nas-im: ## 仅在 NAS 上拉取最新镜像（不重启容器，需指定 IMAGE_TAG）
+	@if [ -z "$(IMAGE_TAG)" ]; then echo "[ERR] 请指定 IMAGE_TAG"; exit 1; fi
+	@echo "拉取镜像到 NAS: $(IM_IMAGE):$(IMAGE_TAG) ..."
+	sshpass -p "$(NAS_PASS)" ssh -o StrictHostKeyChecking=no $(NAS_USER)@$(NAS_HOST) \
+		"echo '$(NAS_PASS)' | sudo -S env PATH=/usr/local/bin:/usr/bin:/bin docker pull $(IM_IMAGE):$(IMAGE_TAG)"
+	@echo "NAS 拉取完成"
+
+.PHONY: build-push-all
+build-push-all: ## 构建前端 + Docker 镜像、推送到 Registry、NAS 拉取新镜像（不重启容器）★
+	@echo "=========================================="
+	@echo "构建并推送镜像 [linux/amd64] tag=$(IMAGE_TAG)"
+	@echo "=========================================="
+	$(MAKE) build-im    IMAGE_TAG=$(IMAGE_TAG)
+	$(MAKE) push-im     IMAGE_TAG=$(IMAGE_TAG)
+	$(MAKE) pull-nas-im IMAGE_TAG=$(IMAGE_TAG)
+	@echo "=========================================="
+	@echo "完成！镜像: $(IM_IMAGE):$(IMAGE_TAG)"
+	@echo "=========================================="
 
 # =============================================================================
 # 帮助信息

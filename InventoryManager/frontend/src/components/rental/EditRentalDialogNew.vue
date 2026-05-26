@@ -341,7 +341,7 @@ const findAvailableAccessory = async () => {
       props.rental.start_date,
       props.rental.end_date,
       logisticsDays,
-      1, // X200U 型号 ID
+      '', // 不过滤型号，查所有可用附件
       true // is_accessory
     )
 

@@ -1,6 +1,7 @@
 {
   "permissions": {
     "allow": [
+      "Bash(*)",
       "Read(/Users/jimmypan/git_repo/XianyuAutoAgent/cocs/**)",
       "Bash(python -m flask db revision:*)",
       "Bash(python3 -m flask db revision:*)",
@@ -94,7 +95,11 @@
       "mcp__plugin_playwright_playwright__browser_network_request",
       "mcp__plugin_playwright_playwright__browser_type",
       "Bash(/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python /Users/jimmypan/Library/Python/3.9/bin/flask run --host=127.0.0.1 --port=5001)",
-      "Bash(echo \"Flask PID: $!\")"
+      "Bash(echo \"Flask PID: $!\")",
+      "Bash(brew list *)",
+      "Read(//usr/local/bin/**)",
+      "Read(//opt/homebrew/Cellar/mysql/9.4.0_2/bin/**)",
+      "Bash(/opt/homebrew/bin/mysql *)"
     ],
     "deny": [],
     "ask": [],

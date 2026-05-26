@@ -96,7 +96,9 @@
       "Bash(git commit -m 'chore: revert auto-push to explicit trigger only *)",
       "Bash(git commit -m 'perf\\(docker\\): reorder layers for better cache reuse *)",
       "Bash(git checkout *)",
-      "Bash(git commit -m 'fix\\(ci\\): checkout submodules for interceptor build *)"
+      "Bash(git commit -m 'fix\\(ci\\): checkout submodules for interceptor build *)",
+            "Bash(git diff)"
+
     ],
     "deny": [],
     "ask": [],
