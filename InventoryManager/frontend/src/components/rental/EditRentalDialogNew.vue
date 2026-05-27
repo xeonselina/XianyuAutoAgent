@@ -346,12 +346,12 @@ const findAvailableAccessory = async () => {
     )
 
     // 更新所有附件的可用性状态
-    const availableDeviceIds = slotResponse.availableDevices || []
+    const availableDeviceIds = (slotResponse.availableDevices || []).map((d: any) =>
+      typeof d === 'number' ? d : d.id
+    )
     deviceManagement.accessories.value.forEach(accessory => {
-      if (accessory.model && accessory.model.includes('手柄')) {
-        accessory.isAvailable = availableDeviceIds.includes(accessory.id)
-        accessory.conflictReason = accessory.isAvailable ? undefined : '档期冲突'
-      }
+      accessory.isAvailable = availableDeviceIds.includes(accessory.id)
+      accessory.conflictReason = accessory.isAvailable ? undefined : '档期冲突'
     })
 
     ElMessage.success('手柄档期检查完成')

@@ -531,17 +531,17 @@ const loadInitData = async () => {
     if (modelsRes.data.success) {
       deviceModels.value = modelsRes.data.data || []
     }
-    if (accessoriesRes.data.success) {
-      const all: Device[] = accessoriesRes.data.data?.devices || []
-      accessories.value.phoneHolders = all.filter(d =>
-        d.model?.toLowerCase().includes('phone_holder') ||
-        d.name?.includes('手机支架')
-      )
-      accessories.value.tripods = all.filter(d =>
-        d.model?.toLowerCase().includes('tripod') ||
-        d.name?.includes('三脚架')
-      )
-    }
+    const all: Device[] = accessoriesRes.data.devices || []
+    accessories.value.phoneHolders = all.filter(d =>
+      d.model?.toLowerCase().includes('phone_holder') ||
+      d.model?.includes('手机支架') ||
+      d.name?.includes('手机支架')
+    )
+    accessories.value.tripods = all.filter(d =>
+      d.model?.toLowerCase().includes('tripod') ||
+      d.model?.includes('三脚架') ||
+      d.name?.includes('三脚架')
+    )
   } catch (e) {
     console.error('加载初始数据失败:', e)
   }
