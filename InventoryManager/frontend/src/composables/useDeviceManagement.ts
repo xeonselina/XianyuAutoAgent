@@ -44,12 +44,9 @@ export function useDeviceManagement() {
   const loadAccessories = async () => {
     loading.value = true
     try {
-      const response = await axios.get('/api/devices')
-      if (response.data.success) {
-        accessories.value = response.data.data
-          .filter((device: Device) => device.is_accessory)
-          .map((device: Device) => ({ ...device }))
-      }
+      const response = await axios.get('/api/devices?is_accessory=true&per_page=100')
+      accessories.value = (response.data.devices || [])
+        .map((device: Device) => ({ ...device }))
     } catch (error) {
       console.error('加载附件列表失败:', error)
       throw error

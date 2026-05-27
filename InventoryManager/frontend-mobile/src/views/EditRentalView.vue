@@ -670,17 +670,17 @@ const onShipToXianyu = async () => {
 const loadAccessories = async () => {
   try {
     const res = await axios.get('/api/devices', { params: { is_accessory: true, per_page: 100 } })
-    if (res.data.success) {
-      const all: Device[] = res.data.data?.devices || []
-      accessories.value.phoneHolders = all.filter(d =>
-        d.model?.toLowerCase().includes('phone_holder') ||
-        d.name?.includes('手机支架')
-      )
-      accessories.value.tripods = all.filter(d =>
-        d.model?.toLowerCase().includes('tripod') ||
-        d.name?.includes('三脚架')
-      )
-    }
+    const all: Device[] = res.data.devices || []
+    accessories.value.phoneHolders = all.filter(d =>
+      d.model?.toLowerCase().includes('phone_holder') ||
+      d.model?.includes('手机支架') ||
+      d.name?.includes('手机支架')
+    )
+    accessories.value.tripods = all.filter(d =>
+      d.model?.toLowerCase().includes('tripod') ||
+      d.model?.includes('三脚架') ||
+      d.name?.includes('三脚架')
+    )
   } catch (e) {
     console.error('加载配件数据失败:', e)
   }
