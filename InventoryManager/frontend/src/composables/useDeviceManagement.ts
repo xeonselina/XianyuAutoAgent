@@ -47,7 +47,7 @@ export function useDeviceManagement() {
       const response = await axios.get('/api/devices')
       if (response.data.success) {
         accessories.value = response.data.data
-          .filter((device: Device) => device.is_accessory && device.model)
+          .filter((device: Device) => device.is_accessory)
           .map((device: Device) => ({ ...device }))
       }
     } catch (error) {
