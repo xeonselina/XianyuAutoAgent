@@ -288,12 +288,14 @@ class GanttService:
 
             # 检查设备可用性
             available_devices = []
+            available_device_objects = []
             for device in devices:
                 availability = InventoryService.check_device_availability(
                     device.id, ship_out_time, ship_in_time
                 )
                 if availability['available']:
                     available_devices.append(device.id)
+                    available_device_objects.append(device)
 
             # 返回结果
             if available_devices:
@@ -306,7 +308,7 @@ class GanttService:
                     'is_accessory': is_accessory,
                     'ship_out_date': ship_out_date.isoformat(),
                     'ship_in_date': ship_in_date.isoformat(),
-                    'available_devices': available_devices,
+                    'available_devices': [d.to_dict() for d in available_device_objects],
                     'total_available': len(available_devices),
                     'available_accessories': [],
                     'device_model': None,
