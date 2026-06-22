@@ -48,6 +48,11 @@
             <span class="label">收件信息:</span>
             <span class="value">{{ rental.destination }}</span>
           </div>
+
+          <div class="info-row" v-if="rental.lens_combo">
+            <span class="label">镜头组合:</span>
+            <span class="value">{{ lensComboLabel }}</span>
+          </div>
           
           <div class="info-row" v-if="rental.ship_out_tracking_no">
             <span class="label">寄出运单号:</span>
@@ -110,6 +115,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Rental } from '../stores/gantt'
+import { lensComboDisplay } from '../config/lensCombo'
 import dayjs from 'dayjs'
 
 interface ConflictInfo {
@@ -133,6 +139,8 @@ const emit = defineEmits<{
 }>()
 
 const props = defineProps<Props>()
+
+const lensComboLabel = computed(() => lensComboDisplay(props.rental?.lens_combo))
 
 // Tooltip悬停事件处理
 const handleTooltipEnter = () => {

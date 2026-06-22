@@ -263,34 +263,15 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr class="main-product">
-                        <td>1</td>
-                        <td class="device-name">VIVO X200 Ultra 16+512G</td>
-                        <td>1</td>
-                        <td>{{device_name}}</td>
-                        <td class="serial-number">{{ serial_number }}</td>
+                    {% for item in product_lines %}
+                    <tr{% if item.is_main %} class="main-product"{% endif %}>
+                        <td>{{ loop.index }}</td>
+                        <td{% if item.is_main %} class="device-name"{% endif %}>{{ item.name }}</td>
+                        <td>{{ item.qty }}</td>
+                        <td>{% if item.is_main %}{{ device_name }}{% endif %}</td>
+                        <td{% if item.is_main %} class="serial-number"{% endif %}>{% if item.is_main %}{{ serial_number }}{% endif %}</td>
                     </tr>
-                    <tr>
-                        <td>2</td>
-                        <td>VIVO 90w 充电头+充电线</td>
-                        <td>1</td>
-                        <td></td>
-                        <td></td>
-                    </tr>
-                    <tr>
-                        <td>3</td>
-                        <td>VIVO 2.35倍增距镜+增距镜脚架+手机壳</td>
-                        <td>1</td>
-                        <td></td>
-                        <td></td>
-                    </tr>
-                    <tr>
-                        <td>4</td>
-                        <td>套装便携手提包</td>
-                        <td>1</td>
-                        <td></td>
-                        <td></td>
-                    </tr>
+                    {% endfor %}
                 </tbody>
             </table>
 

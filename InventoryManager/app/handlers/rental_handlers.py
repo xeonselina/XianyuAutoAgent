@@ -6,6 +6,11 @@
 from datetime import datetime
 from flask import request, current_app
 from app.services.rental.rental_service import RentalService
+from app.services.printing.rental_product_lines import (
+    validate_combo,
+    get_default_combo,
+    MODEL_LENS_COMBOS,
+)
 from app.utils.response import (
     ApiResponse,
     success,
@@ -15,6 +20,37 @@ from app.utils.response import (
     bad_request,
     server_error
 )
+
+
+def _resolve_model_for_device(device_id):
+    """根据 device_id 获取机型 short name，用于 lens_combo 校验。"""
+    if not device_id:
+        return None
+    from app.models.device import Device
+    device = Device.query.get(device_id)
+    if not device:
+        return None
+    if device.device_model and device.device_model.name:
+        return device.device_model.name
+    return getattr(device, 'model', None)
+
+
+def _normalize_and_validate_lens_combo(data, device_id):
+    """根据机型校验/补全 lens_combo，非法时返回错误字符串，合法返回 None。"""
+    combo = data.get('lens_combo')
+    model_name = _resolve_model_for_device(device_id)
+    if not model_name:
+        # 找不到机型时，沿用前端传入或默认 lens_400mm（迁移占位）
+        data['lens_combo'] = combo or 'lens_400mm'
+        return None
+    if combo:
+        if not validate_combo(model_name, combo):
+            allowed = MODEL_LENS_COMBOS.get(model_name, {}).get('allowed', [])
+            return f'机型 {model_name} 不允许镜头组合 {combo}，允许值: {list(allowed)}'
+        return None
+    # 未传 → 用机型默认
+    data['lens_combo'] = get_default_combo(model_name)
+    return None
 
 
 class RentalHandlers:
@@ -129,11 +165,16 @@ class RentalHandlers:
             # 提取配套附件标记（新功能）
             data['includes_handle'] = data.get('includes_handle', False)
             data['includes_lens_mount'] = data.get('includes_lens_mount', False)
-            
+
             # 提取代传照片标记
             data['photo_transfer'] = data.get('photo_transfer', False)
-            
-            current_app.logger.info(f"创建租赁: includes_handle={data['includes_handle']}, includes_lens_mount={data['includes_lens_mount']}, photo_transfer={data['photo_transfer']}")
+
+            # 校验/补全镜头组合
+            lens_error = _normalize_and_validate_lens_combo(data, data.get('device_id'))
+            if lens_error:
+                return bad_request(lens_error)
+
+            current_app.logger.info(f"创建租赁: includes_handle={data['includes_handle']}, includes_lens_mount={data['includes_lens_mount']}, photo_transfer={data['photo_transfer']}, lens_combo={data['lens_combo']}")
 
             # 创建租赁记录
             main_rental, accessory_rentals = RentalService.create_rental_with_accessories(data)
@@ -352,6 +393,16 @@ class RentalHandlers:
             if 'photo_transfer' in data:
                 rental.photo_transfer = data['photo_transfer']
                 current_app.logger.info(f"更新photo_transfer: {data['photo_transfer']}")
+
+            # 处理镜头组合更新（按更新后的 device_id 校验机型合法性）
+            if 'lens_combo' in data:
+                device_id_for_check = data.get('device_id', rental.device_id)
+                lens_payload = {'lens_combo': data['lens_combo']}
+                lens_error = _normalize_and_validate_lens_combo(lens_payload, device_id_for_check)
+                if lens_error:
+                    return bad_request(lens_error)
+                rental.lens_combo = lens_payload['lens_combo']
+                current_app.logger.info(f"更新lens_combo: {rental.lens_combo}")
 
             # 确保所有更改都被提交到数据库
             # 注意：update_rental_status 会自己提交，但附件更新需要额外提交

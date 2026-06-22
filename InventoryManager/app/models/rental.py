@@ -59,6 +59,14 @@ class Rental(db.Model):
 
     # 代传照片标记
     photo_transfer = db.Column(db.Boolean, default=False, server_default='0', nullable=False, comment='是否代传照片')
+
+    # 镜头组合（lens_400mm/lens_200mm/bare/lens_dual；按机型限制可选项）
+    lens_combo = db.Column(
+        db.Enum('lens_400mm', 'lens_200mm', 'bare', 'lens_dual', name='rental_lens_combo'),
+        nullable=False,
+        server_default='lens_400mm',
+        comment='镜头组合: lens_400mm=400MM镜头(增距镜) / lens_200mm=200MM镜头 / bare=裸机 / lens_dual=双镜头(仅x300u)'
+    )
     
     # 关系
     audit_logs = db.relationship('AuditLog', backref='rental', lazy='dynamic')
@@ -144,7 +152,9 @@ class Rental(db.Model):
             'includes_handle': self.includes_handle,
             'includes_lens_mount': self.includes_lens_mount,
             # 代传照片标记
-            'photo_transfer': self.photo_transfer
+            'photo_transfer': self.photo_transfer,
+            # 镜头组合
+            'lens_combo': self.lens_combo
         }
     
     def get_duration_days(self):

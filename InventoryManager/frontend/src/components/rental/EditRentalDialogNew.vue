@@ -156,7 +156,8 @@ const form = ref({
   xianyuOrderNo: '',
   orderAmount: '',
   buyerId: '',
-  photoTransfer: false  // 代传照片标记
+  photoTransfer: false,  // 代传照片标记
+  lensCombo: undefined as ('lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual' | undefined)
 })
 
 // UI State
@@ -242,7 +243,8 @@ const handleSubmit = async () => {
       xianyu_order_no: form.value.xianyuOrderNo,
       order_amount: form.value.orderAmount ? parseFloat(form.value.orderAmount) : undefined,
       buyer_id: form.value.buyerId,
-      photo_transfer: form.value.photoTransfer  // 代传照片标记
+      photo_transfer: form.value.photoTransfer,  // 代传照片标记
+      lens_combo: form.value.lensCombo
     }
 
     await ganttStore.updateRental(props.rental!.id, updateData)
@@ -518,7 +520,8 @@ const initForm = async () => {
       xianyuOrderNo: rentalData.xianyu_order_no || '',
       orderAmount: rentalData.order_amount ? String(rentalData.order_amount) : '',
       buyerId: rentalData.buyer_id || '',
-      photoTransfer: rentalData.photo_transfer || false  // 代传照片标记
+      photoTransfer: rentalData.photo_transfer || false,  // 代传照片标记
+      lensCombo: rentalData.lens_combo || undefined
     }
 
     if (latestRental) {

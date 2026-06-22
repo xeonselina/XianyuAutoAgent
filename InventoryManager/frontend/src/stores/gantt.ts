@@ -89,6 +89,8 @@ export interface Rental {
   includes_lens_mount: boolean
   // 代传照片标记
   photo_transfer: boolean
+  // 镜头组合（lens_400mm/lens_200mm/bare/lens_dual）
+  lens_combo?: 'lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual'
   xianyu_order_no?: string
   order_amount?: number
   buyer_id?: string

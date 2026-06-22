@@ -30,6 +30,12 @@
       <div class="form-tip">选择不同设备会检查时间冲突</div>
     </el-form-item>
 
+    <!-- 镜头组合 -->
+    <LensComboSelector
+      v-model="form.lensCombo"
+      :model-name="selectedModelName"
+    />
+
     <!-- 客户信息（只读） -->
     <el-form-item label="闲鱼 ID">
       <el-input :value="rental.customer_name" disabled />
@@ -103,6 +109,7 @@ import { ElMessage } from 'element-plus'
 import VueDatePicker from '@vuepic/vue-datepicker'
 import type { Device, Rental } from '@/stores/gantt'
 import axios from 'axios'
+import LensComboSelector from './LensComboSelector.vue'
 
 interface DeviceWithConflictStatus extends Device {
   conflicted?: boolean
@@ -117,6 +124,12 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+
+const selectedModelName = computed<string | null>(() => {
+  const dev = props.availableDevices.find(d => d.id === props.form.deviceId)
+  if (!dev) return null
+  return dev.device_model?.name || dev.model || null
+})
 
 const emit = defineEmits<{
   'device-change': [deviceId: number]
