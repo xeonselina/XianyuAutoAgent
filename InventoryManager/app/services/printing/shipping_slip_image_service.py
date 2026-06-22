@@ -12,6 +12,7 @@ from datetime import timedelta
 from PIL import Image, ImageDraw, ImageFont
 
 from app.models import Rental
+from app.services.printing.rental_product_lines import get_product_lines, lens_combo_display
 from app import db
 
 logger = logging.getLogger(__name__)
@@ -301,29 +302,30 @@ class ShippingSlipImageService:
 
             y = self._draw_section_separator(draw, y)
 
-            # 3. 设备信息部分
-            device_name = rental.device.name if rental.device else '未知设备'
-            y = self._draw_info_row(draw, y, "设备:", device_name)
+            # 3. 设备信息部分 - 按镜头组合渲染品名清单
+            product_lines = get_product_lines(rental)
+            for idx, line in enumerate(product_lines, 1):
+                label = "主机:" if line.get('is_main') else f"品名{idx}:"
+                y = self._draw_info_row(draw, y, label, line['name'], highlight=line.get('is_main', False))
 
-            # 附件信息（使用新的统一方法获取配套和库存附件）
+            # 镜头组合中文化（便于发货员核对）
+            combo_label = lens_combo_display(getattr(rental, 'lens_combo', None))
+            if combo_label:
+                y = self._draw_info_row(draw, y, "组合:", combo_label)
+
+            # 附件信息（库存附件如手机支架/三脚架；配套附件 handle/lens_mount 不再单列因为已含在品名行）
             all_accessories = rental.get_all_accessories_for_display()
-            if all_accessories:
+            extra_accessories = [a for a in all_accessories if not a.get('is_bundled')]
+            if extra_accessories:
                 accessories_list = []
-                for acc in all_accessories:
-                    if acc.get('is_bundled'):
-                        # 配套附件：手柄 (配套)
-                        accessories_list.append(f"{acc['name']} (配套)")
+                for acc in extra_accessories:
+                    serial = acc.get('serial_number', '')
+                    if serial:
+                        accessories_list.append(f"{acc['name']} [{serial}]")
                     else:
-                        # 库存附件：手机支架-P01 [P01-20240501]
-                        serial = acc.get('serial_number', '')
-                        if serial:
-                            accessories_list.append(f"{acc['name']} [{serial}]")
-                        else:
-                            accessories_list.append(acc['name'])
-                
+                        accessories_list.append(acc['name'])
                 if accessories_list:
-                    accessories_text = ', '.join(accessories_list)
-                    y = self._draw_info_row(draw, y, "附件:", accessories_text)
+                    y = self._draw_info_row(draw, y, "附件:", ', '.join(accessories_list))
 
             y = self._draw_section_separator(draw, y)
 

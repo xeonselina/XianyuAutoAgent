@@ -164,7 +164,9 @@ class RentalService:
                 status='not_shipped',
                 # 新：配套附件标记
                 includes_handle=data.get('includes_handle', False),
-                includes_lens_mount=data.get('includes_lens_mount', False)
+                includes_lens_mount=data.get('includes_lens_mount', False),
+                # 镜头组合（由 handler 层校验/补全后传入，handler 不传则使用 server_default）
+                lens_combo=data.get('lens_combo', 'lens_400mm')
             )
 
             db.session.add(main_rental)

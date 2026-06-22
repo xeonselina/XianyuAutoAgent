@@ -157,6 +157,27 @@
           />
         </van-cell-group>
 
+        <!-- 镜头组合 -->
+        <van-cell-group inset title="镜头组合" style="margin-top:12px">
+          <van-field label="组合">
+            <template #input>
+              <div class="combo-radio-group">
+                <van-tag
+                  v-for="opt in allowedCombos"
+                  :key="opt"
+                  :type="lensComboModel === opt ? 'primary' : 'default'"
+                  :plain="lensComboModel !== opt"
+                  size="medium"
+                  class="combo-chip"
+                  @click="lensComboModel = opt"
+                >
+                  {{ comboLabel(opt) }}
+                </van-tag>
+              </div>
+            </template>
+          </van-field>
+        </van-cell-group>
+
         <!-- 配件 -->
         <van-cell-group inset title="配件" style="margin-top:12px">
           <van-field label="随机配件">
@@ -335,6 +356,13 @@ import dayjs from 'dayjs'
 import { useGanttStore } from '@/stores/gantt'
 import type { Rental, Device } from '@/stores/gantt'
 import { useConflictDetection } from '@/composables/useConflictDetection'
+import {
+  getAllowedCombos,
+  getDefaultCombo,
+  isComboAllowed,
+  lensComboDisplay,
+  type LensCombo,
+} from '@/config/lensCombo'
 
 const router = useRouter()
 const route = useRoute()
@@ -380,7 +408,8 @@ const form = ref({
   bundledAccessories: [] as string[],
   photoTransfer: false,
   phoneHolderId: null as number | null,
-  tripodId: null as number | null
+  tripodId: null as number | null,
+  lensCombo: undefined as ('lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual' | undefined)
 })
 
 const formRef = ref()
@@ -393,6 +422,24 @@ const selectedTripodName = ref('')
 
 // 配件数据
 const accessories = ref<{ phoneHolders: Device[], tripods: Device[] }>({ phoneHolders: [], tripods: [] })
+
+// 镜头组合：来源于关联的 rental.device.device_model.name 或 rental.device.model
+const currentRental = ref<Rental | null>(null)
+const currentModelShortName = computed<string | null>(() => {
+  const d = currentRental.value?.device as any
+  if (!d) return null
+  return d.device_model?.name || d.model || null
+})
+const allowedCombos = computed<LensCombo[]>(() => getAllowedCombos(currentModelShortName.value))
+const lensComboModel = computed<LensCombo>({
+  get: () => {
+    const v = form.value.lensCombo
+    if (v && isComboAllowed(currentModelShortName.value, v)) return v as LensCombo
+    return getDefaultCombo(currentModelShortName.value)
+  },
+  set: (v: LensCombo) => { form.value.lensCombo = v }
+})
+const comboLabel = (v: LensCombo) => lensComboDisplay(v)
 
 // 日期 picker 的数组状态
 const endDateParts = ref<string[]>([])
@@ -448,6 +495,7 @@ const statusColumns = STATUS_OPTS
 
 // 初始化表单
 const initForm = (rental: Rental) => {
+  currentRental.value = rental
   form.value.customerName = rental.customer_name || ''
   form.value.customerPhone = rental.customer_phone || ''
   form.value.destination = rental.destination || ''
@@ -466,6 +514,7 @@ const initForm = (rental: Rental) => {
   if (rental.includes_handle) form.value.bundledAccessories.push('handle')
   if (rental.includes_lens_mount) form.value.bundledAccessories.push('lens_mount')
   form.value.photoTransfer = rental.photo_transfer || false
+  form.value.lensCombo = rental.lens_combo || undefined
 
   // 配件（手机支架、三脚架）
   form.value.phoneHolderId = null
@@ -637,6 +686,7 @@ const onSubmit = async () => {
       includes_handle: form.value.bundledAccessories.includes('handle'),
       includes_lens_mount: form.value.bundledAccessories.includes('lens_mount'),
       photo_transfer: form.value.photoTransfer,
+      lens_combo: form.value.lensCombo,
       accessories: [
         ...(form.value.phoneHolderId ? [{ id: form.value.phoneHolderId, is_bundled: false }] : []),
         ...(form.value.tripodId ? [{ id: form.value.tripodId, is_bundled: false }] : [])
@@ -737,6 +787,17 @@ onMounted(async () => {
 
 .submit-wrap {
   padding: 16px;
+}
+
+.combo-radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+}
+.combo-chip {
+  cursor: pointer;
+  padding: 4px 10px;
 }
 
 .datetime-picker-wrap {

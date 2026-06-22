@@ -59,17 +59,21 @@
             </tr>
           </thead>
           <tbody>
-            <!-- 主设备 -->
-            <tr class="main-product">
-              <td>1</td>
-              <td class="device-name">{{ rental?.device?.device_model?.name || rental?.device?.name }}</td>
-              <td>1台</td>
-              <td>{{ rental?.device?.name }}/{{ rental?.device?.serial_number || '-' }}</td>
-              <td class="serial-number">{{ getDefaultAccessories() }}</td>
+            <!-- 按镜头组合动态渲染品名 -->
+            <tr
+              v-for="(line, idx) in productLines"
+              :key="`line-${idx}`"
+              :class="{ 'main-product': line.is_main }"
+            >
+              <td>{{ idx + 1 }}</td>
+              <td :class="{ 'device-name': line.is_main }">{{ line.name }}</td>
+              <td>{{ line.qty }}{{ line.is_main ? '台' : '' }}</td>
+              <td>{{ line.is_main ? `${rental?.device?.name || '-'}/${rental?.device?.serial_number || '-'}` : '' }}</td>
+              <td :class="{ 'serial-number': line.is_main }">{{ line.is_main ? lensComboLabel : '' }}</td>
             </tr>
-            <!-- 个性化附件 -->
+            <!-- 个性化附件（库存附件） -->
             <tr v-for="(accessory, index) in getPersonalizedAccessories()" :key="`personal-${accessory.id}`">
-              <td>{{ index + 2 }}</td>
+              <td>{{ productLines.length + index + 1 }}</td>
               <td>{{ accessory.model || accessory.name }}</td>
               <td>1个</td>
               <td>{{ accessory.name || '-' }}</td>
@@ -168,6 +172,7 @@ import {
   Money
 } from '@element-plus/icons-vue'
 import { useGanttStore, type Rental } from '../stores/gantt'
+import { getProductLines, lensComboDisplay, type LensCombo } from '../config/lensCombo'
 import dayjs from 'dayjs'
 
 const router = useRouter()
@@ -185,6 +190,23 @@ const rentalDays = computed(() => {
   const end = dayjs(rental.value.end_date)
   return end.diff(start, 'day') + 1
 })
+
+// 当前订单的镜头组合（默认 lens_400mm 兜底）
+const lensCombo = computed<LensCombo>(() =>
+  (rental.value?.lens_combo as LensCombo) || 'lens_400mm'
+)
+
+// 主机型号 short name
+const modelName = computed<string | undefined>(() => {
+  const dm = rental.value?.device?.device_model
+  return dm?.name || rental.value?.device?.model
+})
+
+// 按机型 + 镜头组合渲染的品名清单
+const productLines = computed(() => getProductLines(modelName.value, lensCombo.value))
+
+// 镜头组合中文化（主机行的备注栏）
+const lensComboLabel = computed(() => lensComboDisplay(lensCombo.value))
 
 const customerMessage = computed(() => {
   // 这里可以从rental数据中获取买家留言，如果没有对应字段，可以扩展数据结构

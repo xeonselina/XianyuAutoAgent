@@ -24,6 +24,13 @@
         />
         <van-button
           size="small"
+          icon="friends-o"
+          plain
+          style="margin-right: 4px"
+          @click="router.push({ name: 'customer-history' })"
+        />
+        <van-button
+          size="small"
           icon="setting-o"
           plain
           style="margin-right: 4px"

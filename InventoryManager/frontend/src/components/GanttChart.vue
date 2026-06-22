@@ -51,6 +51,12 @@
           >
             📦 批量发货
           </el-button>
+          <el-button
+            @click="showCustomerHistoryDialog = true"
+            :icon="User"
+          >
+            客户历史
+          </el-button>
           <el-dropdown @command="handleMoreCommand">
             <el-button type="info">
               更多
@@ -252,6 +258,9 @@
       v-model="showBatchPrintDialog"
     />
 
+    <!-- 客户历史订单对话框 -->
+    <CustomerHistoryDialog v-model="showCustomerHistoryDialog" />
+
     <!-- 添加设备对话框 -->
     <el-dialog 
       v-model="showAddDeviceDialog" 
@@ -359,12 +368,13 @@ import { ref, computed, onMounted, watch, nextTick, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGanttStore, type Device, type Rental, type DeviceModel, type ModelAccessory } from '@/stores/gantt'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, ArrowLeft, ArrowRight, Search, DataAnalysis, ArrowDown, Location, CircleCheck, TrendCharts } from '@element-plus/icons-vue'
+import { Plus, Refresh, ArrowLeft, ArrowRight, Search, DataAnalysis, ArrowDown, Location, CircleCheck, TrendCharts, User } from '@element-plus/icons-vue'
 import axios from 'axios'
 import GanttRow from './GanttRow.vue'
 import BookingDialog from './BookingDialog.vue'
 import { EditRentalDialogNew } from './rental'
 import BatchPrintDialog from './rental/BatchPrintDialog.vue'
+import CustomerHistoryDialog from './CustomerHistoryDialog.vue'
 import {
   toSystemDateString,
   isToday,
@@ -381,6 +391,7 @@ const ganttStore = useGanttStore()
 const showBookingDialog = ref(false)
 const showEditDialog = ref(false)
 const showAddDeviceDialog = ref(false)
+const showCustomerHistoryDialog = ref(false)
 const showBatchPrintDialog = ref(false)
 const selectedRental = ref<Rental | null>(null)
 const searchKeyword = ref<string>('')

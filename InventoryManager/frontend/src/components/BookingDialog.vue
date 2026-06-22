@@ -181,6 +181,12 @@
         <div class="form-tip">手柄和镜头支架已与设备配齐，无需选择具体编号</div>
       </el-form-item>
 
+      <!-- 镜头组合 -->
+      <LensComboSelector
+        v-model="form.lensCombo"
+        :model-name="selectedModelName"
+      />
+
       <!-- 代传照片 - 复选框 -->
       <el-form-item label="附加服务">
         <el-checkbox v-model="form.photoTransfer">代传照片</el-checkbox>
@@ -317,6 +323,7 @@ import { useAvailabilityCheck } from '@/composables/useAvailabilityCheck'
 import { useConflictDetection } from '@/composables/useConflictDetection'
 import { getCreateRentalRules } from '@/composables/useRentalFormValidation'
 import { extractPhoneNumber } from '@/utils/phoneExtractor'
+import LensComboSelector from './rental/LensComboSelector.vue'
 
 // Props & Emits
 interface Props {
@@ -343,6 +350,15 @@ const dialogVisible = computed({
   set: (value) => emit('update:modelValue', value)
 })
 
+// 当前所选设备的机型 short name（用于镜头组合选项）
+const selectedModelName = computed<string | null>(() => {
+  const id = form.value?.selectedDeviceId
+  if (!id) return null
+  const dev = deviceManagement.devices.value.find((d: any) => d.id === id)
+  if (!dev) return null
+  return dev.device_model?.name || dev.model || null
+})
+
 // Form State
 const form = ref({
   startDate: null as Date | null,
@@ -359,7 +375,8 @@ const form = ref({
   xianyuOrderNo: '',
   orderAmount: '',
   buyerId: '',
-  photoTransfer: false  // 代传照片标记
+  photoTransfer: false,  // 代传照片标记
+  lensCombo: undefined as ('lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual' | undefined)
 })
 
 // UI State
@@ -768,7 +785,8 @@ const handleSubmit = async () => {
       xianyu_order_no: form.value.xianyuOrderNo,
       order_amount: form.value.orderAmount ? parseFloat(form.value.orderAmount) : undefined,
       buyer_id: form.value.buyerId,
-      photo_transfer: form.value.photoTransfer  // 代传照片标记
+      photo_transfer: form.value.photoTransfer,  // 代传照片标记
+      lens_combo: form.value.lensCombo
     }
 
     await ganttStore.createRental(rentalData)
@@ -799,7 +817,8 @@ const handleClose = () => {
     xianyuOrderNo: '',
     orderAmount: '',
     buyerId: '',
-    photoTransfer: false
+    photoTransfer: false,
+    lensCombo: undefined
   }
   availableSlot.value = null
   availableAccessorySlot.value = null

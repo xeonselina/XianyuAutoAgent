@@ -40,6 +40,11 @@ const router = createRouter({
       path: '/search',
       name: 'search',
       component: () => import('@/views/SearchView.vue')
+    },
+    {
+      path: '/customer-history',
+      name: 'customer-history',
+      component: () => import('@/views/CustomerHistoryView.vue')
     }
   ],
   scrollBehavior(to, from, savedPosition) {

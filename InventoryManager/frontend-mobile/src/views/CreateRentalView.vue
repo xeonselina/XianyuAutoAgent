@@ -126,6 +126,27 @@
           </van-field>
         </van-cell-group>
 
+        <!-- 镜头组合 -->
+        <van-cell-group inset title="镜头组合" style="margin-top:12px">
+          <van-field label="组合">
+            <template #input>
+              <van-radio-group v-model="lensComboModel" direction="horizontal" class="combo-radio-group">
+                <van-tag
+                  v-for="opt in allowedCombos"
+                  :key="opt"
+                  :type="lensComboModel === opt ? 'primary' : 'default'"
+                  :plain="lensComboModel !== opt"
+                  size="medium"
+                  class="combo-chip"
+                  @click="lensComboModel = opt"
+                >
+                  {{ comboLabel(opt) }}
+                </van-tag>
+              </van-radio-group>
+            </template>
+          </van-field>
+        </van-cell-group>
+
         <!-- 配件 -->
         <van-cell-group inset title="配件" style="margin-top:12px">
           <van-field label="随机配件">
@@ -251,6 +272,13 @@ import { useGanttStore } from '@/stores/gantt'
 import type { DeviceModel, Device } from '@/stores/gantt'
 import { extractPhoneNumber } from '@/utils/phoneExtractor'
 import { useConflictDetection } from '@/composables/useConflictDetection'
+import {
+  getAllowedCombos,
+  getDefaultCombo,
+  isComboAllowed,
+  lensComboDisplay,
+  type LensCombo,
+} from '@/config/lensCombo'
 
 const router = useRouter()
 const ganttStore = useGanttStore()
@@ -272,7 +300,8 @@ const form = ref({
   bundledAccessories: [] as string[],
   phoneHolderId: null as number | null,
   tripodId: null as number | null,
-  photoTransfer: false
+  photoTransfer: false,
+  lensCombo: undefined as ('lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual' | undefined)
 })
 
 const formRef = ref()
@@ -305,6 +334,30 @@ const selectedTripodName = ref('')
 
 const endDateMin = computed(() => {
   return form.value.startDate ? new Date(form.value.startDate) : undefined
+})
+
+// 镜头组合：当前所选机型 short name & 选项
+const selectedModelShortName = computed<string | null>(() => {
+  if (!form.value.modelId) return null
+  const m = deviceModels.value.find(dm => dm.id === form.value.modelId)
+  return m?.name ?? null
+})
+const allowedCombos = computed<LensCombo[]>(() => getAllowedCombos(selectedModelShortName.value))
+const lensComboModel = computed<LensCombo>({
+  get: () => {
+    const v = form.value.lensCombo
+    if (v && isComboAllowed(selectedModelShortName.value, v)) return v as LensCombo
+    return getDefaultCombo(selectedModelShortName.value)
+  },
+  set: (v: LensCombo) => { form.value.lensCombo = v }
+})
+const comboLabel = (v: LensCombo) => lensComboDisplay(v)
+
+// 机型切换 → 重置不合法的镜头组合
+watch(selectedModelShortName, (newModel) => {
+  if (form.value.lensCombo && !isComboAllowed(newModel, form.value.lensCombo)) {
+    form.value.lensCombo = getDefaultCombo(newModel)
+  }
 })
 
 // Picker 列数据
@@ -508,6 +561,7 @@ const onSubmit = async () => {
       includes_handle: form.value.bundledAccessories.includes('handle'),
       includes_lens_mount: form.value.bundledAccessories.includes('lens_mount'),
       photo_transfer: form.value.photoTransfer,
+      lens_combo: form.value.lensCombo,
       accessories: accessoriesArr
     }
 
@@ -574,5 +628,16 @@ onMounted(async () => {
 
 .submit-wrap {
   padding: 16px;
+}
+
+.combo-radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+}
+.combo-chip {
+  cursor: pointer;
+  padding: 4px 10px;
 }
 </style>
