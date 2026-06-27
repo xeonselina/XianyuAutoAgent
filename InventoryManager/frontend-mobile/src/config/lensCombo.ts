@@ -23,20 +23,38 @@ export const LENS_COMBO_DISPLAY: Record<LensCombo, string> = {
   lens_dual:  '双镜头',
 }
 
+/**
+ * 将数据库中的机型名（如 'VIVO X300U 16+512'、'VIVO X300PRO 16+512'）
+ * 归一化为配置 key（x200u / x300pro / x300u）。
+ * 注意 x300pro 必须先于 x300u 判断，否则 "X300PRO" 会被 "x300" 误命中。
+ */
+export function normalizeModelName(modelName?: string | null): string | null {
+  if (!modelName) return null
+  if (MODEL_LENS_COMBOS[modelName]) return modelName
+  const s = modelName.toLowerCase().replace(/[\s+]/g, '')
+  if (s.includes('x300pro')) return 'x300pro'
+  if (s.includes('x300u')) return 'x300u'
+  if (s.includes('x200u')) return 'x200u'
+  return null
+}
+
 export function getAllowedCombos(modelName?: string | null): LensCombo[] {
-  if (!modelName) return [...MODEL_LENS_COMBOS.x200u.allowed]
-  const cfg = MODEL_LENS_COMBOS[modelName]
+  const key = normalizeModelName(modelName)
+  if (!key) return [...MODEL_LENS_COMBOS.x200u.allowed]
+  const cfg = MODEL_LENS_COMBOS[key]
   return cfg ? [...cfg.allowed] : [...MODEL_LENS_COMBOS.x200u.allowed]
 }
 
 export function getDefaultCombo(modelName?: string | null): LensCombo {
-  if (!modelName) return 'lens_200mm'
-  return MODEL_LENS_COMBOS[modelName]?.default ?? 'lens_200mm'
+  const key = normalizeModelName(modelName)
+  if (!key) return 'lens_200mm'
+  return MODEL_LENS_COMBOS[key]?.default ?? 'lens_200mm'
 }
 
 export function isComboAllowed(modelName: string | null | undefined, combo: LensCombo | string | null | undefined): boolean {
-  if (!modelName || !combo) return false
-  return MODEL_LENS_COMBOS[modelName]?.allowed.includes(combo as LensCombo) ?? false
+  const key = normalizeModelName(modelName)
+  if (!key || !combo) return false
+  return MODEL_LENS_COMBOS[key]?.allowed.includes(combo as LensCombo) ?? false
 }
 
 export function lensComboDisplay(combo?: LensCombo | string | null): string {

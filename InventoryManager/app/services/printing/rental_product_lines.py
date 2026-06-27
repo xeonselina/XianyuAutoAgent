@@ -29,9 +29,29 @@ LENS_COMBO_DISPLAY = {
 }
 
 
+def normalize_model_name(model_name):
+    """将数据库机型名（如 'VIVO X300U 16+512'）归一化为配置 key（x200u/x300pro/x300u）。
+
+    注意 x300pro 必须先于 x300u 判断，否则 'X300PRO' 会被 'x300' 误命中。
+    无法识别时返回 None。
+    """
+    if not model_name:
+        return None
+    if model_name in MODEL_LENS_COMBOS:
+        return model_name
+    s = model_name.lower().replace(' ', '').replace('+', '')
+    if 'x300pro' in s:
+        return 'x300pro'
+    if 'x300u' in s:
+        return 'x300u'
+    if 'x200u' in s:
+        return 'x200u'
+    return None
+
+
 def get_allowed_combos(model_name):
     """返回指定机型允许的镜头组合列表。未知机型回退到 x200u 的可选集。"""
-    cfg = MODEL_LENS_COMBOS.get(model_name)
+    cfg = MODEL_LENS_COMBOS.get(normalize_model_name(model_name))
     if not cfg:
         return list(MODEL_LENS_COMBOS['x200u']['allowed'])
     return list(cfg['allowed'])
@@ -39,7 +59,7 @@ def get_allowed_combos(model_name):
 
 def get_default_combo(model_name):
     """返回指定机型的默认镜头组合。"""
-    cfg = MODEL_LENS_COMBOS.get(model_name)
+    cfg = MODEL_LENS_COMBOS.get(normalize_model_name(model_name))
     if not cfg:
         return 'lens_200mm'
     return cfg['default']
@@ -47,9 +67,7 @@ def get_default_combo(model_name):
 
 def validate_combo(model_name, lens_combo):
     """校验「机型-镜头组合」是否合法。"""
-    if not model_name:
-        return False
-    cfg = MODEL_LENS_COMBOS.get(model_name)
+    cfg = MODEL_LENS_COMBOS.get(normalize_model_name(model_name))
     if not cfg:
         return False
     return lens_combo in cfg['allowed']
