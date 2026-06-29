@@ -12,7 +12,7 @@ from datetime import timedelta
 from PIL import Image, ImageDraw, ImageFont
 
 from app.models import Rental
-from app.services.printing.rental_product_lines import get_product_lines, lens_combo_display
+from app.services.printing.rental_product_lines import lens_combo_display, get_default_combo, _resolve_model_name
 from app import db
 
 logger = logging.getLogger(__name__)
@@ -302,18 +302,15 @@ class ShippingSlipImageService:
 
             y = self._draw_section_separator(draw, y)
 
-            # 3. 设备信息部分 - 按镜头组合渲染品名清单
-            product_lines = get_product_lines(rental)
-            for idx, line in enumerate(product_lines, 1):
-                label = "主机:" if line.get('is_main') else f"品名{idx}:"
-                y = self._draw_info_row(draw, y, label, line['name'], highlight=line.get('is_main', False))
+            # 3. 设备信息部分
+            device_name = rental.device.name if rental.device else '未知设备'
+            y = self._draw_info_row(draw, y, "设备:", device_name)
 
-            # 镜头组合中文化（便于发货员核对）
-            combo_label = lens_combo_display(getattr(rental, 'lens_combo', None))
-            if combo_label:
-                y = self._draw_info_row(draw, y, "组合:", combo_label)
+            # 镜头组合中文化（便于发货员核对；裸机也显示）
+            combo = getattr(rental, 'lens_combo', None) or get_default_combo(_resolve_model_name(rental))
+            y = self._draw_info_row(draw, y, "组合:", lens_combo_display(combo))
 
-            # 附件信息（库存附件如手机支架/三脚架；配套附件 handle/lens_mount 不再单列因为已含在品名行）
+            # 附件信息（库存附件如手机支架/三脚架；配套附件 handle/lens_mount 不单列）
             all_accessories = rental.get_all_accessories_for_display()
             extra_accessories = [a for a in all_accessories if not a.get('is_bundled')]
             if extra_accessories:
