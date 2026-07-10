@@ -37,8 +37,11 @@ class InventoryService:
             available_devices = []
             
             for device in all_devices:
-                # 只排除离线状态的设备
+                # 排除离线状态设备和非 active 生命周期设备（已售出/已损坏/已停用/已退役）
                 if device.status == 'offline':
+                    continue
+
+                if device.is_excluded_from_statistics():
                     continue
                 
                 # 检查设备在指定时间段内是否有冲突的租赁记录

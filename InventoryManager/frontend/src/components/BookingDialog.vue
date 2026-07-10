@@ -89,13 +89,22 @@
               :key="device.id"
               :label="device.name"
               :value="device.id"
+              :disabled="getDeviceLifecycleLabel(device) !== null"
             >
               <div class="device-option">
                 <span>{{ device.name }}</span>
                 <div class="device-status">
                   <span class="device-model">{{ device.model }}</span>
                   <el-tag
-                    v-if="availability.deviceAvailability.value.checked && availability.isDeviceAvailable(device.id)"
+                    v-if="getDeviceLifecycleLabel(device)"
+                    type="info"
+                    size="small"
+                    effect="dark"
+                  >
+                    {{ getDeviceLifecycleLabel(device) }}
+                  </el-tag>
+                  <el-tag
+                    v-else-if="availability.deviceAvailability.value.checked && availability.isDeviceAvailable(device.id)"
                     type="success"
                     size="small"
                     effect="dark"
@@ -389,6 +398,20 @@ const availableAccessorySlot = ref<any>(null)
 
 // Form Rules
 const rules = getCreateRentalRules()
+
+// 设备生命周期标签映射
+const LIFECYCLE_LABELS: Record<string, string> = {
+  sold: '已售出',
+  damaged: '已损坏',
+  decommissioned: '已停用',
+  retired: '已退役'
+}
+
+// 获取设备的生命周期标签（非 active 返回中文标签，active 返回 null）
+const getDeviceLifecycleLabel = (device: any): string | null => {
+  const lifecycle = device?.lifecycle_status || 'active'
+  return lifecycle !== 'active' ? (LIFECYCLE_LABELS[lifecycle] || lifecycle) : null
+}
 
 // Computed
 const canSearchSlot = computed(() => {
