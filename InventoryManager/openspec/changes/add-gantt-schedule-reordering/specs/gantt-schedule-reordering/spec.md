@@ -1,157 +1,157 @@
 ## ADDED Requirements
 
-### Requirement: Eligible Schedule Reordering
+### Requirement: 可参与重排的档期
 
-The system SHALL reassign only main rentals whose status is `not_shipped`, whose ship-out date is today or later in `Asia/Shanghai`, and whose ship-out time and model ID are present. The system SHALL assign each eligible rental exactly once to a non-accessory device with the same `model_id`, `status = online`, and `lifecycle_status = active`.
+系统 SHALL（必须）只重新分配状态为 `not_shipped`、在 `Asia/Shanghai` 时区下寄出日期为今天或以后、且寄出时间和型号 ID 均存在的主 rental。每个符合条件的 rental 必须恰好分配一次，并且目标设备必须是相同 `model_id`、非附件、`status = online` 且 `lifecycle_status = active` 的设备。
 
-#### Scenario: Reorder eligible future rentals
+#### Scenario: 重排符合条件的未来 rental
 
-- **WHEN** an operator previews reordering for future unshipped main rentals
-- **THEN** each eligible rental is assigned exactly once to an online, active, same-model main device
-- **AND** no rental date or status changes
+- **WHEN** 用户预览未来未寄出主 rental 的重排结果
+- **THEN** 每个符合条件的 rental 恰好分配一次，并分配到同型号、在线且使用中的主设备
+- **AND** rental 的日期和状态不发生变化
 
-#### Scenario: Exclude ineligible rentals
+#### Scenario: 排除不符合条件的 rental
 
-- **WHEN** a rental is scheduled for shipping, shipped, in progress, cancelled, a child rental, before today, or missing logistics/model data
-- **THEN** the system does not move that rental
-- **AND** it reports skipped records where operator attention is useful
+- **WHEN** rental 已预约发货、已寄出、正在进行、已取消、属于子 rental、寄出日期早于今天，或缺少物流/型号数据
+- **THEN** 系统不得移动该 rental
+- **AND** 对需要人工处理的记录展示跳过原因
 
-### Requirement: Schedule Compression
+### Requirement: 压缩档期
 
-The system SHALL optimize each model independently using OR-Tools CP-SAT, first minimizing the number of devices carrying movable future schedules, then total idle days between consecutive logical schedule blocks, then the number of changed device assignments.
+系统 SHALL（必须）使用 OR-Tools CP-SAT 按型号独立优化：首先最小化承载未来可移动档期的设备数量，然后最小化相邻逻辑档期块之间的总空闲天数，最后最小化设备分配变更次数。
 
-#### Scenario: Compress schedules within a model
+#### Scenario: 在型号内部压缩档期
 
-- **WHEN** multiple legal assignments exist for rentals of one model
-- **THEN** the system prefers fewer used target devices
-- **AND** prefers smaller schedule gaps and fewer device changes in that order
+- **WHEN** 同一型号的 rental 存在多个合法分配方案
+- **THEN** 系统优先使用更少的目标设备
+- **AND** 依次优先选择更小的档期空隙和更少的设备变更
 
-#### Scenario: Model is infeasible
+#### Scenario: 某个型号无解
 
-- **WHEN** no legal assignment exists for one model
-- **THEN** that model retains its original assignments
-- **AND** the preview identifies the model and reason
+- **WHEN** 某个型号不存在合法分配方案
+- **THEN** 该型号保持原设备分配
+- **AND** 预览中明确展示型号和无解原因
 
-### Requirement: Allowed Turnaround
+### Requirement: 允许的衔接范围
 
-The system SHALL allow normal consecutive rentals on one device when the next ship-out calendar date equals or follows the previous ship-in calendar date. It SHALL prohibit a next ship-out date earlier than the previous ship-in date unless the rentals belong to a confirmed relay chain.
+普通相邻 rental 的后单寄出自然日等于或晚于前单收回自然日时，系统 SHALL（必须）允许它们位于同一设备。如果后单寄出日期早于前单收回日期，除非两者属于已确认的接力链，否则系统必须禁止它们位于同一设备。
 
-#### Scenario: Same-day turnaround
+#### Scenario: 同日收回再寄出
 
-- **WHEN** one rental is received in the morning and the next is sent later on the same calendar day
-- **THEN** the solver may place both rentals on the same device
+- **WHEN** 一笔 rental 在早上收回，下一笔 rental 在同一自然日稍晚寄出
+- **THEN** 求解器可以把两笔 rental 分配到同一设备
 
-#### Scenario: Unconfirmed multi-day overlap
+#### Scenario: 未确认的多日重叠
 
-- **WHEN** consecutive rentals overlap beyond the same-day allowance and have no relay binding decision
-- **THEN** the system blocks final preview until the operator chooses to bind or separate them
+- **WHEN** 相邻 rental 的重叠超过同日衔接范围，且没有接力绑定选择
+- **THEN** 系统必须阻止生成最终预览，直到用户选择绑定或拆分
 
-### Requirement: Persistent Relay Bindings
+### Requirement: 永久保存接力绑定
 
-The system SHALL let operators permanently bind chronological, same-model main rentals as a non-branching relay chain. All members of a relay chain SHALL remain on one device, and a chain containing a fixed rental SHALL remain on that fixed rental's device.
+系统 SHALL（必须）允许用户把时间顺序正确、同型号的主 rental 永久绑定为不可分叉的接力链。接力链所有成员必须位于同一设备；包含固定 rental 的接力链必须保留在该固定 rental 当前设备。
 
-#### Scenario: Confirm a new relay
+#### Scenario: 确认新的接力关系
 
-- **WHEN** the operator selects “保持接力并永久绑定” for an unconfirmed overlap and executes the preview
-- **THEN** the system persists the predecessor/successor binding in the same transaction as reordering
-- **AND** keeps both rentals on the same device
+- **WHEN** 用户对未确认重叠选择“保持接力并永久绑定”，并执行预览结果
+- **THEN** 系统必须在重排同一事务中保存前序/后序绑定
+- **AND** 两笔 rental 必须保持在同一设备
 
-#### Scenario: Preserve an existing relay chain
+#### Scenario: 保持既有接力链
 
-- **WHEN** A → B → C is already bound
-- **THEN** subsequent reorder previews treat the chain as indivisible and default to preserving it
+- **WHEN** A → B → C 已经绑定
+- **THEN** 后续重排必须把整个接力链视为不可拆分，并默认保持绑定
 
-#### Scenario: Remove a relay binding
+#### Scenario: 解除接力绑定
 
-- **WHEN** the operator chooses to remove an existing binding
-- **THEN** the preview must assign the resulting rentals without unauthorized overlap
-- **AND** execution removes the binding atomically with device changes
+- **WHEN** 用户选择解除既有绑定
+- **THEN** 预览必须在不存在未授权重叠的情况下重新分配拆开的 rental
+- **AND** 执行时必须原子地删除绑定并修改设备分配
 
-### Requirement: Parent-Child Rental Integrity
+### Requirement: 父子 rental 完整性
 
-The system SHALL never optimize a child rental. Reordering a main rental SHALL preserve every child rental's ID, `device_id`, `parent_rental_id`, dates, logistics times, status, and membership in the parent rental's child set.
+系统 SHALL（必须）永远不优化子 rental。重排主 rental 时，必须保持每个子 rental 的 ID、`device_id`、`parent_rental_id`、日期、物流时间、状态以及其在父 rental 子集合中的成员关系不变。
 
-#### Scenario: Main rental with a phone stand
+#### Scenario: 带手机支架的主 rental
 
-- **WHEN** a phone main rental with a phone-stand child rental moves to another same-model phone
-- **THEN** the phone-stand child rental remains on its original accessory device
-- **AND** remains linked to the same main rental
+- **WHEN** 带手机支架子 rental 的手机主 rental 移动到另一台同型号手机
+- **THEN** 手机支架子 rental 必须保留在原附件设备
+- **AND** 必须继续关联到同一个主 rental
 
-#### Scenario: Child rental changes after preview
+#### Scenario: 预览后子 rental 发生变化
 
-- **WHEN** any child rental is added, removed or changed after preview
-- **THEN** execute rejects the stale preview and performs no writes
+- **WHEN** 预览后新增、删除或修改了任一子 rental
+- **THEN** 执行接口必须拒绝过期预览，并且不得写入任何数据
 
-### Requirement: Preview Before Execution
+### Requirement: 执行前必须预览
 
-The system SHALL use a two-step workflow: relay confirmation followed by a no-write result preview. The preview SHALL show customer name, phone, address, schedule, original device, target device, model summaries, solver status, skipped records and errors. The second step SHALL execute directly without a third confirmation page.
+系统 SHALL（必须）采用两步操作流程：第一步确认接力关系，第二步展示零写入的重排结果。预览必须展示姓名、电话、地址、档期、原设备、目标设备、型号汇总、求解状态、跳过记录和错误。第二步必须能够直接执行，不得增加第三步确认页。
 
-#### Scenario: Generate preview
+#### Scenario: 生成重排预览
 
-- **WHEN** all overlap decisions are complete
-- **THEN** the system returns a signed ten-minute preview token and detailed proposed changes
-- **AND** performs no database writes
+- **WHEN** 用户完成全部重叠关系选择
+- **THEN** 系统必须返回十分钟有效的签名预览令牌和详细变化
+- **AND** 不得产生任何数据库写入
 
-#### Scenario: Return to relay choices
+#### Scenario: 返回修改接力选择
 
-- **WHEN** the operator selects “返回修改接力”
-- **THEN** the interface returns to step one without persisting choices
+- **WHEN** 用户选择“返回修改接力”
+- **THEN** 界面必须返回第一步，并且不得保存尚未执行的选择
 
-### Requirement: Atomic and Stale-Safe Execution
+### Requirement: 原子且防止过期数据的执行
 
-The system SHALL lock related rentals, children, devices and bindings; verify the signed snapshot; validate the preview assignment with pinned solver variables; and update bindings, eligible main rental device IDs, and audit logs in one transaction. Any failure SHALL roll back the complete operation.
+系统 SHALL（必须）锁定相关 rental、子 rental、设备和接力绑定，验证签名快照，使用固定求解器变量校验预览映射，并在单一事务中更新接力关系、符合条件的主 rental 设备 ID 和审计日志。任何失败都必须回滚完整操作。
 
-#### Scenario: Execute unchanged preview
+#### Scenario: 执行未过期的预览
 
-- **WHEN** the token is valid and all snapshot and feasibility checks pass
-- **THEN** execution applies exactly the device mapping shown in preview
-- **AND** writes audit details for every changed main rental
+- **WHEN** 令牌有效，且所有快照和可行性校验通过
+- **THEN** 执行结果必须与预览展示的设备映射完全一致
+- **AND** 必须为每笔发生变化的主 rental 写入审计明细
 
-#### Scenario: Data changes after preview
+#### Scenario: 预览后数据发生变化
 
-- **WHEN** a related rental, child, device state or binding changes before execute
-- **THEN** the system rejects execution and requests a new preview
-- **AND** no partial update is committed
+- **WHEN** 相关 rental、子 rental、设备状态或接力绑定在执行前发生变化
+- **THEN** 系统必须拒绝执行并要求重新预览
+- **AND** 不得提交任何部分更新
 
-#### Scenario: Failure during execution
+#### Scenario: 执行过程中失败
 
-- **WHEN** a database or invariant failure occurs after updates begin
-- **THEN** all device, relay and audit changes from the operation are rolled back
-- **AND** the pre-execution rental ID sets and values remain intact
+- **WHEN** 更新开始后发生数据库错误或不变量校验失败
+- **THEN** 本次操作产生的全部设备、接力和审计变化都必须回滚
+- **AND** 执行前的 rental ID 集合和字段值必须保持不变
 
-### Requirement: Active Device Slot Lookup
+### Requirement: 查找档期只返回使用中的设备
 
-The system SHALL return only devices whose operational status is online and lifecycle status is active when finding a slot for a new rental, for both main-device and accessory lookup paths.
+为新 rental 查找档期时，无论主设备还是附件查询路径，系统 SHALL（必须）只返回运行状态为在线且生命周期状态为使用中的设备。
 
-#### Scenario: Lifecycle-inactive online device
+#### Scenario: 生命周期非使用中的在线设备
 
-- **WHEN** an online device is sold, damaged, decommissioned, or retired
-- **THEN** new-rental slot lookup does not return that device
+- **WHEN** 一台在线设备已售出、损坏、停用或退役
+- **THEN** 新建 rental 查找档期不得返回该设备
 
-#### Scenario: Active offline device
+#### Scenario: 处于离线状态的使用中设备
 
-- **WHEN** a lifecycle-active device is offline
-- **THEN** new-rental slot lookup does not return that device
+- **WHEN** 一台生命周期为使用中的设备处于离线状态
+- **THEN** 新建 rental 查找档期不得返回该设备
 
-### Requirement: Production Database Test Isolation
+### Requirement: 生产数据库测试隔离
 
-Automated tests SHALL NOT load the production `.env`, connect to a `192.*` database host, or use a database name without `test`. MySQL transaction tests SHALL use an isolated container and synthetic data by default.
+自动化测试 SHALL（必须）不加载生产 `.env`，不连接 `192.*` 数据库主机，也不使用名称中不含 `test` 的数据库。MySQL 事务测试必须默认使用隔离容器和合成数据。
 
-#### Scenario: Unsafe test database URL
+#### Scenario: 不安全的测试数据库地址
 
-- **WHEN** a test starts with a `192.*` host, a non-test database name, or without `TESTING=true`
-- **THEN** the test bootstrap terminates before opening a database connection
+- **WHEN** 测试使用 `192.*` 主机、非测试数据库名，或者没有设置 `TESTING=true`
+- **THEN** 测试启动程序必须在打开数据库连接前终止
 
-#### Scenario: Production-like data is required
+#### Scenario: 确实需要接近生产的数据
 
-- **WHEN** synthetic fixtures cannot reproduce an issue and separate authorization is granted
-- **THEN** a read-only single-transaction dump is imported into an isolated database and anonymized before tests run
+- **WHEN** 合成 fixture 无法复现问题，且获得单独授权
+- **THEN** 必须以只读单事务方式 dump 数据，导入隔离数据库并完成脱敏后才能运行测试
 
-### Requirement: Containerized OR-Tools Deployment
+### Requirement: OR-Tools 容器化部署
 
-The system SHALL install a pinned OR-Tools Python package inside the application image and SHALL support the existing Linux amd64 and arm64 Docker targets without requiring OR-Tools installation on the NAS host.
+系统 SHALL（必须）在应用镜像内安装固定版本的 OR-Tools Python 包，并支持现有 Linux amd64 和 arm64 Docker 目标，不得要求在 NAS 主机单独安装 OR-Tools。
 
-#### Scenario: Multi-architecture image build
+#### Scenario: 构建多架构镜像
 
-- **WHEN** application images are built for amd64 and arm64
-- **THEN** both images can import `ortools.sat.python.cp_model`
+- **WHEN** 为 amd64 和 arm64 构建应用镜像
+- **THEN** 两种镜像都必须能够导入 `ortools.sat.python.cp_model`
