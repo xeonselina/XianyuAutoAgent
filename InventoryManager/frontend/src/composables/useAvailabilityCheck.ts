@@ -29,8 +29,16 @@ export function useAvailabilityCheck() {
 
   const checking = ref(false)
 
+  const LIFECYCLE_LABELS: Record<string, string> = {
+    sold: '已售出',
+    damaged: '已损坏',
+    decommissioned: '已停用',
+    retired: '已退役'
+  }
+
   /**
    * 检查设备列表的可用性
+   * 非 active 生命周期状态的设备直接标记为不可用，不发起冲突检测请求
    */
   const checkDevicesAvailability = async (
     devices: DeviceWithStatus[],
@@ -52,26 +60,45 @@ export function useAvailabilityCheck() {
 
     checking.value = true
     try {
-      const deviceIds = devices.map(d => d.id)
-      const conflicts = await checkMultipleDevicesConflict(deviceIds, params)
-
-      const available: DeviceWithStatus[] = []
+      // 前置过滤：非 active 生命周期的设备直接归入不可用列表
+      const activeDevices: DeviceWithStatus[] = []
       const unavailable: DeviceWithStatus[] = []
 
       devices.forEach(device => {
-        const hasConflict = conflicts[device.id]
-        const deviceWithStatus = {
-          ...device,
-          conflicted: hasConflict,
-          isAvailable: !hasConflict
-        }
-
-        if (hasConflict) {
-          unavailable.push(deviceWithStatus)
+        const lifecycle = (device as any).lifecycle_status || 'active'
+        if (lifecycle !== 'active') {
+          unavailable.push({
+            ...device,
+            conflicted: false,
+            isAvailable: false,
+            conflictReason: LIFECYCLE_LABELS[lifecycle] || lifecycle
+          })
         } else {
-          available.push(deviceWithStatus)
+          activeDevices.push(device)
         }
       })
+
+      // 仅对 active 设备发起冲突检测
+      const available: DeviceWithStatus[] = []
+      if (activeDevices.length > 0) {
+        const deviceIds = activeDevices.map(d => d.id)
+        const conflicts = await checkMultipleDevicesConflict(deviceIds, params)
+
+        activeDevices.forEach(device => {
+          const hasConflict = conflicts[device.id]
+          const deviceWithStatus = {
+            ...device,
+            conflicted: hasConflict,
+            isAvailable: !hasConflict
+          }
+
+          if (hasConflict) {
+            unavailable.push(deviceWithStatus)
+          } else {
+            available.push(deviceWithStatus)
+          }
+        })
+      }
 
       deviceAvailability.value = {
         checked: true,
