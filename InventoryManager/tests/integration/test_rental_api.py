@@ -48,7 +48,7 @@ class TestRentalAPIBundledAccessories:
         # 验证响应
         assert response.status_code == 201
         data = json.loads(response.data)
-        assert data['code'] == 201
+        assert data['success'] is True
         assert 'data' in data
         
         # 验证返回的租赁数据

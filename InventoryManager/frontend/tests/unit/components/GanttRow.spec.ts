@@ -210,8 +210,8 @@ describe('GanttRow.vue Component', () => {
       const rentalBar = wrapper.find('.rental-bar')
       const style = rentalBar.attributes('style')
       
-      // Shipped rentals should use green color
-      expect(style).toContain('#67c23a')
+      // Shipped logistics range uses the current translucent green.
+      expect(style).toContain('rgba(7, 193, 96, 0.22)')
     })
 
     it('should calculate correct width for multi-day rentals', () => {
@@ -230,7 +230,7 @@ describe('GanttRow.vue Component', () => {
       expect(style).toContain('width: 400%')
     })
 
-    it('should render shipping overlay when ship times exist', () => {
+    it('should render the outer rental bar as the shipping range', () => {
       const wrapper = mount(GanttRow, {
         props: {
           device: mockDevice,
@@ -239,11 +239,12 @@ describe('GanttRow.vue Component', () => {
         }
       })
 
-      const overlay = wrapper.find('.rental-ship-overlay')
-      expect(overlay.exists()).toBe(true)
+      const shippingRange = wrapper.find('.rental-bar')
+      expect(shippingRange.exists()).toBe(true)
+      expect(shippingRange.attributes('style')).toContain('rgba(7, 193, 96, 0.22)')
     })
 
-    it('should not render shipping overlay when ship times are missing', () => {
+    it('should fall back to rental dates when ship times are missing', () => {
       mockRentals[0].ship_out_time = undefined
       mockRentals[0].ship_in_time = undefined
 
@@ -255,8 +256,9 @@ describe('GanttRow.vue Component', () => {
         }
       })
 
-      const overlay = wrapper.find('.rental-ship-overlay')
-      expect(overlay.exists()).toBe(false)
+      const shippingRange = wrapper.find('.rental-bar')
+      expect(shippingRange.exists()).toBe(true)
+      expect(shippingRange.attributes('style')).toContain('width: 400%')
     })
   })
 

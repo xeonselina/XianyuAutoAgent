@@ -13,7 +13,7 @@ import os
 _BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 load_dotenv(os.path.join(_BASE_DIR, '.env'))
 
-from config import Config
+from config import Config, config as config_map
 import logging
 from logging.handlers import RotatingFileHandler
 import os
@@ -24,6 +24,12 @@ migrate = Migrate()
 
 def create_app(config_class=Config):
     """应用工厂函数"""
+    if isinstance(config_class, str):
+        try:
+            config_class = config_map[config_class]
+        except KeyError as exc:
+            raise ValueError(f'未知应用配置: {config_class}') from exc
+
     # 获取项目根目录的绝对路径
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     
