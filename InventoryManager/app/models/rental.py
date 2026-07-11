@@ -106,9 +106,6 @@ class Rental(db.Model):
                     if child_rental.device.device_model:
                         # 优先使用 device_model 的 display_name
                         model_name = child_rental.device.device_model.name
-                    elif child_rental.device.is_accessory:
-                        # 如果没有 device_model，使用 device.model
-                        model_name = child_rental.device.device_model.name
 
                     accessories.append({
                         'id': child_rental.device.id,
@@ -426,4 +423,3 @@ class Rental(db.Model):
             }
         }
     
-

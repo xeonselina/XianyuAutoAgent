@@ -85,6 +85,17 @@ class Device(db.Model):
             bool: True if device is active and online
         """
         return self.lifecycle_status == 'active' and self.status == 'online'
+
+    @classmethod
+    def in_service_query(cls, is_accessory=None):
+        """返回只包含在线且生命周期为使用中的设备查询。"""
+        query = cls.query.filter(
+            cls.status == 'online',
+            cls.lifecycle_status == 'active'
+        )
+        if is_accessory is not None:
+            query = query.filter(cls.is_accessory.is_(is_accessory))
+        return query
     
     def is_excluded_from_statistics(self):
         """

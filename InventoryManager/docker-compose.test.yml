@@ -1,0 +1,23 @@
+services:
+  mysql-test:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: test_root_password
+      MYSQL_DATABASE: inventory_reorder_test
+      MYSQL_USER: inventory_test
+      MYSQL_PASSWORD: inventory_test_password
+    ports:
+      - "3307:3306"
+    tmpfs:
+      - /var/lib/mysql
+    healthcheck:
+      test:
+        - CMD
+        - mysqladmin
+        - ping
+        - -h
+        - localhost
+        - -ptest_root_password
+      interval: 2s
+      timeout: 2s
+      retries: 30

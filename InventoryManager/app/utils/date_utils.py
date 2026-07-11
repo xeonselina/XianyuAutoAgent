@@ -7,7 +7,7 @@ from typing import Tuple, Optional, Union
 from flask import jsonify
 
 
-def parse_date_strings(start_date_str: str, end_date_str: str) -> Tuple[date, date]:
+def parse_date_strings(start_date_str: Union[str, date], end_date_str: Union[str, date]) -> Tuple[date, date]:
     """
     解析日期字符串为date对象
     
@@ -22,10 +22,18 @@ def parse_date_strings(start_date_str: str, end_date_str: str) -> Tuple[date, da
         ValueError: 日期格式错误
     """
     try:
-        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
-        end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
-        return start_date, end_date
-    except ValueError:
+        start_date_value = (
+            start_date_str
+            if isinstance(start_date_str, date)
+            else datetime.strptime(start_date_str, '%Y-%m-%d').date()
+        )
+        end_date_value = (
+            end_date_str
+            if isinstance(end_date_str, date)
+            else datetime.strptime(end_date_str, '%Y-%m-%d').date()
+        )
+        return start_date_value, end_date_value
+    except (TypeError, ValueError):
         raise ValueError('日期格式错误，请使用YYYY-MM-DD格式')
 
 
