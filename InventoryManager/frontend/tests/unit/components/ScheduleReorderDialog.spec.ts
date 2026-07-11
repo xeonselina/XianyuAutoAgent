@@ -1,4 +1,4 @@
-import ElementPlus from 'element-plus'
+import ElementPlus, { ElSteps } from 'element-plus'
 import { createPinia, setActivePinia } from 'pinia'
 import { mount, flushPromises } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
@@ -91,6 +91,7 @@ describe('ScheduleReorderDialog', () => {
     })
     await flushPromises()
 
+    expect(wrapper.findComponent(ElSteps).props('active')).toBe(0)
     expect(wrapper.text()).toContain('王先生')
     expect(wrapper.text()).toContain('13800138000')
     expect(wrapper.text()).toContain('北京市朝阳区')
@@ -98,6 +99,7 @@ describe('ScheduleReorderDialog', () => {
     await wrapper.get('[data-test="calculate-preview"]').trigger('click')
     await flushPromises()
 
+    expect(wrapper.findComponent(ElSteps).props('active')).toBe(1)
     expect(wrapper.text()).toContain('OPTIMAL')
     expect(wrapper.text()).toContain('X300U-08')
     expect(wrapper.text()).toContain('X300U-03')
