@@ -43,6 +43,8 @@ declare module 'vue' {
     ElResult: typeof import('element-plus/es')['ElResult']
     ElRow: typeof import('element-plus/es')['ElRow']
     ElSelect: typeof import('element-plus/es')['ElSelect']
+    ElStep: typeof import('element-plus/es')['ElStep']
+    ElSteps: typeof import('element-plus/es')['ElSteps']
     ElTable: typeof import('element-plus/es')['ElTable']
     ElTableColumn: typeof import('element-plus/es')['ElTableColumn']
     ElTabPane: typeof import('element-plus/es')['ElTabPane']
@@ -67,6 +69,7 @@ declare module 'vue' {
     RentalTooltip: typeof import('./src/components/RentalTooltip.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    ScheduleReorderDialog: typeof import('./src/components/ScheduleReorderDialog.vue')['default']
     SimplifiedShippingSlip: typeof import('./src/components/printing/SimplifiedShippingSlip.vue')['default']
   }
   export interface GlobalDirectives {
