@@ -6,7 +6,7 @@
     :close-on-click-modal="false"
     destroy-on-close
   >
-    <el-steps :active="step" finish-status="success" align-center class="reorder-steps">
+    <el-steps :active="step - 1" finish-status="success" align-center class="reorder-steps">
       <el-step title="确认接力关系" />
       <el-step title="预览并执行" />
     </el-steps>

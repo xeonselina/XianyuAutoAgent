@@ -2,6 +2,7 @@ import os
 
 from app import create_app, db
 from app.models.audit_log import AuditLog
+from app.models.rental import Rental
 from app.models.rental_relay_binding import RentalRelayBinding
 from app.services.gantt.reorder_service import GanttReorderService
 from tests.support.reorder_fixtures import seeded_reorder_case
@@ -110,6 +111,24 @@ def test_execute_rejects_child_change_after_preview(
     assert "重新预览" in response.get_json()["message"]
 
 
+def test_execute_rejects_preview_from_another_solver_version(
+    client, seeded_reorder_case
+):
+    preview = client.post(
+        "/api/gantt/reorder/preview", json={"decisions": []}
+    ).get_json()["data"]
+    payload = GanttReorderService._serializer().loads(preview["token"])
+    payload["solver_version"] = "old-solver-version"
+    incompatible_token = GanttReorderService._serializer().dumps(payload)
+
+    response = client.post(
+        "/api/gantt/reorder/execute", json={"token": incompatible_token}
+    )
+
+    assert response.status_code == 409
+    assert "重新预览" in response.get_json()["message"]
+
+
 def test_execute_persists_relay_binding_atomically(
     client, db_session, seeded_reorder_case
 ):
@@ -157,6 +176,39 @@ def test_execute_rolls_back_every_change_on_injected_failure(
     assert response.status_code == 500
     db_session.expire_all()
     assert seeded_reorder_case.snapshot() == before
+    assert AuditLog.query.count() == 0
+
+
+def test_execute_rolls_back_if_any_child_column_changes(
+    client, db_session, seeded_reorder_case, monkeypatch
+):
+    preview = client.post(
+        "/api/gantt/reorder/preview", json={"decisions": []}
+    ).get_json()["data"]
+    child_id = seeded_reorder_case.child.id
+    original_order_no = seeded_reorder_case.child.xianyu_order_no
+    apply_assignments = GanttReorderService._apply_device_assignments
+
+    def change_unrelated_child_column(
+        cls, rentals, devices, assignments, today
+    ):
+        apply_assignments(rentals, devices, assignments, today)
+        child = next(rental for rental in rentals if rental.id == child_id)
+        child.xianyu_order_no = "不应保留的修改"
+
+    monkeypatch.setattr(
+        GanttReorderService,
+        "_apply_device_assignments",
+        classmethod(change_unrelated_child_column),
+    )
+
+    response = client.post(
+        "/api/gantt/reorder/execute", json={"token": preview["token"]}
+    )
+
+    assert response.status_code == 500
+    db_session.expire_all()
+    assert db_session.get(Rental, child_id).xianyu_order_no == original_order_no
     assert AuditLog.query.count() == 0
 
 

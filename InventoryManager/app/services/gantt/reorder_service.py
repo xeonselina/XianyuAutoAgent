@@ -642,18 +642,11 @@ class GanttReorderService:
             if rental.parent_rental_id is not None
         ]
 
-        def immutable_values(rental):
-            return (
-                rental.id,
-                rental.parent_rental_id,
-                rental.start_date,
-                rental.end_date,
-                rental.ship_out_time,
-                rental.ship_in_time,
-                rental.status,
-                rental.customer_name,
-                rental.customer_phone,
-                rental.destination,
+        def column_values(rental, excluded=()):
+            return tuple(
+                (column.key, getattr(rental, column.key))
+                for column in Rental.__table__.columns
+                if column.key not in excluded
             )
 
         child_ids_by_parent = {}
@@ -671,17 +664,17 @@ class GanttReorderService:
             },
             "main_immutable": {
                 rental.id: (
-                    immutable_values(rental),
+                    column_values(
+                        rental,
+                        excluded={"device_id", "updated_at"},
+                    ),
                     rental.device.model_id if rental.device else None,
                     tuple(sorted(child_ids_by_parent.get(rental.id, []))),
                 )
                 for rental in mains
             },
             "child_values": {
-                rental.id: (
-                    rental.device_id,
-                    immutable_values(rental),
-                )
+                rental.id: column_values(rental)
                 for rental in children
             },
         }
@@ -816,6 +809,8 @@ class GanttReorderService:
     @classmethod
     def execute(cls, token):
         payload = cls._load_preview(token)
+        if payload.get("solver_version") != cls.SOLVER_VERSION:
+            raise StalePreviewError("求解器版本已变化，请重新预览")
         preview_today = date.fromisoformat(payload["today"])
         if preview_today != date.today():
             raise StalePreviewError("预览日期已变化，请重新预览")
