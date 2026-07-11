@@ -273,7 +273,8 @@ class GanttService:
                     devices = Device.query.filter(
                         Device.model_id == model_id,
                         Device.is_accessory == is_accessory,
-                        Device.status == 'online'
+                        Device.status == 'online',
+                        Device.lifecycle_status == 'active'
                     ).all()
                     current_app.logger.info(f"查找{device_type} model_id={model_id}, 找到 {len(devices)} 台设备")
                 except ValueError:
@@ -282,7 +283,8 @@ class GanttService:
             else:
                 devices = Device.query.filter(
                     Device.is_accessory == is_accessory,
-                    Device.status == 'online'
+                    Device.status == 'online',
+                    Device.lifecycle_status == 'active'
                 ).all()
                 current_app.logger.info(f"查找所有{device_type}, 找到 {len(devices)} 台设备")
 
