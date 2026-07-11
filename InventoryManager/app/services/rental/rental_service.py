@@ -150,7 +150,7 @@ class RentalService:
             main_rental = Rental(
                 device_id=data['device_id'],
                 customer_name=data['customer_name'],
-                customer_phone=data['customer_phone'],
+                customer_phone=data.get('customer_phone'),
                 destination=data.get('destination', ''),
                 start_date=start_date,
                 end_date=end_date,
@@ -187,7 +187,7 @@ class RentalService:
                         accessory_rental = Rental(
                             device_id=accessory_id,
                             customer_name=data['customer_name'],
-                            customer_phone=data['customer_phone'],
+                            customer_phone=data.get('customer_phone'),
                             destination=data.get('destination', ''),
                             start_date=start_date,
                             end_date=end_date,

@@ -90,6 +90,7 @@ class TestingConfig(Config):
     """测试环境配置"""
     TESTING = True
     SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
+    SQLALCHEMY_ENGINE_OPTIONS = {}
     WTF_CSRF_ENABLED = False
 
 
