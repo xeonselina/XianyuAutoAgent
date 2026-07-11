@@ -19,6 +19,7 @@ from app.utils.date_utils import (
     convert_dates_to_datetime,
 )
 from app.services.gantt.gantt_service import GanttService
+from app.services.gantt.reorder_service import GanttReorderService
 
 
 class GanttHandlers:
@@ -110,3 +111,19 @@ class GanttHandlers:
         except Exception as e:
             current_app.logger.error(f"查找租赁档期失败: {e}")
             return server_error('查找档期失败')
+
+    @staticmethod
+    def handle_analyze_reorder() -> ApiResponse:
+        """扫描需要人工确认的接力关系。"""
+        return success(data=GanttReorderService.analyze())
+
+    @staticmethod
+    def handle_preview_reorder() -> ApiResponse:
+        """生成零写入的档期重排预览。"""
+        data = request.get_json(silent=True) or {}
+        try:
+            return success(
+                data=GanttReorderService.preview(data.get("decisions", []))
+            )
+        except ValueError as exc:
+            return bad_request(str(exc))
