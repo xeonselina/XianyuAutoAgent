@@ -43,3 +43,10 @@ def analyze_reorder():
 def preview_reorder():
     """生成档期重排预览。"""
     return GanttHandlers.handle_preview_reorder()
+
+
+@bp.route('/api/gantt/reorder/execute', methods=['POST'])
+@handle_response
+def execute_reorder():
+    """执行档期重排。"""
+    return GanttHandlers.handle_execute_reorder()

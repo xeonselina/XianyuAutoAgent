@@ -1,14 +1,17 @@
 """甘特图档期重排数据库编排服务。"""
 
 from datetime import date, datetime, time
+from dataclasses import replace
 import hashlib
 import json
+import uuid
 
 from flask import current_app
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from app import db
 from app.models.device import Device
+from app.models.audit_log import AuditLog
 from app.models.rental import Rental
 from app.models.rental_relay_binding import RentalRelayBinding
 from app.services.gantt.reorder_solver import GanttReorderSolver
@@ -252,6 +255,9 @@ class GanttReorderService:
                 "ship_out_time": cls._iso(rental.ship_out_time),
                 "ship_in_time": cls._iso(rental.ship_in_time),
                 "status": rental.status,
+                "customer_name": rental.customer_name,
+                "customer_phone": rental.customer_phone,
+                "destination": rental.destination,
                 "updated_at": cls._iso(rental.updated_at),
             })
         device_rows = [
@@ -573,3 +579,290 @@ class GanttReorderService:
             "skipped": skipped,
             "overlaps": analysis["overlaps"],
         }
+
+    @classmethod
+    def _validate_pinned_assignments(cls, models, assignments):
+        for model_data in models.values():
+            blocks = model_data["blocks"]
+            expected_ids = {
+                rental_id
+                for block in blocks
+                for rental_id in block.rental_ids
+            }
+            provided_ids = expected_ids.intersection(assignments)
+            if not provided_ids:
+                continue
+            if provided_ids != expected_ids:
+                raise ValueError("预览设备映射不完整")
+
+            model_assignments = {
+                rental_id: assignments[rental_id]
+                for rental_id in expected_ids
+            }
+            GanttReorderSolver.validate_assignment(
+                blocks, model_assignments
+            )
+            pinned_blocks = []
+            pinned_devices = set()
+            for block in blocks:
+                targets = {
+                    model_assignments[rental_id]
+                    for rental_id in block.rental_ids
+                }
+                if len(targets) != 1:
+                    raise ValueError("接力档期块被拆分")
+                target = next(iter(targets))
+                if target not in block.allowed_device_ids:
+                    raise ValueError("预览包含不合法的目标设备")
+                pinned_devices.add(target)
+                pinned_blocks.append(replace(
+                    block,
+                    current_device_id=target,
+                    allowed_device_ids=(target,),
+                    fixed=True,
+                ))
+            result = GanttReorderSolver.solve(
+                pinned_blocks,
+                sorted(pinned_devices),
+                time_limit_seconds=3.0,
+            )
+            if result.status not in {"OPTIMAL", "FEASIBLE"}:
+                raise ValueError("预览设备映射已不可执行")
+
+    @classmethod
+    def _integrity_snapshot(cls, rentals, today):
+        mains = [
+            rental
+            for rental in rentals
+            if rental.parent_rental_id is None
+        ]
+        children = [
+            rental
+            for rental in rentals
+            if rental.parent_rental_id is not None
+        ]
+
+        def immutable_values(rental):
+            return (
+                rental.id,
+                rental.parent_rental_id,
+                rental.start_date,
+                rental.end_date,
+                rental.ship_out_time,
+                rental.ship_in_time,
+                rental.status,
+                rental.customer_name,
+                rental.customer_phone,
+                rental.destination,
+            )
+
+        child_ids_by_parent = {}
+        for child in children:
+            child_ids_by_parent.setdefault(
+                child.parent_rental_id, []
+            ).append(child.id)
+        return {
+            "main_ids": {rental.id for rental in mains},
+            "child_ids": {rental.id for rental in children},
+            "movable_main_ids": {
+                rental.id
+                for rental in mains
+                if cls._is_movable(rental, today)
+            },
+            "main_immutable": {
+                rental.id: (
+                    immutable_values(rental),
+                    rental.device.model_id if rental.device else None,
+                    tuple(sorted(child_ids_by_parent.get(rental.id, []))),
+                )
+                for rental in mains
+            },
+            "child_values": {
+                rental.id: (
+                    rental.device_id,
+                    immutable_values(rental),
+                )
+                for rental in children
+            },
+        }
+
+    @staticmethod
+    def _apply_relay_decisions(decisions, rentals, bindings):
+        main_by_id = {
+            rental.id: rental
+            for rental in rentals
+            if rental.parent_rental_id is None
+        }
+        binding_by_pair = {
+            (
+                binding.predecessor_rental_id,
+                binding.successor_rental_id,
+            ): binding
+            for binding in bindings
+        }
+        changes = []
+        for decision in decisions:
+            pair = (
+                decision["predecessor_rental_id"],
+                decision["successor_rental_id"],
+            )
+            existing = binding_by_pair.get(pair)
+            if decision["action"] == "keep" and existing is None:
+                predecessor = main_by_id[pair[0]]
+                successor = main_by_id[pair[1]]
+                RentalRelayBinding.validate_pair(
+                    predecessor, successor
+                )
+                db.session.add(RentalRelayBinding(
+                    predecessor_rental_id=pair[0],
+                    successor_rental_id=pair[1],
+                ))
+                changes.append({
+                    "action": "created",
+                    "predecessor_rental_id": pair[0],
+                    "successor_rental_id": pair[1],
+                })
+            elif decision["action"] == "separate" and existing:
+                db.session.delete(existing)
+                changes.append({
+                    "action": "deleted",
+                    "predecessor_rental_id": pair[0],
+                    "successor_rental_id": pair[1],
+                })
+        return changes
+
+    @classmethod
+    def _apply_device_assignments(
+        cls, rentals, devices, assignments, today
+    ):
+        main_by_id = {
+            rental.id: rental
+            for rental in rentals
+            if rental.parent_rental_id is None
+        }
+        device_by_id = {device.id: device for device in devices}
+        for rental_id, target_device_id in assignments.items():
+            rental = main_by_id.get(rental_id)
+            if rental is None:
+                raise ValueError("预览包含非主 rental")
+            if target_device_id == rental.device_id:
+                continue
+            if not cls._is_movable(rental, today):
+                raise ValueError("预览试图移动固定 rental")
+            target = device_by_id.get(target_device_id)
+            if target is None:
+                raise ValueError("目标设备不存在")
+            if (
+                target.is_accessory
+                or target.status != "online"
+                or target.lifecycle_status != "active"
+            ):
+                raise ValueError("目标设备不是使用中的主设备")
+            if target.model_id != rental.device.model_id:
+                raise ValueError("禁止跨型号重排")
+            rental.device_id = target_device_id
+
+    @staticmethod
+    def _write_audit_rows(device_changes, relay_changes):
+        operation_id = str(uuid.uuid4())
+        for change in device_changes:
+            db.session.add(AuditLog(
+                rental_id=change["rental_id"],
+                device_id=change["to_device_id"],
+                action="gantt_schedule_reordered",
+                resource_type="rental",
+                resource_id=str(change["rental_id"]),
+                description="甘特图一键重排设备",
+                details={"operation_id": operation_id, **change},
+            ))
+        if relay_changes:
+            db.session.add(AuditLog(
+                action="gantt_relay_bindings_changed",
+                resource_type="rental_relay_binding",
+                resource_id=operation_id,
+                description="甘特图接力关系变更",
+                details={
+                    "operation_id": operation_id,
+                    "changes": relay_changes,
+                },
+            ))
+
+    @classmethod
+    def _assert_integrity(
+        cls, before, rentals, assignments, today
+    ):
+        after = cls._integrity_snapshot(rentals, today)
+        if before["main_ids"] != after["main_ids"]:
+            raise RuntimeError("主 rental 集合发生变化")
+        if before["child_ids"] != after["child_ids"]:
+            raise RuntimeError("子 rental 集合发生变化")
+        if before["main_immutable"] != after["main_immutable"]:
+            raise RuntimeError("主 rental 非设备字段发生变化")
+        if before["child_values"] != after["child_values"]:
+            raise RuntimeError("子 rental 字段发生变化")
+        if set(assignments) - before["main_ids"]:
+            raise RuntimeError("存在未授权 rental 映射")
+
+        main_by_id = {
+            rental.id: rental
+            for rental in rentals
+            if rental.parent_rental_id is None
+        }
+        for rental_id in before["movable_main_ids"]:
+            if rental_id in assignments:
+                if main_by_id[rental_id].device_id != assignments[rental_id]:
+                    raise RuntimeError("实际设备分配与预览不一致")
+
+    @classmethod
+    def execute(cls, token):
+        payload = cls._load_preview(token)
+        preview_today = date.fromisoformat(payload["today"])
+        if preview_today != date.today():
+            raise StalePreviewError("预览日期已变化，请重新预览")
+
+        try:
+            decisions = cls._validate_decisions(payload["decisions"])
+            rentals, devices, bindings = cls._load_reorder_graph(
+                today=preview_today, lock=True
+            )
+            snapshot = cls._snapshot(
+                rentals, devices, bindings, decisions, preview_today
+            )
+            if cls._hash_snapshot(snapshot) != payload["snapshot_hash"]:
+                raise StalePreviewError("档期或设备状态已变化，请重新预览")
+
+            assignments = {
+                int(key): int(value)
+                for key, value in payload["assignments"].items()
+            }
+            models, _ = cls._build_blocks(
+                rentals,
+                devices,
+                bindings,
+                decisions,
+                preview_today,
+            )
+            cls._validate_pinned_assignments(models, assignments)
+            before = cls._integrity_snapshot(rentals, preview_today)
+            device_changes = cls._changes(
+                rentals, devices, assignments, preview_today
+            )
+            relay_changes = cls._apply_relay_decisions(
+                decisions, rentals, bindings
+            )
+            cls._apply_device_assignments(
+                rentals, devices, assignments, preview_today
+            )
+            cls._write_audit_rows(device_changes, relay_changes)
+            db.session.flush()
+            cls._assert_integrity(
+                before, rentals, assignments, preview_today
+            )
+            db.session.commit()
+            return {
+                "changes": device_changes,
+                "relay_changes": relay_changes,
+            }
+        except Exception:
+            db.session.rollback()
+            raise

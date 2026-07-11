@@ -19,7 +19,10 @@ from app.utils.date_utils import (
     convert_dates_to_datetime,
 )
 from app.services.gantt.gantt_service import GanttService
-from app.services.gantt.reorder_service import GanttReorderService
+from app.services.gantt.reorder_service import (
+    GanttReorderService,
+    StalePreviewError,
+)
 
 
 class GanttHandlers:
@@ -127,3 +130,22 @@ class GanttHandlers:
             )
         except ValueError as exc:
             return bad_request(str(exc))
+
+    @staticmethod
+    def handle_execute_reorder() -> ApiResponse:
+        """原子执行已签名的档期重排预览。"""
+        data = request.get_json(silent=True) or {}
+        if not data.get("token"):
+            return bad_request("缺少预览令牌")
+        try:
+            return success(
+                data=GanttReorderService.execute(data["token"]),
+                message="档期重排完成",
+            )
+        except StalePreviewError as exc:
+            return error(str(exc), status_code=409)
+        except ValueError as exc:
+            return bad_request(str(exc))
+        except Exception:
+            current_app.logger.exception("档期重排执行失败")
+            return server_error("档期重排失败，所有修改已回滚")
