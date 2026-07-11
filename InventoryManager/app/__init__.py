@@ -11,7 +11,8 @@ import os
 
 # 提前加载 .env，确保 Config 读取到环境变量
 _BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-load_dotenv(os.path.join(_BASE_DIR, '.env'))
+if os.environ.get('TESTING', '').lower() != 'true':
+    load_dotenv(os.path.join(_BASE_DIR, '.env'))
 
 from config import Config, config as config_map
 import logging
