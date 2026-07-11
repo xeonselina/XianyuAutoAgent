@@ -32,6 +32,13 @@
         
         <el-col :span="8" class="text-right">
           <el-button
+            type="primary"
+            :icon="Sort"
+            @click="showScheduleReorderDialog = true"
+          >
+            一键重排档期
+          </el-button>
+          <el-button
             type="success"
             @click="showAddDeviceDialog = true"
             :icon="Plus"
@@ -261,6 +268,12 @@
     <!-- 客户历史订单对话框 -->
     <CustomerHistoryDialog v-model="showCustomerHistoryDialog" />
 
+    <!-- 档期一键重排对话框 -->
+    <ScheduleReorderDialog
+      v-model="showScheduleReorderDialog"
+      @completed="handleScheduleReorderCompleted"
+    />
+
     <!-- 添加设备对话框 -->
     <el-dialog 
       v-model="showAddDeviceDialog" 
@@ -368,13 +381,14 @@ import { ref, computed, onMounted, watch, nextTick, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGanttStore, type Device, type Rental, type DeviceModel, type ModelAccessory } from '@/stores/gantt'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, ArrowLeft, ArrowRight, Search, DataAnalysis, ArrowDown, Location, CircleCheck, TrendCharts, User } from '@element-plus/icons-vue'
+import { Plus, Refresh, ArrowLeft, ArrowRight, Search, DataAnalysis, ArrowDown, Location, CircleCheck, TrendCharts, User, Sort } from '@element-plus/icons-vue'
 import axios from 'axios'
 import GanttRow from './GanttRow.vue'
 import BookingDialog from './BookingDialog.vue'
 import { EditRentalDialogNew } from './rental'
 import BatchPrintDialog from './rental/BatchPrintDialog.vue'
 import CustomerHistoryDialog from './CustomerHistoryDialog.vue'
+import ScheduleReorderDialog from './ScheduleReorderDialog.vue'
 import {
   toSystemDateString,
   isToday,
@@ -393,6 +407,7 @@ const showEditDialog = ref(false)
 const showAddDeviceDialog = ref(false)
 const showCustomerHistoryDialog = ref(false)
 const showBatchPrintDialog = ref(false)
+const showScheduleReorderDialog = ref(false)
 const selectedRental = ref<Rental | null>(null)
 const searchKeyword = ref<string>('')
 const selectedDeviceModel = ref<string>('')
@@ -715,6 +730,13 @@ const handleBookingSuccess = async () => {
   await loadDailyStats()
 
   // 强制触发组件重新渲染，清除GanttRow中的缓存
+  await nextTick()
+}
+
+const handleScheduleReorderCompleted = async () => {
+  await ganttStore.loadData()
+  statsCache.clear()
+  await loadDailyStats()
   await nextTick()
 }
 

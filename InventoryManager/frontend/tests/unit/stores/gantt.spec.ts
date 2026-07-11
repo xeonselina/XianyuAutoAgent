@@ -129,6 +129,52 @@ describe('Gantt Store', () => {
     })
   })
 
+  describe('Schedule Reordering', () => {
+    it('调用 analyze、preview 和 execute 接口', async () => {
+      const store = useGanttStore()
+      vi.mocked(axios.post)
+        .mockResolvedValueOnce({
+          data: { success: true, data: { today: '2026-07-11', overlaps: [] } }
+        })
+        .mockResolvedValueOnce({
+          data: {
+            success: true,
+            data: { token: 'signed', models: [], changes: [], skipped: [], overlaps: [] }
+          }
+        })
+        .mockResolvedValueOnce({
+          data: { success: true, data: { changes: [], relay_changes: [] } }
+        })
+
+      await store.analyzeScheduleReorder()
+      await store.previewScheduleReorder([])
+      await store.executeScheduleReorder('signed')
+
+      expect(axios.post).toHaveBeenNthCalledWith(1, '/api/gantt/reorder/analyze')
+      expect(axios.post).toHaveBeenNthCalledWith(
+        2,
+        '/api/gantt/reorder/preview',
+        { decisions: [] }
+      )
+      expect(axios.post).toHaveBeenNthCalledWith(
+        3,
+        '/api/gantt/reorder/execute',
+        { token: 'signed' }
+      )
+    })
+
+    it('保留后端快照冲突错误信息', async () => {
+      const store = useGanttStore()
+      vi.mocked(axios.post).mockRejectedValueOnce({
+        response: { data: { message: '档期已变化，请重新预览' } }
+      })
+
+      await expect(store.executeScheduleReorder('expired')).rejects.toThrow(
+        '档期已变化，请重新预览'
+      )
+    })
+  })
+
   describe('Device Status Management', () => {
     it('should update device online/offline status', async () => {
       const store = useGanttStore()
