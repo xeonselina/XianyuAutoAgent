@@ -63,3 +63,6 @@ beautifulsoup4==4.13.4
 
 # User-Agent检测库
 user-agents==2.2.0
+
+# 档期优化（随 Docker 镜像安装）
+ortools==9.15.6755

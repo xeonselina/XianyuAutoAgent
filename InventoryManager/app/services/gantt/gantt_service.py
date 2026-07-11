@@ -267,25 +267,18 @@ class GanttService:
             # 根据 model_filter 查找设备
             device_type = "附件" if is_accessory else "主设备"
 
+            devices_query = Device.in_service_query(is_accessory=is_accessory)
+
             if model_filter and str(model_filter).strip():
                 try:
                     model_id = int(model_filter)
-                    devices = Device.query.filter(
-                        Device.model_id == model_id,
-                        Device.is_accessory == is_accessory,
-                        Device.status == 'online',
-                        Device.lifecycle_status == 'active'
-                    ).all()
+                    devices = devices_query.filter(Device.model_id == model_id).all()
                     current_app.logger.info(f"查找{device_type} model_id={model_id}, 找到 {len(devices)} 台设备")
-                except ValueError:
+                except (TypeError, ValueError):
                     current_app.logger.error(f"无效的 model_id: {model_filter}")
                     return None
             else:
-                devices = Device.query.filter(
-                    Device.is_accessory == is_accessory,
-                    Device.status == 'online',
-                    Device.lifecycle_status == 'active'
-                ).all()
+                devices = devices_query.all()
                 current_app.logger.info(f"查找所有{device_type}, 找到 {len(devices)} 台设备")
 
             # 检查设备可用性

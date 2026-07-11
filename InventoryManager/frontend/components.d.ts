@@ -11,6 +11,7 @@ declare module 'vue' {
     BatchPrintDialog: typeof import('./src/components/rental/BatchPrintDialog.vue')['default']
     BookingDialog: typeof import('./src/components/BookingDialog.vue')['default']
     ChecklistForm: typeof import('./src/components/inspection/ChecklistForm.vue')['default']
+    CustomerHistoryDialog: typeof import('./src/components/CustomerHistoryDialog.vue')['default']
     DeviceSearchInput: typeof import('./src/components/inspection/DeviceSearchInput.vue')['default']
     EditInspectionDialog: typeof import('./src/components/inspection/EditInspectionDialog.vue')['default']
     EditRentalDialogNew: typeof import('./src/components/rental/EditRentalDialogNew.vue')['default']
@@ -43,6 +44,8 @@ declare module 'vue' {
     ElResult: typeof import('element-plus/es')['ElResult']
     ElRow: typeof import('element-plus/es')['ElRow']
     ElSelect: typeof import('element-plus/es')['ElSelect']
+    ElStep: typeof import('element-plus/es')['ElStep']
+    ElSteps: typeof import('element-plus/es')['ElSteps']
     ElTable: typeof import('element-plus/es')['ElTable']
     ElTableColumn: typeof import('element-plus/es')['ElTableColumn']
     ElTabPane: typeof import('element-plus/es')['ElTabPane']
@@ -59,6 +62,7 @@ declare module 'vue' {
     IconTooling: typeof import('./src/components/icons/IconTooling.vue')['default']
     ImagePreviewDialog: typeof import('./src/components/ImagePreviewDialog.vue')['default']
     InspectionRecordCard: typeof import('./src/components/inspection/InspectionRecordCard.vue')['default']
+    LensComboSelector: typeof import('./src/components/rental/LensComboSelector.vue')['default']
     RentalAccessorySelector: typeof import('./src/components/rental/RentalAccessorySelector.vue')['default']
     RentalActionButtons: typeof import('./src/components/rental/RentalActionButtons.vue')['default']
     RentalBasicForm: typeof import('./src/components/rental/RentalBasicForm.vue')['default']
@@ -67,6 +71,7 @@ declare module 'vue' {
     RentalTooltip: typeof import('./src/components/RentalTooltip.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    ScheduleReorderDialog: typeof import('./src/components/ScheduleReorderDialog.vue')['default']
     SimplifiedShippingSlip: typeof import('./src/components/printing/SimplifiedShippingSlip.vue')['default']
   }
   export interface GlobalDirectives {

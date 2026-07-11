@@ -104,6 +104,85 @@ export interface AvailableSlot {
   controllerCount?: number
 }
 
+export interface ReorderCustomer {
+  id: number
+  customer_name: string
+  customer_phone: string | null
+  destination: string | null
+  ship_out_time: string
+  ship_in_time: string
+}
+
+export interface ReorderOverlap {
+  pair_key: string
+  status: 'bound' | 'needs_confirmation'
+  binding_id: number | null
+  overlap_days: number
+  can_separate: boolean
+  device: { id: number; name: string; model_id: number }
+  predecessor: ReorderCustomer
+  successor: ReorderCustomer
+}
+
+export interface ReorderAnalysis {
+  today: string
+  overlaps: ReorderOverlap[]
+}
+
+export interface RelayDecision {
+  predecessor_rental_id: number
+  successor_rental_id: number
+  action: 'keep' | 'separate'
+}
+
+export interface ReorderModelSummary {
+  model_id: number
+  status: string
+  before_devices: number
+  after_devices: number
+  movable_rentals: number
+  changed_rentals: number
+  total_gap_days: number
+}
+
+export interface ReorderChange {
+  rental_id: number
+  model_id: number
+  customer_name: string
+  customer_phone: string | null
+  destination: string | null
+  ship_out_time: string
+  ship_in_time: string
+  from_device_id: number
+  from_device_name: string
+  to_device_id: number
+  to_device_name: string
+}
+
+export interface ReorderPreview {
+  token: string
+  models: ReorderModelSummary[]
+  changes: ReorderChange[]
+  skipped: Array<{ rental_id: number; reason: string }>
+  overlaps: ReorderOverlap[]
+}
+
+export interface ReorderExecuteResult {
+  changes: ReorderChange[]
+  relay_changes: Array<{
+    action: 'created' | 'deleted'
+    predecessor_rental_id: number
+    successor_rental_id: number
+  }>
+}
+
+const apiErrorMessage = (err: any, fallback: string) => {
+  return err.response?.data?.message
+    || err.response?.data?.error
+    || err.message
+    || fallback
+}
+
 export const useGanttStore = defineStore('gantt', () => {
   // 状态
   const devices = ref<Device[]>([])
@@ -385,6 +464,46 @@ export const useGanttStore = defineStore('gantt', () => {
     }
   }
 
+  const analyzeScheduleReorder = async (): Promise<ReorderAnalysis> => {
+    try {
+      const response = await axios.post('/api/gantt/reorder/analyze')
+      if (!response.data.success) {
+        throw new Error(response.data.message || response.data.error || '分析接力关系失败')
+      }
+      return response.data.data
+    } catch (err: any) {
+      throw new Error(apiErrorMessage(err, '分析接力关系失败'))
+    }
+  }
+
+  const previewScheduleReorder = async (
+    decisions: RelayDecision[]
+  ): Promise<ReorderPreview> => {
+    try {
+      const response = await axios.post('/api/gantt/reorder/preview', { decisions })
+      if (!response.data.success) {
+        throw new Error(response.data.message || response.data.error || '计算重排预览失败')
+      }
+      return response.data.data
+    } catch (err: any) {
+      throw new Error(apiErrorMessage(err, '计算重排预览失败'))
+    }
+  }
+
+  const executeScheduleReorder = async (
+    token: string
+  ): Promise<ReorderExecuteResult> => {
+    try {
+      const response = await axios.post('/api/gantt/reorder/execute', { token })
+      if (!response.data.success) {
+        throw new Error(response.data.message || response.data.error || '执行档期重排失败')
+      }
+      return response.data.data
+    } catch (err: any) {
+      throw new Error(apiErrorMessage(err, '执行档期重排失败'))
+    }
+  }
+
   return {
     // 状态
     devices,
@@ -415,6 +534,9 @@ export const useGanttStore = defineStore('gantt', () => {
     shipRentalToXianyu,
     updateDeviceStatus,
     updateDeviceLifecycle,
-    addDevice
+    addDevice,
+    analyzeScheduleReorder,
+    previewScheduleReorder,
+    executeScheduleReorder
   }
 })
