@@ -1,66 +1,66 @@
-# Design: Gantt Schedule Reordering
+# 设计：甘特图档期一键重排
 
-## Context
+## 背景
 
-The Gantt chart stores a main device rental and optional accessory child rentals. Logistics occupancy is represented by `ship_out_time` through `ship_in_time`. Existing overlapping rentals can represent intentional customer-to-customer relay shipments. Reordering must therefore optimize device assignments without changing dates or breaking order composition.
+甘特图中的订单由一个主设备 rental 和可选的附件子 rental 组成，物流占用范围由 `ship_out_time` 到 `ship_in_time` 表示。现有重叠档期可能是人工安排的客户间直接转寄（接力）。因此，重排只能优化主设备分配，不能改变日期或破坏订单组合。
 
-The detailed approved design is recorded in `docs/superpowers/specs/2026-07-11-gantt-schedule-reordering-design.md`.
+已确认的详细设计记录在 `docs/superpowers/specs/2026-07-11-gantt-schedule-reordering-design.md`。
 
-## Goals / Non-Goals
+## 目标与非目标
 
-**Goals:**
+### 目标
 
-- Optimize future `not_shipped` main rentals independently per `model_id` with OR-Tools CP-SAT.
-- Require relay review and a no-write preview before execution.
-- Preserve every parent and child rental and all non-device fields.
-- Persist relay chains and constrain them to one main device.
-- Use only online, lifecycle-active target devices.
-- Execute atomically with snapshot and row-lock protection.
+- 使用 OR-Tools CP-SAT 按 `model_id` 独立优化未来 `not_shipped` 主 rental。
+- 执行前必须先检查接力关系并生成零写入预览。
+- 保留每个父、子 rental 以及全部非设备字段。
+- 永久保存接力链，并约束其位于同一台主设备。
+- 只使用在线且生命周期为“使用中”的目标设备。
+- 使用快照和行锁保护，在单一事务中原子执行。
 
-**Non-Goals:**
+### 非目标
 
-- Moving child rentals or accessory devices.
-- Changing rental or logistics dates.
-- Moving scheduled, shipped, or in-progress rentals.
-- Running tests against production data by default.
+- 移动子 rental 或附件设备。
+- 修改租赁日期或物流日期。
+- 移动已预约、已寄出或进行中的 rental。
+- 默认使用生产数据运行测试。
 
-## Decisions
+## 技术决策
 
-### Two-step workflow
+### 两步操作流程
 
-Step one requires a decision for every pre-existing overlap longer than the allowed same-day turnaround. Step two shows model summaries and per-rental customer, phone, address, date and device changes, then executes directly.
+第一步要求用户处理所有超过同日衔接范围的既有重叠。第二步按型号汇总，并逐笔展示客户、电话、地址、日期和设备变化，然后直接执行。
 
-### Relay persistence
+### 永久保存接力关系
 
-A new non-branching predecessor/successor relation persists confirmed relays. Relay chains become indivisible logical blocks in the solver. A chain containing a fixed rental is fixed to its current device.
+新增不可分叉的前序/后序关系，永久保存已确认接力。接力链在求解器中成为不可拆分的逻辑档期块。包含固定 rental 的接力链固定在该 rental 当前所在设备。
 
-### Solver model
+### 求解器模型
 
-Each model is solved independently. Normal and relay blocks use optional intervals per eligible device, exactly-one assignment, fixed anchors and `NoOverlap`. Objectives are lexicographic: minimize used devices, then idle gaps, then changed assignments. Each model has a three-second limit, one worker and a fixed random seed.
+每个型号独立求解。普通档期块和接力档期块在每台合法设备上使用可选区间、恰好一次分配、固定锚点和 `NoOverlap` 约束。分层优化目标依次是：最少使用设备、最少空闲间隔、最少设备变更。每个型号最多求解三秒，使用一个工作线程和固定随机种子。
 
-### Safe execution
+### 安全执行
 
-The signed ten-minute preview token carries a snapshot hash, relay choices and server-generated assignment. Execute locks all related rows, rebuilds the snapshot, pins the preview assignment into a feasibility model, validates invariants, and writes device changes, relay metadata and audit rows in one transaction.
+十分钟有效的签名预览令牌包含快照哈希、接力选择和服务端生成的设备映射。执行时锁定所有相关数据行、重建快照、把预览映射固定到可行性模型中校验，然后在单一事务中写入设备变化、接力元数据和审计日志。
 
-### Device eligibility
+### 设备资格
 
-Both the slot finder and reorder candidate query use the same predicate: non-accessory where appropriate, `status = online`, and `lifecycle_status = active`.
+查找档期和重排候选设备复用同一规则：在适用场景排除附件，并同时要求 `status = online`、`lifecycle_status = active`。
 
-### Test isolation
+### 测试隔离
 
-Tests require explicit `TEST_DATABASE_URL`, `TESTING=true`, a database name containing `test`, and a non-`192.*` host. MySQL-specific tests use an isolated container; production dumps are opt-in, read-only and anonymized.
+测试必须显式设置 `TEST_DATABASE_URL` 和 `TESTING=true`，数据库名必须包含 `test`，主机不得是 `192.*`。MySQL 专属测试使用隔离容器；生产 dump 只能在单独授权后以只读方式获取并脱敏。
 
-## Risks / Trade-offs
+## 风险与取舍
 
-- OR-Tools adds approximately 232 MB installed image size. The existing multi-stage multi-architecture Docker build contains the dependency, so the NAS host needs no package installation.
-- A three-second limit may return a feasible but unproven result. The UI labels solver status, and only fully feasible assignments can execute.
-- Row locking can briefly serialize concurrent rental edits. The operation is bounded and rejects stale previews rather than overwriting changes.
-- Existing invalid relay metadata can block one model. The UI identifies the records for manual correction while leaving all rental data unchanged.
+- OR-Tools 会使镜像安装体积增加约 232 MB。现有多阶段、多架构 Docker 构建会包含该依赖，NAS 主机无需安装任何软件包。
+- 三秒限制可能只能返回已找到但未证明最优的可行解。界面会显示求解状态，只有通过完整可行性校验的分配才能执行。
+- 行锁会短暂串行化并发 rental 修改。操作有明确时限，并会拒绝过期预览，不会覆盖新数据。
+- 既有接力元数据异常时可能阻止某个型号重排。界面会指出需要人工检查的记录，所有 rental 数据保持不变。
 
-## Migration Plan
+## 迁移方案
 
-1. Add the relay binding table and constraints.
-2. Deploy backend support while leaving the feature button unavailable until APIs pass health checks.
-3. Deploy the two-step frontend.
-4. Verify OR-Tools import on both image architectures.
-5. Roll back by hiding the frontend action and reverting application code; the additive relay table can remain without affecting existing rentals.
+1. 增加接力关系表及其约束。
+2. 部署后端支持，在 API 健康检查通过前不显示前端入口。
+3. 部署两步前端交互。
+4. 验证两种镜像架构均可导入 OR-Tools。
+5. 如需回滚，隐藏前端入口并回退应用代码；新增接力表可以保留，不影响现有 rental。

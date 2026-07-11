@@ -1,30 +1,30 @@
-# Change: Add Gantt Schedule Reordering
+# 变更：增加甘特图档期一键重排
 
-## Why
+## 背景
 
-Future unshipped rentals are spread across devices of the same model, leaving avoidable schedule gaps. Operators need a safe one-click optimizer that preserves dates, fixed shipments, parent-child rentals, and manually confirmed relay arrangements. The existing rental slot lookup also returns online devices that are no longer lifecycle-active.
+未来尚未寄出的 rental 分散在同型号的多台设备上，形成了可以避免的档期空隙。运营人员需要一个安全的一键优化功能，在保持订单日期、固定发货订单、父子 rental 以及人工确认接力安排不变的前提下压缩档期。当前“新建 rental → 查找档期”还会返回设备状态为在线、但生命周期已不是“使用中”的设备。
 
-## What Changes
+## 变更内容
 
-- Add a two-step Gantt workflow to confirm relay relationships, preview an OR-Tools schedule, and execute it.
-- Reassign only eligible main rental `device_id` values within the same `model_id`.
-- Persist confirmed relay relationships and keep relay chains on one device.
-- Protect child rentals and all non-device rental fields with snapshot, lock, transaction, rollback, and audit checks.
-- Restrict both schedule reordering and new-rental slot lookup to online, lifecycle-active devices.
-- Add isolated automated tests that cannot connect to the production `192.*` database.
-- Package OR-Tools in the existing amd64/arm64 Docker image.
+- 增加甘特图两步操作流程：确认接力关系、预览 OR-Tools 重排结果并执行。
+- 仅在相同 `model_id` 内重新分配符合条件的主 rental `device_id`。
+- 永久保存人工确认的接力关系，并保证接力链始终位于同一台设备。
+- 通过快照、行锁、单事务、回滚和审计校验保护子 rental 及所有非设备字段。
+- 档期重排和新建 rental 查找档期都只使用在线且生命周期为“使用中”的设备。
+- 增加无法连接生产 `192.*` 数据库的隔离自动化测试。
+- 将 OR-Tools 打包进现有 amd64/arm64 Docker 镜像。
 
-## Impact
+## 影响范围
 
-- Affected specs: `gantt-schedule-reordering`
-- Affected backend: Gantt routes, handlers and services; device eligibility query; rental relay model and migration; audit logging
-- Affected frontend: Gantt toolbar, two-step relay/preview dialog, Gantt store
-- Affected deployment: Python requirements and multi-architecture Docker verification
-- Affected tests: optimizer unit tests, API/service integration tests, frontend component/store tests, isolated MySQL transaction tests
+- 受影响规格：`gantt-schedule-reordering`
+- 后端：甘特图路由、处理器和服务；设备资格查询；接力关系模型和数据库迁移；审计日志
+- 前端：甘特图工具栏、两步接力/预览弹窗、甘特图 store
+- 部署：Python 依赖和多架构 Docker 验证
+- 测试：优化器单元测试、API/服务集成测试、前端组件/store 测试、隔离 MySQL 事务测试
 
-## Safety
+## 安全约束
 
-- No automated test may load the production `.env` or connect to a `192.*` database host.
-- Preview performs no database writes.
-- Execute changes only eligible main rental `device_id` fields and relay metadata in one transaction.
-- Any snapshot, integrity, feasibility or database failure rolls back the entire execution.
+- 自动化测试不得加载生产 `.env`，也不得连接 `192.*` 数据库主机。
+- 预览不得产生数据库写入。
+- 执行只能在单一事务中修改符合条件的主 rental `device_id` 和接力元数据。
+- 任何快照、完整性、可行性或数据库校验失败，都必须回滚整个操作。

@@ -1,39 +1,39 @@
-## 1. Test Isolation and Device Eligibility
+## 1. 测试隔离与设备资格
 
-- [ ] 1.1 Add guarded test database configuration that rejects `192.*` hosts and non-test database names.
-- [ ] 1.2 Add failing tests for lifecycle-inactive devices in rental slot lookup.
-- [ ] 1.3 Centralize the online-and-active device eligibility predicate and fix slot lookup.
+- [ ] 1.1 增加测试数据库保护配置，拒绝 `192.*` 主机和非测试数据库名。
+- [ ] 1.2 为查找档期返回生命周期非使用中设备编写失败测试。
+- [ ] 1.3 统一在线且使用中的设备资格规则，并修复查找档期。
 
-## 2. Relay Binding Domain
+## 2. 接力关系领域模型
 
-- [ ] 2.1 Add relay binding model, migration and non-branching database constraints.
-- [ ] 2.2 Add validation and tests for main-rental, same-model, same-device, chronological relay chains.
-- [ ] 2.3 Add overlap analysis service and API tests.
+- [ ] 2.1 增加接力关系模型、数据库迁移及不可分叉约束。
+- [ ] 2.2 增加主 rental、同型号、同设备和时间顺序校验及测试。
+- [ ] 2.3 增加重叠分析服务和 API 测试。
 
-## 3. OR-Tools Preview
+## 3. OR-Tools 预览
 
-- [ ] 3.1 Add the pinned OR-Tools production dependency and Docker import smoke checks.
-- [ ] 3.2 Add pure optimizer tests for eligibility, same-model isolation, same-day turnaround, fixed anchors, relay chains, objectives, timeout and infeasibility.
-- [ ] 3.3 Implement logical block construction and per-model CP-SAT optimization.
-- [ ] 3.4 Implement signed snapshot tokens and the no-write preview API.
+- [ ] 3.1 固定 OR-Tools 生产依赖，并增加 Docker 导入冒烟测试。
+- [ ] 3.2 为资格筛选、同型号隔离、同日衔接、固定锚点、接力链、优化目标、超时和无解编写纯优化器测试。
+- [ ] 3.3 实现逻辑档期块构建和按型号 CP-SAT 优化。
+- [ ] 3.4 实现签名快照令牌和零写入预览 API。
 
-## 4. Atomic Execution
+## 4. 原子执行
 
-- [ ] 4.1 Add failing MySQL integration tests for row locking, stale snapshots, rollback and replay.
-- [ ] 4.2 Implement locked snapshot rebuild and pinned-assignment feasibility validation.
-- [ ] 4.3 Implement one-transaction relay, main rental device and audit updates.
-- [ ] 4.4 Implement pre-commit parent-child and rental-set invariant checks.
+- [ ] 4.1 为行锁、过期快照、回滚和重复请求编写失败的 MySQL 集成测试。
+- [ ] 4.2 实现带锁快照重建和固定预览映射的可行性校验。
+- [ ] 4.3 在单一事务中实现接力关系、主 rental 设备和审计日志更新。
+- [ ] 4.4 实现提交前父子 rental 和 rental 集合不变量校验。
 
-## 5. Gantt User Interface
+## 5. 甘特图用户界面
 
-- [ ] 5.1 Add store APIs and tests for analyze, preview and execute.
-- [ ] 5.2 Add the Gantt toolbar action and relay confirmation step with customer contact details.
-- [ ] 5.3 Add the preview step with model summaries, detailed changes, return action and direct execute button.
-- [ ] 5.4 Add stale, expired, infeasible, skipped and rollback error states.
+- [ ] 5.1 增加 analyze、preview、execute 的 store API 和测试。
+- [ ] 5.2 增加甘特图工具栏入口，以及显示客户联系信息的接力确认步骤。
+- [ ] 5.3 增加型号汇总、详细变化、返回操作和直接执行按钮的预览步骤。
+- [ ] 5.4 增加快照过期、无解、跳过和回滚错误状态。
 
-## 6. Verification
+## 6. 验证
 
-- [ ] 6.1 Run backend unit and isolated MySQL integration suites.
-- [ ] 6.2 Run frontend unit and integration suites.
-- [ ] 6.3 Build amd64 and arm64 images and verify CP-SAT import.
-- [ ] 6.4 Confirm only eligible main rental `device_id` fields change in end-to-end fixtures.
+- [ ] 6.1 运行后端单元测试和隔离 MySQL 集成测试。
+- [ ] 6.2 运行前端单元测试和集成测试。
+- [ ] 6.3 构建 amd64 和 arm64 镜像并验证 CP-SAT 导入。
+- [ ] 6.4 在端到端 fixture 中确认只有符合条件的主 rental `device_id` 发生变化。
