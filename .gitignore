@@ -48,6 +48,7 @@ chroma_data/
 *.tmp
 *.bak
 *.swp
+.worktrees/
 
 # OS files
 Thumbs.db
