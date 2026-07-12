@@ -8,6 +8,7 @@ DOCKER_TAG = latest
 DOCKER_PLATFORM = linux/amd64  # 目标平台为 x86_64
 FLASK_APP = app.py
 FLASK_ENV = development
+VENV_PYTHON = venv/bin/python3
 
 # ── 镜像仓库 / 远程部署 ──────────────────────────────────────
 REGISTRY     := docker.cnb.cool/tdcc-demo/jimmy
@@ -119,7 +120,7 @@ env-check: ## 检查环境变量配置
 init-db: ## 初始化数据库（从 .env 读取环境变量）
 	@echo "初始化数据库（读取 .env）..."
 	@[ -f .env ] || { echo "未找到 .env，请先创建并配置数据库连接信息（可参考 env.example）"; exit 1; }
-	@set -a; . .env; set +a; python3 init_db.py
+	@set -a; . .env; set +a; $(VENV_PYTHON) init_db.py
 
 .PHONY: db-upgrade
 db-upgrade: ## 运行数据库迁移（使用 DATABASE_URL_HOST 如果存在）
@@ -132,7 +133,7 @@ db-upgrade: ## 运行数据库迁移（使用 DATABASE_URL_HOST 如果存在）
 	else \
 		echo "使用默认数据库连接: DATABASE_URL"; \
 	fi; \
-	python3 -m flask db upgrade
+	$(VENV_PYTHON) -m flask db upgrade
 
 .PHONY: db-upgrade-docker
 db-upgrade-docker: ## 在 Docker 容器中运行数据库迁移
@@ -161,7 +162,7 @@ db-seed: ## 填充示例数据（从.env读取配置）
 run: ## 运行开发服务器（从.env读取配置）
 	@echo "启动开发服务器..."
 	@[ -f .env ] || { echo "未找到 .env 文件，请先创建"; exit 1; }
-	@set -a; . .env; set +a; python3 app.py
+	@set -a; . .env; set +a; $(VENV_PYTHON) app.py
 
 .PHONY: run-scheduler
 run-scheduler: ## 运行设备状态自动更新定时任务
@@ -173,16 +174,16 @@ run-scheduler: ## 运行设备状态自动更新定时任务
 run-scheduler-direct: ## 直接运行定时任务（从.env读取配置）
 	@echo "直接启动设备状态自动更新定时任务..."
 	@[ -f .env ] || { echo "未找到 .env 文件，请先创建"; exit 1; }
-	@set -a; . .env; set +a; python3 device_status_scheduler.py
+	@set -a; . .env; set +a; $(VENV_PYTHON) device_status_scheduler.py
 
 .PHONY: run-with-scheduler
 run-with-scheduler: ## 同时运行Flask应用和定时任务（从.env读取配置）
 	@echo "同时启动Flask应用和定时任务..."
 	@[ -f .env ] || { echo "未找到 .env 文件，请先创建"; exit 1; }
 	@echo "启动Flask应用..."
-	@set -a; . .env; set +a; python3 app.py &
+	@set -a; . .env; set +a; $(VENV_PYTHON) app.py &
 	@echo "启动定时任务..."
-	@set -a; . .env; set +a; python3 device_status_scheduler.py &
+	@set -a; . .env; set +a; $(VENV_PYTHON) device_status_scheduler.py &
 	@echo "所有服务已启动，使用 'make stop-all' 停止"
 
 .PHONY: stop-all
@@ -374,12 +375,12 @@ docker-logs: ## 查看Docker Compose日志
 .PHONY: test
 test: ## 运行测试
 	@echo "运行测试..."
-	python3 -m pytest tests/ -v
+	$(VENV_PYTHON) -m pytest tests/ -v
 
 .PHONY: test-cov
 test-cov: ## 运行测试并生成覆盖率报告
 	@echo "运行测试并生成覆盖率报告..."
-	python3 -m pytest tests/ --cov=app --cov-report=html --cov-report=term
+	$(VENV_PYTHON) -m pytest tests/ --cov=app --cov-report=html --cov-report=term
 
 # =============================================================================
 # 代码质量命令
@@ -466,7 +467,7 @@ setup-arm: ## 设置ARM Mac开发环境
 	@echo "检测系统架构..."
 	@uname -m
 	@echo "检测Python版本..."
-	@python3 --version
+	@$(VENV_PYTHON) --version
 	@echo "安装ARM兼容的依赖..."
 	$(MAKE) install-dev
 	@echo "ARM Mac开发环境设置完成"
@@ -527,7 +528,7 @@ info: ## 显示系统信息
 	@echo "系统信息:"
 	@echo "  OS: $(shell uname -s)"
 	@echo "  架构: $(shell uname -m)"
-	@echo "  Python: $(shell python3 --version 2>/dev/null || echo '未安装')"
+	@echo "  Python: $(shell $(VENV_PYTHON) --version 2>/dev/null || echo '未安装')"
 	@echo "  Docker: $(shell docker --version 2>/dev/null || echo '未安装')"
 	@echo "  Docker Compose: $(shell docker-compose --version 2>/dev/null || echo '未安装')"
 	@echo "  当前目录: $(shell pwd)"
