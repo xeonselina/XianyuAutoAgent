@@ -187,8 +187,15 @@ class GanttReorderService:
             Rental.parent_rental_id.is_(None),
             Rental.status != "cancelled",
             db.or_(
-                Rental.status == "not_shipped",
                 Rental.ship_in_time >= day_start,
+                db.and_(
+                    Rental.status == "not_shipped",
+                    db.or_(
+                        Rental.ship_out_time.is_(None),
+                        Rental.ship_in_time.is_(None),
+                        Rental.ship_out_time >= day_start,
+                    ),
+                ),
             ),
         ).order_by(Rental.id)
         main_rentals = cls._query_with_optional_lock(

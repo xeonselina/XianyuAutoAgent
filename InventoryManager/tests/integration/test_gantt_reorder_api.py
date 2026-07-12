@@ -1,4 +1,5 @@
 import os
+from datetime import date, datetime, time, timedelta
 
 from app import create_app, db
 from app.models.audit_log import AuditLog
@@ -67,6 +68,37 @@ def test_preview_is_read_only(client, db_session, seeded_reorder_case):
     assert payload["changes"]
     db_session.expire_all()
     assert seeded_reorder_case.snapshot() == before
+
+
+def test_preview_ignores_completed_past_not_shipped_conflicts(
+    client, db_session, seeded_reorder_case
+):
+    past = date.today() - timedelta(days=60)
+    stale_rentals = [
+        Rental(
+            device_id=seeded_reorder_case.first_device.id,
+            start_date=past + timedelta(days=1),
+            end_date=past + timedelta(days=4),
+            ship_out_time=datetime.combine(past, time(19)),
+            ship_in_time=datetime.combine(past + timedelta(days=6), time(12)),
+            customer_name=f"历史测试客户{index}",
+            customer_phone="13800000000",
+            destination="历史测试地址",
+            status="not_shipped",
+        )
+        for index in range(3)
+    ]
+    db_session.add_all(stale_rentals)
+    db_session.commit()
+
+    response = client.post(
+        "/api/gantt/reorder/preview", json={"decisions": []}
+    )
+
+    assert response.status_code == 200
+    model = response.get_json()["data"]["models"][0]
+    assert model["status"] in {"OPTIMAL", "FEASIBLE"}
+    assert model["movable_rentals"] == 2
 
 
 def test_execute_matches_preview_and_preserves_child(

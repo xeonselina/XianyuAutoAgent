@@ -24,6 +24,42 @@ class GanttReorderSolver:
     }
 
     @classmethod
+    def _summarize_assignments(cls, status, blocks, assignments):
+        cls.validate_assignment(blocks, assignments)
+        assigned_blocks = {}
+        for block in blocks:
+            target = assignments[block.rental_ids[0]]
+            assigned_blocks.setdefault(target, []).append(block)
+
+        total_gap_days = 0
+        for device_blocks in assigned_blocks.values():
+            ordered = sorted(
+                device_blocks,
+                key=lambda item: (item.start_day, item.end_day),
+            )
+            total_gap_days += sum(
+                following.start_day - previous.end_day
+                for previous, following in zip(ordered, ordered[1:])
+            )
+
+        movable_blocks = [block for block in blocks if not block.fixed]
+        return SolverResult(
+            status,
+            assignments,
+            len({
+                assignments[block.rental_ids[0]]
+                for block in movable_blocks
+            }),
+            total_gap_days,
+            sum(
+                len(block.rental_ids)
+                for block in movable_blocks
+                if assignments[block.rental_ids[0]]
+                != block.current_device_id
+            ),
+        )
+
+    @classmethod
     def solve(cls, blocks, device_ids, time_limit_seconds=3.0):
         if not blocks:
             return SolverResult("OPTIMAL", {}, 0, 0, 0)
@@ -44,8 +80,28 @@ class GanttReorderSolver:
             if block.fixed and block.current_device_id not in block.allowed_device_ids:
                 raise ValueError(f"固定档期块 {block.key} 缺少当前设备")
 
+        fallback_result = None
+        if all(
+            block.current_device_id in block.allowed_device_ids
+            for block in blocks
+        ):
+            current_assignments = {
+                rental_id: block.current_device_id
+                for block in blocks
+                for rental_id in block.rental_ids
+            }
+            try:
+                fallback_result = cls._summarize_assignments(
+                    "FEASIBLE", blocks, current_assignments
+                )
+            except ValueError:
+                pass
+
         model = cp_model.CpModel()
-        horizon_end = max(block.end_day for block in blocks) + 1
+        origin_day = min(block.start_day for block in blocks)
+        horizon_end = (
+            max(block.end_day for block in blocks) - origin_day + 1
+        )
         assignment_vars = {}
         intervals_by_device = {device_id: [] for device_id in device_ids}
 
@@ -59,9 +115,9 @@ class GanttReorderSolver:
                 choices.append(chosen)
                 intervals_by_device[device_id].append(
                     model.new_optional_interval_var(
-                        block.start_day,
+                        block.start_day - origin_day,
                         block.end_day - block.start_day,
-                        block.end_day,
+                        block.end_day - origin_day,
                         chosen,
                         f"interval_{block.key}_{device_id}",
                     )
@@ -71,6 +127,12 @@ class GanttReorderSolver:
                         chosen == int(device_id == block.current_device_id)
                     )
             model.add_exactly_one(choices)
+            if block.current_device_id in block.allowed_device_ids:
+                for device_id in block.allowed_device_ids:
+                    model.add_hint(
+                        assignment_vars[(block.key, device_id)],
+                        int(device_id == block.current_device_id),
+                    )
 
         for intervals in intervals_by_device.values():
             if intervals:
@@ -113,14 +175,17 @@ class GanttReorderSolver:
             model.add_min_equality(
                 min_start,
                 [
-                    block.start_day * chosen
+                    (block.start_day - origin_day) * chosen
                     + horizon_end * (1 - chosen)
                     for block, chosen in choices
                 ],
             )
             model.add_max_equality(
                 max_end,
-                [block.end_day * chosen for block, chosen in choices],
+                [
+                    (block.end_day - origin_day) * chosen
+                    for block, chosen in choices
+                ],
             )
             assigned_duration = cp_model.LinearExpr.sum([
                 (block.end_day - block.start_day) * chosen
@@ -153,45 +218,44 @@ class GanttReorderSolver:
         solver = cp_model.CpSolver()
         solver.parameters.num_search_workers = 1
         solver.parameters.random_seed = 20260711
+        solver.parameters.search_branching = cp_model.HINT_SEARCH
         solver.parameters.max_time_in_seconds = max(
             0.05, time_limit_seconds / len(objectives)
         )
 
         status = cp_model.UNKNOWN
+        best_result = None
         for objective in objectives:
             model.minimize(objective)
             status = solver.solve(model)
             if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                if best_result is not None:
+                    return best_result
+                if fallback_result is not None:
+                    return fallback_result
                 return SolverResult(
                     cls.STATUS_NAMES.get(status, "UNKNOWN"), {}, 0, 0, 0
                 )
+            assignments = {}
+            for block in blocks:
+                target_device_id = next(
+                    device_id
+                    for device_id in block.allowed_device_ids
+                    if solver.boolean_value(
+                        assignment_vars[(block.key, device_id)]
+                    )
+                )
+                for rental_id in block.rental_ids:
+                    assignments[rental_id] = target_device_id
+            best_result = cls._summarize_assignments(
+                "FEASIBLE", blocks, assignments
+            )
             model.add(objective == int(round(solver.objective_value)))
 
-        assignments = {}
-        for block in blocks:
-            target_device_id = next(
-                device_id
-                for device_id in block.allowed_device_ids
-                if solver.boolean_value(
-                    assignment_vars[(block.key, device_id)]
-                )
-            )
-            for rental_id in block.rental_ids:
-                assignments[rental_id] = target_device_id
-
-        cls.validate_assignment(blocks, assignments)
-        return SolverResult(
+        return cls._summarize_assignments(
             cls.STATUS_NAMES.get(status, "UNKNOWN"),
+            blocks,
             assignments,
-            sum(solver.value(value) for value in used_vars.values()),
-            sum(solver.value(value) for value in gap_vars.values()),
-            sum(
-                len(block.rental_ids)
-                for block in blocks
-                if not block.fixed
-                and assignments[block.rental_ids[0]]
-                != block.current_device_id
-            ),
         )
 
     @staticmethod
