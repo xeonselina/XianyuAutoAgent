@@ -117,7 +117,7 @@ interface Props {
 const props = defineProps<Props>()
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
-  'success': []
+  'success': [rentalId?: number]
 }>()
 
 // Store & Router
@@ -249,7 +249,7 @@ const handleSubmit = async () => {
 
     await ganttStore.updateRental(props.rental!.id, updateData)
     ElMessage.success('租赁记录更新成功')
-    emit('success')
+    emit('success', props.rental!.id)
     handleClose()
   } catch (error: any) {
     ElMessage.error('更新失败：' + (error.message || '未知错误'))

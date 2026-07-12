@@ -343,7 +343,7 @@ interface Props {
 const props = defineProps<Props>()
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
-  'success': []
+  'success': [rentalId?: number]
 }>()
 
 // Store & Composables
@@ -812,9 +812,14 @@ const handleSubmit = async () => {
       lens_combo: form.value.lensCombo
     }
 
-    await ganttStore.createRental(rentalData)
+    const result = await ganttStore.createRental(rentalData)
+    const rentalId = result.data?.main_rental?.id
     ElMessage.success('租赁记录创建成功')
-    emit('success')
+    if (typeof rentalId === 'number') {
+      emit('success', rentalId)
+    } else {
+      ElMessage.error('保存成功，但确认信息加载失败')
+    }
     handleClose()
   } catch (error: any) {
     ElMessage.error('创建失败：' + (error.message || '未知错误'))
