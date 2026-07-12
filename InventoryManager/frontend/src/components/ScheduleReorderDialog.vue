@@ -91,7 +91,7 @@
         />
 
         <h3>型号优化结果</h3>
-        <el-table v-if="preview?.models.length" :data="preview.models" border>
+        <el-table v-if="preview?.models.length" :data="localizedModels" border>
           <el-table-column prop="model_id" label="型号 ID" width="100" />
           <el-table-column prop="status" label="求解状态" width="120" />
           <el-table-column label="使用设备数" min-width="140">
@@ -197,6 +197,25 @@ const loading = ref(false)
 const analysis = ref<ReorderAnalysis | null>(null)
 const preview = ref<ReorderPreview | null>(null)
 const relayActions = ref<Record<string, 'keep' | 'separate'>>({})
+
+const solverStatusLabels: Record<string, string> = {
+  OPTIMAL: '最优方案',
+  FEASIBLE: '可行方案',
+  INFEASIBLE: '无可行方案',
+  UNKNOWN: '未得出结果',
+  MODEL_INVALID: '求解模型无效',
+}
+
+const formatSolverStatus = (status: string) => {
+  return solverStatusLabels[status] || '未知状态'
+}
+
+const localizedModels = computed(() => {
+  return (preview.value?.models || []).map(model => ({
+    ...model,
+    status: formatSolverStatus(model.status),
+  }))
+})
 
 const visible = computed({
   get: () => props.modelValue,
