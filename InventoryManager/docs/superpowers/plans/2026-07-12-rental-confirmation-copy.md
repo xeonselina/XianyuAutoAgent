@@ -389,9 +389,10 @@ git commit -m "feat: add rental confirmation dialog"
 - Create: `InventoryManager/frontend/tests/unit/components/RentalSaveSuccessEvents.spec.ts`
 
 **Interfaces:**
-- Changes `BookingDialog` event from `success: []` to `success: [rentalId: number]`.
-- Changes `EditRentalDialogNew` event from `success: []` to `success: [rentalId: number]`.
+- Changes `BookingDialog` event from `success: []` to `success: [rentalId?: number]`.
+- Changes `EditRentalDialogNew` event from `success: []` to `success: [rentalId?: number]`.
 - Consumes create response shape `response.data.main_rental.id` and edit prop `rental.id`.
+- Creation and edit saves emit a numeric rental ID; the existing edit-dialog delete path keeps emitting `success()` without an ID so callers can refresh without querying a deleted rental.
 
 - [ ] **Step 1: 写入失败的事件测试**
 
@@ -416,7 +417,7 @@ expect(wrapper.emitted('success')).toEqual([[42]])
 expect(wrapper.emitted('success')).toEqual([[77]])
 ```
 
-再覆盖两个异常分支：创建接口成功但缺少 `main_rental.id` 时不发出 `success`，并提示“保存成功，但确认信息加载失败”；创建或更新接口拒绝时不发出 `success`，继续显示现有保存失败提示。
+再覆盖删除兼容和两个异常分支：通过 `RentalActionButtons` stub 的删除按钮触发真实 `handleDelete`，删除成功后断言 `success` 为 `[[]]`（刷新信号不携带已删除 ID）；创建接口成功但缺少 `main_rental.id` 时不发出 `success`，并提示“保存成功，但确认信息加载失败”；创建或更新接口拒绝时不发出 `success`，继续显示现有保存失败提示。共 5 个测试。
 
 测试必须 mock `useConflictDetection().checkDuplicateRental` 返回 `{ hasDuplicate: false, duplicates: [] }`，并 stub 表单校验、设备/附件 composable 及子表单组件；不得通过直接调用 `wrapper.vm.$emit` 伪造被测行为。
 
@@ -433,7 +434,7 @@ Expected: FAIL，实际事件为 `[[]]` 而不是 `[[42]]`/`[[77]]`。
 ```ts
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
-  'success': [rentalId: number]
+  'success': [rentalId?: number]
 }>()
 
 const result = await ganttStore.createRental(rentalData)
@@ -452,20 +453,29 @@ handleClose()
 ```ts
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
-  'success': [rentalId: number]
+  'success': [rentalId?: number]
 }>()
 
-await ganttStore.updateRental(props.rental!.id, updateData)
-ElMessage.success('租赁记录更新成功')
-emit('success', props.rental!.id)
-handleClose()
+const handleDelete = async () => {
+  // ...删除成功后保存原有刷新语义，不传已删除的 ID
+  emit('success')
+  handleClose()
+}
+
+const handleSubmit = async () => {
+  // ...编辑保存成功路径携带当前 ID
+  await ganttStore.updateRental(props.rental!.id, updateData)
+  ElMessage.success('租赁记录更新成功')
+  emit('success', props.rental!.id)
+  handleClose()
+}
 ```
 
 - [ ] **Step 4: 运行事件测试并确认通过**
 
 Run: `cd InventoryManager/frontend && npx vitest run tests/unit/components/RentalSaveSuccessEvents.spec.ts`
 
-Expected: 4 tests PASS，覆盖新建、编辑、缺失 ID 和保存失败。
+Expected: 5 tests PASS，覆盖新建、编辑、删除无 ID、缺失 ID 和保存失败。
 
 - [ ] **Step 5: 提交事件契约**
 
@@ -483,8 +493,8 @@ git commit -m "feat: emit saved rental ids"
 - Create: `InventoryManager/frontend/tests/unit/components/GanttRentalConfirmationFlow.spec.ts`
 
 **Interfaces:**
-- Consumes `success(rentalId: number)` from Task 3 and `RentalConfirmationDialog` from Task 2.
-- Uses `ganttStore.getRentalById(rentalId): Promise<Rental | null>` after the existing refresh flow.
+- Consumes `success(rentalId?: number)` from Task 3 and `RentalConfirmationDialog` from Task 2.
+- Always runs the existing refresh flow; only when `typeof rentalId === 'number'` does it use `ganttStore.getRentalById(rentalId): Promise<Rental | null>` afterward.
 - Produces `confirmationRental: Ref<Rental | null>` and `showRentalConfirmationDialog: Ref<boolean>`.
 
 - [ ] **Step 1: 写入失败的流程测试**
@@ -510,6 +520,19 @@ await flushPromises()
 expect(wrapper.findComponent(RentalConfirmationDialog).props('modelValue')).toBe(false)
 expect(ElMessage.error).toHaveBeenCalledWith('保存成功，但确认信息加载失败')
 ```
+
+删除场景由 `EditRentalDialogNew` stub 发出无参数 `success`，必须仍执行原刷新流程，但不得查询或打开确认弹窗：
+
+```ts
+vi.spyOn(store, 'getRentalById')
+wrapper.findComponent(EditRentalDialogNew).vm.$emit('success')
+await flushPromises()
+expect(store.loadData).toHaveBeenCalled()
+expect(store.getRentalById).not.toHaveBeenCalled()
+expect(wrapper.findComponent(RentalConfirmationDialog).props('modelValue')).toBe(false)
+```
+
+流程测试共 4 个：新建、编辑、确认查询失败、删除无 ID。
 
 - [ ] **Step 2: 运行流程测试并确认确认弹窗不存在**
 
@@ -549,10 +572,12 @@ const openRentalConfirmation = async (rentalId: number) => {
 }
 ```
 
-`handleBookingSuccess(rentalId)` 和 `handleEditSuccess(rentalId)` 保留现有关闭表单、刷新甘特图、统计缓存与 `nextTick` 行为，并在这些步骤完成后调用：
+`handleBookingSuccess(rentalId?: number)` 和 `handleEditSuccess(rentalId?: number)` 保留现有关闭表单、刷新甘特图、统计缓存与 `nextTick` 行为；无论是否有 ID 都必须完成这些步骤，之后仅对数字 ID 调用确认查询：
 
 ```ts
-await openRentalConfirmation(rentalId)
+if (typeof rentalId === 'number') {
+  await openRentalConfirmation(rentalId)
+}
 ```
 
 编辑成功时可在查询前清空 `selectedRental`，但不得用 `selectedRental` 作为确认弹窗数据。
@@ -570,7 +595,7 @@ npx vitest run \
   tests/unit/components/GanttRentalConfirmationFlow.spec.ts
 ```
 
-Expected: 全部新增测试 PASS。
+Expected: 全部新增测试 PASS；其中 `GanttRentalConfirmationFlow.spec.ts` 为 4 tests，删除无 ID 场景只刷新、不查询、不弹窗。
 
 - [ ] **Step 5: 运行完整前端回归、类型检查和隔离构建**
 
