@@ -32,7 +32,7 @@
 - Consumes: `Rental` from `@/stores/gantt` and `lensComboDisplay` from `@/config/lensCombo`.
 - Produces: `RentalConfirmationContent { lines: string[]; text: string }` and `buildRentalConfirmation(rental: Rental): RentalConfirmationContent`.
 
-- [ ] **Step 1: 写入失败的纯函数测试**
+- [x] **Step 1: 写入失败的纯函数测试**
 
 创建测试夹具和以下四类断言：
 
@@ -138,7 +138,7 @@ describe('buildRentalConfirmation', () => {
 })
 ```
 
-- [ ] **Step 2: 运行测试并确认因模块不存在而失败**
+- [x] **Step 2: 运行测试并确认因模块不存在而失败**
 
 Run:
 
@@ -149,7 +149,7 @@ npx vitest run tests/unit/rental-confirmation.spec.ts
 
 Expected: FAIL，无法解析 `@/utils/rentalConfirmation`。
 
-- [ ] **Step 3: 实现最小纯函数**
+- [x] **Step 3: 实现最小纯函数**
 
 实现下列确定接口；附件分类必须同时识别 `type`、中文名称和英文 model：
 
@@ -218,13 +218,13 @@ export const buildRentalConfirmation = (rental: Rental): RentalConfirmationConte
 }
 ```
 
-- [ ] **Step 4: 运行目标测试并确认通过**
+- [x] **Step 4: 运行目标测试并确认通过**
 
 Run: `cd InventoryManager/frontend && npx vitest run tests/unit/rental-confirmation.spec.ts`
 
 Expected: 4 tests PASS。
 
-- [ ] **Step 5: 提交纯函数**
+- [x] **Step 5: 提交纯函数**
 
 ```bash
 git add InventoryManager/frontend/src/utils/rentalConfirmation.ts InventoryManager/frontend/tests/unit/rental-confirmation.spec.ts
@@ -243,7 +243,7 @@ git commit -m "feat: build rental confirmation text"
 - Consumes: `modelValue: boolean`, `rental: Rental | null`, `buildRentalConfirmation(rental)`.
 - Produces: `update:modelValue` close event; UI actions `[data-test="copy-confirmation"]` and `[data-test="confirmation-text"]`.
 
-- [ ] **Step 1: 写入失败的弹窗测试**
+- [x] **Step 1: 写入失败的弹窗测试**
 
 测试使用 Task 1 的完整 rental 夹具，覆盖：
 
@@ -288,13 +288,13 @@ it('两种复制方式都失败时提示手动复制', async () => {
 
 `mountDialog` 必须用 `ElDialog` 和 `ElButton` stub 渲染默认及 footer slot，并在每个测试后恢复 `navigator.clipboard`、`document.execCommand` 和消息 spy。
 
-- [ ] **Step 2: 运行测试并确认组件不存在**
+- [x] **Step 2: 运行测试并确认组件不存在**
 
 Run: `cd InventoryManager/frontend && npx vitest run tests/unit/components/RentalConfirmationDialog.spec.ts`
 
 Expected: FAIL，无法解析 `@/components/RentalConfirmationDialog.vue`。
 
-- [ ] **Step 3: 实现弹窗和复制回退**
+- [x] **Step 3: 实现弹窗和复制回退**
 
 核心模板和复制逻辑必须如下：
 
@@ -361,7 +361,7 @@ const copyAll = async () => {
 
 样式必须保留换行、允许选择、自动换行，并使用可读背景和边框；不得用禁用输入框承载正文。
 
-- [ ] **Step 4: 运行弹窗和纯函数测试**
+- [x] **Step 4: 运行弹窗和纯函数测试**
 
 Run:
 
@@ -372,7 +372,7 @@ npx vitest run tests/unit/rental-confirmation.spec.ts tests/unit/components/Rent
 
 Expected: 7 tests PASS。
 
-- [ ] **Step 5: 提交弹窗**
+- [x] **Step 5: 提交弹窗**
 
 ```bash
 git add InventoryManager/frontend/src/components/RentalConfirmationDialog.vue InventoryManager/frontend/tests/unit/components/RentalConfirmationDialog.spec.ts
@@ -394,7 +394,7 @@ git commit -m "feat: add rental confirmation dialog"
 - Consumes create response shape `response.data.main_rental.id` and edit prop `rental.id`.
 - Creation and edit saves emit a numeric rental ID; the existing edit-dialog delete path keeps emitting `success()` without an ID so callers can refresh without querying a deleted rental.
 
-- [ ] **Step 1: 写入失败的事件测试**
+- [x] **Step 1: 写入失败的事件测试**
 
 使用 Pinia 和模块 mock 挂载两个组件。`BookingDialog` 的 `createRental` 返回：
 
@@ -421,13 +421,13 @@ expect(wrapper.emitted('success')).toEqual([[77]])
 
 测试必须 mock `useConflictDetection().checkDuplicateRental` 返回 `{ hasDuplicate: false, duplicates: [] }`，并 stub 表单校验、设备/附件 composable 及子表单组件；不得通过直接调用 `wrapper.vm.$emit` 伪造被测行为。
 
-- [ ] **Step 2: 运行测试并确认旧事件没有参数**
+- [x] **Step 2: 运行测试并确认旧事件没有参数**
 
 Run: `cd InventoryManager/frontend && npx vitest run tests/unit/components/RentalSaveSuccessEvents.spec.ts`
 
 Expected: FAIL，实际事件为 `[[]]` 而不是 `[[42]]`/`[[77]]`。
 
-- [ ] **Step 3: 修改两个成功事件**
+- [x] **Step 3: 修改两个成功事件**
 
 `BookingDialog.vue`：
 
@@ -471,13 +471,13 @@ const handleSubmit = async () => {
 }
 ```
 
-- [ ] **Step 4: 运行事件测试并确认通过**
+- [x] **Step 4: 运行事件测试并确认通过**
 
 Run: `cd InventoryManager/frontend && npx vitest run tests/unit/components/RentalSaveSuccessEvents.spec.ts`
 
 Expected: 5 tests PASS，覆盖新建、编辑、删除无 ID、缺失 ID 和保存失败。
 
-- [ ] **Step 5: 提交事件契约**
+- [x] **Step 5: 提交事件契约**
 
 ```bash
 git add InventoryManager/frontend/src/components/BookingDialog.vue InventoryManager/frontend/src/components/rental/EditRentalDialogNew.vue InventoryManager/frontend/tests/unit/components/RentalSaveSuccessEvents.spec.ts
@@ -497,7 +497,7 @@ git commit -m "feat: emit saved rental ids"
 - Always runs the existing refresh flow; only when `typeof rentalId === 'number'` does it use `ganttStore.getRentalById(rentalId): Promise<Rental | null>` afterward.
 - Produces `confirmationRental: Ref<Rental | null>` and `showRentalConfirmationDialog: Ref<boolean>`.
 
-- [ ] **Step 1: 写入失败的流程测试**
+- [x] **Step 1: 写入失败的流程测试**
 
 浅挂载 `GanttChart`，用 Pinia spy 替换 `loadData`、`getRentalById`，并 stub 甘特图行、Element Plus 及无关对话框。成功场景必须由 `BookingDialog`/`EditRentalDialogNew` stub 发出真实 `success` 事件触发：
 
@@ -534,13 +534,13 @@ expect(wrapper.findComponent(RentalConfirmationDialog).props('modelValue')).toBe
 
 流程测试共 4 个：新建、编辑、确认查询失败、删除无 ID。
 
-- [ ] **Step 2: 运行流程测试并确认确认弹窗不存在**
+- [x] **Step 2: 运行流程测试并确认确认弹窗不存在**
 
 Run: `cd InventoryManager/frontend && npx vitest run tests/unit/components/GanttRentalConfirmationFlow.spec.ts`
 
 Expected: FAIL，`GanttChart` 中不存在 `RentalConfirmationDialog`，成功处理器也不接收 ID。
 
-- [ ] **Step 3: 接入统一确认流程**
+- [x] **Step 3: 接入统一确认流程**
 
 模板加入：
 
@@ -582,7 +582,7 @@ if (typeof rentalId === 'number') {
 
 编辑成功时可在查询前清空 `selectedRental`，但不得用 `selectedRental` 作为确认弹窗数据。
 
-- [ ] **Step 4: 运行全部新增测试**
+- [x] **Step 4: 运行全部新增测试**
 
 Run:
 
@@ -597,7 +597,7 @@ npx vitest run \
 
 Expected: 全部新增测试 PASS；其中 `GanttRentalConfirmationFlow.spec.ts` 为 4 tests，删除无 ID 场景只刷新、不查询、不弹窗。
 
-- [ ] **Step 5: 运行完整前端回归、类型检查和隔离构建**
+- [x] **Step 5: 运行完整前端回归、类型检查和隔离构建**
 
 Run:
 
@@ -612,7 +612,7 @@ git diff --check
 
 Expected: 全部测试通过；TypeScript 与 Vite 退出码为 0；只有既存的大 chunk 警告；`git diff --check` 无输出。
 
-- [ ] **Step 6: 提交集成**
+- [x] **Step 6: 提交集成**
 
 ```bash
 git add InventoryManager/frontend/src/components/GanttChart.vue InventoryManager/frontend/tests/unit/components/GanttRentalConfirmationFlow.spec.ts
