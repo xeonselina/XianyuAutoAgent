@@ -27,7 +27,7 @@
 - Consumes: `ReorderPreview.models[].status: string` 返回的英文后端状态码。
 - Produces: `formatSolverStatus(status: string): string` 和只供表格使用的 `localizedModels` 计算值；原始 `preview` 保持不变。
 
-- [ ] **Step 1: 写入失败测试**
+- [x] **Step 1: 写入失败测试**
 
 将现有成功流程断言从英文改成中文：
 
@@ -100,7 +100,7 @@ it.each(statuses)('将 %s 显示为 %s', async (status, label) => {
 })
 ```
 
-- [ ] **Step 2: 运行测试并确认按预期失败**
+- [x] **Step 2: 运行测试并确认按预期失败**
 
 Run:
 
@@ -111,7 +111,7 @@ npx vitest run tests/unit/components/ScheduleReorderDialog.spec.ts
 
 Expected: FAIL，现有组件仍显示 `OPTIMAL`，页面中不存在“最优方案”。
 
-- [ ] **Step 3: 实现最小中文映射**
+- [x] **Step 3: 实现最小中文映射**
 
 在 `ScheduleReorderDialog.vue` 的脚本区域加入：
 
@@ -144,7 +144,7 @@ const localizedModels = computed(() => {
 
 保留 `hasUnsolvedModel` 对 `preview.value.models` 原始英文状态的判断。
 
-- [ ] **Step 4: 运行目标测试并确认通过**
+- [x] **Step 4: 运行目标测试并确认通过**
 
 Run:
 
@@ -155,7 +155,7 @@ npx vitest run tests/unit/components/ScheduleReorderDialog.spec.ts
 
 Expected: PASS，现有流程用例和六个状态映射用例均通过。
 
-- [ ] **Step 5: 运行前端回归和构建验证**
+- [x] **Step 5: 运行前端回归和构建验证**
 
 Run:
 
@@ -167,7 +167,7 @@ npm run build
 
 Expected: 两条命令退出码均为 0；TypeScript 和 Vite 构建无错误。
 
-- [ ] **Step 6: 提交实现**
+- [x] **Step 6: 提交实现**
 
 ```bash
 git add InventoryManager/frontend/src/components/ScheduleReorderDialog.vue InventoryManager/frontend/tests/unit/components/ScheduleReorderDialog.spec.ts

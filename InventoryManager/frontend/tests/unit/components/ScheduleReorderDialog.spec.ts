@@ -117,6 +117,7 @@ describe('ScheduleReorderDialog', () => {
     ['UNKNOWN', '未得出结果'],
     ['MODEL_INVALID', '求解模型无效'],
     ['NEW_SOLVER_STATUS', '未知状态'],
+    ['constructor', '未知状态'],
   ] as const
 
   it.each(statuses)('将 %s 显示为 %s', async (status, label) => {

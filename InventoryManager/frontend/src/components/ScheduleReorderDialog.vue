@@ -198,16 +198,16 @@ const analysis = ref<ReorderAnalysis | null>(null)
 const preview = ref<ReorderPreview | null>(null)
 const relayActions = ref<Record<string, 'keep' | 'separate'>>({})
 
-const solverStatusLabels: Record<string, string> = {
-  OPTIMAL: '最优方案',
-  FEASIBLE: '可行方案',
-  INFEASIBLE: '无可行方案',
-  UNKNOWN: '未得出结果',
-  MODEL_INVALID: '求解模型无效',
-}
+const solverStatusLabels = new Map<string, string>([
+  ['OPTIMAL', '最优方案'],
+  ['FEASIBLE', '可行方案'],
+  ['INFEASIBLE', '无可行方案'],
+  ['UNKNOWN', '未得出结果'],
+  ['MODEL_INVALID', '求解模型无效'],
+])
 
 const formatSolverStatus = (status: string) => {
-  return solverStatusLabels[status] || '未知状态'
+  return solverStatusLabels.get(status) ?? '未知状态'
 }
 
 const localizedModels = computed(() => {
