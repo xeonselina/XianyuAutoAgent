@@ -66,6 +66,7 @@ declare module 'vue' {
     RentalAccessorySelector: typeof import('./src/components/rental/RentalAccessorySelector.vue')['default']
     RentalActionButtons: typeof import('./src/components/rental/RentalActionButtons.vue')['default']
     RentalBasicForm: typeof import('./src/components/rental/RentalBasicForm.vue')['default']
+    RentalConfirmationDialog: typeof import('./src/components/RentalConfirmationDialog.vue')['default']
     RentalInfoCard: typeof import('./src/components/inspection/RentalInfoCard.vue')['default']
     RentalShippingForm: typeof import('./src/components/rental/RentalShippingForm.vue')['default']
     RentalTooltip: typeof import('./src/components/RentalTooltip.vue')['default']
