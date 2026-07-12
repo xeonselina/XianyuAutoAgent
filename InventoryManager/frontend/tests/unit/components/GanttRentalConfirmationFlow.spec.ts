@@ -143,6 +143,59 @@ describe('GanttChart rental confirmation flow', () => {
     const confirmation = wrapper.findComponent(RentalConfirmationDialog)
     expect(confirmation.props('modelValue')).toBe(false)
     expect(confirmation.props('rental')).toBeNull()
+    expect(ElMessage.error).toHaveBeenCalledTimes(1)
+    expect(ElMessage.error).toHaveBeenCalledWith('保存成功，但确认信息加载失败')
+  })
+
+  it('刷新完成后查询拒绝时清空旧确认、关闭弹窗且只提示一次', async () => {
+    const { store, wrapper } = await mountGantt()
+    const oldRental = savedRental(41)
+    vi.mocked(store.getRentalById).mockResolvedValueOnce(oldRental)
+
+    wrapper.findComponent(BookingDialog).vm.$emit('success', 41)
+    await flushPromises()
+
+    expect(wrapper.findComponent(RentalConfirmationDialog).props('modelValue')).toBe(true)
+    expect(wrapper.findComponent(RentalConfirmationDialog).props('rental')).toEqual(oldRental)
+
+    const callOrder: string[] = []
+    let completeRefresh!: () => void
+    const refreshPending = new Promise<void>((resolve) => {
+      completeRefresh = resolve
+    })
+    vi.mocked(store.loadData).mockImplementationOnce(async () => {
+      await refreshPending
+      callOrder.push('loadData complete')
+    })
+    let rejectQuery!: (reason: Error) => void
+    const rejectedQuery = new Promise<Rental | null>((_resolve, reject) => {
+      rejectQuery = reject
+    })
+    vi.mocked(store.getRentalById).mockImplementationOnce(() => {
+      callOrder.push('getRentalById')
+      return rejectedQuery
+    })
+
+    wrapper.findComponent(BookingDialog).vm.$emit('success', 42)
+    await flushPromises()
+
+    expect(callOrder).toEqual([])
+    expect(store.getRentalById).toHaveBeenCalledTimes(1)
+
+    completeRefresh()
+    await flushPromises()
+
+    expect(callOrder).toEqual(['loadData complete', 'getRentalById'])
+    expect(store.getRentalById).toHaveBeenLastCalledWith(42)
+    expect(wrapper.findComponent(RentalConfirmationDialog).props('modelValue')).toBe(false)
+    expect(wrapper.findComponent(RentalConfirmationDialog).props('rental')).toBeNull()
+
+    rejectQuery(new Error('network failure'))
+    await flushPromises()
+
+    expect(wrapper.findComponent(RentalConfirmationDialog).props('modelValue')).toBe(false)
+    expect(wrapper.findComponent(RentalConfirmationDialog).props('rental')).toBeNull()
+    expect(ElMessage.error).toHaveBeenCalledTimes(1)
     expect(ElMessage.error).toHaveBeenCalledWith('保存成功，但确认信息加载失败')
   })
 
