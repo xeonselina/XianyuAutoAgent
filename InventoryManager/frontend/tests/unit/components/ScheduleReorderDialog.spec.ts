@@ -100,12 +100,73 @@ describe('ScheduleReorderDialog', () => {
     await flushPromises()
 
     expect(wrapper.findComponent(ElSteps).props('active')).toBe(1)
-    expect(wrapper.text()).toContain('OPTIMAL')
+    expect(wrapper.text()).toContain('最优方案')
+    expect(wrapper.text()).not.toContain('OPTIMAL')
     expect(wrapper.text()).toContain('X300U-08')
     expect(wrapper.text()).toContain('X300U-03')
     expect(wrapper.find('[data-test="third-step"]').exists()).toBe(false)
     await wrapper.get('[data-test="execute-reorder"]').trigger('click')
     await flushPromises()
     expect(store.executeScheduleReorder).toHaveBeenCalledWith('signed')
+  })
+
+  const statuses = [
+    ['OPTIMAL', '最优方案'],
+    ['FEASIBLE', '可行方案'],
+    ['INFEASIBLE', '无可行方案'],
+    ['UNKNOWN', '未得出结果'],
+    ['MODEL_INVALID', '求解模型无效'],
+    ['NEW_SOLVER_STATUS', '未知状态'],
+  ] as const
+
+  it.each(statuses)('将 %s 显示为 %s', async (status, label) => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useGanttStore()
+    vi.spyOn(store, 'analyzeScheduleReorder').mockResolvedValue({
+      today: '2026-07-12',
+      overlaps: [],
+    })
+    vi.spyOn(store, 'previewScheduleReorder').mockResolvedValue({
+      token: 'signed',
+      models: [{
+        model_id: 3,
+        status,
+        before_devices: 2,
+        after_devices: 1,
+        movable_rentals: 2,
+        changed_rentals: 1,
+        total_gap_days: 0,
+      }],
+      changes: [],
+      skipped: [],
+      overlaps: [],
+    })
+
+    const wrapper = mount(ScheduleReorderDialog, {
+      props: { modelValue: true },
+      global: {
+        plugins: [pinia, ElementPlus],
+        stubs: {
+          ElDialog: {
+            props: ['modelValue'],
+            template: '<div v-if="modelValue"><slot /><slot name="footer" /></div>',
+          },
+          ElTable: {
+            props: ['data'],
+            template: '<div>{{ JSON.stringify(data) }}</div>',
+          },
+          ElTableColumn: true,
+          teleport: true,
+          transition: false,
+        },
+      },
+    })
+    await flushPromises()
+    await wrapper.get('[data-test="calculate-preview"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(label)
+    expect(wrapper.text()).not.toContain(status)
   })
 })
