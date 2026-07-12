@@ -260,6 +260,11 @@
       @success="handleEditSuccess"
     />
 
+    <RentalConfirmationDialog
+      v-model="showRentalConfirmationDialog"
+      :rental="confirmationRental"
+    />
+
     <!-- 批量打印对话框 -->
     <BatchPrintDialog
       v-model="showBatchPrintDialog"
@@ -385,6 +390,7 @@ import { Plus, Refresh, ArrowLeft, ArrowRight, Search, DataAnalysis, ArrowDown, 
 import axios from 'axios'
 import GanttRow from './GanttRow.vue'
 import BookingDialog from './BookingDialog.vue'
+import RentalConfirmationDialog from './RentalConfirmationDialog.vue'
 import { EditRentalDialogNew } from './rental'
 import BatchPrintDialog from './rental/BatchPrintDialog.vue'
 import CustomerHistoryDialog from './CustomerHistoryDialog.vue'
@@ -409,6 +415,8 @@ const showCustomerHistoryDialog = ref(false)
 const showBatchPrintDialog = ref(false)
 const showScheduleReorderDialog = ref(false)
 const selectedRental = ref<Rental | null>(null)
+const showRentalConfirmationDialog = ref(false)
+const confirmationRental = ref<Rental | null>(null)
 const searchKeyword = ref<string>('')
 const selectedDeviceModel = ref<string>('')
 const selectedDeviceType = ref<string[]>([])
@@ -718,7 +726,20 @@ const filterByAccessoryShipOutDate = (date: Date) => {
   }
 }
 
-const handleBookingSuccess = async () => {
+const openRentalConfirmation = async (rentalId: number) => {
+  const latestRental = await ganttStore.getRentalById(rentalId)
+  if (!latestRental) {
+    confirmationRental.value = null
+    showRentalConfirmationDialog.value = false
+    ElMessage.error('保存成功，但确认信息加载失败')
+    return
+  }
+
+  confirmationRental.value = latestRental
+  showRentalConfirmationDialog.value = true
+}
+
+const handleBookingSuccess = async (rentalId?: number) => {
   ElMessage.success('预定成功！')
   showBookingDialog.value = false
 
@@ -731,6 +752,10 @@ const handleBookingSuccess = async () => {
 
   // 强制触发组件重新渲染，清除GanttRow中的缓存
   await nextTick()
+
+  if (typeof rentalId === 'number') {
+    await openRentalConfirmation(rentalId)
+  }
 }
 
 const handleScheduleReorderCompleted = async () => {
@@ -745,7 +770,7 @@ const handleEditRental = (rental: Rental) => {
   showEditDialog.value = true
 }
 
-const handleEditSuccess = async () => {
+const handleEditSuccess = async (rentalId?: number) => {
   ElMessage.success('更新成功！')
   showEditDialog.value = false
   selectedRental.value = null
@@ -759,6 +784,10 @@ const handleEditSuccess = async () => {
 
   // 强制触发组件重新渲染，清除GanttRow中的缓存
   await nextTick()
+
+  if (typeof rentalId === 'number') {
+    await openRentalConfirmation(rentalId)
+  }
 }
 
 // 加载设备型号
