@@ -727,16 +727,18 @@ const filterByAccessoryShipOutDate = (date: Date) => {
 }
 
 const openRentalConfirmation = async (rentalId: number) => {
-  const latestRental = await ganttStore.getRentalById(rentalId)
-  if (!latestRental) {
-    confirmationRental.value = null
-    showRentalConfirmationDialog.value = false
-    ElMessage.error('保存成功，但确认信息加载失败')
-    return
-  }
+  confirmationRental.value = null
+  showRentalConfirmationDialog.value = false
 
-  confirmationRental.value = latestRental
-  showRentalConfirmationDialog.value = true
+  try {
+    const latestRental = await ganttStore.getRentalById(rentalId)
+    if (!latestRental) throw new Error('Rental confirmation not found')
+
+    confirmationRental.value = latestRental
+    showRentalConfirmationDialog.value = true
+  } catch {
+    ElMessage.error('保存成功，但确认信息加载失败')
+  }
 }
 
 const handleBookingSuccess = async (rentalId?: number) => {

@@ -85,6 +85,20 @@ describe('buildRentalConfirmation', () => {
     ])
   })
 
+  it('非法非空日期不自动归一化并统一显示未填写', () => {
+    const result = buildRentalConfirmation(rental({
+      ship_out_time: '2026-02-31T19:30:00',
+      start_date: '2026/02/28',
+      end_date: '2026-04-31',
+    }))
+
+    expect(result.lines.slice(1, 4)).toEqual([
+      '寄出时间：未填写',
+      '预计收货：未填写',
+      '客户归还：未填写',
+    ])
+  })
+
   it('其他附件使用名称并去重', () => {
     const result = buildRentalConfirmation(rental({
       includes_handle: false,
