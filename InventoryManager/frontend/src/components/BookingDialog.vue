@@ -4,6 +4,8 @@
     title="预定设备"
     width="600px"
     :close-on-click-modal="false"
+    :close-on-press-escape="!submitting"
+    :show-close="!submitting"
     @close="handleClose"
     @closed="handleClosed"
   >
@@ -304,7 +306,7 @@
 
     <template #footer>
       <div class="dialog-footer">
-        <el-button @click="handleClose">取消</el-button>
+        <el-button :disabled="submitting" @click="handleClose">取消</el-button>
         <el-button
           type="primary"
           @click="handleSubmit"
@@ -392,6 +394,7 @@ const form = ref({
 // UI State
 const submitting = ref(false)
 const pendingSuccess = ref<{ rentalId: number } | null>(null)
+const dialogClosed = ref(!props.modelValue)
 const searching = ref(false)
 const searchingAccessory = ref(false)
 const fetchingOrder = ref(false)
@@ -818,12 +821,12 @@ const handleSubmit = async () => {
     const rentalId = result.data?.main_rental?.id
     ElMessage.success('租赁记录创建成功')
     if (typeof rentalId === 'number') {
-      pendingSuccess.value = { rentalId }
+      queuePendingSuccess({ rentalId })
     } else {
       pendingSuccess.value = null
       ElMessage.error('保存成功，但确认信息加载失败')
+      if (!dialogClosed.value) handleClose()
     }
-    handleClose()
   } catch (error: any) {
     ElMessage.error('创建失败：' + (error.message || '未知错误'))
   } finally {
@@ -858,14 +861,33 @@ const handleClose = () => {
 }
 
 const handleClosed = () => {
+  dialogClosed.value = true
+  flushPendingSuccess()
+}
+
+const flushPendingSuccess = () => {
+  if (!dialogClosed.value) return
   const success = pendingSuccess.value
+  if (!success) return
+
   pendingSuccess.value = null
-  if (success) emit('success', success.rentalId)
+  emit('success', success.rentalId)
+}
+
+const queuePendingSuccess = (success: { rentalId: number }) => {
+  pendingSuccess.value = success
+  if (dialogClosed.value) {
+    flushPendingSuccess()
+  } else {
+    handleClose()
+  }
 }
 
 // Watch Dialog Open
 watch(() => props.modelValue, async (visible) => {
   if (visible) {
+    dialogClosed.value = false
+    pendingSuccess.value = null
     await Promise.all([
       deviceManagement.loadDevices(),
       deviceManagement.loadAccessories(),

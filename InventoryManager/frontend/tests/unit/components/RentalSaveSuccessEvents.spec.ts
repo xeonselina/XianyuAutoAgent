@@ -54,7 +54,7 @@ vi.mock('@/composables/useRentalFormValidation', () => ({
 }))
 
 const DialogStub = defineComponent({
-  props: ['modelValue'],
+  props: ['modelValue', 'showClose', 'closeOnPressEscape'],
   emits: ['closed'],
   template: '<div v-if="modelValue"><slot /><slot name="footer" /></div>',
 })
@@ -69,8 +69,9 @@ const FormStub = defineComponent({
 })
 
 const ButtonStub = defineComponent({
+  props: ['disabled'],
   emits: ['click'],
-  template: '<button type="button" @click="$emit(\'click\')"><slot /></button>',
+  template: '<button type="button" :disabled="disabled" @click="$emit(\'click\')"><slot /></button>',
 })
 
 const RentalActionButtonsStub = defineComponent({
@@ -115,9 +116,14 @@ const rental77: Rental = {
   accessories: [],
 }
 
-const clickButton = async (wrapper: VueWrapper, label: string) => {
+const findButton = (wrapper: VueWrapper, label: string) => {
   const button = wrapper.findAll('button').find(candidate => candidate.text() === label)
   if (!button) throw new Error(`未找到按钮：${label}`)
+  return button
+}
+
+const clickButton = async (wrapper: VueWrapper, label: string) => {
+  const button = findButton(wrapper, label)
   await button.trigger('click')
   await flushPromises()
 }
@@ -125,6 +131,14 @@ const clickButton = async (wrapper: VueWrapper, label: string) => {
 const emitDialogClosed = async (wrapper: VueWrapper) => {
   wrapper.findComponent(DialogStub).vm.$emit('closed')
   await flushPromises()
+}
+
+const deferred = <T>() => {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
 }
 
 const mountBookingDialog = () => {
@@ -239,6 +253,72 @@ describe('rental save success events', () => {
     await emitDialogClosed(editWrapper)
 
     expect(editWrapper.emitted('success')).toBeUndefined()
+  })
+
+  it('新建请求 pending 时先 closed，响应后仍立即且只发一次 success', async () => {
+    const { store, wrapper } = mountBookingDialog()
+    const request = deferred<{ success: boolean; data: { main_rental: { id: number } } }>()
+    vi.spyOn(store, 'createRental').mockReturnValue(request.promise)
+
+    await clickButton(wrapper, '提交预定')
+    expect(store.createRental).toHaveBeenCalledTimes(1)
+
+    await wrapper.setProps({ modelValue: false })
+    await emitDialogClosed(wrapper)
+    request.resolve({ success: true, data: { main_rental: { id: 42 } } })
+    await flushPromises()
+
+    expect(wrapper.emitted('success')).toEqual([[42]])
+
+    await wrapper.setProps({ modelValue: true })
+    await clickButton(wrapper, '取消')
+    await wrapper.setProps({ modelValue: false })
+    await emitDialogClosed(wrapper)
+
+    expect(wrapper.emitted('success')).toEqual([[42]])
+  })
+
+  it('编辑请求 pending 时先 closed，响应后仍立即且只发一次 success', async () => {
+    const { store, wrapper } = await mountEditDialog()
+    const request = deferred<{ success: boolean }>()
+    vi.spyOn(store, 'updateRental').mockReturnValue(request.promise)
+
+    await clickButton(wrapper, '保存')
+    expect(store.updateRental).toHaveBeenCalledTimes(1)
+
+    await wrapper.setProps({ modelValue: false })
+    await emitDialogClosed(wrapper)
+    request.resolve({ success: true })
+    await flushPromises()
+
+    expect(wrapper.emitted('success')).toEqual([[77]])
+
+    await wrapper.setProps({ modelValue: true })
+    await clickButton(wrapper, '取消')
+    await wrapper.setProps({ modelValue: false })
+    await emitDialogClosed(wrapper)
+
+    expect(wrapper.emitted('success')).toEqual([[77]])
+  })
+
+  it('新建或编辑请求 pending 时禁用正常关闭入口', async () => {
+    const { store: createStore, wrapper: createWrapper } = mountBookingDialog()
+    vi.spyOn(createStore, 'createRental').mockReturnValue(deferred<any>().promise)
+
+    await clickButton(createWrapper, '提交预定')
+
+    expect(findButton(createWrapper, '取消').attributes('disabled')).toBeDefined()
+    expect(createWrapper.findComponent(DialogStub).props('showClose')).toBe(false)
+    expect(createWrapper.findComponent(DialogStub).props('closeOnPressEscape')).toBe(false)
+
+    const { store: updateStore, wrapper: updateWrapper } = await mountEditDialog()
+    vi.spyOn(updateStore, 'updateRental').mockReturnValue(deferred<any>().promise)
+
+    await clickButton(updateWrapper, '保存')
+
+    expect(findButton(updateWrapper, '取消').attributes('disabled')).toBeDefined()
+    expect(updateWrapper.findComponent(DialogStub).props('showClose')).toBe(false)
+    expect(updateWrapper.findComponent(DialogStub).props('closeOnPressEscape')).toBe(false)
   })
 
   it('新建或编辑保存被拒绝时不发 success 并保留现有失败提示', async () => {

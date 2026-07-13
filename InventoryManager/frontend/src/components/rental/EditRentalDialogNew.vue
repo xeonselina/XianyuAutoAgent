@@ -4,6 +4,8 @@
     title="编辑租赁记录"
     width="500px"
     :close-on-click-modal="false"
+    :close-on-press-escape="!submitting"
+    :show-close="!submitting"
     @close="handleClose"
     @closed="handleClosed"
   >
@@ -76,7 +78,7 @@
 
     <template #footer>
       <div class="dialog-footer">
-        <el-button @click="handleClose">取消</el-button>
+        <el-button :disabled="submitting" @click="handleClose">取消</el-button>
         <el-button
           type="primary"
           @click="handleSubmit"
@@ -164,6 +166,7 @@ const form = ref({
 // UI State
 const submitting = ref(false)
 const pendingSuccess = ref<{ rentalId?: number } | null>(null)
+const dialogClosed = ref(!props.modelValue)
 const loadingLatestData = ref(false)
 const latestDataError = ref<string | null>(null)
 const searchingAccessory = ref(false)
@@ -187,14 +190,29 @@ const handleClose = () => {
 }
 
 const handleClosed = () => {
+  dialogClosed.value = true
+  flushPendingSuccess()
+}
+
+const flushPendingSuccess = () => {
+  if (!dialogClosed.value) return
   const success = pendingSuccess.value
-  pendingSuccess.value = null
   if (!success) return
 
+  pendingSuccess.value = null
   if (typeof success.rentalId === 'number') {
     emit('success', success.rentalId)
   } else {
     emit('success')
+  }
+}
+
+const queuePendingSuccess = (success: { rentalId?: number }) => {
+  pendingSuccess.value = success
+  if (dialogClosed.value) {
+    flushPendingSuccess()
+  } else {
+    handleClose()
   }
 }
 
@@ -215,8 +233,7 @@ const handleDelete = async () => {
     submitting.value = true
     await ganttStore.deleteRental(props.rental.id)
     ElMessage.success('租赁记录删除成功')
-    pendingSuccess.value = {}
-    handleClose()
+    queuePendingSuccess({})
   } catch (error: any) {
     if (error !== 'cancel') {
       ElMessage.error('删除失败：' + (error.message || '未知错误'))
@@ -263,8 +280,7 @@ const handleSubmit = async () => {
 
     await ganttStore.updateRental(props.rental!.id, updateData)
     ElMessage.success('租赁记录更新成功')
-    pendingSuccess.value = { rentalId: props.rental!.id }
-    handleClose()
+    queuePendingSuccess({ rentalId: props.rental!.id })
   } catch (error: any) {
     ElMessage.error('更新失败：' + (error.message || '未知错误'))
   } finally {
@@ -563,6 +579,10 @@ watch(
 watch(
   () => props.modelValue,
   (newValue) => {
+    if (newValue) {
+      dialogClosed.value = false
+      pendingSuccess.value = null
+    }
     if (newValue && props.rental) {
       initForm()
     }

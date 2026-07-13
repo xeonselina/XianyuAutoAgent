@@ -267,6 +267,19 @@ test.describe('mobile edit save confirmation popup', () => {
     await expect(page.locator('.van-toast__text')).toHaveText('保存成功，但确认信息加载失败')
     await expect(page).toHaveURL(/\/mobile\/gantt$/)
   })
+
+  test('edit failure Toast does not navigate back again after user leaves early', async ({ page }) => {
+    await mockEditSave(page, { refreshedRental: null })
+
+    await page.getByTestId('save-rental').click()
+    await expect(page.locator('.van-toast__text')).toHaveText('保存成功，但确认信息加载失败')
+
+    await page.locator('.van-nav-bar__left').click()
+    await expect(page).toHaveURL(/\/mobile\/gantt$/)
+    await expect(page.locator('.van-toast__text')).toBeHidden({ timeout: 5_000 })
+
+    await expect(page).toHaveURL(/\/mobile\/gantt$/)
+  })
 })
 
 const mockCreateSave = async (
