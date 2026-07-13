@@ -50,8 +50,8 @@ test.describe('mobile rental confirmation formatter', () => {
     expect(result.lines).toEqual([
       '收货地址：张三，广东省广州市天河区一号路，13800138000',
       '寄出时间：2026-07-12',
-      '预计收货：2026-07-14',
-      '客户归还：2026-07-20',
+      '预计收货：2026-07-13',
+      '客户归还：2026-07-21',
       '寄出型号：VIVO X300 Ultra + 双镜头 + 镜头支架 + 手柄 + 手机支架 + 三脚架',
     ])
     expect(result.text).toBe(result.lines.join('\n'))
@@ -74,6 +74,18 @@ test.describe('mobile rental confirmation formatter', () => {
       '寄出时间：未填写',
       '预计收货：未填写',
       '客户归还：未填写',
+    ])
+  })
+
+  test('formatter: shifts receipt and return dates across month and year boundaries', () => {
+    const result = buildRentalConfirmation(rental({
+      start_date: '2026-01-01',
+      end_date: '2026-12-31',
+    }))
+
+    expect(result.lines.slice(2, 4)).toEqual([
+      '预计收货：2025-12-31',
+      '客户归还：2027-01-01',
     ])
   })
 
