@@ -221,6 +221,7 @@
             block
             native-type="submit"
             :loading="submitting"
+            data-testid="save-rental"
           >保存修改</van-button>
           <van-button
             v-if="form.status === 'not_shipped'"
@@ -344,6 +345,12 @@
         title="选择三脚架"
       />
     </van-popup>
+
+    <RentalConfirmationPopup
+      v-if="savedRental"
+      :rental="savedRental"
+      @closed="handleConfirmationClosed"
+    />
   </div>
 </template>
 
@@ -355,6 +362,7 @@ import axios from 'axios'
 import dayjs from 'dayjs'
 import { useGanttStore } from '@/stores/gantt'
 import type { Rental, Device } from '@/stores/gantt'
+import RentalConfirmationPopup from '@/components/RentalConfirmationPopup.vue'
 import { useConflictDetection } from '@/composables/useConflictDetection'
 import {
   getAllowedCombos,
@@ -379,6 +387,7 @@ const checkingConflict = ref(false)
 const conflictWarning = ref(false)
 const queryingShipOut = ref(false)
 const queryingShipIn = ref(false)
+const savedRental = ref<Rental | null>(null)
 
 // Picker 显示状态
 const showDevicePicker = ref(false)
@@ -695,13 +704,32 @@ const onSubmit = async () => {
 
     await ganttStore.updateRental(rentalId.value, updateData)
     showToast({ message: '修改保存成功', type: 'success' })
-    router.back()
+    let latestRental: Rental | null = null
+    try {
+      latestRental = await ganttStore.getRentalById(rentalId.value)
+    } catch {
+      latestRental = null
+    }
+    if (!latestRental) {
+      showToast({
+        message: '保存成功，但确认信息加载失败',
+        type: 'fail',
+        onClose: () => router.back(),
+      })
+      return
+    }
+    savedRental.value = latestRental
   } catch (e: any) {
     const errMsg = e.response?.data?.error || e.message || '保存失败'
     showToast({ message: errMsg, type: 'fail' })
   } finally {
     submitting.value = false
   }
+}
+
+const handleConfirmationClosed = () => {
+  savedRental.value = null
+  router.back()
 }
 
 const onShipToXianyu = async () => {

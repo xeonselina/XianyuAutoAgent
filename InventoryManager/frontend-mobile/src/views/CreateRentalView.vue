@@ -190,6 +190,7 @@
             block
             native-type="submit"
             :loading="submitting"
+            data-testid="create-rental"
           >创建租赁</van-button>
         </div>
       </van-form>
@@ -259,6 +260,12 @@
         @cancel="showEndDatePicker = false"
       />
     </van-popup>
+
+    <RentalConfirmationPopup
+      v-if="savedRental"
+      :rental="savedRental"
+      @closed="handleConfirmationClosed"
+    />
   </div>
 </template>
 
@@ -269,7 +276,8 @@ import { showToast, showConfirmDialog } from 'vant'
 import axios from 'axios'
 import dayjs from 'dayjs'
 import { useGanttStore } from '@/stores/gantt'
-import type { DeviceModel, Device } from '@/stores/gantt'
+import type { DeviceModel, Device, Rental } from '@/stores/gantt'
+import RentalConfirmationPopup from '@/components/RentalConfirmationPopup.vue'
 import { extractPhoneNumber } from '@/utils/phoneExtractor'
 import { useConflictDetection } from '@/composables/useConflictDetection'
 import {
@@ -308,6 +316,7 @@ const formRef = ref()
 const fetchingOrder = ref(false)
 const submitting = ref(false)
 const checkingSlots = ref(false)
+const savedRental = ref<Rental | null>(null)
 
 // 日期选择器状态
 const showStartDatePicker = ref(false)
@@ -565,14 +574,42 @@ const onSubmit = async () => {
       accessories: accessoriesArr
     }
 
-    await ganttStore.createRental(rentalData)
+    const result = await ganttStore.createRental(rentalData)
     showToast({ message: '租赁创建成功', type: 'success' })
-    router.back()
+    const rentalId = result?.data?.main_rental?.id
+    if (typeof rentalId !== 'number' || !Number.isFinite(rentalId) || rentalId <= 0) {
+      showConfirmationLoadFailure()
+      return
+    }
+    let latestRental: Rental | null = null
+    try {
+      latestRental = await ganttStore.getRentalById(rentalId)
+    } catch {
+      latestRental = null
+    }
+    if (!latestRental) {
+      showConfirmationLoadFailure()
+      return
+    }
+    savedRental.value = latestRental
   } catch (e: any) {
     showToast({ message: e.message || '创建失败', type: 'fail' })
   } finally {
     submitting.value = false
   }
+}
+
+const showConfirmationLoadFailure = () => {
+  showToast({
+    message: '保存成功，但确认信息加载失败',
+    type: 'fail',
+    onClose: () => router.back(),
+  })
+}
+
+const handleConfirmationClosed = () => {
+  savedRental.value = null
+  router.back()
 }
 
 // 加载设备型号列表和配件列表
