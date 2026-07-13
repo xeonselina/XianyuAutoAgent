@@ -5,6 +5,7 @@
     width="500px"
     :close-on-click-modal="false"
     @close="handleClose"
+    @closed="handleClosed"
   >
     <RentalActionButtons
       :rental="rental"
@@ -162,6 +163,7 @@ const form = ref({
 
 // UI State
 const submitting = ref(false)
+const pendingSuccess = ref<{ rentalId?: number } | null>(null)
 const loadingLatestData = ref(false)
 const latestDataError = ref<string | null>(null)
 const searchingAccessory = ref(false)
@@ -184,6 +186,18 @@ const handleClose = () => {
   dialogVisible.value = false
 }
 
+const handleClosed = () => {
+  const success = pendingSuccess.value
+  pendingSuccess.value = null
+  if (!success) return
+
+  if (typeof success.rentalId === 'number') {
+    emit('success', success.rentalId)
+  } else {
+    emit('success')
+  }
+}
+
 const handleDelete = async () => {
   if (!props.rental) return
 
@@ -201,7 +215,7 @@ const handleDelete = async () => {
     submitting.value = true
     await ganttStore.deleteRental(props.rental.id)
     ElMessage.success('租赁记录删除成功')
-    emit('success')
+    pendingSuccess.value = {}
     handleClose()
   } catch (error: any) {
     if (error !== 'cancel') {
@@ -249,7 +263,7 @@ const handleSubmit = async () => {
 
     await ganttStore.updateRental(props.rental!.id, updateData)
     ElMessage.success('租赁记录更新成功')
-    emit('success', props.rental!.id)
+    pendingSuccess.value = { rentalId: props.rental!.id }
     handleClose()
   } catch (error: any) {
     ElMessage.error('更新失败：' + (error.message || '未知错误'))

@@ -55,6 +55,7 @@ vi.mock('@/composables/useRentalFormValidation', () => ({
 
 const DialogStub = defineComponent({
   props: ['modelValue'],
+  emits: ['closed'],
   template: '<div v-if="modelValue"><slot /><slot name="footer" /></div>',
 })
 
@@ -121,6 +122,11 @@ const clickButton = async (wrapper: VueWrapper, label: string) => {
   await flushPromises()
 }
 
+const emitDialogClosed = async (wrapper: VueWrapper) => {
+  wrapper.findComponent(DialogStub).vm.$emit('closed')
+  await flushPromises()
+}
+
 const mountBookingDialog = () => {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -176,6 +182,8 @@ describe('rental save success events', () => {
 
     await clickButton(wrapper, '提交预定')
 
+    expect(wrapper.emitted('success')).toBeUndefined()
+    await emitDialogClosed(wrapper)
     expect(wrapper.emitted('success')).toEqual([[42]])
   })
 
@@ -185,6 +193,8 @@ describe('rental save success events', () => {
 
     await clickButton(wrapper, '保存')
 
+    expect(wrapper.emitted('success')).toBeUndefined()
+    await emitDialogClosed(wrapper)
     expect(wrapper.emitted('success')).toEqual([[77]])
   })
 
@@ -195,6 +205,8 @@ describe('rental save success events', () => {
 
     await clickButton(wrapper, '删除')
 
+    expect(wrapper.emitted('success')).toBeUndefined()
+    await emitDialogClosed(wrapper)
     expect(wrapper.emitted('success')).toEqual([[]])
   })
 
@@ -208,6 +220,25 @@ describe('rental save success events', () => {
     expect(wrapper.emitted('update:modelValue')).toContainEqual([false])
     expect(ElMessage.error).toHaveBeenCalledWith('保存成功，但确认信息加载失败')
     expect(ElMessage.error).not.toHaveBeenCalledWith(expect.stringContaining('创建失败'))
+
+    await emitDialogClosed(wrapper)
+    expect(wrapper.emitted('success')).toBeUndefined()
+  })
+
+  it('取消关闭新建或编辑表单后不误发 success', async () => {
+    const { wrapper: createWrapper } = mountBookingDialog()
+
+    await clickButton(createWrapper, '取消')
+    await emitDialogClosed(createWrapper)
+
+    expect(createWrapper.emitted('success')).toBeUndefined()
+
+    const { wrapper: editWrapper } = await mountEditDialog()
+
+    await clickButton(editWrapper, '取消')
+    await emitDialogClosed(editWrapper)
+
+    expect(editWrapper.emitted('success')).toBeUndefined()
   })
 
   it('新建或编辑保存被拒绝时不发 success 并保留现有失败提示', async () => {

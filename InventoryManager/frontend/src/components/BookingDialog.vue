@@ -5,6 +5,7 @@
     width="600px"
     :close-on-click-modal="false"
     @close="handleClose"
+    @closed="handleClosed"
   >
     <el-form
       ref="formRef"
@@ -390,6 +391,7 @@ const form = ref({
 
 // UI State
 const submitting = ref(false)
+const pendingSuccess = ref<{ rentalId: number } | null>(null)
 const searching = ref(false)
 const searchingAccessory = ref(false)
 const fetchingOrder = ref(false)
@@ -816,8 +818,9 @@ const handleSubmit = async () => {
     const rentalId = result.data?.main_rental?.id
     ElMessage.success('租赁记录创建成功')
     if (typeof rentalId === 'number') {
-      emit('success', rentalId)
+      pendingSuccess.value = { rentalId }
     } else {
+      pendingSuccess.value = null
       ElMessage.error('保存成功，但确认信息加载失败')
     }
     handleClose()
@@ -852,6 +855,12 @@ const handleClose = () => {
   availableAccessorySlot.value = null
   availability.resetAll()
   emit('update:modelValue', false)
+}
+
+const handleClosed = () => {
+  const success = pendingSuccess.value
+  pendingSuccess.value = null
+  if (success) emit('success', success.rentalId)
 }
 
 // Watch Dialog Open
