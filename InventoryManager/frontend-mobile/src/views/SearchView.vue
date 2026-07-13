@@ -46,7 +46,7 @@
           <template #title>
             <div class="result-title">
               <span class="customer-name">{{ rental.customer_name }}</span>
-              <van-tag :color="STATUS_COLORS[rental.status]" text-color="#fff" size="small">
+              <van-tag :color="STATUS_COLORS[rental.status]" text-color="#fff">
                 {{ STATUS_LABELS[rental.status] || rental.status }}
               </van-tag>
             </div>
