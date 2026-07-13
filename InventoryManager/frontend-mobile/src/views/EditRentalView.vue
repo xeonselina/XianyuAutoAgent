@@ -714,7 +714,9 @@ const onSubmit = async () => {
       showToast({
         message: '保存成功，但确认信息加载失败',
         type: 'fail',
-        onClose: () => router.back(),
+        onClose: () => {
+          if (route.name === 'edit-rental') router.back()
+        },
       })
       return
     }

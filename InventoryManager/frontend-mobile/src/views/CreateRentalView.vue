@@ -271,7 +271,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { showToast, showConfirmDialog } from 'vant'
 import axios from 'axios'
 import dayjs from 'dayjs'
@@ -289,6 +289,7 @@ import {
 } from '@/config/lensCombo'
 
 const router = useRouter()
+const route = useRoute()
 const ganttStore = useGanttStore()
 const conflictDetection = useConflictDetection()
 
@@ -603,7 +604,9 @@ const showConfirmationLoadFailure = () => {
   showToast({
     message: '保存成功，但确认信息加载失败',
     type: 'fail',
-    onClose: () => router.back(),
+    onClose: () => {
+      if (route.name === 'create-rental') router.back()
+    },
   })
 }
 
