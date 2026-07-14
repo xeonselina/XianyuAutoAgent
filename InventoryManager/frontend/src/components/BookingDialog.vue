@@ -335,6 +335,10 @@ import { useAvailabilityCheck } from '@/composables/useAvailabilityCheck'
 import { useConflictDetection } from '@/composables/useConflictDetection'
 import { getCreateRentalRules } from '@/composables/useRentalFormValidation'
 import { extractPhoneNumber } from '@/utils/phoneExtractor'
+import {
+  formatLogisticsWarning,
+  getLogisticsMismatch
+} from '@/utils/logisticsWarning'
 import LensComboSelector from './rental/LensComboSelector.vue'
 
 // Props & Emits
@@ -737,6 +741,30 @@ const handleFetchOrderInfo = async () => {
   }
 }
 
+const confirmLogisticsTiming = async (): Promise<boolean> => {
+  const mismatch = await getLogisticsMismatch(
+    form.value.destination,
+    form.value.logisticsDays
+  )
+  if (!mismatch) return true
+
+  try {
+    await ElMessageBox.confirm(
+      `${formatLogisticsWarning(mismatch)} 是否仍要创建该档期？`,
+      '物流时效可能不足',
+      {
+        type: 'warning',
+        confirmButtonText: '仍要创建',
+        cancelButtonText: '返回修改',
+        confirmButtonClass: 'logistics-warning-confirm'
+      }
+    )
+    return true
+  } catch {
+    return false
+  }
+}
+
 // Submit Handler
 const handleSubmit = async () => {
   try {
@@ -775,6 +803,13 @@ const handleSubmit = async () => {
     } catch {
       return
     }
+  }
+
+  try {
+    if (!await confirmLogisticsTiming()) return
+  } catch (error: any) {
+    ElMessage.error(error.message || '顺丰时效预估失败，请稍后重试')
+    return
   }
 
   submitting.value = true

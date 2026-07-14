@@ -12,6 +12,12 @@ bp = Blueprint('rental_api', __name__)
 
 # ===================== 基础租赁API =====================
 
+@bp.route('/api/rentals/estimate-logistics')
+@handle_response
+def estimate_logistics():
+    """根据目的地预估顺丰标快物流时效"""
+    return RentalHandlers.handle_estimate_logistics()
+
 @bp.route('/api/rentals')
 @handle_response
 def get_rentals():

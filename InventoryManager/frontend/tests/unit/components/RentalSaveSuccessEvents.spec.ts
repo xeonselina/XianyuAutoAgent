@@ -53,6 +53,11 @@ vi.mock('@/composables/useRentalFormValidation', () => ({
   getEditRentalRules: () => ({}),
 }))
 
+vi.mock('@/utils/logisticsWarning', () => ({
+  getLogisticsMismatch: vi.fn().mockResolvedValue(null),
+  formatLogisticsWarning: vi.fn(() => ''),
+}))
+
 const DialogStub = defineComponent({
   props: ['modelValue', 'showClose', 'closeOnPressEscape'],
   emits: ['closed'],
