@@ -357,13 +357,17 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { showToast } from 'vant'
+import { showConfirmDialog, showToast } from 'vant'
 import axios from 'axios'
 import dayjs from 'dayjs'
 import { useGanttStore } from '@/stores/gantt'
 import type { Rental, Device } from '@/stores/gantt'
 import RentalConfirmationPopup from '@/components/RentalConfirmationPopup.vue'
 import { useConflictDetection } from '@/composables/useConflictDetection'
+import {
+  formatLogisticsWarning,
+  getLogisticsMismatch
+} from '@/utils/logisticsWarning'
 import {
   getAllowedCombos,
   getDefaultCombo,
@@ -388,6 +392,7 @@ const conflictWarning = ref(false)
 const queryingShipOut = ref(false)
 const queryingShipIn = ref(false)
 const savedRental = ref<Rental | null>(null)
+const initialScheduleSnapshot = ref('')
 
 // Picker 显示状态
 const showDevicePicker = ref(false)
@@ -502,6 +507,43 @@ const STATUS_OPTS = [
 ]
 const statusColumns = STATUS_OPTS
 
+const getScheduleSnapshot = () => JSON.stringify({
+  destination: form.value.destination.trim(),
+  deviceId: form.value.deviceId,
+  startDate: form.value.startDate,
+  endDate: form.value.endDate,
+  logisticsDays: Number(form.value.logisticsDays),
+  shipOutTime: form.value.shipOutTime
+    ? dayjs(form.value.shipOutTime).format('YYYY-MM-DD HH:mm:ss')
+    : '',
+  shipInTime: form.value.shipInTime
+    ? dayjs(form.value.shipInTime).format('YYYY-MM-DD HH:mm:ss')
+    : ''
+})
+
+const confirmLogisticsTiming = async (): Promise<boolean> => {
+  if (getScheduleSnapshot() === initialScheduleSnapshot.value) return true
+
+  const mismatch = await getLogisticsMismatch(
+    form.value.destination,
+    form.value.logisticsDays
+  )
+  if (!mismatch) return true
+
+  try {
+    await showConfirmDialog({
+      title: '⚠️ 物流时效可能不足',
+      message: `${formatLogisticsWarning(mismatch)} 是否仍要保存本次档期调整？`,
+      confirmButtonText: '仍要保存',
+      cancelButtonText: '返回修改',
+      confirmButtonColor: '#ff976a'
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
 // 初始化表单
 const initForm = (rental: Rental) => {
   currentRental.value = rental
@@ -513,7 +555,14 @@ const initForm = (rental: Rental) => {
   form.value.startDate = rental.start_date || ''
   form.value.endDate = rental.end_date || ''
   form.value.deviceId = rental.device_id
-  form.value.logisticsDays = (rental as any).logistics_days ?? 1
+  const derivedLogisticsDays = rental.start_date && rental.ship_out_time
+    ? Math.max(
+        0,
+        dayjs(rental.start_date).startOf('day')
+          .diff(dayjs(rental.ship_out_time).startOf('day'), 'day') - 1
+      )
+    : 1
+  form.value.logisticsDays = (rental as any).logistics_days ?? derivedLogisticsDays
   form.value.shipOutTrackingNo = rental.ship_out_tracking_no || ''
   form.value.shipInTrackingNo = rental.ship_in_tracking_no || ''
   form.value.shipOutTime = rental.ship_out_time || ''
@@ -566,6 +615,8 @@ const initForm = (rental: Rental) => {
     shipInDateParts.value = d.format('YYYY-MM-DD').split('-')
     shipInTimeStr.value = d.format('HH:mm')
   }
+
+  initialScheduleSnapshot.value = getScheduleSnapshot()
 }
 
 // Picker 确认处理
@@ -673,6 +724,16 @@ const queryTrackingStatus = async (type: 'out' | 'in') => {
 const onSubmit = async () => {
   if (!form.value.deviceId) {
     showToast('请选择设备')
+    return
+  }
+
+  try {
+    if (!await confirmLogisticsTiming()) return
+  } catch (e: any) {
+    showToast({
+      message: e.message || '顺丰时效预估失败，请稍后重试',
+      type: 'fail'
+    })
     return
   }
 

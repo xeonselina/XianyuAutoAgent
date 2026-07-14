@@ -281,6 +281,10 @@ import RentalConfirmationPopup from '@/components/RentalConfirmationPopup.vue'
 import { extractPhoneNumber } from '@/utils/phoneExtractor'
 import { useConflictDetection } from '@/composables/useConflictDetection'
 import {
+  formatLogisticsWarning,
+  getLogisticsMismatch
+} from '@/utils/logisticsWarning'
+import {
   getAllowedCombos,
   getDefaultCombo,
   isComboAllowed,
@@ -513,6 +517,27 @@ const fetchOrderInfo = async () => {
   }
 }
 
+const confirmLogisticsTiming = async (): Promise<boolean> => {
+  const mismatch = await getLogisticsMismatch(
+    form.value.destination,
+    form.value.logisticsDays
+  )
+  if (!mismatch) return true
+
+  try {
+    await showConfirmDialog({
+      title: '⚠️ 物流时效可能不足',
+      message: `${formatLogisticsWarning(mismatch)} 是否仍要创建该档期？`,
+      confirmButtonText: '仍要创建',
+      cancelButtonText: '返回修改',
+      confirmButtonColor: '#ff976a'
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
 // 提交
 const onSubmit = async () => {
   if (!form.value.deviceId) {
@@ -537,6 +562,16 @@ const onSubmit = async () => {
     } catch {
       return
     }
+  }
+
+  try {
+    if (!await confirmLogisticsTiming()) return
+  } catch (e: any) {
+    showToast({
+      message: e.message || '顺丰时效预估失败，请稍后重试',
+      type: 'fail'
+    })
+    return
   }
 
   submitting.value = true

@@ -104,6 +104,10 @@ import { useDeviceManagement } from '@/composables/useDeviceManagement'
 import { useAvailabilityCheck } from '@/composables/useAvailabilityCheck'
 import { useConflictDetection } from '@/composables/useConflictDetection'
 import { getEditRentalRules } from '@/composables/useRentalFormValidation'
+import {
+  formatLogisticsWarning,
+  getLogisticsMismatch
+} from '@/utils/logisticsWarning'
 
 // Components
 import RentalActionButtons from './RentalActionButtons.vue'
@@ -174,6 +178,8 @@ const queryingShipOut = ref(false)
 const queryingShipIn = ref(false)
 const deviceConflictChecked = ref(false)
 const accessoryConflictChecked = ref(false)
+const currentStartDate = ref('')
+const initialScheduleSnapshot = ref('')
 
 // Form Rules
 const rules = getEditRentalRules()
@@ -183,6 +189,53 @@ const minSelectableDate = computed(() => {
   if (!props.rental) return null
   return new Date(props.rental.start_date)
 })
+
+const selectedLogisticsDays = computed<number | null>(() => {
+  if (!currentStartDate.value || !form.value.shipOutTime) return null
+  const reservedDays = dayjs(currentStartDate.value)
+    .startOf('day')
+    .diff(dayjs(form.value.shipOutTime).startOf('day'), 'day') - 1
+  return Math.max(0, reservedDays)
+})
+
+const getScheduleSnapshot = () => JSON.stringify({
+  destination: form.value.destination.trim(),
+  deviceId: form.value.deviceId,
+  startDate: currentStartDate.value,
+  endDate: form.value.endDate ? dayjs(form.value.endDate).format('YYYY-MM-DD') : '',
+  shipOutTime: form.value.shipOutTime
+    ? dayjs(form.value.shipOutTime).format('YYYY-MM-DD HH:mm:ss')
+    : '',
+  shipInTime: form.value.shipInTime
+    ? dayjs(form.value.shipInTime).format('YYYY-MM-DD HH:mm:ss')
+    : ''
+})
+
+const confirmLogisticsTiming = async (): Promise<boolean> => {
+  if (getScheduleSnapshot() === initialScheduleSnapshot.value) return true
+
+  const mismatch = await getLogisticsMismatch(
+    form.value.destination,
+    selectedLogisticsDays.value
+  )
+  if (!mismatch) return true
+
+  try {
+    await ElMessageBox.confirm(
+      `${formatLogisticsWarning(mismatch)} 是否仍要保存本次档期调整？`,
+      '物流时效可能不足',
+      {
+        type: 'warning',
+        confirmButtonText: '仍要保存',
+        cancelButtonText: '返回修改',
+        confirmButtonClass: 'logistics-warning-confirm'
+      }
+    )
+    return true
+  } catch {
+    return false
+  }
+}
 
 // Handlers
 const handleClose = () => {
@@ -246,6 +299,7 @@ const handleDelete = async () => {
 const handleSubmit = async () => {
   try {
     await formRef.value?.validate()
+    if (!await confirmLogisticsTiming()) return
     submitting.value = true
 
     // 转换UI格式到API格式
@@ -499,6 +553,7 @@ const initForm = async () => {
 
     const latestRental = await loadLatestRentalData()
     const rentalData = latestRental || props.rental
+    currentStartDate.value = rentalData.start_date
 
     // 从 API 响应转换为 UI 格式
     const bundledAccessories: ('handle' | 'lens_mount')[] = []
@@ -553,6 +608,8 @@ const initForm = async () => {
       photoTransfer: rentalData.photo_transfer || false,  // 代传照片标记
       lensCombo: rentalData.lens_combo || undefined
     }
+
+    initialScheduleSnapshot.value = getScheduleSnapshot()
 
     if (latestRental) {
       Object.assign(props.rental, latestRental)

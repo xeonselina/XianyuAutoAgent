@@ -11,6 +11,7 @@ from app.services.printing.rental_product_lines import (
     get_default_combo,
     MODEL_LENS_COMBOS,
 )
+from app.utils.logistics_estimator import estimate_sf_logistics
 from app.utils.response import (
     ApiResponse,
     success,
@@ -55,6 +56,15 @@ def _normalize_and_validate_lens_combo(data, device_id):
 
 class RentalHandlers:
     """租赁请求处理器类"""
+
+    @staticmethod
+    def handle_estimate_logistics() -> ApiResponse:
+        """根据收货地址预估顺丰标快物流时效。"""
+        destination = request.args.get('destination', '')
+        try:
+            return success(data=estimate_sf_logistics(destination))
+        except ValueError as exc:
+            return bad_request(str(exc))
 
     @staticmethod
     def handle_get_rentals() -> ApiResponse:
