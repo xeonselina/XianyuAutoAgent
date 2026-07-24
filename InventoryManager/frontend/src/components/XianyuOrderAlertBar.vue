@@ -143,9 +143,14 @@ const confirmIgnore = async (orderNo: string) => {
         confirmButtonText: '下一步',
         cancelButtonText: '取消',
         inputPlaceholder: '例如：非租赁商品',
-        inputValidator: (value: string) => (
-          Boolean(value?.trim()) || '忽略原因不能为空'
-        ),
+        inputValidator: (value: string) => {
+          const reason = value?.trim()
+          if (!reason) return '忽略原因不能为空'
+          if (reason.length > 500) {
+            return '忽略原因不能超过500个字符'
+          }
+          return true
+        },
       },
     )
     const reason = String(promptResult.value || '').trim()

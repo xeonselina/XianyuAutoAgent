@@ -105,4 +105,20 @@ describe('XianyuOrderAlertBar', () => {
       [{ orderNo: 'XY-1', reason: '非租赁商品' }],
     ])
   })
+
+  it('rejects ignore reasons longer than 500 characters', async () => {
+    const prompt = vi.spyOn(ElMessageBox, 'prompt').mockResolvedValue({
+      value: '非租赁商品',
+      action: 'confirm',
+    })
+    const wrapper = mountBar(makeSnapshot())
+
+    await wrapper.get('[data-testid="toggle-alerts"]').trigger('click')
+    await wrapper.get('[data-testid="ignore-XY-1"]').trigger('click')
+
+    const options = prompt.mock.calls[0][2]
+    expect(options?.inputValidator?.('原'.repeat(501))).toBe(
+      '忽略原因不能超过500个字符',
+    )
+  })
 })

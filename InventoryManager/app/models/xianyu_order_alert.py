@@ -1,6 +1,6 @@
 """闲鱼漏录订单告警与同步状态模型。"""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import validates
 
@@ -61,7 +61,13 @@ class XianyuOrderAlert(db.Model):
 
     @staticmethod
     def _iso(value):
-        return value.isoformat() if value else None
+        if not value:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        else:
+            value = value.astimezone(timezone.utc)
+        return value.isoformat().replace("+00:00", "Z")
 
     def to_dict(self):
         """返回告警条所需的非内部字段。"""

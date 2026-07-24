@@ -4,6 +4,7 @@ import json
 import logging
 
 import pytest
+import requests
 
 from app.services.xianyu_order_service import XianyuOrderService
 
@@ -87,6 +88,56 @@ def test_list_orders_rejects_partial_results(monkeypatch):
         service.list_orders(page_size=1)
 
 
+@pytest.mark.parametrize("count", [None, -1])
+def test_list_orders_rejects_missing_or_negative_total(
+    monkeypatch,
+    count,
+):
+    from app.services.xianyu_order_service import XianyuOrderServiceError
+
+    service = make_service()
+    data = {"list": [{"order_no": "1"}]}
+    if count is not None:
+        data["count"] = count
+    monkeypatch.setattr(
+        service,
+        "_request_with_body_sign",
+        lambda *_args, **_kwargs: {"code": 0, "data": data},
+    )
+
+    with pytest.raises(XianyuOrderServiceError):
+        service.list_orders(page_size=1)
+
+
+def test_list_orders_rejects_total_that_changes_between_pages(
+    monkeypatch,
+):
+    from app.services.xianyu_order_service import XianyuOrderServiceError
+
+    service = make_service()
+    responses = [
+        {
+            "code": 0,
+            "data": {"list": [{"order_no": "1"}], "count": 3},
+        },
+        {
+            "code": 0,
+            "data": {"list": [{"order_no": "2"}], "count": 2},
+        },
+    ]
+    monkeypatch.setattr(
+        service,
+        "_request_with_body_sign",
+        lambda *_args, **_kwargs: responses.pop(0),
+    )
+
+    with pytest.raises(
+        XianyuOrderServiceError,
+        match="总数不一致",
+    ):
+        service.list_orders(page_size=1)
+
+
 def test_signing_logs_do_not_expose_app_secret(caplog):
     service = make_service()
     service.app_secret = "never-log-this-secret"
@@ -130,3 +181,38 @@ def test_invalid_json_logs_do_not_expose_response_body(
         )
 
     assert "13800138000" not in caplog.text
+
+
+def test_request_failure_logs_do_not_expose_signed_url(
+    monkeypatch,
+    caplog,
+):
+    service = make_service()
+    signed_url = (
+        "https://open.goofish.pro/api/open/order/list"
+        "?appid=test-app&timestamp=1&sign=never-log-this-sign"
+    )
+    prepared_request = requests.Request(
+        "POST",
+        signed_url,
+    ).prepare()
+    failure = requests.HTTPError(
+        f"500 Server Error for url: {signed_url}",
+        request=prepared_request,
+    )
+    monkeypatch.setattr(
+        "app.services.xianyu_order_service.requests.post",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(failure),
+    )
+
+    with caplog.at_level(logging.ERROR):
+        assert (
+            service._request_with_body_sign(
+                "/api/open/order/list",
+                {"order_status": 12},
+            )
+            is None
+        )
+
+    assert "never-log-this-sign" not in caplog.text
+    assert "appid=test-app" not in caplog.text

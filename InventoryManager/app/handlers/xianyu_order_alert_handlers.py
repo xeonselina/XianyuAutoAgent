@@ -23,7 +23,10 @@ class XianyuOrderAlertHandlers:
         try:
             return success(data=cls.service.get_snapshot())
         except Exception as exc:
-            current_app.logger.error("读取闲鱼漏单告警失败: %s", exc)
+            current_app.logger.error(
+                "读取闲鱼漏单告警失败，异常类型: %s",
+                type(exc).__name__,
+            )
             return server_error("读取漏录订单告警失败")
 
     @classmethod
@@ -31,7 +34,10 @@ class XianyuOrderAlertHandlers:
         try:
             return success(data=cls.service.reconcile())
         except Exception as exc:
-            current_app.logger.error("刷新闲鱼漏单告警失败: %s", exc)
+            current_app.logger.error(
+                "刷新闲鱼漏单告警失败，异常类型: %s",
+                type(exc).__name__,
+            )
             return server_error("刷新漏录订单告警失败")
 
     @classmethod
@@ -40,6 +46,8 @@ class XianyuOrderAlertHandlers:
         reason = str(data.get("reason") or "").strip()
         if not reason:
             return bad_request("忽略原因不能为空")
+        if len(reason) > 500:
+            return bad_request("忽略原因不能超过500个字符")
 
         try:
             snapshot = cls.service.ignore(order_no, reason)
@@ -49,5 +57,8 @@ class XianyuOrderAlertHandlers:
         except LookupError as exc:
             return not_found(str(exc))
         except Exception as exc:
-            current_app.logger.error("永久忽略闲鱼订单失败: %s", exc)
+            current_app.logger.error(
+                "永久忽略闲鱼订单失败，异常类型: %s",
+                type(exc).__name__,
+            )
             return server_error("忽略订单失败")
