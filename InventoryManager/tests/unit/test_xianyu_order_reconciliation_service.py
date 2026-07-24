@@ -1,6 +1,7 @@
 """闲鱼漏录订单对账服务测试。"""
 
 from datetime import date
+from unittest.mock import Mock
 
 import pytest
 
@@ -212,3 +213,60 @@ def test_failed_reconcile_keeps_existing_cache(
 
     assert [row["order_no"] for row in result["alerts"]] == ["OLD"]
     assert result["sync"]["last_error"] == "timeout"
+
+
+def test_busy_reconciliation_does_not_start_second_external_query(
+    db_session,
+    monkeypatch,
+    tmp_path,
+):
+    from app.services.xianyu_order_reconciliation_service import (
+        XianyuOrderReconciliationService,
+    )
+
+    lock_path = str(tmp_path / "reconcile.lock")
+    running_service = XianyuOrderReconciliationService(
+        lock_path=lock_path
+    )
+    second_service = XianyuOrderReconciliationService(
+        lock_path=lock_path
+    )
+    lock_handle = running_service._try_acquire_lock()
+    external_query = Mock()
+    monkeypatch.setattr(
+        second_service.xianyu_service, "list_orders", external_query
+    )
+
+    try:
+        result = second_service.reconcile()
+    finally:
+        running_service._release_lock(lock_handle)
+
+    assert result["refreshing"] is True
+    external_query.assert_not_called()
+
+
+def test_cached_alert_disappears_immediately_after_rental_is_recorded(
+    db_session,
+    device,
+):
+    from app.models.xianyu_order_alert import XianyuOrderAlert
+    from app.services.xianyu_order_reconciliation_service import (
+        XianyuOrderReconciliationService,
+    )
+
+    db_session.add(
+        XianyuOrderAlert(
+            order_no="JUST-RECORDED",
+            state="pending",
+            pay_amount=8800,
+        )
+    )
+    db_session.commit()
+    service = XianyuOrderReconciliationService()
+    assert service.get_snapshot()["count"] == 1
+
+    db_session.add(make_rental(device.id, "JUST-RECORDED"))
+    db_session.commit()
+
+    assert service.get_snapshot()["count"] == 0

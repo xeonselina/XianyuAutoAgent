@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, shallowMount, type VueWrapper } from '@vue/test-utils'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import axios from 'axios'
 
 import BookingDialog from '@/components/BookingDialog.vue'
 import EditRentalDialogNew from '@/components/rental/EditRentalDialogNew.vue'
@@ -146,24 +147,29 @@ const deferred = <T>() => {
   return { promise, resolve }
 }
 
-const mountBookingDialog = () => {
+const mountBookingDialog = (initialXianyuOrderNo?: string) => {
   const pinia = createPinia()
   setActivePinia(pinia)
   const store = useGanttStore()
   const wrapper = shallowMount(BookingDialog, {
-    props: { modelValue: true },
+    props: {
+      modelValue: true,
+      initialXianyuOrderNo,
+    } as any,
     global: {
       plugins: [pinia],
       stubs: globalStubs,
     },
   })
 
-  const form = (wrapper.vm as any).form
-  form.startDate = new Date('2026-07-20T00:00:00')
-  form.endDate = new Date('2026-07-22T00:00:00')
-  form.selectedDeviceId = 9
-  form.customerName = '测试客户'
-  form.destination = '测试地址'
+  if (!initialXianyuOrderNo) {
+    const form = (wrapper.vm as any).form
+    form.startDate = new Date('2026-07-20T00:00:00')
+    form.endDate = new Date('2026-07-22T00:00:00')
+    form.selectedDeviceId = 9
+    form.customerName = '测试客户'
+    form.destination = '测试地址'
+  }
 
   return { store, wrapper }
 }
@@ -190,6 +196,42 @@ describe('rental save success events', () => {
     vi.restoreAllMocks()
     vi.spyOn(ElMessage, 'success').mockImplementation(() => undefined as never)
     vi.spyOn(ElMessage, 'error').mockImplementation(() => undefined as never)
+  })
+
+  it('漏录订单入口复用现有弹框并自动拉取订单详情', async () => {
+    const orderResponse = {
+      data: {
+        success: true,
+        data: {
+          buyer_nick: '漏录买家',
+          receiver_name: '张三',
+          receiver_mobile: '13800138000',
+          prov_name: '广东省',
+          city_name: '深圳市',
+          area_name: '南山区',
+          town_name: '',
+          address: '测试路1号',
+          buyer_eid: 'buyer-eid',
+          pay_amount: 8800,
+        },
+      },
+    }
+    vi.spyOn(axios, 'post').mockResolvedValue(orderResponse)
+
+    const { wrapper } = mountBookingDialog('XY-MISSING')
+    await flushPromises()
+
+    expect(axios.post).toHaveBeenCalledWith(
+      '/api/rentals/fetch-xianyu-order',
+      { order_no: 'XY-MISSING' },
+    )
+    const form = (wrapper.vm as any).form
+    expect(form.xianyuOrderNo).toBe('XY-MISSING')
+    expect(form.customerName).toBe('漏录买家')
+    expect(form.customerPhone).toBe('13800138000')
+    expect(form.startDate).toBeNull()
+    expect(form.endDate).toBeNull()
+    expect(form.selectedDeviceId).toBeNull()
   })
 
   it('新建成功时通过 success 事件携带创建后的 rental ID', async () => {

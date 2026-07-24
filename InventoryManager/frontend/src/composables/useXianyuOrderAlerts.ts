@@ -65,7 +65,6 @@ export function useXianyuOrderAlerts() {
       ElMessage.error(
         error.response?.data?.message || '忽略订单失败',
       )
-      throw error
     }
   }
 
