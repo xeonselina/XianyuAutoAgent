@@ -14,6 +14,10 @@ from typing import Optional, Dict, Any
 logger = logging.getLogger(__name__)
 
 
+class XianyuOrderServiceError(RuntimeError):
+    """闲管家订单接口返回了不可用或不完整的数据。"""
+
+
 class XianyuOrderService:
     """闲鱼管家订单API服务类 - 统一的闲鱼API客户端"""
 
@@ -86,8 +90,10 @@ class XianyuOrderService:
         # MD5哈希
         sign = hashlib.md5(sign_str.encode('utf-8')).hexdigest()
 
-        logger.debug(f"签名字符串: {sign_str}")
-        logger.debug(f"生成签名: {sign}")
+        logger.debug(
+            "已生成闲鱼API参数签名，参数字段: %s",
+            sorted(params.keys()),
+        )
 
         return sign
 
@@ -123,12 +129,11 @@ class XianyuOrderService:
             # 设置请求头
             headers = {"Content-Type": "application/json"}
 
-            logger.debug(f"请求URL: {full_url}")
-            logger.debug(f"请求体: {body}")
+            logger.debug("闲鱼API请求路径: %s", url)
 
             # 详细的请求前日志
             logger.info(f"[REQUEST START] 准备发送闲鱼API请求")
-            logger.info(f"[REQUEST] URL: {full_url}")
+            logger.info("[REQUEST] API路径: %s", url)
             logger.info(f"[REQUEST] 超时设置: {timeout}秒")
             logger.info(f"[REQUEST] Python版本: {sys.version}")
             logger.info(f"[REQUEST] Requests库版本: {requests.__version__}")
@@ -157,8 +162,10 @@ class XianyuOrderService:
             logger.info(f"[REQUEST] HTTP状态检查通过")
 
             result = response.json()
-            logger.info(f"[REQUEST] JSON解析成功")
-            logger.info(f"[response] {response.text}")
+            logger.info(
+                "[REQUEST] JSON解析成功，业务状态码: %s",
+                result.get("code"),
+            )
             return result
 
         except requests.exceptions.Timeout:
@@ -171,7 +178,6 @@ class XianyuOrderService:
             return None
         except json.JSONDecodeError as e:
             logger.error(f"[REQUEST ERROR] 闲鱼API响应解析失败: {e}")
-            logger.error(f"[REQUEST ERROR] 响应内容: {response.text if 'response' in locals() else 'N/A'}")
             logger.error(f"[REQUEST ERROR] 完整堆栈:\n{traceback.format_exc()}")
             return None
         except RecursionError as e:
@@ -184,6 +190,63 @@ class XianyuOrderService:
             logger.error(f"[REQUEST ERROR] 闲鱼API请求异常: {type(e).__name__}: {e}")
             logger.error(f"[REQUEST ERROR] 完整堆栈:\n{traceback.format_exc()}")
             return None
+
+    def list_orders(
+        self,
+        order_status: int = 12,
+        page_size: int = 100,
+    ) -> list:
+        """完整分页查询指定状态的订单。
+
+        任一页失败或响应不完整都会抛出异常，调用方不得使用部分结果
+        覆盖已有的可信告警缓存。
+        """
+        if not self.app_key or not self.app_secret:
+            raise XianyuOrderServiceError("闲鱼API凭证未配置")
+        if page_size < 1 or page_size > 100:
+            raise ValueError("page_size 必须在 1 到 100 之间")
+
+        orders = []
+        page_no = 1
+
+        while True:
+            result = self._request_with_body_sign(
+                "/api/open/order/list",
+                {
+                    "order_status": order_status,
+                    "page_no": page_no,
+                    "page_size": page_size,
+                },
+            )
+            if not result:
+                raise XianyuOrderServiceError("闲鱼订单列表无响应")
+            if result.get("code") != 0:
+                raise XianyuOrderServiceError(
+                    result.get("msg") or "闲鱼订单列表查询失败"
+                )
+
+            data = result.get("data") or {}
+            page = data.get("list")
+            if not isinstance(page, list):
+                raise XianyuOrderServiceError(
+                    "闲鱼订单列表响应格式错误"
+                )
+
+            orders.extend(page)
+            try:
+                total = int(data.get("count", len(orders)))
+            except (TypeError, ValueError) as exc:
+                raise XianyuOrderServiceError(
+                    "闲鱼订单列表总数格式错误"
+                ) from exc
+
+            if len(orders) >= total:
+                return orders
+            if not page or page_no >= 100:
+                raise XianyuOrderServiceError(
+                    "闲鱼订单列表分页不完整"
+                )
+            page_no += 1
 
     def get_order_detail(self, order_no: str) -> Optional[Dict[str, Any]]:
         """
