@@ -10,8 +10,10 @@ from .rental_statistics import RentalStatistics
 from .inspection_record import InspectionRecord
 from .inspection_check_item import InspectionCheckItem
 from .rental_relay_binding import RentalRelayBinding
+from .xianyu_order_alert import XianyuOrderAlert, XianyuOrderSyncState
 
 __all__ = [
     'Device', 'Rental', 'AuditLog', 'DeviceModel', 'RentalStatistics',
-    'InspectionRecord', 'InspectionCheckItem', 'RentalRelayBinding'
+    'InspectionRecord', 'InspectionCheckItem', 'RentalRelayBinding',
+    'XianyuOrderAlert', 'XianyuOrderSyncState'
 ]
