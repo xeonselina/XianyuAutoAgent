@@ -7,15 +7,18 @@ import BookingDialog from '@/components/BookingDialog.vue'
 import EditRentalDialogNew from '@/components/rental/EditRentalDialogNew.vue'
 import GanttChart from '@/components/GanttChart.vue'
 import RentalConfirmationDialog from '@/components/RentalConfirmationDialog.vue'
+import XianyuOrderAlertBar from '@/components/XianyuOrderAlertBar.vue'
 import { useGanttStore, type Rental } from '@/stores/gantt'
 
-const { axiosGet } = vi.hoisted(() => ({
+const { axiosGet, axiosPost } = vi.hoisted(() => ({
   axiosGet: vi.fn(),
+  axiosPost: vi.fn(),
 }))
 
 vi.mock('axios', () => ({
   default: {
     get: axiosGet,
+    post: axiosPost,
   },
 }))
 
@@ -90,7 +93,25 @@ const mountGantt = async () => {
 
 describe('GanttChart rental confirmation flow', () => {
   beforeEach(() => {
-    axiosGet.mockResolvedValue({ data: { success: true, data: [] } })
+    const alertSnapshot = {
+      alerts: [],
+      count: 0,
+      refreshing: false,
+      sync: {
+        last_attempt_at: '2026-07-24T10:00:00',
+        last_success_at: '2026-07-24T10:00:00',
+        last_error: null,
+      },
+    }
+    axiosGet.mockImplementation((url: string) => Promise.resolve({
+      data: {
+        success: true,
+        data: url === '/api/xianyu-order-alerts' ? alertSnapshot : [],
+      },
+    }))
+    axiosPost.mockResolvedValue({
+      data: { success: true, data: alertSnapshot },
+    })
     vi.spyOn(ElMessage, 'success').mockImplementation(() => undefined as never)
     vi.spyOn(ElMessage, 'error').mockImplementation(() => undefined as never)
   })
@@ -100,6 +121,22 @@ describe('GanttChart rental confirmation flow', () => {
     wrapper = undefined
     vi.restoreAllMocks()
     axiosGet.mockReset()
+    axiosPost.mockReset()
+  })
+
+  it('漏录告警打开同一个预定弹框并传入订单号', async () => {
+    const { wrapper } = await mountGantt()
+    const alertBar = wrapper.findComponent(XianyuOrderAlertBar)
+
+    expect(alertBar.exists()).toBe(true)
+    alertBar.vm.$emit('book', 'XY-MISSING')
+    await flushPromises()
+
+    const bookingDialog = wrapper.findComponent(BookingDialog)
+    expect(bookingDialog.props('modelValue')).toBe(true)
+    expect(bookingDialog.props('initialXianyuOrderNo')).toBe(
+      'XY-MISSING',
+    )
   })
 
   it('新建保存后按返回 ID 重新查询并打开确认弹窗', async () => {

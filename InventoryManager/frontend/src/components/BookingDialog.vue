@@ -345,6 +345,7 @@ import LensComboSelector from './rental/LensComboSelector.vue'
 interface Props {
   modelValue: boolean
   selectedDeviceModel?: string // 当前甘特图选择的设备型号 display_name
+  initialXianyuOrderNo?: string
 }
 
 const props = defineProps<Props>()
@@ -928,6 +929,11 @@ watch(() => props.modelValue, async (visible) => {
       deviceManagement.loadAccessories(),
       deviceManagement.loadDeviceModels()
     ])
+    if (props.initialXianyuOrderNo) {
+      form.value.xianyuOrderNo = props.initialXianyuOrderNo
+      await nextTick()
+      await handleFetchOrderInfo()
+    }
   }
 }, { immediate: true })
 

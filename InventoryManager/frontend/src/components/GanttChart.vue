@@ -47,7 +47,7 @@
           </el-button>
           <el-button
             type="primary"
-            @click="showBookingDialog = true"
+            @click="openManualBooking"
             :icon="Plus"
           >
             预定设备
@@ -100,6 +100,14 @@
         </el-col>
       </el-row>
     </div>
+
+    <XianyuOrderAlertBar
+      :snapshot="xianyuAlertSnapshot"
+      :loading="xianyuAlertsLoading"
+      @refresh="refreshXianyuAlerts"
+      @book="startMissingOrderBooking"
+      @ignore="handleIgnoreXianyuAlert"
+    />
 
     <!-- 过滤器 -->
     <div class="filters">
@@ -250,6 +258,7 @@
     <BookingDialog
       v-model="showBookingDialog"
       :selected-device-model="selectedDeviceModel"
+      :initial-xianyu-order-no="bookingOrderNo"
       @success="handleBookingSuccess"
     />
 
@@ -395,6 +404,8 @@ import { EditRentalDialogNew } from './rental'
 import BatchPrintDialog from './rental/BatchPrintDialog.vue'
 import CustomerHistoryDialog from './CustomerHistoryDialog.vue'
 import ScheduleReorderDialog from './ScheduleReorderDialog.vue'
+import XianyuOrderAlertBar from './XianyuOrderAlertBar.vue'
+import { useXianyuOrderAlerts } from '@/composables/useXianyuOrderAlerts'
 import {
   toSystemDateString,
   isToday,
@@ -409,6 +420,7 @@ const ganttStore = useGanttStore()
 
 // 响应式状态
 const showBookingDialog = ref(false)
+const bookingOrderNo = ref<string>()
 const showEditDialog = ref(false)
 const showAddDeviceDialog = ref(false)
 const showCustomerHistoryDialog = ref(false)
@@ -423,6 +435,15 @@ const selectedDeviceType = ref<string[]>([])
 const selectedLifecycleStatus = ref<string>('active')  // 默认只显示使用中设备
 const selectedDatePicker = ref<Date>(ganttStore.currentDate)
 const dailyStats = ref<Record<string, {available_count: number, ship_out_count: number, accessory_ship_out_count: number}>>({})
+const {
+  snapshot: xianyuAlertSnapshot,
+  loading: xianyuAlertsLoading,
+  load: loadXianyuAlerts,
+  refresh: refreshXianyuAlerts,
+  ignore: ignoreXianyuAlert,
+  startPolling: startXianyuAlertPolling,
+  stopPolling: stopXianyuAlertPolling
+} = useXianyuOrderAlerts()
 
 // 虚拟滚动相关
 const ganttBodyRef = ref<HTMLElement>()
@@ -741,6 +762,23 @@ const openRentalConfirmation = async (rentalId: number) => {
   }
 }
 
+const openManualBooking = () => {
+  bookingOrderNo.value = undefined
+  showBookingDialog.value = true
+}
+
+const startMissingOrderBooking = (orderNo: string) => {
+  bookingOrderNo.value = orderNo
+  showBookingDialog.value = true
+}
+
+const handleIgnoreXianyuAlert = async (payload: {
+  orderNo: string
+  reason: string
+}) => {
+  await ignoreXianyuAlert(payload.orderNo, payload.reason)
+}
+
 const handleBookingSuccess = async (rentalId?: number) => {
   ElMessage.success('预定成功！')
   showBookingDialog.value = false
@@ -751,6 +789,7 @@ const handleBookingSuccess = async (rentalId?: number) => {
   // 清除缓存以确保统计数据更新
   statsCache.clear()
   await loadDailyStats()
+  await loadXianyuAlerts()
 
   // 强制触发组件重新渲染，清除GanttRow中的缓存
   await nextTick()
@@ -1104,13 +1143,22 @@ watch(filteredDevices, () => {
   updateVisibleRange()
 }, { deep: true })
 
+watch(showBookingDialog, (visible) => {
+  if (!visible) {
+    bookingOrderNo.value = undefined
+  }
+})
+
 // 生命周期
 onMounted(async () => {
   await Promise.all([
     ganttStore.loadData(),
     loadDailyStats(),
-    loadDeviceModels()
+    loadDeviceModels(),
+    loadXianyuAlerts()
   ])
+  startXianyuAlertPolling()
+  void refreshXianyuAlerts()
 
   // 初始化虚拟滚动
   await initVirtualScroll()
@@ -1127,6 +1175,7 @@ onUnmounted(() => {
   if (searchTimer) {
     clearTimeout(searchTimer)
   }
+  stopXianyuAlertPolling()
   // 清理缓存
   statsCache.clear()
 })

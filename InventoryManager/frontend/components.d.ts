@@ -74,6 +74,7 @@ declare module 'vue' {
     RouterView: typeof import('vue-router')['RouterView']
     ScheduleReorderDialog: typeof import('./src/components/ScheduleReorderDialog.vue')['default']
     SimplifiedShippingSlip: typeof import('./src/components/printing/SimplifiedShippingSlip.vue')['default']
+    XianyuOrderAlertBar: typeof import('./src/components/XianyuOrderAlertBar.vue')['default']
   }
   export interface GlobalDirectives {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']
