@@ -109,7 +109,6 @@ class XianyuOrderService:
         Returns:
             API响应的JSON数据,失败返回None
         """
-        import traceback
         import sys
 
         try:
@@ -169,26 +168,35 @@ class XianyuOrderService:
             return result
 
         except requests.exceptions.Timeout:
-            logger.error(f"[REQUEST ERROR] 闲鱼API请求超时")
-            logger.error(f"[REQUEST ERROR] 完整堆栈:\n{traceback.format_exc()}")
+            logger.error("[REQUEST ERROR] 闲鱼API请求超时，路径: %s", url)
             return None
         except requests.exceptions.RequestException as e:
-            logger.error(f"[REQUEST ERROR] 闲鱼API请求失败: {type(e).__name__}: {e}")
-            logger.error(f"[REQUEST ERROR] 完整堆栈:\n{traceback.format_exc()}")
+            status_code = getattr(
+                getattr(e, "response", None),
+                "status_code",
+                None,
+            )
+            logger.error(
+                "[REQUEST ERROR] 闲鱼API请求失败，路径: %s，"
+                "异常类型: %s，状态码: %s",
+                url,
+                type(e).__name__,
+                status_code if status_code is not None else "未知",
+            )
             return None
-        except json.JSONDecodeError as e:
-            logger.error(f"[REQUEST ERROR] 闲鱼API响应解析失败: {e}")
-            logger.error(f"[REQUEST ERROR] 完整堆栈:\n{traceback.format_exc()}")
+        except json.JSONDecodeError:
+            logger.error("[REQUEST ERROR] 闲鱼API响应解析失败，路径: %s", url)
             return None
-        except RecursionError as e:
-            logger.error(f"[REQUEST ERROR] 递归深度超限!!!")
-            logger.error(f"[REQUEST ERROR] RecursionError: {e}")
-            logger.error(f"[REQUEST ERROR] 完整堆栈:\n{traceback.format_exc()}")
-            logger.error(f"[REQUEST ERROR] 递归限制: {sys.getrecursionlimit()}")
+        except RecursionError:
+            logger.error("[REQUEST ERROR] 闲鱼API请求递归深度超限")
+            logger.error("[REQUEST ERROR] 递归限制: %s", sys.getrecursionlimit())
             return None
         except Exception as e:
-            logger.error(f"[REQUEST ERROR] 闲鱼API请求异常: {type(e).__name__}: {e}")
-            logger.error(f"[REQUEST ERROR] 完整堆栈:\n{traceback.format_exc()}")
+            logger.error(
+                "[REQUEST ERROR] 闲鱼API请求异常，路径: %s，异常类型: %s",
+                url,
+                type(e).__name__,
+            )
             return None
 
     def list_orders(
@@ -208,6 +216,7 @@ class XianyuOrderService:
 
         orders = []
         page_no = 1
+        expected_total = None
 
         while True:
             result = self._request_with_body_sign(
@@ -232,15 +241,33 @@ class XianyuOrderService:
                     "闲鱼订单列表响应格式错误"
                 )
 
-            orders.extend(page)
+            if "count" not in data:
+                raise XianyuOrderServiceError(
+                    "闲鱼订单列表缺少总数"
+                )
             try:
-                total = int(data.get("count", len(orders)))
+                total = int(data["count"])
             except (TypeError, ValueError) as exc:
                 raise XianyuOrderServiceError(
                     "闲鱼订单列表总数格式错误"
                 ) from exc
+            if total < 0:
+                raise XianyuOrderServiceError(
+                    "闲鱼订单列表总数不能为负数"
+                )
+            if expected_total is None:
+                expected_total = total
+            elif total != expected_total:
+                raise XianyuOrderServiceError(
+                    "闲鱼订单列表分页总数不一致"
+                )
 
-            if len(orders) >= total:
+            orders.extend(page)
+            if len(orders) > expected_total:
+                raise XianyuOrderServiceError(
+                    "闲鱼订单列表数量超过总数"
+                )
+            if len(orders) == expected_total:
                 return orders
             if not page or page_no >= 100:
                 raise XianyuOrderServiceError(

@@ -10,7 +10,10 @@ from app.models.xianyu_order_alert import (
     XianyuOrderAlert,
     XianyuOrderSyncState,
 )
-from app.services.xianyu_order_service import xianyu_service
+from app.services.xianyu_order_service import (
+    XianyuOrderServiceError,
+    xianyu_service,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -55,6 +58,12 @@ class XianyuOrderReconciliationService:
         except BlockingIOError:
             lock_handle.close()
             return None
+
+    def _acquire_lock(self):
+        """阻塞获取对账锁，用于必须串行完成的本地状态变更。"""
+        lock_handle = open(self.lock_path, "a+")
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        return lock_handle
 
     @staticmethod
     def _release_lock(lock_handle):
@@ -213,12 +222,22 @@ class XianyuOrderReconciliationService:
             state.last_success_at = now
             state.last_error = None
             db.session.commit()
-        except Exception as exc:
+        except XianyuOrderServiceError:
             db.session.rollback()
-            logger.error("闲鱼漏录订单对账失败: %s", exc)
+            logger.error("闲鱼漏录订单对账失败，类型: XianyuOrderServiceError")
             state = XianyuOrderSyncState.get_or_create()
             state.last_attempt_at = datetime.utcnow()
-            state.last_error = str(exc)[:1000]
+            state.last_error = "闲鱼订单查询失败"
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            logger.error(
+                "闲鱼漏录订单对账失败，异常类型: %s",
+                type(exc).__name__,
+            )
+            state = XianyuOrderSyncState.get_or_create()
+            state.last_attempt_at = datetime.utcnow()
+            state.last_error = "漏录订单检查失败"
             db.session.commit()
         finally:
             self._release_lock(lock_handle)
@@ -231,15 +250,18 @@ class XianyuOrderReconciliationService:
         normalized_reason = str(reason or "").strip()
         if not normalized_reason:
             raise ValueError("忽略原因不能为空")
+        if len(normalized_reason) > 500:
+            raise ValueError("忽略原因不能超过500个字符")
 
-        alert = XianyuOrderAlert.query.filter_by(
-            order_no=normalized_order_no,
-            state="pending",
-        ).one_or_none()
-        if alert is None:
-            raise LookupError("待处理订单不存在")
-
+        lock_handle = self._acquire_lock()
         try:
+            alert = XianyuOrderAlert.query.filter_by(
+                order_no=normalized_order_no,
+                state="pending",
+            ).one_or_none()
+            if alert is None:
+                raise LookupError("待处理订单不存在")
+
             alert.state = "ignored"
             alert.ignored_reason = normalized_reason
             alert.ignored_at = datetime.utcnow()
@@ -247,5 +269,7 @@ class XianyuOrderReconciliationService:
         except Exception:
             db.session.rollback()
             raise
+        finally:
+            self._release_lock(lock_handle)
 
         return self.get_snapshot()

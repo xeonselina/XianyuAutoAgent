@@ -789,7 +789,7 @@ const handleBookingSuccess = async (rentalId?: number) => {
   // 清除缓存以确保统计数据更新
   statsCache.clear()
   await loadDailyStats()
-  await loadXianyuAlerts()
+  await loadXianyuAlerts(true)
 
   // 强制触发组件重新渲染，清除GanttRow中的缓存
   await nextTick()

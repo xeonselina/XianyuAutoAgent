@@ -1,6 +1,8 @@
 """闲鱼漏录订单对账服务测试。"""
 
-from datetime import date
+from datetime import date, datetime
+import threading
+import time
 from unittest.mock import Mock
 
 import pytest
@@ -91,6 +93,25 @@ def test_alert_serializes_amount_and_order_fields(app, db_session):
         assert payload["buyer_nick"] == "买家"
 
 
+def test_alert_serializes_naive_database_datetimes_as_utc(
+    app,
+    db_session,
+):
+    from app.models.xianyu_order_alert import XianyuOrderAlert
+
+    with app.app_context():
+        alert = XianyuOrderAlert(
+            order_no="UTC-1",
+            state="pending",
+            pay_amount=5001,
+            order_time=datetime(2026, 7, 24, 2, 0, 0),
+        )
+        db_session.add(alert)
+        db_session.commit()
+
+        assert alert.to_dict()["order_time"] == "2026-07-24T02:00:00Z"
+
+
 def test_reconcile_filters_amount_and_existing_rentals(
     db_session,
     device,
@@ -179,6 +200,86 @@ def test_ignore_is_permanent_across_reconciliation(
     assert ignored.ignored_reason == "非租赁商品"
 
 
+def test_ignore_rejects_reason_longer_than_storage_limit(
+    db_session,
+    monkeypatch,
+    tmp_path,
+):
+    from app.services.xianyu_order_reconciliation_service import (
+        XianyuOrderReconciliationService,
+    )
+
+    service = XianyuOrderReconciliationService(
+        lock_path=str(tmp_path / "reconcile.lock")
+    )
+
+    with pytest.raises(ValueError, match="500"):
+        service.ignore("IGNORE-ME", "原" * 501)
+
+
+def test_blocking_lock_serializes_ignore_with_reconciliation(tmp_path):
+    from app.services.xianyu_order_reconciliation_service import (
+        XianyuOrderReconciliationService,
+    )
+
+    lock_path = str(tmp_path / "reconcile.lock")
+    reconciling_service = XianyuOrderReconciliationService(
+        lock_path=lock_path
+    )
+    ignoring_service = XianyuOrderReconciliationService(
+        lock_path=lock_path
+    )
+    reconcile_lock = reconciling_service._try_acquire_lock()
+    acquired = threading.Event()
+    release = threading.Event()
+
+    def wait_for_lock():
+        lock_handle = ignoring_service._acquire_lock()
+        acquired.set()
+        release.wait(timeout=2)
+        ignoring_service._release_lock(lock_handle)
+
+    worker = threading.Thread(target=wait_for_lock)
+    worker.start()
+    time.sleep(0.05)
+    assert acquired.is_set() is False
+
+    reconciling_service._release_lock(reconcile_lock)
+    assert acquired.wait(timeout=1) is True
+    release.set()
+    worker.join(timeout=1)
+    assert worker.is_alive() is False
+
+
+def test_ignore_uses_reconciliation_lock(
+    db_session,
+    monkeypatch,
+    tmp_path,
+):
+    from app.models.xianyu_order_alert import XianyuOrderAlert
+    from app.services.xianyu_order_reconciliation_service import (
+        XianyuOrderReconciliationService,
+    )
+
+    db_session.add(
+        XianyuOrderAlert(
+            order_no="LOCKED-IGNORE",
+            state="pending",
+            pay_amount=8000,
+        )
+    )
+    db_session.commit()
+    service = XianyuOrderReconciliationService(
+        lock_path=str(tmp_path / "reconcile.lock")
+    )
+    acquire = Mock(wraps=service._acquire_lock)
+    monkeypatch.setattr(service, "_acquire_lock", acquire)
+
+    service.ignore("LOCKED-IGNORE", "非租赁商品")
+
+    acquire.assert_called_once_with()
+
+
 def test_failed_reconcile_keeps_existing_cache(
     db_session,
     monkeypatch,
@@ -212,7 +313,42 @@ def test_failed_reconcile_keeps_existing_cache(
     result = service.reconcile()
 
     assert [row["order_no"] for row in result["alerts"]] == ["OLD"]
-    assert result["sync"]["last_error"] == "timeout"
+    assert result["sync"]["last_error"] == "闲鱼订单查询失败"
+
+
+def test_unexpected_reconcile_error_does_not_persist_or_log_pii(
+    db_session,
+    monkeypatch,
+    tmp_path,
+    caplog,
+):
+    from app.models.xianyu_order_alert import XianyuOrderAlert
+    from app.services.xianyu_order_reconciliation_service import (
+        XianyuOrderReconciliationService,
+    )
+
+    db_session.add(
+        XianyuOrderAlert(
+            order_no="OLD",
+            state="pending",
+            pay_amount=6000,
+        )
+    )
+    db_session.commit()
+    service = XianyuOrderReconciliationService(
+        lock_path=str(tmp_path / "reconcile.lock")
+    )
+    sensitive_value = "13800138000"
+
+    def fail():
+        raise RuntimeError(f"SQL bind receiver_mobile={sensitive_value}")
+
+    monkeypatch.setattr(service.xianyu_service, "list_orders", fail)
+
+    result = service.reconcile()
+
+    assert result["sync"]["last_error"] == "漏录订单检查失败"
+    assert sensitive_value not in caplog.text
 
 
 def test_busy_reconciliation_does_not_start_second_external_query(

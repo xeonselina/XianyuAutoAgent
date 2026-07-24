@@ -75,6 +75,16 @@ def test_ignore_requires_non_empty_reason(client):
     assert response.get_json()["message"] == "忽略原因不能为空"
 
 
+def test_ignore_rejects_reason_longer_than_500_characters(client):
+    response = client.post(
+        "/api/xianyu-order-alerts/XY-1/ignore",
+        json={"reason": "原" * 501},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["message"] == "忽略原因不能超过500个字符"
+
+
 def test_ignore_maps_missing_alert_to_not_found(client, monkeypatch):
     from app.handlers.xianyu_order_alert_handlers import (
         XianyuOrderAlertHandlers,
