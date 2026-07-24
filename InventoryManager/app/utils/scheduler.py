@@ -49,7 +49,10 @@ def init_scheduler(app):
         scheduler = BackgroundScheduler(daemon=True)
 
         # 添加预约发货处理任务（每分钟执行一次）
-        from app.utils.scheduler_tasks import process_scheduled_shipments
+        from app.utils.scheduler_tasks import (
+            process_scheduled_shipments,
+            reconcile_xianyu_orders,
+        )
         scheduler.add_job(
             func=lambda: process_scheduled_shipments(app),
             trigger=IntervalTrigger(minutes=1),
@@ -58,6 +61,15 @@ def init_scheduler(app):
             replace_existing=True
         )
         logger.info('已注册定时任务: process_scheduled_shipments (每分钟执行)')
+
+        scheduler.add_job(
+            func=lambda: reconcile_xianyu_orders(app),
+            trigger=IntervalTrigger(minutes=10),
+            id='reconcile_xianyu_orders',
+            name='检查闲鱼漏录订单',
+            replace_existing=True
+        )
+        logger.info('已注册定时任务: reconcile_xianyu_orders (每10分钟执行)')
 
         # 启动调度器
         try:

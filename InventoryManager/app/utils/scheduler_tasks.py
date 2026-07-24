@@ -500,3 +500,22 @@ def process_scheduled_shipments(app=None):
         scheduled_shipping_processor.process_due_shipments()
 
 
+def reconcile_xianyu_orders(app=None):
+    """执行闲鱼待发货订单与库存预定的对账。"""
+    if app is None:
+        from flask import current_app
+        try:
+            app = current_app._get_current_object()
+        except RuntimeError:
+            logger.error(
+                "reconcile_xianyu_orders: 没有Flask应用上下文，无法执行"
+            )
+            return
+
+    from app.services.xianyu_order_reconciliation_service import (
+        XianyuOrderReconciliationService,
+    )
+
+    with app.app_context():
+        XianyuOrderReconciliationService().reconcile()
+
