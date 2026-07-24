@@ -84,4 +84,24 @@ describe('useXianyuOrderAlerts', () => {
     pendingPost.resolve(response(makeSnapshot()))
     await mutation
   })
+
+  it('serializes refresh behind an in-flight ignore', async () => {
+    const pendingIgnore = deferred<any>()
+    vi.mocked(axios.post)
+      .mockReturnValueOnce(pendingIgnore.promise)
+      .mockResolvedValueOnce(response(makeSnapshot()))
+    const alerts = useXianyuOrderAlerts()
+
+    const ignoreRequest = alerts.ignore('XY-1', '非租赁商品')
+    const refreshRequest = alerts.refresh()
+    await Promise.resolve()
+
+    expect(axios.post).toHaveBeenCalledTimes(1)
+    pendingIgnore.resolve(response(makeSnapshot()))
+    await ignoreRequest
+    await refreshRequest
+
+    expect(axios.post).toHaveBeenCalledTimes(2)
+    expect(alerts.snapshot.value.count).toBe(0)
+  })
 })

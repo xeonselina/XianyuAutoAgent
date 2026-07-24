@@ -21,73 +21,90 @@ export function useXianyuOrderAlerts() {
   const snapshot = ref<XianyuOrderAlertSnapshot>(emptySnapshot())
   const loading = ref(false)
   let pollingTimer: ReturnType<typeof setInterval> | undefined
-  let latestRequestId = 0
+  let latestReadId = 0
+  let mutationVersion = 0
   let mutationCount = 0
-  let refreshCount = 0
+  let mutationQueue: Promise<void> = Promise.resolve()
 
-  const applyResponse = (response: any, requestId: number) => {
-    if (
-      requestId === latestRequestId
-      && response?.data?.success
-      && response.data.data
-    ) {
+  const applyResponse = (response: any) => {
+    if (response?.data?.success && response.data.data) {
       snapshot.value = response.data.data
     }
   }
 
   const load = async (force = false) => {
-    if (!force && mutationCount > 0) return
-    const requestId = ++latestRequestId
+    if (mutationCount > 0) {
+      if (!force) return
+      await mutationQueue
+    }
+
+    const readId = ++latestReadId
+    const startedMutationVersion = mutationVersion
     try {
-      applyResponse(
-        await axios.get('/api/xianyu-order-alerts'),
-        requestId,
-      )
+      const response = await axios.get('/api/xianyu-order-alerts')
+      if (
+        readId === latestReadId
+        && startedMutationVersion === mutationVersion
+        && mutationCount === 0
+      ) {
+        applyResponse(response)
+      }
     } catch (error) {
       console.error('读取闲鱼漏录订单告警失败:', error)
     }
   }
 
-  const refresh = async () => {
+  const enqueueMutation = async <T>(
+    operation: () => Promise<T>,
+  ): Promise<T> => {
     mutationCount += 1
-    refreshCount += 1
+    mutationVersion += 1
     loading.value = true
-    const requestId = ++latestRequestId
+
+    const task = mutationQueue.then(operation)
+    mutationQueue = task.then(
+      () => undefined,
+      () => undefined,
+    )
+
     try {
-      applyResponse(
-        await axios.post('/api/xianyu-order-alerts/refresh'),
-        requestId,
-      )
+      return await task
+    } finally {
+      mutationCount -= 1
+      loading.value = mutationCount > 0
+    }
+  }
+
+  const refresh = async () => {
+    try {
+      await enqueueMutation(async () => {
+        applyResponse(
+          await axios.post('/api/xianyu-order-alerts/refresh'),
+        )
+      })
     } catch (error: any) {
       console.error('刷新闲鱼漏录订单告警失败:', error)
       ElMessage.error(
         error.response?.data?.message || '漏录订单检查失败',
       )
-    } finally {
-      mutationCount -= 1
-      refreshCount -= 1
-      loading.value = refreshCount > 0
     }
   }
 
   const ignore = async (orderNo: string, reason: string) => {
-    mutationCount += 1
-    const requestId = ++latestRequestId
     try {
-      applyResponse(
-        await axios.post(
-          `/api/xianyu-order-alerts/${encodeURIComponent(orderNo)}/ignore`,
-          { reason },
-        ),
-        requestId,
-      )
+      await enqueueMutation(async () => {
+        applyResponse(
+          await axios.post(
+            `/api/xianyu-order-alerts/${encodeURIComponent(orderNo)}/ignore`,
+            { reason },
+          ),
+        )
+      })
       ElMessage.success('订单已永久忽略')
     } catch (error: any) {
       ElMessage.error(
         error.response?.data?.message || '忽略订单失败',
       )
-    } finally {
-      mutationCount -= 1
     }
   }
 
