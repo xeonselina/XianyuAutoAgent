@@ -10,6 +10,7 @@ from app.routes.rental_api import bp as rental_api_bp
 from app.routes.inventory_api import bp as inventory_api_bp
 from app.routes.ocr_api import bp as ocr_api_bp
 from app.routes.customer_api import bp as customer_api_bp
+from app.routes.xianyu_order_alert_api import bp as xianyu_order_alert_api_bp
 
 # 创建主蓝图
 bp = Blueprint('web', __name__)
@@ -22,6 +23,7 @@ bp.register_blueprint(rental_api_bp)
 bp.register_blueprint(inventory_api_bp)
 bp.register_blueprint(ocr_api_bp)
 bp.register_blueprint(customer_api_bp)
+bp.register_blueprint(xianyu_order_alert_api_bp)
 
 
 @bp.route('/health')
