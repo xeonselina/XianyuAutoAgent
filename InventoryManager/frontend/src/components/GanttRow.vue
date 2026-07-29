@@ -326,7 +326,7 @@ const STATUS_COLORS: Record<string, string> = {
   not_shipped:              '#c8860a', // 棕黄色 — 待发货
   scheduled_for_shipping:   '#1989fa', // 蓝色   — 已预约
   shipped:                  '#07c160', // 绿色   — 已发货
-  returned:                 '#7232dd', // 紫色   — 已还租
+  returned:                 '#7232dd', // 紫色   — 已寄回
   completed:                '#909399', // 灰色   — 已完成
   cancelled:                '#c8c9cc', // 浅灰   — 已取消
 }

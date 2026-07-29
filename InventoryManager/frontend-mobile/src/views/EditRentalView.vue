@@ -501,7 +501,7 @@ const STATUS_OPTS = [
   { text: '待发货',  value: 'not_shipped' },
   { text: '已预约',  value: 'scheduled_for_shipping' },
   { text: '已发货',  value: 'shipped' },
-  { text: '已还租',  value: 'returned' },
+  { text: '已寄回',  value: 'returned' },
   { text: '已完成',  value: 'completed' },
   { text: '已取消',  value: 'cancelled' }
 ]

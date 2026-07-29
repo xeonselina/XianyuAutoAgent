@@ -100,7 +100,7 @@ const STATUS_MAP: Record<string, { label: string; color: string }> = {
   not_shipped:          { label: '待发货',  color: '#ff976a' },
   scheduled_for_shipping: { label: '已预约', color: '#1989fa' },
   shipped:              { label: '已发货',  color: '#07c160' },
-  returned:             { label: '已还租',  color: '#7232dd' },
+  returned:             { label: '已寄回',  color: '#7232dd' },
   completed:            { label: '已完成',  color: '#333' },
   cancelled:            { label: '已取消',  color: '#999' }
 }

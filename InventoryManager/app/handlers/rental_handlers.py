@@ -58,6 +58,19 @@ class RentalHandlers:
     """租赁请求处理器类"""
 
     @staticmethod
+    def handle_get_due_today_rentals() -> ApiResponse:
+        """处理今日应归还租赁列表请求。"""
+        try:
+            rentals = RentalService.get_due_today_rentals()
+            return success(data={
+                'rentals': rentals,
+                'count': len(rentals),
+            })
+        except Exception as exc:
+            current_app.logger.error(f"获取今日应归还列表失败: {exc}")
+            return server_error('获取今日应归还列表失败')
+
+    @staticmethod
     def handle_estimate_logistics() -> ApiResponse:
         """根据收货地址预估顺丰标快物流时效。"""
         destination = request.args.get('destination', '')

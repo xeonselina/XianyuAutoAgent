@@ -25,6 +25,13 @@ def get_rentals():
     return RentalHandlers.handle_get_rentals()
 
 
+@bp.route('/api/rentals/due-today')
+@handle_response
+def get_due_today_rentals():
+    """获取今天应归还的租赁记录"""
+    return RentalHandlers.handle_get_due_today_rentals()
+
+
 @bp.route('/api/rentals/<rental_id>')
 @handle_response
 def get_rental(rental_id):
