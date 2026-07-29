@@ -23,7 +23,6 @@ describe('GanttRow.vue Component', () => {
       model: 'iPhone',
       model_id: 1,
       is_accessory: false,
-      status: 'online' as const,
       lifecycle_status: 'active' as const,
       created_at: '2026-05-01T00:00:00Z',
       updated_at: '2026-05-01T00:00:00Z'

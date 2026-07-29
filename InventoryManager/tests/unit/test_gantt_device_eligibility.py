@@ -60,7 +60,6 @@ def test_find_slot_excludes_online_non_active_device(
                 model=model.name,
                 model_id=model.id,
                 is_accessory=False,
-                status="online",
                 lifecycle_status=lifecycle_status,
             )
         )
@@ -77,22 +76,21 @@ def test_find_slot_excludes_online_non_active_device(
         assert result is None
 
 
-def test_find_slot_excludes_offline_active_device(app, db_session):
+def test_find_slot_includes_active_device(app, db_session):
     with app.app_context():
         model = DeviceModel(
-            name="eligibility-offline",
-            display_name="资格测试-离线",
+            name="eligibility-active",
+            display_name="资格测试-活动",
             is_active=True,
         )
         db_session.add(model)
         db_session.flush()
         db_session.add(
             Device(
-                name="离线设备",
+                name="活动设备",
                 model=model.name,
                 model_id=model.id,
                 is_accessory=False,
-                status="offline",
                 lifecycle_status="active",
             )
         )
@@ -106,4 +104,5 @@ def test_find_slot_excludes_offline_active_device(app, db_session):
             False,
         )
 
-        assert result is None
+        assert result is not None
+        assert result["total_available"] == 1

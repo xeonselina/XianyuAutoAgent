@@ -267,7 +267,6 @@
                 :dates="dateArray"
                 @edit-rental="handleEditRental"
                 @delete-rental="handleDeleteRental"
-                @update-device-status="handleUpdateDeviceStatus"
                 @update-device-lifecycle="handleUpdateDeviceLifecycle"
               />
             </div>
@@ -972,24 +971,6 @@ const handleDeleteRental = async (rental: Rental) => {
   } catch (error) {
     if (error !== 'cancel') {
       ElMessage.error('删除失败：' + (error as Error).message)
-    }
-  }
-}
-
-const handleUpdateDeviceStatus = async (device: Device, newStatus: string) => {
-  try {
-    await ganttStore.updateDeviceStatus(device.id, newStatus)
-    ElMessage.success('设备状态更新成功！')
-
-    // 重新加载数据以反映最新变化
-    await ganttStore.loadData()
-  } catch (error) {
-    ElMessage.error('状态更新失败：' + (error as Error).message)
-    // 如果更新失败，恢复原状态
-    const originalDevice = ganttStore.devices.find(d => d.id === device.id)
-    if (originalDevice) {
-      // 重新加载数据以确保状态同步
-      await ganttStore.loadData()
     }
   }
 }

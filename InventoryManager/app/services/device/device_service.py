@@ -17,7 +17,6 @@ class DeviceService:
         per_page: int = 20,
         name: Optional[str] = None,
         model: Optional[str] = None,
-        status: Optional[str] = None,
         lifecycle_status: Optional[str] = None,
         is_accessory: Optional[bool] = None,
         serial_number: Optional[str] = None
@@ -29,7 +28,6 @@ class DeviceService:
             per_page: 每页数量（最多100）
             name: 设备名称（模糊查询）
             model: 设备型号（精确匹配）
-            status: 设备状态 online/offline（精确匹配）
             lifecycle_status: 生命周期状态 active/sold/decommissioned/damaged/retired（精确匹配）
             is_accessory: 是否为附件（布尔值）
             serial_number: 序列号（模糊查询）
@@ -49,9 +47,6 @@ class DeviceService:
             
             if model:
                 query = query.filter(Device.model == model)
-            
-            if status:
-                query = query.filter(Device.status == status)
             
             if lifecycle_status:
                 query = query.filter(Device.lifecycle_status == lifecycle_status)

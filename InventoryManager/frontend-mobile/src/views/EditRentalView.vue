@@ -484,7 +484,7 @@ const shipInTimeDisplay = computed(() => {
 // Picker 列数据
 const deviceColumns = computed(() =>
   allDevices.value
-    .filter(d => !d.is_accessory && d.status === 'online')
+    .filter(d => !d.is_accessory && d.lifecycle_status === 'active')
     .map(d => ({ text: d.name, value: d.id }))
 )
 

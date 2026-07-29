@@ -19,7 +19,7 @@ const createMockDevices = (): Device[] => [
       name: 'iPhone',
       display_name: 'iPhone 14 Pro'
     },
-    status: 'online',
+    lifecycle_status: 'active',
     is_accessory: false,
     rentals: []
   },
@@ -32,7 +32,7 @@ const createMockDevices = (): Device[] => [
       name: 'Sony',
       display_name: 'Sony A7R'
     },
-    status: 'online',
+    lifecycle_status: 'active',
     is_accessory: false,
     rentals: []
   }
@@ -142,7 +142,7 @@ export const handlers = [
       name: data.name || 'Unknown Device',
       serial_number: data.serial_number || `SN${Date.now()}`,
       device_model: data.device_model || { id: 1, name: 'Generic', display_name: 'Generic Device' },
-      status: data.status || 'online',
+      lifecycle_status: data.lifecycle_status || 'active',
       is_accessory: data.is_accessory || false,
       rentals: []
     }
@@ -153,7 +153,7 @@ export const handlers = [
     }, { status: 201 })
   }),
 
-  // Update device status
+  // Update device
   http.put('/api/devices/:id', async ({ params, request }) => {
     const device = mockDevices.find(d => d.id === parseInt(params.id as string))
     if (!device) {
@@ -181,7 +181,7 @@ export const handlers = [
     }
     const data = await request.json() as { lifecycle_status?: string }
     if (data.lifecycle_status) {
-      device.status = data.lifecycle_status
+      device.lifecycle_status = data.lifecycle_status as Device['lifecycle_status']
     }
     return HttpResponse.json({
       success: true,

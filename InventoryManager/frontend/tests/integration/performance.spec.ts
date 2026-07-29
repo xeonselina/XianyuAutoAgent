@@ -38,7 +38,7 @@ describe('Performance Testing - Large Dataset Handling', () => {
           name: `Model ${(i % 10) + 1}`,
           display_name: `Display Name ${(i % 10) + 1}`
         },
-        status: i % 3 === 0 ? 'offline' : 'online',
+        lifecycle_status: i % 3 === 0 ? 'retired' : 'active',
         is_accessory: i % 20 === 0,
         rentals: []
       }))
@@ -63,7 +63,7 @@ describe('Performance Testing - Large Dataset Handling', () => {
           name: 'Model',
           display_name: 'Model'
         },
-        status: i % 3 === 0 ? 'offline' : 'online',
+        lifecycle_status: i % 3 === 0 ? 'retired' : 'active',
         is_accessory: i % 15 === 0,
         rentals: []
       }))
@@ -72,8 +72,10 @@ describe('Performance Testing - Large Dataset Handling', () => {
 
       const startTime = performance.now()
 
-      // Filter for available devices (online, not accessory)
-      const available = store.devices.filter(d => d.status === 'online' && !d.is_accessory)
+      // Filter for available devices (active, not accessory)
+      const available = store.devices.filter(
+        d => d.lifecycle_status === 'active' && !d.is_accessory
+      )
 
       const endTime = performance.now()
       const duration = endTime - startTime
@@ -94,7 +96,7 @@ describe('Performance Testing - Large Dataset Handling', () => {
           name: 'Model',
           display_name: 'Model'
         },
-        status: i % 2 === 0 ? 'online' : 'offline',
+        lifecycle_status: i % 2 === 0 ? 'active' : 'retired',
         is_accessory: i % 25 === 0,
         rentals: []
       }))
@@ -392,7 +394,7 @@ describe('Performance Testing - Large Dataset Handling', () => {
           name: 'Model',
           display_name: 'Model'
         },
-        status: 'online',
+        lifecycle_status: 'active',
         is_accessory: false,
         rentals: []
       }))
@@ -460,7 +462,7 @@ describe('Performance Testing - Large Dataset Handling', () => {
           name: 'Model',
           display_name: 'Model'
         },
-        status: i % 2 === 0 ? 'online' : 'offline',
+        lifecycle_status: i % 2 === 0 ? 'active' : 'retired',
         is_accessory: i % 20 === 0,
         rentals: []
       }))
@@ -493,7 +495,7 @@ describe('Performance Testing - Large Dataset Handling', () => {
           name: 'Model',
           display_name: 'Model'
         },
-        status: 'online',
+        lifecycle_status: 'active',
         is_accessory: false,
         rentals: []
       }))

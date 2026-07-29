@@ -236,7 +236,6 @@ class GanttReorderService:
                 db.and_(
                     Device.model_id.in_(model_ids or {-1}),
                     Device.is_accessory.is_(False),
-                    Device.status == "online",
                     Device.lifecycle_status == "active",
                 ),
             )
@@ -272,7 +271,6 @@ class GanttReorderService:
                 "id": device.id,
                 "model_id": device.model_id,
                 "is_accessory": device.is_accessory,
-                "status": device.status,
                 "lifecycle_status": device.lifecycle_status,
                 "updated_at": cls._iso(device.updated_at),
             }
@@ -396,7 +394,6 @@ class GanttReorderService:
         for device in devices:
             if (
                 not device.is_accessory
-                and device.status == "online"
                 and device.lifecycle_status == "active"
                 and device.model_id is not None
             ):
@@ -754,7 +751,6 @@ class GanttReorderService:
                 raise ValueError("目标设备不存在")
             if (
                 target.is_accessory
-                or target.status != "online"
                 or target.lifecycle_status != "active"
             ):
                 raise ValueError("目标设备不是使用中的主设备")

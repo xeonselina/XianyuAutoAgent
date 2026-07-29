@@ -21,13 +21,6 @@ class Device(db.Model):
     model_id = db.Column(db.Integer, db.ForeignKey('device_models.id'), nullable=True, comment='设备型号ID')
     is_accessory = db.Column(db.Boolean, default=False, comment='是否为附件')
     
-    # 状态信息
-    status = db.Column(
-        db.Enum('online', 'offline', name='device_status'),
-        default='online',
-        comment='设备状态'
-    )
-    
     # 生命周期管理字段
     lifecycle_status = db.Column(
         db.Enum('active', 'sold', 'decommissioned', 'damaged', 'retired', name='device_lifecycle_status'),
@@ -67,7 +60,6 @@ class Device(db.Model):
             'model_id': self.model_id,
             'device_model': self.device_model.to_dict() if self.device_model else None,
             'is_accessory': self.is_accessory,
-            'status': self.status,
             'lifecycle_status': self.lifecycle_status,
             'lifecycle_reason': self.lifecycle_reason,
             'lifecycle_date': self.lifecycle_date.isoformat() if self.lifecycle_date else None,
@@ -82,17 +74,14 @@ class Device(db.Model):
         检查设备是否在服务中（可用于新租赁）
         
         Returns:
-            bool: True if device is active and online
+            bool: True if device lifecycle is active
         """
-        return self.lifecycle_status == 'active' and self.status == 'online'
+        return self.lifecycle_status == 'active'
 
     @classmethod
     def in_service_query(cls, is_accessory=None):
         """返回只包含在线且生命周期为使用中的设备查询。"""
-        query = cls.query.filter(
-            cls.status == 'online',
-            cls.lifecycle_status == 'active'
-        )
+        query = cls.query.filter(cls.lifecycle_status == 'active')
         if is_accessory is not None:
             query = query.filter(cls.is_accessory.is_(is_accessory))
         return query
@@ -118,7 +107,7 @@ class Device(db.Model):
         检查是否可以为此设备创建新租赁
         
         Returns:
-            bool: True if device is in service (active + online)
+            bool: True if device lifecycle is active
         """
         return self.is_in_service()
     
@@ -251,14 +240,6 @@ class Device(db.Model):
         """获取租赁历史"""
         return self.rentals.order_by(Rental.created_at.desc()).limit(limit).all()
     
-    
-    @classmethod
-    def get_device_count_by_status(cls):
-        """按状态统计设备数量"""
-        return db.session.query(
-            cls.status,
-            db.func.count(cls.id).label('count')
-        ).group_by(cls.status).all()
     
     @classmethod
     def get_device_count_by_lifecycle_status(cls):

@@ -1,6 +1,6 @@
 <template>
   <div class="gantt-row">
-    <div class="device-cell" :class="[`device-status-${device.status}`, `device-lifecycle-${device.lifecycle_status || 'active'}`]">
+    <div class="device-cell" :class="`device-lifecycle-${device.lifecycle_status || 'active'}`">
       <div class="device-info">
         <div class="device-name">{{ device.name }}</div>
         <div class="device-details">
@@ -128,7 +128,6 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   'edit-rental': [rental: Rental]
   'delete-rental': [rental: Rental]
-  'update-device-status': [device: Device, newStatus: string]
   'update-device-lifecycle': [device: Device, newLifecycle: string]
 }>()
 
@@ -138,11 +137,6 @@ const tooltipVisible = ref(false)
 const tooltipTriggerRef = ref<HTMLElement>()
 let showTimer: number | null = null
 let hideTimer: number | null = null
-
-// 更新设备状态
-const updateDeviceStatus = (newStatus: string) => {
-  emit('update-device-status', props.device, newStatus)
-}
 
 // 更新设备生命周期状态
 const updateLifecycleStatus = (newLifecycle: string) => {
@@ -480,26 +474,6 @@ const isDateEmpty = (date: Date) => {
   z-index: 5;
   flex-shrink: 0;
   height: 100%;
-}
-
-.device-cell.device-status-online {
-  background-color: #f6ffed;
-  border-left: 4px solid #52c41a;
-}
-
-.device-cell.device-status-offline {
-  background-color: #fff1f0;
-  border-left: 4px solid #ff4d4f;
-}
-
-.device-cell.device-status-returned {
-  background-color: #f4f4f5;
-  border-left: 4px solid #8c8c8c;
-}
-
-.device-cell.device-status-offline {
-  background-color: #fff2f0;
-  border-left: 4px solid #ff4d4f;
 }
 
 .device-info {

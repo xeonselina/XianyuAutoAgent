@@ -48,7 +48,6 @@ def seed_device(db_session):
         model=model.name,
         model_id=model.id,
         is_accessory=False,
-        status="online",
         lifecycle_status="active",
     )
     db_session.add(device)

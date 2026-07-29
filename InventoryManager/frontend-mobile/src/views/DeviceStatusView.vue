@@ -7,11 +7,14 @@
       :border="false"
     />
 
-    <!-- 在线/离线 tab 过滤 -->
+    <!-- 生命周期状态过滤 -->
     <van-tabs v-model:active="activeTab" sticky>
       <van-tab title="全部" name="all" />
-      <van-tab title="在线" name="online" />
-      <van-tab title="离线" name="offline" />
+      <van-tab title="使用中" name="active" />
+      <van-tab title="已售出" name="sold" />
+      <van-tab title="已停用" name="decommissioned" />
+      <van-tab title="已损坏" name="damaged" />
+      <van-tab title="已退役" name="retired" />
     </van-tabs>
 
     <div class="device-list" v-if="!ganttStore.loading">
@@ -29,15 +32,6 @@
               <div class="device-model">{{ device.model }}</div>
             </div>
             <div class="device-badges">
-              <!-- 在线/离线 badge -->
-              <van-tag
-                :type="device.status === 'online' ? 'success' : 'default'"
-                class="status-badge"
-                @click="openStatusPicker(device)"
-              >
-                {{ device.status === 'online' ? '在线' : '离线' }}
-              </van-tag>
-              <!-- 生命周期 badge -->
               <van-tag
                 :type="lifecycleBadgeType(device.lifecycle_status)"
                 class="lifecycle-badge"
@@ -54,15 +48,6 @@
     <div class="loading-center" v-else>
       <van-loading color="#409eff" />
     </div>
-
-    <!-- 在线/离线 选择 -->
-    <van-action-sheet
-      v-model:show="showStatusSheet"
-      title="修改使用状态"
-      :actions="statusActions"
-      cancel-text="取消"
-      @select="onStatusSelect"
-    />
 
     <!-- 生命周期 选择 -->
     <van-action-sheet
@@ -83,7 +68,15 @@ import type { Device } from '@/stores/gantt'
 
 const ganttStore = useGanttStore()
 
-const activeTab = ref<'all' | 'online' | 'offline'>('all')
+type LifecycleFilter =
+  | 'all'
+  | 'active'
+  | 'sold'
+  | 'decommissioned'
+  | 'damaged'
+  | 'retired'
+
+const activeTab = ref<LifecycleFilter>('all')
 
 const LIFECYCLE_LABELS: Record<string, string> = {
   active:          '使用中',
@@ -109,35 +102,12 @@ const allDevices = computed(() => ganttStore.devices)
 
 const filteredDevices = computed(() => {
   if (activeTab.value === 'all') return allDevices.value.filter(d => !d.is_accessory)
-  return allDevices.value.filter(d => !d.is_accessory && d.status === activeTab.value)
+  return allDevices.value.filter(
+    d => !d.is_accessory && d.lifecycle_status === activeTab.value
+  )
 })
 
-// ── 在线/离线 picker ─────────────────────────────────
-const showStatusSheet = ref(false)
 const targetDevice = ref<Device | null>(null)
-
-const statusActions = [
-  { name: '在线', value: 'online', color: '#07c160' },
-  { name: '离线', value: 'offline', color: '#999' },
-]
-
-const openStatusPicker = (device: Device) => {
-  targetDevice.value = device
-  showStatusSheet.value = true
-}
-
-const onStatusSelect = async (action: { name: string; value: string }) => {
-  if (!targetDevice.value) return
-  showStatusSheet.value = false
-  try {
-    await ganttStore.updateDeviceStatus(targetDevice.value.id, action.value)
-    showToast({ message: `已设为${action.name}`, type: 'success' })
-  } catch (e: any) {
-    showToast({ message: e.message || '更新失败', type: 'fail' })
-  }
-}
-
-// ── 生命周期 picker ──────────────────────────────────
 const showLifecycleSheet = ref(false)
 
 const lifecycleActions = [

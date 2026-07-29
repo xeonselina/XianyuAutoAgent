@@ -43,7 +43,6 @@ export interface Device {
   model_id?: number
   device_model?: DeviceModel
   is_accessory: boolean
-  status: 'online' | 'offline'
   lifecycle_status: 'active' | 'sold' | 'decommissioned' | 'damaged' | 'retired'
   lifecycle_reason?: string
   lifecycle_date?: string
@@ -131,7 +130,7 @@ export const useGanttStore = defineStore('gantt', () => {
 
   const availableDevices = computed(() => {
     return devices.value.filter(device =>
-      device.status === 'online' && !device.is_accessory
+      device.lifecycle_status === 'active' && !device.is_accessory
     )
   })
 
@@ -312,28 +311,6 @@ export const useGanttStore = defineStore('gantt', () => {
     }
   }
 
-  // 更新设备状态
-  const updateDeviceStatus = async (deviceId: number, status: string) => {
-    try {
-      const response = await axios.put(`/api/devices/${deviceId}`, {
-        status: status
-      })
-      
-      if (response.data.success) {
-        // 更新本地设备状态
-        const device = devices.value.find(d => d.id === deviceId)
-        if (device) {
-          device.status = status as Device['status']
-        }
-        return response.data
-      } else {
-        throw new Error(response.data.error || '更新设备状态失败')
-      }
-    } catch (err: any) {
-      throw new Error(err.response?.data?.error || err.message || '更新设备状态失败')
-    }
-  }
-
   // 更新设备生命周期状态
   const updateDeviceLifecycle = async (deviceId: number, lifecycleStatus: string, reason?: string) => {
     try {
@@ -370,8 +347,7 @@ export const useGanttStore = defineStore('gantt', () => {
         serial_number: deviceData.serial_number,
         model: deviceData.model,
         model_id: deviceData.model_id,
-        is_accessory: deviceData.is_accessory,
-        status: 'online'
+        is_accessory: deviceData.is_accessory
       })
       
       if (response.data.success) {
@@ -413,7 +389,6 @@ export const useGanttStore = defineStore('gantt', () => {
     deleteRental,
     getRentalById,
     shipRentalToXianyu,
-    updateDeviceStatus,
     updateDeviceLifecycle,
     addDevice
   }

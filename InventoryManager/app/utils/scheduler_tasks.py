@@ -11,7 +11,6 @@ from sqlalchemy import and_, or_
 from app import db
 from app.models.rental import Rental
 from app.models.device import Device
-from app.services.device_status_service import DeviceStatusService
 from app.utils.sf.sf_sdk_wrapper import create_sf_client, batch_query_tracking_info
 import os
 
@@ -251,32 +250,8 @@ class RentalTrackingScheduler:
             logger.info(f"定时任务执行完成，耗时: {duration:.2f} 秒")
 
 
-class DeviceStatusScheduler:
-    """设备状态更新定时任务"""
-    
-    def update_device_statuses(self):
-        """更新所有设备状态"""
-        logger.info("开始执行设备状态更新任务")
-        start_time = datetime.now()
-        
-        try:
-            DeviceStatusService.update_device_statuses()
-        except Exception as e:
-            logger.error(f"设备状态更新任务执行失败: {e}")
-        finally:
-            end_time = datetime.now()
-            duration = (end_time - start_time).total_seconds()
-            logger.info(f"设备状态更新任务执行完成，耗时: {duration:.2f} 秒")
-    
-    def run_minute_task(self):
-        """每分钟执行的任务"""
-        logger.info("开始执行每分钟定时任务：更新设备状态")
-        self.update_device_statuses()
-
-
 # 全局调度器实例
 rental_scheduler = RentalTrackingScheduler()
-device_scheduler = DeviceStatusScheduler()
 
 
 def update_rental_tracking_status():
@@ -285,14 +260,6 @@ def update_rental_tracking_status():
     供外部调用
     """
     rental_scheduler.run_hourly_task()
-
-
-def update_device_statuses():
-    """
-    更新设备状态的入口函数
-    供外部调用
-    """
-    device_scheduler.run_minute_task()
 
 
 def manual_query_tracking(tracking_number: str) -> Dict:
@@ -333,52 +300,6 @@ def manual_query_tracking(tracking_number: str) -> Dict:
             'success': False,
             'message': f'查询失败: {str(e)}',
             'tracking_info': None
-        }
-
-
-def force_update_device_status(device_id: int) -> Dict:
-    """
-    强制更新指定设备状态
-    
-    Args:
-        device_id: 设备ID
-        
-    Returns:
-        Dict: 更新结果
-    """
-    try:
-        success, message = DeviceStatusService.force_update_device_status(device_id)
-        return {
-            'success': success,
-            'message': message
-        }
-    except Exception as e:
-        logger.error(f"强制更新设备状态失败: {e}")
-        return {
-            'success': False,
-            'message': f'更新失败: {str(e)}'
-        }
-
-
-def get_device_status_summary() -> Dict:
-    """
-    获取设备状态统计
-
-    Returns:
-        Dict: 状态统计信息
-    """
-    try:
-        summary = DeviceStatusService.get_device_status_summary()
-        return {
-            'success': True,
-            'data': summary
-        }
-    except Exception as e:
-        logger.error(f"获取设备状态统计失败: {e}")
-        return {
-            'success': False,
-            'message': f'获取失败: {str(e)}',
-            'data': {}
         }
 
 
@@ -518,4 +439,3 @@ def reconcile_xianyu_orders(app=None):
 
     with app.app_context():
         XianyuOrderReconciliationService().reconcile()
-

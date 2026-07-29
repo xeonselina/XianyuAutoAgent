@@ -54,7 +54,6 @@
         .gantt-device-cell.device-status-renting { background-color: #7ac5ff; }
         .gantt-device-cell.device-status-pending_return { background-color: #ffdc68; /* 黄色浅底 */ }
         .gantt-device-cell.device-status-returned { background-color: #bc81ff; }
-        .gantt-device-cell.device-status-offline { background-color: #949494; color: #6c757d; }
         
         /* 状态说明样式 */
         .device-status-legend {
@@ -101,10 +100,6 @@
             background: #6f42c1;
         }
         
-        .status-offline {
-            background: #6c757d;
-        }
-
         /* 让左上角单元格同时固定在顶部与左侧，并在层级上覆盖其他元素 */
         .gantt-header .gantt-device-cell {
             top: 0;
@@ -507,7 +502,6 @@
                         <option value="renting">租赁中</option>
                         <option value="pending_return">待寄回</option>
                         <option value="returned">已寄回</option>
-                        <option value="offline">下架</option>
                     </select>
                 </div>
                 <div class="col-md-3">
@@ -542,7 +536,6 @@
                         <span class="status-item status-renting">租赁中</span>
                         <span class="status-item status-pending-return">待寄回</span>
                         <span class="status-item status-returned">已寄回</span>
-                        <span class="status-item status-offline">下架</span>
                     </div>
                 </div>
             </div>
@@ -735,4 +728,3 @@
     </script>
 </body>
 </html>
-

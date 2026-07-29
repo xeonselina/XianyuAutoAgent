@@ -105,7 +105,6 @@ def seeded_reorder_case(db_session):
         model=model.name,
         model_id=model.id,
         is_accessory=False,
-        status="online",
         lifecycle_status="active",
     )
     second_device = Device(
@@ -113,14 +112,12 @@ def seeded_reorder_case(db_session):
         model=model.name,
         model_id=model.id,
         is_accessory=False,
-        status="online",
         lifecycle_status="active",
     )
     accessory = Device(
         name="手机支架-01",
         model="stand",
         is_accessory=True,
-        status="online",
         lifecycle_status="active",
     )
     db_session.add_all([first_device, second_device, accessory])

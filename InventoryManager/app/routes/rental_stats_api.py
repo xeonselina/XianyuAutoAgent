@@ -8,15 +8,18 @@ from app.models.rental import Rental
 from app.models.device import Device
 from app.models.device_model import DeviceModel
 from datetime import date, timedelta, datetime
-import math
-from sqlalchemy import func
+from app.services.rental_statistics_service import (
+    calculate_period_depreciation,
+    is_order_within_service,
+    lifecycle_end_date,
+    service_overlap_days,
+)
 
 bp = Blueprint('rental_stats_api', __name__, url_prefix='/api/rental-stats')
 
 # 忽略的设备（name 字段值，即设备编号）
-# 2005/3005/3006：已损坏/停用设备
 # 代发01~03、代发04深圳：代发设备，不计入自营统计
-EXCLUDED_DEVICE_NAMES = {'2005', '3005', '3006', '代发01', '代发02', '代发03', '代发 04 深圳'}
+EXCLUDED_DEVICE_NAMES = {'代发01', '代发02', '代发03', '代发 04 深圳'}
 
 # x200u 折旧模型参数（来自 Excel）
 # 购买价 = 5800 + 1499 = 7299
@@ -26,23 +29,9 @@ X200U_PURCHASE_DATE = date(2025, 8, 1)
 
 
 def _get_excluded_device_ids_from_db():
-    """返回需要排除的设备 ID 集合
-    
-    包括两类设备：
-    1. 按名称匹配的硬编码列表（EXCLUDED_DEVICE_NAMES）- 向后兼容
-    2. 生命周期状态为非活动的设备（sold, decommissioned, damaged, retired）
-    """
-    # 1. 获取硬编码排除列表中的设备
+    """返回永久排除的代发设备 ID 集合。"""
     excluded_by_name = Device.query.filter(Device.name.in_(EXCLUDED_DEVICE_NAMES)).all()
-    excluded_ids = {d.id for d in excluded_by_name}
-    
-    # 2. 获取生命周期状态为非活动的设备
-    excluded_by_lifecycle = Device.query.filter(
-        Device.lifecycle_status.in_(['sold', 'decommissioned', 'damaged', 'retired'])
-    ).all()
-    excluded_ids.update({d.id for d in excluded_by_lifecycle})
-    
-    return excluded_ids
+    return {d.id for d in excluded_by_name}
 
 
 def _get_model_id_by_name(model_name: str):
@@ -82,11 +71,9 @@ def _calc_period_depreciation(
     公式：depreciation = price × [0.5^(weeks_start/52) - 0.5^(weeks_end/52)]
     purchase_date 视为设备"投入"日期（即第一笔订单日期）
     """
-    weeks_start = (p_start - purchase_date).days / 7.0
-    weeks_end = (p_end - purchase_date).days / 7.0
-    residual_start = purchase_price * math.pow(0.5, max(0.0, weeks_start) / 52.0)
-    residual_end   = purchase_price * math.pow(0.5, max(0.0, weeks_end)   / 52.0)
-    return residual_start - residual_end
+    return calculate_period_depreciation(
+        purchase_price, purchase_date, p_start, p_end
+    )
 
 
 def _get_periods(period_type: str, start: date, end: date):
@@ -197,6 +184,10 @@ def get_periodic_stats():
             device_query = device_query.filter(Device.model_id == filter_model_id)
         all_devices = device_query.all()
         all_device_ids = {d.id for d in all_devices}
+        device_service_end = {
+            d.id: lifecycle_end_date(d)
+            for d in all_devices
+        }
 
         # device_id -> purchase_price（来自 device_models.device_value）
         device_price: dict[int, float] = {}
@@ -227,18 +218,39 @@ def get_periodic_stats():
         result = []
 
         for label, p_start, p_end in periods:
-            # 该周期内"已投入"的设备：第一张订单开始日期 <= 周期结束
+            # 该周期内至少有一个可用自然日的设备
             active_device_ids = {
                 did for did, first in device_first_order.items()
-                if first <= p_end and did in all_device_ids
+                if did in all_device_ids
+                and service_overlap_days(
+                    first,
+                    device_service_end.get(did),
+                    p_start,
+                    p_end,
+                ) > 0
             }
             device_count = len(active_device_ids)
+            available_device_days = sum(
+                service_overlap_days(
+                    device_first_order[did],
+                    device_service_end.get(did),
+                    p_start,
+                    p_end,
+                )
+                for did in active_device_ids
+            )
+            available_device_weeks = available_device_days / 7.0
 
             # 该周期内的订单：start_date 在 [p_start, p_end]
             period_rentals = [
                 r for r in rentals_query
                 if r.start_date >= p_start and r.start_date <= p_end
                 and r.device_id in active_device_ids
+                and is_order_within_service(
+                    r.start_date,
+                    device_first_order[r.device_id],
+                    device_service_end.get(r.device_id),
+                )
             ]
 
             order_count = len(period_rentals)
@@ -251,12 +263,12 @@ def get_periodic_stats():
 
             # 折旧：对该周期内每台活跃设备，以其 first_order_date 为购买日计算
             depreciation = sum(
-                _calc_period_depreciation(
-                    did,
+                calculate_period_depreciation(
                     device_price.get(did, 0.0),
                     device_first_order[did],   # 购买日 = 第一笔订单日
                     p_start,
                     p_end,
+                    device_service_end.get(did),
                 )
                 for did in active_device_ids
                 if did in device_first_order
@@ -268,15 +280,11 @@ def get_periodic_stats():
             # 出租率：
             #   按周 = 订单数 / 设备数（单周维度，每台设备最多 1 单）
             #   按月 = 订单数 / (设备数 × 本月周数)（消除月份长短差异）
-            if device_count > 0:
-                if period_type == 'month':
-                    weeks_in_period = (p_end - p_start).days / 7.0
-                    denominator = device_count * weeks_in_period
-                else:
-                    denominator = device_count
-                rental_rate = round(order_count / denominator, 4) if denominator > 0 else 0.0
-            else:
-                rental_rate = 0.0
+            rental_rate = (
+                round(order_count / available_device_weeks, 4)
+                if available_device_weeks > 0
+                else 0.0
+            )
 
             avg_revenue_per_device = round(order_amount / device_count, 2) if device_count > 0 else 0.0
 
@@ -285,6 +293,7 @@ def get_periodic_stats():
                 'period_start': p_start.isoformat(),
                 'period_end': p_end.isoformat(),
                 'device_count': device_count,
+                'available_device_weeks': round(available_device_weeks, 4),
                 'order_count': order_count,
                 'rental_rate': rental_rate,
                 'order_amount': round(order_amount, 2),
@@ -342,24 +351,35 @@ def get_x200u_forecast():
         excluded = _get_excluded_device_ids_from_db()
         x200u_model_id = _get_model_id_by_name('x200u')
 
-        devices = Device.query.filter(
+        historical_devices = Device.query.filter(
             Device.is_accessory == False,
             Device.model_id == x200u_model_id,
             ~Device.id.in_(excluded)
         ).all()
+        devices = [
+            device
+            for device in historical_devices
+            if device.lifecycle_status == 'active'
+        ]
         device_count = len(devices)
-        if device_count == 0:
+        if not historical_devices:
             return jsonify({'success': False, 'error': '无 x200u 设备'}), 400
 
-        purchase_price = float(devices[0].device_model.device_value) if devices[0].device_model and devices[0].device_model.device_value else X200U_PURCHASE_PRICE
-        total_cost = purchase_price * device_count  # 总购买成本
+        purchase_price = float(historical_devices[0].device_model.device_value) if historical_devices[0].device_model and historical_devices[0].device_model.device_value else X200U_PURCHASE_PRICE
+        total_cost = purchase_price * len(historical_devices)  # 历史总购买成本
+        historical_device_ids = {d.id for d in historical_devices}
+        active_device_ids = {d.id for d in devices}
+        device_service_end = {
+            d.id: lifecycle_end_date(d)
+            for d in historical_devices
+        }
 
         # device_id -> first_order_date（折旧计算起点）
         device_first_order: dict[int, date] = {}
         for r in Rental.query.filter(
             Rental.parent_rental_id.is_(None),
             Rental.status != 'cancelled',
-            Rental.device_id.in_({d.id for d in devices})
+            Rental.device_id.in_(historical_device_ids)
         ).order_by(Rental.start_date).all():
             if r.device_id not in device_first_order:
                 device_first_order[r.device_id] = r.start_date
@@ -370,18 +390,29 @@ def get_x200u_forecast():
         # ── 月度单价趋势（线性回归）──────────────────────────
         # 取近 6 个完整月（不含当月）的月均单价
         first_of_this_month = today.replace(day=1)
-        rows = db.session.query(
-            func.left(Rental.start_date.cast(db.String), 7).label('ym'),
-            func.avg(Rental.order_amount).label('avg_amt'),
-            func.count().label('cnt')
-        ).join(Device, Device.id == Rental.device_id).filter(
-            Device.model_id == x200u_model_id,
+        price_rentals = Rental.query.filter(
             Rental.parent_rental_id.is_(None),
             Rental.status != 'cancelled',
             Rental.order_amount.isnot(None),
-            ~Device.id.in_(excluded),
+            Rental.device_id.in_(historical_device_ids),
             Rental.start_date < first_of_this_month
-        ).group_by('ym').order_by('ym').all()
+        ).order_by(Rental.start_date).all()
+        monthly_amounts = {}
+        for rental in price_rentals:
+            first_order = device_first_order.get(rental.device_id)
+            if first_order and is_order_within_service(
+                rental.start_date,
+                first_order,
+                device_service_end.get(rental.device_id),
+            ):
+                month_key = rental.start_date.strftime('%Y-%m')
+                monthly_amounts.setdefault(month_key, []).append(
+                    float(rental.order_amount)
+                )
+        rows = [
+            sum(amounts) / len(amounts)
+            for _, amounts in sorted(monthly_amounts.items())
+        ]
 
         # 取最近 6 个月（权重较高）
         recent = rows[-6:] if len(rows) >= 6 else rows
@@ -389,7 +420,7 @@ def get_x200u_forecast():
             # 简单线性回归：x = 月序号（0,1,2...），y = avg_amt
             n = len(recent)
             xs = list(range(n))
-            ys = [float(r.avg_amt) for r in recent]
+            ys = recent
             x_mean = sum(xs) / n
             y_mean = sum(ys) / n
             slope = sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, ys)) / \
@@ -399,7 +430,7 @@ def get_x200u_forecast():
             base_idx = n  # 当月=n, 下一月=n+1...
         else:
             slope = 0.0
-            intercept = float(recent[0].avg_amt) if recent else 178.0
+            intercept = recent[0] if recent else 178.0
             base_idx = 1
 
         def predicted_price(month_offset_from_base: int) -> float:
@@ -410,14 +441,23 @@ def get_x200u_forecast():
         # ── 历史净利润（到上月末）────────────────────────────
         hist_end = first_of_this_month - timedelta(days=1)  # 上月末
 
-        hist_rentals = Rental.query.join(Device).filter(
-            Device.model_id == x200u_model_id,
+        hist_rentals = Rental.query.filter(
             Rental.parent_rental_id.is_(None),
             Rental.status != 'cancelled',
             Rental.order_amount.isnot(None),
-            ~Device.id.in_(excluded),
+            Rental.device_id.in_(historical_device_ids),
             Rental.start_date <= hist_end
         ).all()
+        hist_rentals = [
+            rental
+            for rental in hist_rentals
+            if rental.device_id in device_first_order
+            and is_order_within_service(
+                rental.start_date,
+                device_first_order[rental.device_id],
+                device_service_end.get(rental.device_id),
+            )
+        ]
 
         hist_revenue = sum(float(r.order_amount) for r in hist_rentals)
         hist_orders  = len(hist_rentals)
@@ -425,7 +465,13 @@ def get_x200u_forecast():
 
         # 历史折旧（对每台设备从 first_order_date 到上月末）
         hist_depreciation = sum(
-            _calc_period_depreciation(did, purchase_price, fo, fo, hist_end)
+            calculate_period_depreciation(
+                purchase_price,
+                fo,
+                fo,
+                hist_end,
+                device_service_end.get(did),
+            )
             for did, fo in device_first_order.items()
             if fo <= hist_end
         )
@@ -474,6 +520,7 @@ def get_x200u_forecast():
                 monthly_dep = sum(
                     _calc_period_depreciation(did, purchase_price, fo, m_start, m_end)
                     for did, fo in device_first_order.items()
+                    if did in active_device_ids
                 )
                 # 新设备折旧（7月起，假设首单=7月1日）
                 if new_devices_july > 0 and m_start >= date(2026, 7, 1):
@@ -527,4 +574,3 @@ def get_x200u_forecast():
     except Exception as e:
         import traceback
         return jsonify({'success': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
-

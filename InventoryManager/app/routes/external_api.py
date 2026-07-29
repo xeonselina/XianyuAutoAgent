@@ -30,60 +30,11 @@ def require_api_key(f):
 @bp.route('/devices/<int:device_id>/status', methods=['PUT'])
 @require_api_key
 def update_device_status(device_id):
-    """更新设备状态"""
-    try:
-        data = request.get_json()
-        if not data or 'status' not in data:
-            return jsonify({
-                'success': False,
-                'error': '缺少状态参数'
-            }), 400
-        
-        new_status = data['status']
-        valid_statuses = ['online', 'offline']
-        
-        if new_status not in valid_statuses:
-            return jsonify({
-                'success': False,
-                'error': f'无效的状态值: {new_status}'
-            }), 400
-        
-        # 查找设备
-        device = Device.query.get(device_id)
-        if not device:
-            return jsonify({
-                'success': False,
-                'error': '设备不存在'
-            }), 404
-        
-        # 更新状态
-        old_status = device.status
-        device.status = new_status
-        device.updated_at = datetime.utcnow()
-        
-        # 保存到数据库
-        from app import db
-        db.session.commit()
-        
-        current_app.logger.info(f"设备 {device.name} (ID: {device_id}) 状态从 {old_status} 更新为 {new_status}")
-        
-        return jsonify({
-            'success': True,
-            'message': f'设备状态已更新为: {new_status}',
-            'data': {
-                'device_id': device_id,
-                'old_status': old_status,
-                'new_status': new_status,
-                'updated_at': device.updated_at.isoformat()
-            }
-        })
-        
-    except Exception as e:
-        current_app.logger.error(f"更新设备状态失败: {e}")
-        return jsonify({
-            'success': False,
-            'error': '服务器内部错误'
-        }), 500
+    """旧在线/离线状态接口已移除。"""
+    return jsonify({
+        'success': False,
+        'error': '设备在线/离线状态已移除，请使用 lifecycle 接口'
+    }), 410
 
 
 @bp.route('/inventory/available', methods=['GET'])
@@ -140,7 +91,7 @@ def get_available_inventory():
                 'device_id': device.id,
                 'device_name': device.name,
                 'serial_number': device.serial_number,
-                'status': device.status,
+                'lifecycle_status': device.lifecycle_status,
                 'location': None  # location字段已移除
             }
             response_data.append(device_info)
@@ -378,13 +329,20 @@ def cancel_rental(rental_id):
 def get_devices():
     """获取设备列表"""
     try:
-        status_filter = request.args.get('status')
+        if 'status' in request.args:
+            return jsonify({
+                'success': False,
+                'error': 'status 参数已移除，请使用 lifecycle_status'
+            }), 400
+        lifecycle_filter = request.args.get('lifecycle_status')
         location_filter = request.args.get('location')  # 已废弃
         
         query = Device.query
         
-        if status_filter:
-            query = query.filter(Device.status == status_filter)
+        if lifecycle_filter:
+            query = query.filter(
+                Device.lifecycle_status == lifecycle_filter
+            )
         
         # location字段已移除，忽略位置过滤
         # if location_filter:
@@ -398,7 +356,7 @@ def get_devices():
                 'id': device.id,
                 'name': device.name,
                 'serial_number': device.serial_number,
-                'status': device.status,
+                'lifecycle_status': device.lifecycle_status,
                 'location': None,  # location字段已移除
                 'created_at': device.created_at.isoformat(),
                 'updated_at': device.updated_at.isoformat()
@@ -410,7 +368,7 @@ def get_devices():
             'data': device_list,
             'total': len(device_list),
             'filters': {
-                'status': status_filter,
+                'lifecycle_status': lifecycle_filter,
                 'location': None  # location字段已移除
             }
         })
@@ -439,7 +397,7 @@ def get_device(device_id):
             'id': device.id,
             'name': device.name,
             'serial_number': device.serial_number,
-            'status': device.status,
+            'lifecycle_status': device.lifecycle_status,
             'location': None,  # location字段已移除
             'created_at': device.created_at.isoformat(),
             'updated_at': device.updated_at.isoformat(),
@@ -466,8 +424,9 @@ def get_statistics():
     try:
         # 设备统计
         total_devices = Device.query.count()
-        online_devices = Device.query.filter_by(status='online').count()
-        offline_devices = Device.query.filter_by(status='offline').count()
+        lifecycle_counts = dict(
+            Device.get_device_count_by_lifecycle_status()
+        )
         
         # 租赁统计
         total_rentals = Rental.query.count()
@@ -476,15 +435,14 @@ def get_statistics():
         completed_rentals = Rental.query.filter_by(status='completed').count()
         overdue_rentals = Rental.query.filter_by(status='overdue').count()
         
-        # 计算设备在线率
-        online_rate = (online_devices / total_devices * 100) if total_devices > 0 else 0
-        
         stats = {
             'devices': {
                 'total': total_devices,
-                'online': online_devices,
-                'offline': offline_devices,
-                'online_rate': round(online_rate, 2)
+                'active': lifecycle_counts.get('active', 0),
+                'sold': lifecycle_counts.get('sold', 0),
+                'decommissioned': lifecycle_counts.get('decommissioned', 0),
+                'damaged': lifecycle_counts.get('damaged', 0),
+                'retired': lifecycle_counts.get('retired', 0),
             },
             'rentals': {
                 'total': total_rentals,

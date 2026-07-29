@@ -4,6 +4,7 @@
 
 from flask import request, current_app
 from app.services.device.device_service import DeviceService
+from app.utils.response import bad_request
 
 
 class DeviceHandlers:
@@ -17,7 +18,8 @@ class DeviceHandlers:
             per_page = int(request.args.get('per_page', 20))
             name = request.args.get('name')
             model = request.args.get('model')
-            status = request.args.get('status')
+            if 'status' in request.args:
+                return bad_request('status 参数已移除，请使用 lifecycle_status')
             lifecycle_status = request.args.get('lifecycle_status')
             is_accessory = request.args.get('is_accessory')
             serial_number = request.args.get('serial_number')
@@ -31,7 +33,6 @@ class DeviceHandlers:
                 per_page=per_page,
                 name=name,
                 model=model,
-                status=status,
                 lifecycle_status=lifecycle_status,
                 is_accessory=is_accessory,
                 serial_number=serial_number
@@ -55,7 +56,8 @@ class DeviceHandlers:
             name = data.get('name') or (q if q else None)
             serial_number = data.get('serial_number') or (q if q else None)
             model = data.get('model')
-            status = data.get('status')
+            if 'status' in data:
+                return bad_request('status 参数已移除，请使用 lifecycle_status')
             lifecycle_status = data.get('lifecycle_status')
             is_accessory = data.get('is_accessory')
             page = int(data.get('page', 1))
@@ -66,7 +68,6 @@ class DeviceHandlers:
                 per_page=per_page,
                 name=name,
                 model=model,
-                status=status,
                 lifecycle_status=lifecycle_status,
                 is_accessory=is_accessory,
                 serial_number=serial_number
