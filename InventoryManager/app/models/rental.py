@@ -191,7 +191,7 @@ class Rental(db.Model):
         return False
     
     def return_item(self):
-        """设备已收回"""
+        """设备已寄回"""
         if self.status == 'shipped':
             self.status = 'returned'
             self.ship_in_time = datetime.utcnow()

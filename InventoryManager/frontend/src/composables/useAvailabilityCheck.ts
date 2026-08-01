@@ -28,6 +28,8 @@ export function useAvailabilityCheck() {
   })
 
   const checking = ref(false)
+  let deviceCheckGeneration = 0
+  let accessoryCheckGeneration = 0
 
   const LIFECYCLE_LABELS: Record<string, string> = {
     sold: '已售出',
@@ -49,7 +51,9 @@ export function useAvailabilityCheck() {
       excludeRentalId?: number
     }
   ) => {
+    const checkGeneration = deviceCheckGeneration
     if (!devices.length) {
+      if (checkGeneration !== deviceCheckGeneration) return
       deviceAvailability.value = {
         checked: true,
         availableItems: [],
@@ -100,12 +104,14 @@ export function useAvailabilityCheck() {
         })
       }
 
+      if (checkGeneration !== deviceCheckGeneration) return
       deviceAvailability.value = {
         checked: true,
         availableItems: available,
         unavailableItems: unavailable
       }
     } catch (error) {
+      if (checkGeneration !== deviceCheckGeneration) return
       console.error('检查设备可用性失败:', error)
       deviceAvailability.value = {
         checked: true,
@@ -113,7 +119,9 @@ export function useAvailabilityCheck() {
         unavailableItems: devices
       }
     } finally {
-      checking.value = false
+      if (checkGeneration === deviceCheckGeneration) {
+        checking.value = false
+      }
     }
   }
 
@@ -128,7 +136,9 @@ export function useAvailabilityCheck() {
       excludeRentalId?: number
     }
   ) => {
+    const checkGeneration = accessoryCheckGeneration
     if (!accessories.length) {
+      if (checkGeneration !== accessoryCheckGeneration) return
       accessoryAvailability.value = {
         checked: true,
         availableItems: [],
@@ -161,12 +171,14 @@ export function useAvailabilityCheck() {
         }
       })
 
+      if (checkGeneration !== accessoryCheckGeneration) return
       accessoryAvailability.value = {
         checked: true,
         availableItems: available,
         unavailableItems: unavailable
       }
     } catch (error) {
+      if (checkGeneration !== accessoryCheckGeneration) return
       console.error('检查附件可用性失败:', error)
       accessoryAvailability.value = {
         checked: true,
@@ -174,7 +186,9 @@ export function useAvailabilityCheck() {
         unavailableItems: accessories
       }
     } finally {
-      checking.value = false
+      if (checkGeneration === accessoryCheckGeneration) {
+        checking.value = false
+      }
     }
   }
 
@@ -196,6 +210,7 @@ export function useAvailabilityCheck() {
    * 重置设备可用性状态
    */
   const resetDeviceAvailability = () => {
+    deviceCheckGeneration += 1
     deviceAvailability.value = {
       checked: false,
       availableItems: [],
@@ -207,6 +222,7 @@ export function useAvailabilityCheck() {
    * 重置附件可用性状态
    */
   const resetAccessoryAvailability = () => {
+    accessoryCheckGeneration += 1
     accessoryAvailability.value = {
       checked: false,
       availableItems: [],
@@ -220,6 +236,7 @@ export function useAvailabilityCheck() {
   const resetAll = () => {
     resetDeviceAvailability()
     resetAccessoryAvailability()
+    checking.value = false
   }
 
   return {

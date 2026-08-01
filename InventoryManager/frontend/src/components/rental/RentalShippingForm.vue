@@ -106,7 +106,7 @@
       >
         <el-option label="未发货" value="not_shipped" />
         <el-option label="已发货" value="shipped" />
-        <el-option label="已收回" value="returned" />
+        <el-option label="已寄回" value="returned" />
         <el-option label="已完成" value="completed" />
         <el-option label="已取消" value="cancelled" />
       </el-select>

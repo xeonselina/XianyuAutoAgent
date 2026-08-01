@@ -35,7 +35,7 @@ describe('API Integration Tests - MSW', () => {
       expect(response.data.success).toBe(true)
       expect(response.data.data.id).toBe(1)
       expect(response.data.data.name).toBe('iPhone 14 Pro')
-      expect(response.data.data.status).toBe('online')
+      expect(response.data.data.lifecycle_status).toBe('active')
     })
 
     it('should retrieve rental by ID', async () => {
@@ -93,16 +93,16 @@ describe('API Integration Tests - MSW', () => {
       expect(response.data.data.id).toBeGreaterThan(2)
     })
 
-    it('should update device status', async () => {
+    it('should update device lifecycle', async () => {
       // Arrange
-      const updates = { status: 'sold' }
+      const updates = { lifecycle_status: 'sold' }
 
       // Act
-      const response = await axios.put('/api/devices/1', updates)
+      const response = await axios.put('/api/devices/1/lifecycle', updates)
 
       // Assert
       expect(response.data.success).toBe(true)
-      expect(response.data.data.status).toBe('sold')
+      expect(response.data.data.lifecycle_status).toBe('sold')
       expect(response.data.data.id).toBe(1)
     })
 
@@ -294,7 +294,7 @@ describe('API Integration Tests - MSW', () => {
       expect(device.name).toBe('iPhone 14 Pro')
       expect(device.device_model).toBeDefined()
       expect(device.device_model.display_name).toBe('iPhone 14 Pro')
-      expect(device.status).toBe('online')
+      expect(device.lifecycle_status).toBe('active')
       expect(device.is_accessory).toBe(false)
     })
 
@@ -423,7 +423,7 @@ describe('API Integration Tests - MSW', () => {
 
       // Assert
       expect(response.data.success).toBe(true)
-      expect(response.data.data.status).toBe('sold')
+      expect(response.data.data.lifecycle_status).toBe('sold')
     })
   })
 })

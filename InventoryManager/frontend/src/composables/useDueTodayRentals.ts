@@ -1,0 +1,81 @@
+import { computed, ref } from 'vue'
+import axios from 'axios'
+
+import type { DueTodayRental } from '@/types/dueTodayRental'
+
+const errorMessage = (error: any, fallback: string) => (
+  error.response?.data?.message
+  || error.response?.data?.error
+  || error.message
+  || fallback
+)
+
+export const useDueTodayRentals = () => {
+  const rentals = ref<DueTodayRental[]>([])
+  const loading = ref(false)
+  const updatingIds = ref<Set<number>>(new Set())
+  const count = computed(() => rentals.value.length)
+
+  const load = async () => {
+    loading.value = true
+    try {
+      const response = await axios.get('/api/rentals/due-today')
+      if (!response.data.success) {
+        throw new Error(
+          response.data.message
+          || response.data.error
+          || '获取今日应归还列表失败',
+        )
+      }
+      rentals.value = response.data.data?.rentals || []
+    } catch (error: any) {
+      throw new Error(errorMessage(error, '获取今日应归还列表失败'))
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const markReturned = async (rentalId: number) => {
+    if (updatingIds.value.has(rentalId)) return
+
+    updatingIds.value = new Set(updatingIds.value).add(rentalId)
+    try {
+      let response
+      try {
+        response = await axios.put(`/api/rentals/${rentalId}/status`, {
+          status: 'returned',
+        })
+      } catch (error: any) {
+        throw new Error(errorMessage(error, '更新租赁状态失败'))
+      }
+
+      if (!response.data.success) {
+        throw new Error(
+          response.data.message
+          || response.data.error
+          || '更新租赁状态失败',
+        )
+      }
+
+      rentals.value = rentals.value.filter((rental) => rental.id !== rentalId)
+      try {
+        await load()
+      } catch {
+        // 状态已成功更新时保留本地移除结果，避免误报更新失败。
+      }
+    } finally {
+      const nextUpdatingIds = new Set(updatingIds.value)
+      nextUpdatingIds.delete(rentalId)
+      updatingIds.value = nextUpdatingIds
+    }
+  }
+
+  return {
+    rentals,
+    count,
+    loading,
+    updatingIds,
+    load,
+    markReturned,
+  }
+}

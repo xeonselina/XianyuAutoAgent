@@ -37,11 +37,8 @@ class InventoryService:
             available_devices = []
             
             for device in all_devices:
-                # 排除离线状态设备和非 active 生命周期设备（已售出/已损坏/已停用/已退役）
-                if device.status == 'offline':
-                    continue
-
-                if device.is_excluded_from_statistics():
+                # 排除非 active 生命周期设备（已售出/已损坏/已停用/已退役）
+                if not device.is_in_service():
                     continue
                 
                 # 检查设备在指定时间段内是否有冲突的租赁记录
@@ -135,15 +132,6 @@ class InventoryService:
                     'reason': '设备不存在',
                     'device_id': device_id
                 }
-            
-            # 根据用户要求，不检查设备状态，只检测档期冲突
-            # if device.status != 'idle':
-            #     return {
-            #         'available': False,
-            #         'reason': f'设备当前状态为 {device.status}，不可预定',
-            #         'device_id': device_id,
-            #         'device_status': device.status
-            #     }
             
             # 检查寄出和收回时间冲突（使用寄出收回时间而不是租赁时间）
             # 查找在指定寄出收回时间段内有冲突的租赁记录
@@ -293,7 +281,7 @@ class InventoryService:
         """
         try:
             # 设备统计
-            device_stats = Device.get_device_count_by_status()
+            device_stats = Device.get_device_count_by_lifecycle_status()
             
             # 按位置统计设备（使用实际存在的字段）
             # location字段已移除，跳过位置统计
@@ -348,14 +336,14 @@ class InventoryService:
             }
     
     @staticmethod
-    def search_devices(keyword: str = None, status: str = None,
+    def search_devices(keyword: str = None, lifecycle_status: str = None,
                       location: str = None) -> List[Device]:  # location已废弃，保留参数兼容性
         """
         搜索设备
         
         Args:
             keyword: 搜索关键词（设备名称或序列号）
-            status: 设备状态
+            lifecycle_status: 设备生命周期状态
             location: 设备位置（已废弃）
             
         Returns:
@@ -373,9 +361,10 @@ class InventoryService:
                     )
                 )
             
-            # 状态过滤
-            if status:
-                query = query.filter(Device.status == status)
+            if lifecycle_status:
+                query = query.filter(
+                    Device.lifecycle_status == lifecycle_status
+                )
             
             # 位置过滤
             # location字段已移除，忽略位置过滤
@@ -507,7 +496,9 @@ class InventoryService:
                     'total_devices': len(devices),
                     'total_rentals': len(rentals),
                     'device_locations': [],  # location字段已移除
-                    'device_status': Device.get_device_count_by_status()
+                    'device_lifecycle_status': (
+                        Device.get_device_count_by_lifecycle_status()
+                    )
                 }
             }
             
@@ -561,7 +552,7 @@ class InventoryService:
                     'id': device.id,
                     'name': device.name,
                     'serial_number': device.serial_number,
-                    'status': device.status,
+                    'lifecycle_status': device.lifecycle_status,
                     'location': None  # location字段已移除
                 }
                 response_data.append(device_info)

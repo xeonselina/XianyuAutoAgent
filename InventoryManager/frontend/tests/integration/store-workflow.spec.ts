@@ -11,7 +11,11 @@ describe('Gantt Store Workflow - Integration Tests', () => {
   let pinia: ReturnType<typeof createPinia>
   let store: ReturnType<typeof useGanttStore>
 
-  const createMockDevice = (id: number, name: string, status: string = 'online'): Device => ({
+  const createMockDevice = (
+    id: number,
+    name: string,
+    lifecycleStatus: Device['lifecycle_status'] = 'active'
+  ): Device => ({
     id,
     name,
     serial_number: `SN${id.toString().padStart(3, '0')}`,
@@ -20,7 +24,7 @@ describe('Gantt Store Workflow - Integration Tests', () => {
       name: name.split(' ')[0],
       display_name: name
     },
-    status,
+    lifecycle_status: lifecycleStatus,
     is_accessory: false,
     rentals: []
   })
@@ -196,7 +200,7 @@ describe('Gantt Store Workflow - Integration Tests', () => {
   describe('Device Lifecycle and Rental Interaction Workflow', () => {
     it('should transition device lifecycle while maintaining active rentals', () => {
       // Arrange
-      const device = createMockDevice(1, 'iPhone 14 Pro', 'online')
+      const device = createMockDevice(1, 'iPhone 14 Pro', 'active')
       const rental1 = createMockRental(1, 1, 'shipped')
       const rental2 = createMockRental(2, 1, 'completed')
       store.devices = [device]
@@ -204,10 +208,10 @@ describe('Gantt Store Workflow - Integration Tests', () => {
 
       // Act - Device transitions to sold
       const targetDevice = store.devices[0]
-      targetDevice.status = 'sold'
+      targetDevice.lifecycle_status = 'sold'
 
       // Assert - Rentals unaffected
-      expect(targetDevice.status).toBe('sold')
+      expect(targetDevice.lifecycle_status).toBe('sold')
       expect(store.rentals).toHaveLength(2)
       expect(store.rentals[0].status).toBe('shipped')
       expect(store.rentals[1].status).toBe('completed')
@@ -215,39 +219,44 @@ describe('Gantt Store Workflow - Integration Tests', () => {
 
     it('should track device transitions through multiple lifecycle states', () => {
       // Arrange
-      const device = createMockDevice(1, 'iPhone 14 Pro', 'online')
+      const device = createMockDevice(1, 'iPhone 14 Pro', 'active')
       store.devices = [device]
 
       // Act - Progress through device lifecycle
-      const states = ['online', 'damaged', 'decommissioned', 'sold', 'retired']
-      let currentState = 'online'
+      const states: Device['lifecycle_status'][] = [
+        'active',
+        'damaged',
+        'decommissioned',
+        'sold',
+        'retired'
+      ]
 
       for (const nextState of states) {
-        store.devices[0].status = nextState
-        currentState = nextState
-        expect(store.devices[0].status).toBe(nextState)
+        store.devices[0].lifecycle_status = nextState
+        expect(store.devices[0].lifecycle_status).toBe(nextState)
       }
 
       // Assert final state
-      expect(store.devices[0].status).toBe('retired')
+      expect(store.devices[0].lifecycle_status).toBe('retired')
     })
 
-    it('should prevent online status from appearing with new rentals when device sold', () => {
+    it('should prevent new rentals when device is sold', () => {
       // Arrange
-      const device = createMockDevice(1, 'iPhone 14 Pro', 'online')
+      const device = createMockDevice(1, 'iPhone 14 Pro', 'active')
       const oldRental = createMockRental(1, 1, 'completed')
       store.devices = [device]
       store.rentals = [oldRental]
 
       // Act - Sell device
-      store.devices[0].status = 'sold'
+      store.devices[0].lifecycle_status = 'sold'
 
       // Assert - Device is sold, old rental persists
-      expect(store.devices[0].status).toBe('sold')
+      expect(store.devices[0].lifecycle_status).toBe('sold')
       expect(store.rentals[0].status).toBe('completed')
 
       // New rentals should be prevented (manually enforce in business logic)
-      const isDeviceAvailable = store.devices[0].status === 'online'
+      const isDeviceAvailable =
+        store.devices[0].lifecycle_status === 'active'
       expect(isDeviceAvailable).toBe(false)
     })
   })

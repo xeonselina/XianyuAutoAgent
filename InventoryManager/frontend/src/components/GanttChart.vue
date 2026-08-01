@@ -58,6 +58,20 @@
           >
             📦 批量发货
           </el-button>
+          <el-badge
+            :value="dueTodayCount"
+            :hidden="dueTodayCount === 0"
+            class="due-today-badge"
+          >
+            <el-button
+              data-testid="due-today-button"
+              type="danger"
+              :icon="Bell"
+              @click="openDueTodayReturns"
+            >
+              今日应归还
+            </el-button>
+          </el-badge>
           <el-button
             @click="showCustomerHistoryDialog = true"
             :icon="User"
@@ -107,6 +121,14 @@
       @refresh="refreshXianyuAlerts"
       @book="startMissingOrderBooking"
       @ignore="handleIgnoreXianyuAlert"
+    />
+
+    <DueTodayReturnsDrawer
+      v-model="showDueTodayDrawer"
+      :rentals="dueTodayRentals"
+      :loading="dueTodayLoading"
+      :updating-ids="dueTodayUpdatingIds"
+      @mark-returned="handleMarkDueTodayReturned"
     />
 
     <!-- 过滤器 -->
@@ -245,7 +267,6 @@
                 :dates="dateArray"
                 @edit-rental="handleEditRental"
                 @delete-rental="handleDeleteRental"
-                @update-device-status="handleUpdateDeviceStatus"
                 @update-device-lifecycle="handleUpdateDeviceLifecycle"
               />
             </div>
@@ -395,7 +416,7 @@ import { ref, computed, onMounted, watch, nextTick, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGanttStore, type Device, type Rental, type DeviceModel, type ModelAccessory } from '@/stores/gantt'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, ArrowLeft, ArrowRight, Search, DataAnalysis, ArrowDown, Location, CircleCheck, TrendCharts, User, Sort } from '@element-plus/icons-vue'
+import { Plus, Refresh, ArrowLeft, ArrowRight, Search, DataAnalysis, ArrowDown, Location, CircleCheck, TrendCharts, User, Sort, Bell } from '@element-plus/icons-vue'
 import axios from 'axios'
 import GanttRow from './GanttRow.vue'
 import BookingDialog from './BookingDialog.vue'
@@ -405,7 +426,9 @@ import BatchPrintDialog from './rental/BatchPrintDialog.vue'
 import CustomerHistoryDialog from './CustomerHistoryDialog.vue'
 import ScheduleReorderDialog from './ScheduleReorderDialog.vue'
 import XianyuOrderAlertBar from './XianyuOrderAlertBar.vue'
+import DueTodayReturnsDrawer from './DueTodayReturnsDrawer.vue'
 import { useXianyuOrderAlerts } from '@/composables/useXianyuOrderAlerts'
+import { useDueTodayRentals } from '@/composables/useDueTodayRentals'
 import {
   toSystemDateString,
   isToday,
@@ -426,6 +449,7 @@ const showAddDeviceDialog = ref(false)
 const showCustomerHistoryDialog = ref(false)
 const showBatchPrintDialog = ref(false)
 const showScheduleReorderDialog = ref(false)
+const showDueTodayDrawer = ref(false)
 const selectedRental = ref<Rental | null>(null)
 const showRentalConfirmationDialog = ref(false)
 const confirmationRental = ref<Rental | null>(null)
@@ -444,6 +468,14 @@ const {
   startPolling: startXianyuAlertPolling,
   stopPolling: stopXianyuAlertPolling
 } = useXianyuOrderAlerts()
+const {
+  rentals: dueTodayRentals,
+  count: dueTodayCount,
+  loading: dueTodayLoading,
+  updatingIds: dueTodayUpdatingIds,
+  load: loadDueTodayReturns,
+  markReturned: markDueTodayReturned
+} = useDueTodayRentals()
 
 // 虚拟滚动相关
 const ganttBodyRef = ref<HTMLElement>()
@@ -943,24 +975,6 @@ const handleDeleteRental = async (rental: Rental) => {
   }
 }
 
-const handleUpdateDeviceStatus = async (device: Device, newStatus: string) => {
-  try {
-    await ganttStore.updateDeviceStatus(device.id, newStatus)
-    ElMessage.success('设备状态更新成功！')
-
-    // 重新加载数据以反映最新变化
-    await ganttStore.loadData()
-  } catch (error) {
-    ElMessage.error('状态更新失败：' + (error as Error).message)
-    // 如果更新失败，恢复原状态
-    const originalDevice = ganttStore.devices.find(d => d.id === device.id)
-    if (originalDevice) {
-      // 重新加载数据以确保状态同步
-      await ganttStore.loadData()
-    }
-  }
-}
-
 const handleUpdateDeviceLifecycle = async (device: Device, newLifecycle: string) => {
   try {
     await ganttStore.updateDeviceLifecycle(device.id, newLifecycle)
@@ -978,6 +992,31 @@ const handleUpdateDeviceLifecycle = async (device: Device, newLifecycle: string)
 
 const openBatchShipping = () => {
   window.open('/batch-shipping', '_blank')
+}
+
+const openDueTodayReturns = async () => {
+  showDueTodayDrawer.value = true
+  try {
+    await loadDueTodayReturns()
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  }
+}
+
+const handleMarkDueTodayReturned = async (rentalId: number) => {
+  try {
+    await markDueTodayReturned(rentalId)
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+    return
+  }
+
+  ElMessage.success('已标记为已寄回')
+  try {
+    await ganttStore.loadData()
+  } catch {
+    ElMessage.error('状态已更新，但甘特图刷新失败')
+  }
 }
 
 // 处理"更多"菜单命令
@@ -1155,7 +1194,10 @@ onMounted(async () => {
     ganttStore.loadData(),
     loadDailyStats(),
     loadDeviceModels(),
-    loadXianyuAlerts()
+    loadXianyuAlerts(),
+    loadDueTodayReturns().catch((error) => {
+      ElMessage.error((error as Error).message)
+    })
   ])
   startXianyuAlertPolling()
   void refreshXianyuAlerts()
@@ -1193,6 +1235,10 @@ onUnmounted(() => {
 
 .toolbar {
   margin-bottom: 20px;
+}
+
+.due-today-badge {
+  margin-right: 12px;
 }
 
 .current-period {

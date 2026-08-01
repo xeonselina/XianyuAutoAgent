@@ -49,7 +49,7 @@ def get_device(device_id):
             'serial_number': device.serial_number,
             'model': device.model,
             'is_accessory': device.is_accessory,
-            'status': device.status,
+            'lifecycle_status': device.lifecycle_status,
             'created_at': device.created_at.isoformat(),
             'updated_at': device.updated_at.isoformat()
         }
@@ -97,7 +97,7 @@ def create_device():
             model=data.get('model', 'x200u'),
             model_id=data.get('model_id'),
             is_accessory=data.get('is_accessory', False),
-            status='online'
+            lifecycle_status='active'
         )
         
         db.session.add(device)
@@ -113,7 +113,7 @@ def create_device():
                 'model': device.model,
                 'model_id': device.model_id,
                 'is_accessory': device.is_accessory,
-                'status': device.status
+                'lifecycle_status': device.lifecycle_status
             }
         })
         
@@ -159,14 +159,10 @@ def update_device(device_id):
         if 'is_accessory' in data:
             device.is_accessory = data['is_accessory']
         if 'status' in data:
-            new_status = data['status']
-            # 验证状态值
-            if new_status not in ['online', 'offline']:
-                return jsonify({
-                    'success': False,
-                    'error': '无效的设备状态，只支持 online 或 offline'
-                }), 400
-            device.status = new_status
+            return jsonify({
+                'success': False,
+                'error': 'status 字段已移除，请使用 lifecycle_status'
+            }), 400
         
         device.updated_at = datetime.utcnow()
         db.session.commit()
@@ -180,7 +176,7 @@ def update_device(device_id):
                 'serial_number': device.serial_number,
                 'model': device.model,
                 'is_accessory': device.is_accessory,
-                'status': device.status
+                'lifecycle_status': device.lifecycle_status
             }
         })
         
@@ -358,8 +354,7 @@ def get_lifecycle_summary():
         
         # 计算在服务中的设备
         active_devices = Device.query.filter(
-            Device.lifecycle_status == 'active',
-            Device.status == 'online'
+            Device.lifecycle_status == 'active'
         ).count()
         
         # 计算应从统计中排除的设备

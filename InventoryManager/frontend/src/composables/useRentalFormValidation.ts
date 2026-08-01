@@ -18,6 +18,9 @@ export function getCreateRentalRules(): FormRules {
     logisticsDays: [
       { required: true, message: '请输入物流天数', trigger: 'change' }
     ],
+    selectedModelId: [
+      { required: true, message: '请选择设备型号', trigger: 'change' }
+    ],
     customerName: [
       { required: true, message: '请输入闲鱼ID', trigger: 'blur' }
     ],

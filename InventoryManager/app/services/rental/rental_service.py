@@ -2,9 +2,10 @@
 租赁业务逻辑服务层
 """
 
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 from flask import current_app
+from sqlalchemy.orm import joinedload
 from app import db
 from app.models.rental import Rental
 from app.models.device import Device
@@ -13,6 +14,45 @@ from app.utils.date_utils import parse_date_strings, validate_date_range
 
 class RentalService:
     """租赁服务类"""
+
+    @staticmethod
+    def get_due_today_rentals(today: Optional[date] = None) -> List[Dict[str, Any]]:
+        """获取今天应归还的主租赁记录。"""
+        target_end_date = (today or date.today()) - timedelta(days=1)
+        rentals = (
+            Rental.query
+            .options(joinedload(Rental.device))
+            .filter(
+                Rental.end_date == target_end_date,
+                Rental.status == 'shipped',
+                Rental.parent_rental_id.is_(None),
+            )
+            .all()
+        )
+
+        rows = []
+        for rental in rentals:
+            device = rental.device
+            device_model = None
+            if device:
+                if device.device_model:
+                    device_model = device.device_model.display_name
+                device_model = device_model or device.model or device.name
+
+            rows.append({
+                'id': rental.id,
+                'device_model': device_model or '-',
+                'start_date': rental.start_date.isoformat(),
+                'end_date': rental.end_date.isoformat(),
+                'destination': rental.destination,
+                'customer_phone': rental.customer_phone,
+                'status': rental.status,
+            })
+
+        return sorted(
+            rows,
+            key=lambda row: (row['device_model'].casefold(), row['id']),
+        )
 
     @staticmethod
     def get_rentals_with_filters(
@@ -91,6 +131,7 @@ class RentalService:
         except Exception as e:
             current_app.logger.error(f"获取租赁记录失败: {e}")
             raise
+
     @staticmethod
     def get_rental_by_id(rental_id: int) -> Optional[Rental]:
         """根据ID获取租赁记录"""

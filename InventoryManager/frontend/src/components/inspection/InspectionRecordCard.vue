@@ -113,7 +113,7 @@ const rentalStatusText = computed(() => {
     not_shipped: '待发货',
     scheduled_for_shipping: '已预约',
     shipped: '已发货',
-    returned: '已收回',
+    returned: '已寄回',
     completed: '已完成',
     cancelled: '已取消'
   }

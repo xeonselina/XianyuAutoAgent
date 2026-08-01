@@ -18,7 +18,7 @@ describe('Gantt Chart Workflow - Integration Tests', () => {
       name: 'iPhone',
       display_name: 'iPhone 14 Pro'
     },
-    status: 'online',
+    lifecycle_status: 'active',
     is_accessory: false,
     rentals: []
   })
@@ -201,15 +201,15 @@ describe('Gantt Chart Workflow - Integration Tests', () => {
     })
   })
 
-  describe('Device Status Lifecycle', () => {
-    it('should transition device from online to sold', () => {
+  describe('Device Lifecycle', () => {
+    it('should transition device from active to sold', () => {
       const mockDevice = createMockDevice()
       ganttStore.devices = [mockDevice]
       const device = ganttStore.devices[0]
       
-      expect(device.status).toBe('online')
-      device.status = 'sold'
-      expect(device.status).toBe('sold')
+      expect(device.lifecycle_status).toBe('active')
+      device.lifecycle_status = 'sold'
+      expect(device.lifecycle_status).toBe('sold')
     })
 
     it('should track device through all lifecycle states', () => {
@@ -217,20 +217,32 @@ describe('Gantt Chart Workflow - Integration Tests', () => {
       ganttStore.devices = [mockDevice]
       const device = ganttStore.devices[0]
       
-      const states = ['online', 'damaged', 'decommissioned', 'retired']
+      const states = [
+        'active',
+        'damaged',
+        'decommissioned',
+        'retired'
+      ] as const
       
       for (const state of states) {
-        device.status = state
-        expect(device.status).toBe(state)
+        device.lifecycle_status = state
+        expect(device.lifecycle_status).toBe(state)
       }
     })
 
     it('should identify active vs inactive devices', () => {
       const mockDevice = createMockDevice()
-      const activeDevice: Device = { ...mockDevice, status: 'online' }
-      const inactiveDevice: Device = { ...mockDevice, status: 'sold' }
+      const activeDevice: Device = {
+        ...mockDevice,
+        lifecycle_status: 'active'
+      }
+      const inactiveDevice: Device = {
+        ...mockDevice,
+        lifecycle_status: 'sold'
+      }
       
-      const isActive = (device: Device) => device.status === 'online'
+      const isActive = (device: Device) =>
+        device.lifecycle_status === 'active'
       
       expect(isActive(activeDevice)).toBe(true)
       expect(isActive(inactiveDevice)).toBe(false)

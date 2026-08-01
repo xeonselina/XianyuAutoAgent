@@ -43,11 +43,11 @@ class RentalService:
                     'error': 'DEVICE_NOT_FOUND'
                 }
             
-            # 检查设备是否可用 (在线才能租赁)
-            if device.status != 'online':
+            # 检查设备是否处于可租用生命周期
+            if not device.is_in_service():
                 return {
                     'success': False,
-                    'message': f'设备当前状态为离线，无法租赁',
+                    'message': '设备当前生命周期状态不可租赁',
                     'error': 'DEVICE_NOT_AVAILABLE'
                 }
             
@@ -129,8 +129,6 @@ class RentalService:
             
             # 取消租赁
             rental.status = 'cancelled'
-            
-            # 设备状态不需要更改，因为现在只有在线/离线两种状态
             
             db.session.commit()
             

@@ -48,7 +48,6 @@ describe('Gantt Store', () => {
           serial_number: 'SN001',
           model: 'Alpha 7R',
           is_accessory: false,
-          status: 'online',
           lifecycle_status: 'active',
           created_at: '2026-01-01T00:00:00Z',
           updated_at: '2026-01-01T00:00:00Z'
@@ -87,7 +86,6 @@ describe('Gantt Store', () => {
         serial_number: 'SN001',
         model: 'Model 1',
         is_accessory: false,
-        status: 'online',
         lifecycle_status: 'active',
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z'
@@ -109,7 +107,6 @@ describe('Gantt Store', () => {
         serial_number: 'SN001',
         model: 'Model 1',
         is_accessory: false,
-        status: 'online' as const,
         lifecycle_status: 'active' as const,
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z'
@@ -175,42 +172,6 @@ describe('Gantt Store', () => {
     })
   })
 
-  describe('Device Status Management', () => {
-    it('should update device online/offline status', async () => {
-      const store = useGanttStore()
-      store.devices = [{
-        id: 1,
-        name: 'Test Device',
-        serial_number: 'SN001',
-        model: 'Model 1',
-        is_accessory: false,
-        status: 'online',
-        lifecycle_status: 'active',
-        created_at: '2026-01-01T00:00:00Z',
-        updated_at: '2026-01-01T00:00:00Z'
-      }]
-
-      vi.mocked(axios.put).mockResolvedValueOnce({
-        data: { success: true }
-      })
-
-      await store.updateDeviceStatus(1, 'offline')
-      
-      expect(axios.put).toHaveBeenCalledWith('/api/devices/1', { status: 'offline' })
-      expect(store.devices[0].status).toBe('offline')
-    })
-
-    it('should handle device status error', async () => {
-      const store = useGanttStore()
-      const mockError = {
-        response: { data: { error: '设备不存在' } }
-      }
-      vi.mocked(axios.put).mockRejectedValueOnce(mockError)
-
-      await expect(store.updateDeviceStatus(999, 'offline')).rejects.toThrow('设备不存在')
-    })
-  })
-
   describe('Device Addition', () => {
     it('should add a new device', async () => {
       const store = useGanttStore()
@@ -234,8 +195,7 @@ describe('Gantt Store', () => {
         serial_number: deviceData.serial_number,
         model: deviceData.model,
         model_id: deviceData.model_id,
-        is_accessory: deviceData.is_accessory,
-        status: 'online'
+        is_accessory: deviceData.is_accessory
       })
       expect(result.success).toBe(true)
     })
@@ -374,7 +334,7 @@ describe('Gantt Store', () => {
   })
 
   describe('Device Filtering', () => {
-    it('should get available devices for rental (excludes accessories and offline)', () => {
+    it('should get available active non-accessory devices for rental', () => {
       const store = useGanttStore()
       
       store.devices = [
@@ -384,7 +344,6 @@ describe('Gantt Store', () => {
           serial_number: 'SN001',
           model: 'Alpha 7R',
           is_accessory: false,
-          status: 'online',
           lifecycle_status: 'active',
           created_at: '2026-01-01T00:00:00Z',
           updated_at: '2026-01-01T00:00:00Z'
@@ -395,7 +354,6 @@ describe('Gantt Store', () => {
           serial_number: 'SN002',
           model: 'PM1',
           is_accessory: true,
-          status: 'online',
           lifecycle_status: 'active',
           created_at: '2026-01-01T00:00:00Z',
           updated_at: '2026-01-01T00:00:00Z'
@@ -406,19 +364,18 @@ describe('Gantt Store', () => {
           serial_number: 'SN003',
           model: 'OldModel',
           is_accessory: false,
-          status: 'offline',
           lifecycle_status: 'sold',
           created_at: '2026-01-01T00:00:00Z',
           updated_at: '2026-01-01T00:00:00Z'
         }
       ]
 
-      // Should only return online, non-accessory devices
+      // Should only return active, non-accessory devices
       const available = store.availableDevices
       
       expect(available).toContainEqual(expect.objectContaining({ id: 1 }))
       expect(available).not.toContainEqual(expect.objectContaining({ id: 2 })) // accessory excluded
-      expect(available).not.toContainEqual(expect.objectContaining({ id: 3 })) // offline excluded
+      expect(available).not.toContainEqual(expect.objectContaining({ id: 3 })) // non-active excluded
     })
   })
 
@@ -620,7 +577,9 @@ describe('Gantt Store', () => {
       }
       vi.mocked(axios.put).mockRejectedValueOnce(apiError)
 
-      await expect(store.updateDeviceStatus(1, 'offline')).rejects.toThrow('用户未授权')
+      await expect(
+        store.updateDeviceLifecycle(1, 'retired')
+      ).rejects.toThrow('用户未授权')
     })
 
     it('should handle malformed API responses', async () => {

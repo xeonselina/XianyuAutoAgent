@@ -47,6 +47,25 @@
         />
       </el-form-item>
 
+      <el-form-item label="设备型号" prop="selectedModelId">
+        <el-select
+          v-model="form.selectedModelId"
+          placeholder="请选择设备型号"
+          style="width: 100%"
+          clearable
+          filterable
+          @change="handleModelChange"
+        >
+          <el-option
+            v-for="model in availableDeviceModels"
+            :key="model.id"
+            :label="model.display_name"
+            :value="model.id"
+          />
+        </el-select>
+        <div class="form-tip">默认使用甘特图当前型号，可在此处单独修改</div>
+      </el-form-item>
+
       <el-form-item label="物流天数" prop="logisticsDays">
         <el-input-number
           v-model="form.logisticsDays"
@@ -88,7 +107,7 @@
             @focus="handleDeviceFocus"
           >
             <el-option
-              v-for="device in deviceManagement.devices.value"
+              v-for="device in filteredDevices"
               :key="device.id"
               :label="device.name"
               :value="device.id"
@@ -367,20 +386,12 @@ const dialogVisible = computed({
   set: (value) => emit('update:modelValue', value)
 })
 
-// 当前所选设备的机型 short name（用于镜头组合选项）
-const selectedModelName = computed<string | null>(() => {
-  const id = form.value?.selectedDeviceId
-  if (!id) return null
-  const dev = deviceManagement.devices.value.find((d: any) => d.id === id)
-  if (!dev) return null
-  return dev.device_model?.name || dev.model || null
-})
-
 // Form State
 const form = ref({
   startDate: null as Date | null,
   endDate: null as Date | null,
   logisticsDays: 1,
+  selectedModelId: null as number | null,
   selectedDeviceId: null as number | null,
   customerName: '',
   customerPhone: '',
@@ -396,6 +407,47 @@ const form = ref({
   lensCombo: undefined as ('lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual' | undefined)
 })
 
+const availableDeviceModels = computed(() =>
+  deviceManagement.deviceModels.value.filter(model => model.is_active !== false)
+)
+
+const selectedModel = computed(() =>
+  deviceManagement.deviceModels.value.find(
+    model => model.id === form.value.selectedModelId
+  ) || null
+)
+
+const filteredDevices = computed(() => {
+  const model = selectedModel.value
+  if (!model) return []
+
+  return deviceManagement.devices.value.filter(device => {
+    if (device.model_id != null) {
+      return device.model_id === model.id
+    }
+    if (device.device_model?.id != null) {
+      return device.device_model.id === model.id
+    }
+
+    const selectedModelNames = [model.name, model.display_name]
+      .filter(Boolean)
+      .map(name => name.toLowerCase())
+    const deviceModelNames = [
+      device.model,
+      device.device_model?.name,
+      device.device_model?.display_name
+    ]
+      .filter((name): name is string => Boolean(name))
+      .map(name => name.toLowerCase())
+    return deviceModelNames.some(name => selectedModelNames.includes(name))
+  })
+})
+
+// 当前所选型号的 short name（用于镜头组合选项）
+const selectedModelName = computed<string | null>(() =>
+  selectedModel.value?.name || null
+)
+
 // UI State
 const submitting = ref(false)
 const pendingSuccess = ref<{ rentalId: number } | null>(null)
@@ -405,6 +457,12 @@ const searchingAccessory = ref(false)
 const fetchingOrder = ref(false)
 const availableSlot = ref<any>(null)
 const availableAccessorySlot = ref<any>(null)
+let slotSearchGeneration = 0
+
+const invalidateSlotSearch = () => {
+  slotSearchGeneration += 1
+  searching.value = false
+}
 
 // Form Rules
 const rules = getCreateRentalRules()
@@ -425,7 +483,12 @@ const getDeviceLifecycleLabel = (device: any): string | null => {
 
 // Computed
 const canSearchSlot = computed(() => {
-  return form.value.startDate && form.value.endDate && form.value.logisticsDays >= 0
+  return Boolean(
+    form.value.startDate &&
+    form.value.endDate &&
+    form.value.logisticsDays >= 0 &&
+    form.value.selectedModelId
+  )
 })
 
 // 过滤出手机支架
@@ -467,6 +530,7 @@ const formatDateTime = (date: Date) => {
 
 // Date Change Handlers
 const handleStartDateChange = (date: Date | null) => {
+  invalidateSlotSearch()
   form.value.startDate = date
   if (date && form.value.endDate && dayjs(form.value.endDate).isBefore(dayjs(date))) {
     form.value.endDate = null
@@ -483,6 +547,7 @@ const handleStartDateChange = (date: Date | null) => {
 }
 
 const handleEndDateChange = (date: Date | null) => {
+  invalidateSlotSearch()
   form.value.endDate = date
   availableSlot.value = null
   availability.resetAll()
@@ -505,13 +570,26 @@ const checkAvailabilities = async () => {
   }
 
   await Promise.all([
-    availability.checkDevicesAvailability(deviceManagement.devices.value, params),
+    availability.checkDevicesAvailability(filteredDevices.value, params),
     availability.checkAccessoriesAvailability(deviceManagement.accessories.value, params)
   ])
 }
 
+const handleModelChange = (modelId: number | null | undefined) => {
+  invalidateSlotSearch()
+  form.value.selectedModelId = modelId ?? null
+  form.value.selectedDeviceId = null
+  availableSlot.value = null
+  availability.resetAll()
+}
+
 // Device Focus Handler
 const handleDeviceFocus = async () => {
+  if (!form.value.selectedModelId) {
+    ElMessage.warning('请先选择设备型号')
+    return
+  }
+
   if (!form.value.startDate || !form.value.endDate) {
     ElMessage.warning('请先选择日期后查看设备可用性')
     return
@@ -536,26 +614,18 @@ const handleAccessoryFocus = async () => {
 
 // Find Available Slot
 const findAvailableSlot = async () => {
-  if (!canSearchSlot.value) {
+  if (!form.value.selectedModelId) {
+    ElMessage.warning('请先选择设备型号')
+    return
+  }
+
+  if (!form.value.startDate || !form.value.endDate || form.value.logisticsDays < 0) {
     ElMessage.warning('请先完善日期和物流信息')
     return
   }
 
-  // 获取当前选择的设备型号的 model_id
-  let modelId = ''
-  if (props.selectedDeviceModel) {
-    const selectedModel = deviceManagement.deviceModels.value.find(
-      (m: any) => m.display_name === props.selectedDeviceModel
-    )
-    if (selectedModel) {
-      modelId = selectedModel.id.toString()
-    }
-  }
-
-  if (!modelId) {
-    ElMessage.warning('请先在甘特图中选择设备型号筛选')
-    return
-  }
+  const modelId = form.value.selectedModelId.toString()
+  const searchGeneration = ++slotSearchGeneration
 
   searching.value = true
   try {
@@ -563,9 +633,11 @@ const findAvailableSlot = async () => {
       dayjs(form.value.startDate).format('YYYY-MM-DD'),
       dayjs(form.value.endDate).format('YYYY-MM-DD'),
       form.value.logisticsDays,
-      modelId, // 使用当前甘特图选择的型号
+      modelId,
       false
     )
+
+    if (searchGeneration !== slotSearchGeneration) return
 
     if (result.device) {
       availableSlot.value = result
@@ -575,11 +647,14 @@ const findAvailableSlot = async () => {
       throw new Error('在指定时间段内没有可用设备')
     }
   } catch (error) {
+    if (searchGeneration !== slotSearchGeneration) return
     console.error('查找档期失败:', error)
     ElMessage.error((error as Error).message)
     availableSlot.value = null
   } finally {
-    searching.value = false
+    if (searchGeneration === slotSearchGeneration) {
+      searching.value = false
+    }
   }
 }
 
@@ -872,11 +947,13 @@ const handleSubmit = async () => {
 
 // Close Handler
 const handleClose = () => {
+  invalidateSlotSearch()
   formRef.value?.resetFields()
   form.value = {
     startDate: null,
     endDate: null,
     logisticsDays: 1,
+    selectedModelId: null,
     selectedDeviceId: null,
     customerName: '',
     customerPhone: '',
@@ -929,6 +1006,9 @@ watch(() => props.modelValue, async (visible) => {
       deviceManagement.loadAccessories(),
       deviceManagement.loadDeviceModels()
     ])
+    form.value.selectedModelId = deviceManagement.deviceModels.value.find(
+      model => model.display_name === props.selectedDeviceModel
+    )?.id ?? null
     if (props.initialXianyuOrderNo) {
       form.value.xianyuOrderNo = props.initialXianyuOrderNo
       await nextTick()

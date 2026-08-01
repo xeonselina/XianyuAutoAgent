@@ -237,6 +237,26 @@ describe('RentalShippingForm.vue Component', () => {
   })
 
   describe('Status Management', () => {
+    it('labels returned status as 已寄回', () => {
+      const wrapper = mount(RentalShippingForm, {
+        props: {
+          form: mockForm,
+          queryingShipOut: false,
+          queryingShipIn: false
+        },
+        global: {
+          stubs: {
+            ...defaultStubs,
+            'el-select': { template: '<div><slot /></div>' }
+          }
+        }
+      })
+
+      expect(
+        wrapper.get('el-option-stub[value="returned"]').attributes('label')
+      ).toBe('已寄回')
+    })
+
     it('should emit status-change event when status changes', async () => {
       const wrapper = mount(RentalShippingForm, {
         props: {

@@ -3,7 +3,7 @@
 """
 
 from flask import Blueprint, request, jsonify, current_app
-from app.utils.scheduler_tasks import manual_query_tracking, force_update_device_status, get_device_status_summary
+from app.utils.scheduler_tasks import manual_query_tracking
 from app.utils.scheduler import run_task_now, get_scheduler_status
 import logging
 
@@ -158,89 +158,23 @@ def get_tracking_scheduler_status():
 
 @bp.route('/api/device/update-status', methods=['POST'])
 def update_device_status():
-    """
-    立即更新设备状态任务
-    """
-    try:
-        success = run_task_now('update_device_status')
-        
-        if success:
-            return jsonify({
-                'success': True,
-                'message': '设备状态更新任务已执行'
-            }), 200
-        else:
-            return jsonify({
-                'success': False,
-                'message': '执行任务失败'
-            }), 500
-            
-    except Exception as e:
-        logger.error(f"立即更新设备状态异常: {e}")
-        return jsonify({
-            'success': False,
-            'message': f'执行失败: {str(e)}'
-        }), 500
+    return jsonify({
+        'success': False,
+        'message': '设备在线/离线状态已移除'
+    }), 410
 
 
 @bp.route('/api/device/force-update-status', methods=['POST'])
 def force_update_single_device_status():
-    """
-    强制更新指定设备状态
-    
-    请求格式:
-    {
-        "device_id": 设备ID
-    }
-    """
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({
-                'success': False,
-                'message': '请求数据不能为空'
-            }), 400
-        
-        device_id = data.get('device_id')
-        if not device_id:
-            return jsonify({
-                'success': False,
-                'message': '设备ID不能为空'
-            }), 400
-        
-        # 强制更新设备状态
-        result = force_update_device_status(device_id)
-        
-        if result['success']:
-            return jsonify(result), 200
-        else:
-            return jsonify(result), 500
-            
-    except Exception as e:
-        logger.error(f"强制更新设备状态异常: {e}")
-        return jsonify({
-            'success': False,
-            'message': f'更新失败: {str(e)}'
-        }), 500
+    return jsonify({
+        'success': False,
+        'message': '设备在线/离线状态已移除'
+    }), 410
 
 
 @bp.route('/api/device/status-summary', methods=['GET'])
 def get_devices_status_summary():
-    """
-    获取设备状态统计
-    """
-    try:
-        result = get_device_status_summary()
-        
-        if result['success']:
-            return jsonify(result), 200
-        else:
-            return jsonify(result), 500
-        
-    except Exception as e:
-        logger.error(f"获取设备状态统计异常: {e}")
-        return jsonify({
-            'success': False,
-            'message': f'获取失败: {str(e)}',
-            'data': {}
-        }), 500
+    return jsonify({
+        'success': False,
+        'message': '设备在线/离线状态已移除'
+    }), 410

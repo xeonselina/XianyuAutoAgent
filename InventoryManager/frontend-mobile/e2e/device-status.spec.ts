@@ -6,9 +6,8 @@ import { test, expect } from '@playwright/test'
  * Verifies:
  *  1. Page loads at /mobile/device-status
  *  2. Device list is shown
- *  3. Tab filter (全部/在线/离线) works
- *  4. Tapping a status badge opens an action sheet with online/offline options
- *  5. Tapping a lifecycle badge opens an action sheet with lifecycle options
+ *  3. Lifecycle tab filters are present
+ *  4. Tapping a lifecycle badge opens the lifecycle action sheet
  *
  * These tests are READ-ONLY for devices — we open action sheets but do NOT
  * confirm/submit any changes to avoid mutating production data.
@@ -38,7 +37,7 @@ test.describe('Device Status View', () => {
     expect(hasCards || hasEmpty).toBe(true)
   })
 
-  test('tab filter buttons are present (全部/在线/离线)', async ({ page }) => {
+  test('lifecycle filter tabs are present', async ({ page }) => {
     // van-tabs or custom tab buttons
     const tabs = page.locator('.van-tab, .van-tabs__nav .van-tab')
     const tabCount = await tabs.count()
@@ -48,31 +47,28 @@ test.describe('Device Status View', () => {
       await expect(tabsWrap).toBeVisible()
       return
     }
-    expect(tabCount).toBeGreaterThanOrEqual(2)
+    expect(tabCount).toBeGreaterThanOrEqual(6)
+    await expect(page.locator('.van-tab').filter({ hasText: '使用中' })).toBeVisible()
+    await expect(page.locator('.van-tab').filter({ hasText: '已售出' })).toBeVisible()
   })
 
-  test('clicking 在线 tab filters to online devices only', async ({ page }) => {
-    const onlineTab = page.locator('.van-tab').filter({ hasText: '在线' })
-    if (!await onlineTab.isVisible()) {
-      console.log('在线 tab not found; skipping')
+  test('clicking 使用中 filters to active devices only', async ({ page }) => {
+    const activeTab = page.locator('.van-tab').filter({ hasText: '使用中' })
+    if (!await activeTab.isVisible()) {
+      console.log('使用中 tab not found; skipping')
       return
     }
 
-    await onlineTab.click()
+    await activeTab.click()
     await page.waitForTimeout(400)
 
-    // All visible status badges should be online (green color or "在线" text)
-    const statusBadges = page.locator('.van-tag').filter({ hasText: '在线' })
-    const offlineBadges = page.locator('.van-tag').filter({ hasText: '离线' })
-
-    const onlineCount = await statusBadges.count()
-    const offlineCount = await offlineBadges.count()
-
-    // After filtering to 在线, we should have 0 offline badges
-    expect(offlineCount).toBe(0)
+    const inactiveBadges = page.locator('.van-tag').filter({
+      hasText: /已售出|已停用|已损坏|已退役/,
+    })
+    expect(await inactiveBadges.count()).toBe(0)
   })
 
-  test('tapping status badge opens action sheet with online/offline options', async ({ page }) => {
+  test('tapping lifecycle badge opens lifecycle options', async ({ page }) => {
     const cards = page.locator('.device-card')
     if (await cards.count() === 0) {
       console.log('No device cards; skipping action sheet test')
@@ -80,29 +76,19 @@ test.describe('Device Status View', () => {
       return
     }
 
-    // Click the first status badge (van-tag inside a device-card)
-    const firstStatusTag = page.locator('.device-card .van-tag').first()
-    if (!await firstStatusTag.isVisible()) {
-      console.log('No status tag found; skipping')
+    const firstLifecycleTag = page.locator('.device-card .van-tag').first()
+    if (!await firstLifecycleTag.isVisible()) {
+      console.log('No lifecycle tag found; skipping')
       return
     }
 
-    await firstStatusTag.click()
+    await firstLifecycleTag.click()
     const sheet = page.locator('.van-action-sheet')
-
-    // Action sheet may or may not appear depending on which tag was clicked
-    // (lifecycle vs status tags). Allow a short timeout.
-    const appeared = await sheet.isVisible({ timeout: 2_000 }).catch(() => false)
-    if (!appeared) {
-      console.log('Action sheet did not appear — tag may not be a status tag')
-      return
-    }
-
-    // Should have 在线 and/or 离线 options
+    await expect(sheet).toBeVisible()
     const items = sheet.locator('.van-action-sheet__item')
     const itemTexts = await items.allTextContents()
-    const hasStatusOptions = itemTexts.some(t => t.includes('在线') || t.includes('离线'))
-    expect(hasStatusOptions).toBe(true)
+    expect(itemTexts.some(t => t.includes('使用中'))).toBe(true)
+    expect(itemTexts.some(t => t.includes('已售出'))).toBe(true)
 
     // Close without confirming (safety — no mutations)
     const cancel = sheet.locator('.van-action-sheet__cancel')

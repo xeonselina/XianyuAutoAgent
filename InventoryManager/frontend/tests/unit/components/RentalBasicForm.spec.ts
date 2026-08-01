@@ -47,7 +47,7 @@ describe('RentalBasicForm.vue Component', () => {
         name: 'iPhone',
         display_name: 'iPhone 14 Pro'
       },
-      status: 'online',
+      lifecycle_status: 'active',
       is_accessory: false,
       rentals: []
     },
