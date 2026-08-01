@@ -3,7 +3,7 @@ import { flushPromises, shallowMount } from '@vue/test-utils'
 import { ElMessage } from 'element-plus'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import DueTodayReturnsDrawer from '@/components/DueTodayReturnsDrawer.vue'
+import PendingReturnsDrawer from '@/components/PendingReturnsDrawer.vue'
 import GanttChart from '@/components/GanttChart.vue'
 import { useGanttStore } from '@/stores/gantt'
 
@@ -25,17 +25,19 @@ vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() }),
 }))
 
-const dueRental = {
+const pendingReturn = {
   id: 21,
   device_model: 'iPhone 15 Pro',
   start_date: '2026-07-20',
   end_date: '2026-07-28',
+  due_date: '2026-07-29',
+  overdue_days: 3,
   destination: '上海市浦东新区',
   customer_phone: '13800138000',
   status: 'shipped' as const,
 }
 
-const dueResponse = (rentals = [dueRental]) => ({
+const pendingResponse = (rentals = [pendingReturn]) => ({
   data: {
     success: true,
     data: { rentals, count: rentals.length },
@@ -104,14 +106,14 @@ const mountGantt = async () => {
   return { wrapper, store, loadData }
 }
 
-describe('GanttChart due-today returns flow', () => {
+describe('GanttChart pending-returns flow', () => {
   beforeEach(() => {
     axiosGet.mockReset()
     axiosPost.mockReset()
     axiosPut.mockReset()
     axiosGet.mockImplementation((url: string) => {
-      if (url === '/api/rentals/due-today') {
-        return Promise.resolve(dueResponse())
+      if (url === '/api/rentals/pending-returns') {
+        return Promise.resolve(pendingResponse())
       }
       if (url === '/api/xianyu-order-alerts') {
         return Promise.resolve({
@@ -126,7 +128,10 @@ describe('GanttChart due-today returns flow', () => {
       data: { success: true, data: alertSnapshot },
     })
     axiosPut.mockResolvedValue({
-      data: { success: true, data: { id: dueRental.id, status: 'returned' } },
+      data: {
+        success: true,
+        data: { id: pendingReturn.id, status: 'returned' },
+      },
     })
     vi.spyOn(ElMessage, 'success').mockImplementation(() => undefined as never)
     vi.spyOn(ElMessage, 'error').mockImplementation(() => undefined as never)
@@ -136,35 +141,38 @@ describe('GanttChart due-today returns flow', () => {
     vi.restoreAllMocks()
   })
 
-  it('loads the count and refreshes the list when opening the drawer', async () => {
+  it('loads the total and refreshes the list when opening the drawer', async () => {
     const { wrapper } = await mountGantt()
 
-    expect(wrapper.get('.due-today-badge').attributes('data-value')).toBe('1')
-    expect(axiosGet).toHaveBeenCalledWith('/api/rentals/due-today')
+    expect(wrapper.get('.pending-returns-badge').attributes('data-value')).toBe('1')
+    expect(axiosGet).toHaveBeenCalledWith('/api/rentals/pending-returns')
+    expect(wrapper.get('[data-testid="pending-returns-button"]').text()).toContain(
+      '待归还',
+    )
 
-    await wrapper.get('[data-testid="due-today-button"]').trigger('click')
+    await wrapper.get('[data-testid="pending-returns-button"]').trigger('click')
     await flushPromises()
 
-    const dueTodayCalls = axiosGet.mock.calls.filter(
-      ([url]) => url === '/api/rentals/due-today',
+    const pendingCalls = axiosGet.mock.calls.filter(
+      ([url]) => url === '/api/rentals/pending-returns',
     )
-    expect(dueTodayCalls).toHaveLength(2)
+    expect(pendingCalls).toHaveLength(2)
     expect(
-      wrapper.findComponent(DueTodayReturnsDrawer).props('modelValue'),
+      wrapper.findComponent(PendingReturnsDrawer).props('modelValue'),
     ).toBe(true)
   })
 
   it('marks a row returned and refreshes the gantt data', async () => {
     const { wrapper, loadData } = await mountGantt()
 
-    wrapper.findComponent(DueTodayReturnsDrawer).vm.$emit(
+    wrapper.findComponent(PendingReturnsDrawer).vm.$emit(
       'mark-returned',
-      dueRental.id,
+      pendingReturn.id,
     )
     await flushPromises()
 
     expect(axiosPut).toHaveBeenCalledWith(
-      `/api/rentals/${dueRental.id}/status`,
+      `/api/rentals/${pendingReturn.id}/status`,
       { status: 'returned' },
     )
     expect(loadData).toHaveBeenCalledTimes(1)

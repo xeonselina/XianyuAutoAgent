@@ -59,17 +59,17 @@
             📦 批量发货
           </el-button>
           <el-badge
-            :value="dueTodayCount"
-            :hidden="dueTodayCount === 0"
-            class="due-today-badge"
+            :value="pendingReturnsCount"
+            :hidden="pendingReturnsCount === 0"
+            class="pending-returns-badge"
           >
             <el-button
-              data-testid="due-today-button"
+              data-testid="pending-returns-button"
               type="danger"
               :icon="Bell"
-              @click="openDueTodayReturns"
+              @click="openPendingReturns"
             >
-              今日应归还
+              待归还
             </el-button>
           </el-badge>
           <el-button
@@ -123,12 +123,12 @@
       @ignore="handleIgnoreXianyuAlert"
     />
 
-    <DueTodayReturnsDrawer
-      v-model="showDueTodayDrawer"
-      :rentals="dueTodayRentals"
-      :loading="dueTodayLoading"
-      :updating-ids="dueTodayUpdatingIds"
-      @mark-returned="handleMarkDueTodayReturned"
+    <PendingReturnsDrawer
+      v-model="showPendingReturnsDrawer"
+      :rentals="pendingReturns"
+      :loading="pendingReturnsLoading"
+      :updating-ids="pendingReturnUpdatingIds"
+      @mark-returned="handleMarkPendingReturnReturned"
     />
 
     <!-- 过滤器 -->
@@ -426,9 +426,9 @@ import BatchPrintDialog from './rental/BatchPrintDialog.vue'
 import CustomerHistoryDialog from './CustomerHistoryDialog.vue'
 import ScheduleReorderDialog from './ScheduleReorderDialog.vue'
 import XianyuOrderAlertBar from './XianyuOrderAlertBar.vue'
-import DueTodayReturnsDrawer from './DueTodayReturnsDrawer.vue'
+import PendingReturnsDrawer from './PendingReturnsDrawer.vue'
 import { useXianyuOrderAlerts } from '@/composables/useXianyuOrderAlerts'
-import { useDueTodayRentals } from '@/composables/useDueTodayRentals'
+import { usePendingReturns } from '@/composables/usePendingReturns'
 import {
   toSystemDateString,
   isToday,
@@ -449,7 +449,7 @@ const showAddDeviceDialog = ref(false)
 const showCustomerHistoryDialog = ref(false)
 const showBatchPrintDialog = ref(false)
 const showScheduleReorderDialog = ref(false)
-const showDueTodayDrawer = ref(false)
+const showPendingReturnsDrawer = ref(false)
 const selectedRental = ref<Rental | null>(null)
 const showRentalConfirmationDialog = ref(false)
 const confirmationRental = ref<Rental | null>(null)
@@ -469,13 +469,13 @@ const {
   stopPolling: stopXianyuAlertPolling
 } = useXianyuOrderAlerts()
 const {
-  rentals: dueTodayRentals,
-  count: dueTodayCount,
-  loading: dueTodayLoading,
-  updatingIds: dueTodayUpdatingIds,
-  load: loadDueTodayReturns,
-  markReturned: markDueTodayReturned
-} = useDueTodayRentals()
+  rentals: pendingReturns,
+  count: pendingReturnsCount,
+  loading: pendingReturnsLoading,
+  updatingIds: pendingReturnUpdatingIds,
+  load: loadPendingReturns,
+  markReturned: markPendingReturnReturned
+} = usePendingReturns()
 
 // 虚拟滚动相关
 const ganttBodyRef = ref<HTMLElement>()
@@ -994,18 +994,18 @@ const openBatchShipping = () => {
   window.open('/batch-shipping', '_blank')
 }
 
-const openDueTodayReturns = async () => {
-  showDueTodayDrawer.value = true
+const openPendingReturns = async () => {
+  showPendingReturnsDrawer.value = true
   try {
-    await loadDueTodayReturns()
+    await loadPendingReturns()
   } catch (error) {
     ElMessage.error((error as Error).message)
   }
 }
 
-const handleMarkDueTodayReturned = async (rentalId: number) => {
+const handleMarkPendingReturnReturned = async (rentalId: number) => {
   try {
-    await markDueTodayReturned(rentalId)
+    await markPendingReturnReturned(rentalId)
   } catch (error) {
     ElMessage.error((error as Error).message)
     return
@@ -1195,7 +1195,7 @@ onMounted(async () => {
     loadDailyStats(),
     loadDeviceModels(),
     loadXianyuAlerts(),
-    loadDueTodayReturns().catch((error) => {
+    loadPendingReturns().catch((error) => {
       ElMessage.error((error as Error).message)
     })
   ])
@@ -1237,7 +1237,7 @@ onUnmounted(() => {
   margin-bottom: 20px;
 }
 
-.due-today-badge {
+.pending-returns-badge {
   margin-right: 12px;
 }
 
