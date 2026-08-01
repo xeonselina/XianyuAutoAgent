@@ -14,6 +14,7 @@ export const usePendingReturns = () => {
   const rentals = ref<PendingReturn[]>([])
   const loading = ref(false)
   const updatingIds = ref<Set<number>>(new Set())
+  const returnedIds = new Set<number>()
   const count = computed(() => rentals.value.length)
 
   const load = async () => {
@@ -27,7 +28,10 @@ export const usePendingReturns = () => {
           || '获取待归还列表失败',
         )
       }
-      rentals.value = response.data.data?.rentals || []
+      const loadedRentals: PendingReturn[] = response.data.data?.rentals || []
+      rentals.value = loadedRentals.filter(
+        (rental) => !returnedIds.has(rental.id),
+      )
     } catch (error: any) {
       throw new Error(errorMessage(error, '获取待归还列表失败'))
     } finally {
@@ -57,6 +61,7 @@ export const usePendingReturns = () => {
         )
       }
 
+      returnedIds.add(rentalId)
       rentals.value = rentals.value.filter((rental) => rental.id !== rentalId)
       try {
         await load()

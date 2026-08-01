@@ -27,6 +27,14 @@ const pendingReturn: PendingReturn = {
   status: 'shipped',
 }
 
+const secondPendingReturn: PendingReturn = {
+  ...pendingReturn,
+  id: 8,
+  device_model: 'iPhone 16 Pro',
+  due_date: '2026-07-30',
+  overdue_days: 2,
+}
+
 const pendingReturnsResponse = (rentals: PendingReturn[]) => ({
   data: {
     success: true,
@@ -118,5 +126,37 @@ describe('usePendingReturns', () => {
     expect(state.rentals.value).toEqual([])
     expect(state.count.value).toBe(0)
     expect(state.updatingIds.value.has(pendingReturn.id)).toBe(false)
+  })
+
+  it('does not resurrect a returned row when concurrent reloads resolve out of order', async () => {
+    let resolveStaleReload!: (value: ReturnType<typeof pendingReturnsResponse>) => void
+    const staleReload = new Promise<ReturnType<typeof pendingReturnsResponse>>(
+      (resolve) => {
+        resolveStaleReload = resolve
+      },
+    )
+    axiosGet
+      .mockResolvedValueOnce(
+        pendingReturnsResponse([pendingReturn, secondPendingReturn]),
+      )
+      .mockReturnValueOnce(staleReload)
+      .mockResolvedValueOnce(pendingReturnsResponse([]))
+    axiosPut.mockResolvedValue({
+      data: { success: true, data: { status: 'returned' } },
+    })
+    const state = usePendingReturns()
+    await state.load()
+
+    const firstUpdate = state.markReturned(pendingReturn.id)
+    await vi.waitFor(() => expect(axiosGet).toHaveBeenCalledTimes(2))
+
+    const secondUpdate = state.markReturned(secondPendingReturn.id)
+    await vi.waitFor(() => expect(axiosGet).toHaveBeenCalledTimes(3))
+    await secondUpdate
+
+    resolveStaleReload(pendingReturnsResponse([secondPendingReturn]))
+    await firstUpdate
+
+    expect(state.rentals.value).toEqual([])
   })
 })
