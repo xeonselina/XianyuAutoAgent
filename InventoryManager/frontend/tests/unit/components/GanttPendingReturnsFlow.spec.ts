@@ -178,7 +178,7 @@ describe('GanttChart pending-returns flow', () => {
 
     Object.defineProperty(body, 'clientHeight', {
       configurable: true,
-      value: 88,
+      value: 188,
     })
     Object.defineProperty(body, 'scrollTop', {
       configurable: true,
@@ -191,21 +191,25 @@ describe('GanttChart pending-returns flow', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.findAllComponents({ name: 'GanttRow' })).toHaveLength(4)
+    expect(wrapper.get('.virtual-container').attributes('style')).toContain(
+      'height: 1881px',
+    )
 
-    body.scrollTop = (20 * 44) - 88
+    body.scrollTop = (20 * 94) - 188
     body.dispatchEvent(new Event('scroll'))
     await wrapper.vm.$nextTick()
 
     Object.defineProperty(body, 'clientHeight', {
       configurable: true,
-      value: 440,
+      value: 940,
     })
-    body.scrollTop = (20 * 44) - 440
+    body.scrollTop = (20 * 94) - 940
     resizeCallback?.([], {} as ResizeObserver)
     await wrapper.vm.$nextTick()
 
     const renderedRows = wrapper.findAllComponents({ name: 'GanttRow' })
     expect(renderedRows).toHaveLength(12)
+    expect(renderedRows[0].attributes('style')).toContain('height: 94px')
     expect(renderedRows.at(-1)?.props('device').id).toBe(20)
   })
 

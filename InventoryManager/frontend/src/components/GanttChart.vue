@@ -265,6 +265,7 @@
                 :device="device"
                 :rentals="ganttStore.getRentalsForDevice(device.id)"
                 :dates="dateArray"
+                :style="{ height: `${itemHeight}px` }"
                 @edit-rental="handleEditRental"
                 @delete-rental="handleDeleteRental"
                 @update-device-lifecycle="handleUpdateDeviceLifecycle"
@@ -479,7 +480,8 @@ const {
 
 // 虚拟滚动相关
 const ganttBodyRef = ref<HTMLElement>()
-const itemHeight = 44  // 每行高度
+const itemHeight = 94  // 与 GanttRow 的实际固定高度保持一致
+const virtualScrollBottomBuffer = 1  // 避免小数像素取整裁掉最后一行底边
 const visibleCount = ref(10)  // 可见行数
 const scrollTop = ref(0)
 const startIndex = ref(0)
@@ -609,7 +611,9 @@ const filteredDevices = computed(() => {
 })
 
 // 虚拟滚动计算属性
-const totalHeight = computed(() => filteredDevices.value.length * itemHeight)
+const totalHeight = computed(() => (
+  filteredDevices.value.length * itemHeight + virtualScrollBottomBuffer
+))
 
 const visibleDevices = computed(() => {
   const start = startIndex.value
@@ -1245,14 +1249,17 @@ onUnmounted(() => {
 <style scoped>
 .gantt-container {
   padding: 20px;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
   width: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: white;
 }
 
 .toolbar {
+  flex: 0 0 auto;
   margin-bottom: 20px;
 }
 
@@ -1275,6 +1282,7 @@ onUnmounted(() => {
 }
 
 .filters {
+  flex: 0 0 auto;
   margin-bottom: 20px;
   padding: 16px;
   background: var(--el-bg-color-page);
@@ -1282,12 +1290,14 @@ onUnmounted(() => {
 }
 
 .gantt-main {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
   border: 2px solid #c0c0c0;
   border-radius: 8px;
   background: white;
   width: 100%;
-  min-height: 400px;
 }
 
 .gantt-header {
@@ -1435,18 +1445,20 @@ onUnmounted(() => {
 
 .gantt-scroll-container {
   width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
   position: relative;
   display: flex;
   flex-direction: column;
   overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .gantt-body {
-  min-height: 400px;
-  max-height: calc(100vh - 300px);
+  min-height: 0;
   width: fit-content;
   min-width: 100%;
-  flex: 1;
+  flex: 1 1 auto;
   position: relative;
   overflow-y: auto;
   overflow-x: visible;

@@ -4,14 +4,14 @@
 
 **Goal:** Keep the Gantt rentals viewport scrollable through its final row when the missing-Xianyu-order alert appears, expands, or collapses.
 
-**Architecture:** Replace competing viewport/minimum-height rules with one continuous flex height chain from `GanttView` to `.gantt-body`. Observe `.gantt-body` size changes and synchronize the virtual list from the element's current `clientHeight` and `scrollTop`, so alert-driven layout changes cannot leave a stale visible range.
+**Architecture:** Replace competing viewport/minimum-height rules with one continuous flex height chain from `GanttView` to `.gantt-body`. Observe `.gantt-body` size changes and synchronize the virtual list from the element's current `clientHeight` and `scrollTop`. Align the virtual step with the existing 94px rendered row and retain a 1px bottom buffer, so alert-driven layout changes cannot leave a stale range or clipped final border.
 
 **Tech Stack:** Vue 3 `<script setup>`, TypeScript, CSS Flexbox, browser `ResizeObserver`, Pinia, Vue Test Utils, Vitest.
 
 ## Global Constraints
 
 - The single-line alert, expanded alert details, and collapsed alert must all leave the Gantt vertically scrollable through the final device row.
-- Preserve horizontal scrolling, the sticky Gantt header, existing filtering, rental data, and the fixed 44px virtual-row height.
+- Preserve horizontal scrolling, the sticky Gantt header, existing filtering, rental data, and the pre-fix visual row size; correct the stale 44px virtual step to the measured 94px row height.
 - Do not add another page-level vertical scrolling container.
 - Do not change Xianyu alert query behavior or copy.
 - Do not add a frontend dependency.
@@ -25,7 +25,7 @@
 - Modify: `InventoryManager/frontend/src/components/GanttChart.vue:481-708,1209-1213`
 
 **Interfaces:**
-- Consumes: the existing `.gantt-body` element referenced by `ganttBodyRef`, the existing `itemHeight = 44`, and `filteredDevices`.
+- Consumes: the existing `.gantt-body` element referenced by `ganttBodyRef`, the legacy `itemHeight = 44`, the measured 94px rendered row, and `filteredDevices`.
 - Produces: a `ResizeObserver` owned by `GanttChart` that calls `updateVisibleRange()` whenever `.gantt-body` changes size and is disconnected during unmount.
 - Produces: `updateVisibleRange()` derives both viewport height and current scroll position directly from `.gantt-body`, then clamps `startIndex` so the last viewport stays filled through the final device.
 
@@ -89,7 +89,7 @@ it('keeps the final rows rendered when the alert changes the viewport height', a
 
   Object.defineProperty(body, 'clientHeight', {
     configurable: true,
-    value: 88,
+    value: 188,
   })
   Object.defineProperty(body, 'scrollTop', {
     configurable: true,
@@ -102,21 +102,25 @@ it('keeps the final rows rendered when the alert changes the viewport height', a
   await wrapper.vm.$nextTick()
 
   expect(wrapper.findAllComponents({ name: 'GanttRow' })).toHaveLength(4)
+  expect(wrapper.get('.virtual-container').attributes('style')).toContain(
+    'height: 1881px',
+  )
 
-  body.scrollTop = (20 * 44) - 88
+  body.scrollTop = (20 * 94) - 188
   body.dispatchEvent(new Event('scroll'))
   await wrapper.vm.$nextTick()
 
   Object.defineProperty(body, 'clientHeight', {
     configurable: true,
-    value: 440,
+    value: 940,
   })
-  body.scrollTop = (20 * 44) - 440
+  body.scrollTop = (20 * 94) - 940
   resizeCallback?.([], {} as ResizeObserver)
   await wrapper.vm.$nextTick()
 
   const renderedRows = wrapper.findAllComponents({ name: 'GanttRow' })
   expect(renderedRows).toHaveLength(12)
+  expect(renderedRows[0].attributes('style')).toContain('height: 94px')
   expect(renderedRows.at(-1)?.props('device').id).toBe(20)
 })
 ```
@@ -155,7 +159,28 @@ Expected: both new tests fail because current production code never constructs o
 In `GanttChart.vue`, add observer ownership beside the other virtual-scroll state:
 
 ```ts
+const itemHeight = 94
+const virtualScrollBottomBuffer = 1
 let ganttBodyResizeObserver: ResizeObserver | null = null
+```
+
+Bind the same height to each row and include the bottom rounding buffer:
+
+```vue
+<GanttRow
+  v-for="device in visibleDevices"
+  :key="device.id"
+  :device="device"
+  :rentals="ganttStore.getRentalsForDevice(device.id)"
+  :dates="dateArray"
+  :style="{ height: `${itemHeight}px` }"
+/>
+```
+
+```ts
+const totalHeight = computed(() => (
+  filteredDevices.value.length * itemHeight + virtualScrollBottomBuffer
+))
 ```
 
 Replace the virtual-scroll methods with:
@@ -221,7 +246,7 @@ cd InventoryManager/frontend
 npm run test:run -- tests/unit/components/GanttPendingReturnsFlow.spec.ts
 ```
 
-Expected: all tests in the file pass, including 12 rows after the simulated viewport growth and one observer disconnect on unmount.
+Expected: all tests in the file pass, including the 94px row contract, 1px bottom buffer, 12 rows after simulated viewport growth, and one observer disconnect on unmount.
 
 - [ ] **Step 7: Commit the virtual viewport change**
 
