@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import PendingReturnsDrawer from '@/components/PendingReturnsDrawer.vue'
 import GanttChart from '@/components/GanttChart.vue'
-import { useGanttStore } from '@/stores/gantt'
+import { useGanttStore, type Device } from '@/stores/gantt'
 
 const { axiosGet, axiosPost, axiosPut } = vi.hoisted(() => ({
   axiosGet: vi.fn(),
@@ -23,6 +23,31 @@ vi.mock('axios', () => ({
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() }),
+}))
+
+let resizeCallback: ResizeObserverCallback | undefined
+const observeGanttBody = vi.fn()
+const disconnectGanttBody = vi.fn()
+
+class ResizeObserverStub {
+  constructor(callback: ResizeObserverCallback) {
+    resizeCallback = callback
+  }
+
+  observe = observeGanttBody
+  unobserve = vi.fn()
+  disconnect = disconnectGanttBody
+}
+
+const makeDevices = (): Device[] => Array.from({ length: 20 }, (_, index) => ({
+  id: index + 1,
+  name: `测试设备 ${index + 1}`,
+  serial_number: `SN-${index + 1}`,
+  model: '测试型号',
+  is_accessory: false,
+  lifecycle_status: 'active',
+  created_at: '2026-08-03T00:00:00',
+  updated_at: '2026-08-03T00:00:00',
 }))
 
 const pendingReturn = {
@@ -55,10 +80,11 @@ const alertSnapshot = {
   },
 }
 
-const mountGantt = async () => {
+const mountGantt = async (devices: Device[] = []) => {
   const pinia = createPinia()
   setActivePinia(pinia)
   const store = useGanttStore()
+  store.devices = devices
   const loadData = vi.spyOn(store, 'loadData').mockResolvedValue(undefined)
   const wrapper = shallowMount(GanttChart, {
     global: {
@@ -108,6 +134,10 @@ const mountGantt = async () => {
 
 describe('GanttChart pending-returns flow', () => {
   beforeEach(() => {
+    resizeCallback = undefined
+    observeGanttBody.mockClear()
+    disconnectGanttBody.mockClear()
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub)
     axiosGet.mockReset()
     axiosPost.mockReset()
     axiosPut.mockReset()
@@ -139,6 +169,56 @@ describe('GanttChart pending-returns flow', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('keeps the final rows rendered when the alert changes the viewport height', async () => {
+    const { wrapper } = await mountGantt(makeDevices())
+    const body = wrapper.get('.gantt-body').element as HTMLElement
+
+    Object.defineProperty(body, 'clientHeight', {
+      configurable: true,
+      value: 88,
+    })
+    Object.defineProperty(body, 'scrollTop', {
+      configurable: true,
+      writable: true,
+      value: 0,
+    })
+
+    expect(resizeCallback).toBeTypeOf('function')
+    resizeCallback?.([], {} as ResizeObserver)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.findAllComponents({ name: 'GanttRow' })).toHaveLength(4)
+
+    body.scrollTop = (20 * 44) - 88
+    body.dispatchEvent(new Event('scroll'))
+    await wrapper.vm.$nextTick()
+
+    Object.defineProperty(body, 'clientHeight', {
+      configurable: true,
+      value: 440,
+    })
+    body.scrollTop = (20 * 44) - 440
+    resizeCallback?.([], {} as ResizeObserver)
+    await wrapper.vm.$nextTick()
+
+    const renderedRows = wrapper.findAllComponents({ name: 'GanttRow' })
+    expect(renderedRows).toHaveLength(12)
+    expect(renderedRows.at(-1)?.props('device').id).toBe(20)
+  })
+
+  it('disconnects the Gantt viewport observer when unmounted', async () => {
+    const { wrapper } = await mountGantt(makeDevices())
+
+    expect(observeGanttBody).toHaveBeenCalledWith(
+      wrapper.get('.gantt-body').element,
+    )
+
+    wrapper.unmount()
+
+    expect(disconnectGanttBody).toHaveBeenCalledTimes(1)
   })
 
   it('loads the total and refreshes the list when opening the drawer', async () => {

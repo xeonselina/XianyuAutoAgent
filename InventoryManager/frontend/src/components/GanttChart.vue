@@ -484,6 +484,7 @@ const visibleCount = ref(10)  // 可见行数
 const scrollTop = ref(0)
 const startIndex = ref(0)
 const endIndex = ref(0)
+let ganttBodyResizeObserver: ResizeObserver | null = null
 
 // 添加设备表单
 const addDeviceFormRef = ref()
@@ -683,22 +684,37 @@ const handleDateJump = (value: Date) => {
 
 // 虚拟滚动相关方法
 const updateVisibleRange = () => {
-  if (!ganttBodyRef.value) return
+  const container = ganttBodyRef.value
+  if (!container) return
 
-  const containerHeight = ganttBodyRef.value.clientHeight
+  const containerHeight = container.clientHeight
+  scrollTop.value = container.scrollTop
   visibleCount.value = Math.ceil(containerHeight / itemHeight) + 2 // 额外渲染2行缓冲
 
-  startIndex.value = Math.floor(scrollTop.value / itemHeight)
+  const requestedStartIndex = Math.floor(scrollTop.value / itemHeight)
+  const maxStartIndex = Math.max(
+    0,
+    filteredDevices.value.length - visibleCount.value
+  )
+  startIndex.value = Math.min(requestedStartIndex, maxStartIndex)
   endIndex.value = Math.min(
     startIndex.value + visibleCount.value,
     filteredDevices.value.length
   )
 }
 
-const handleScroll = (event: Event) => {
-  const target = event.target as HTMLElement
-  scrollTop.value = target.scrollTop
+const handleScroll = () => {
   updateVisibleRange()
+}
+
+const observeGanttBodyResize = () => {
+  const container = ganttBodyRef.value
+  if (!container || typeof ResizeObserver === 'undefined') return
+
+  ganttBodyResizeObserver = new ResizeObserver(() => {
+    updateVisibleRange()
+  })
+  ganttBodyResizeObserver.observe(container)
 }
 
 const initVirtualScroll = async () => {
@@ -706,6 +722,7 @@ const initVirtualScroll = async () => {
   if (ganttBodyRef.value) {
     ganttBodyRef.value.addEventListener('scroll', handleScroll)
     updateVisibleRange()
+    observeGanttBodyResize()
   }
 }
 
@@ -1210,6 +1227,8 @@ onUnmounted(() => {
   if (ganttBodyRef.value) {
     ganttBodyRef.value.removeEventListener('scroll', handleScroll)
   }
+  ganttBodyResizeObserver?.disconnect()
+  ganttBodyResizeObserver = null
   // 清理定时器
   if (loadStatsTimer) {
     clearTimeout(loadStatsTimer)
