@@ -19,7 +19,10 @@ const relayCase = {
   lens_combo: 'lens_400mm',
   accessories: [{ name: '手柄', type: 'handle', is_bundled: true }],
   successor_lens_combo: 'lens_200mm',
-  successor_accessories: [{ name: '三脚架', type: 'tripod', is_bundled: false }],
+  successor_accessories: [
+    { name: '三脚架', type: 'tripod', is_bundled: false },
+    { name: '备用电池', type: 'battery', is_bundled: false },
+  ],
   predecessor: {
     id: 1,
     start_date: '2026-08-01',
@@ -115,7 +118,7 @@ test.describe('mobile relay management', () => {
     const api = await mockRelayApi(page)
     await page.goto('/mobile/relay')
 
-    await expect(page.getByText('接力管理', { exact: true })).toBeVisible()
+    await expect(page.getByText('接力工作台', { exact: true })).toBeVisible()
     await expect(page.getByText('鹿鹿')).toBeVisible()
     await expect(page.getByText('王先生')).toBeVisible()
     await expect(page.getByText('13800138000')).toBeVisible()
@@ -124,15 +127,50 @@ test.describe('mobile relay management', () => {
     await expect(page.getByText('X300U', { exact: true })).toBeVisible()
     await expect(page.getByText(/400MM 镜头/)).toBeVisible()
     await expect(page.getByText(/手柄/)).toBeVisible()
+    await expect(page.getByTestId('equipment-warning')).toContainText('镜头组合不一致')
+    await expect(page.getByTestId('equipment-warning')).toContainText('后单附件更多（2 > 1）')
     await expect(page.getByText(/2026-08-06/)).toBeVisible()
     await expect(page.getByText(/2026-08-09/)).toBeVisible()
     await expect(page.getByText('SF1234567890')).toBeVisible()
     await expect(page.getByText(/运送中/)).toBeVisible()
+    await expect(page.getByTestId('status-chip-pending')).toBeVisible()
+    await expect(page.getByTestId('status-chip-shipped')).toBeVisible()
+
+    expect(await page.getByText('杭州市西湖区文三路 1 号').count()).toBe(0)
+    await page.getByTestId('relay-expand-details').click()
+    await expect(page.getByTestId('relay-card-details')).toBeVisible()
+    await expect(page.getByText('杭州市西湖区文三路 1 号')).toBeVisible()
+    await expect(page.getByText('上海市浦东新区世纪大道 2 号')).toBeVisible()
 
     expect(api.listRequests).toHaveLength(1)
     const requestUrl = new URL(api.listRequests[0])
     expect(requestUrl.searchParams.get('statuses')).toBe('pending,notified,agreed,shipped')
     expect(requestUrl.searchParams.get('per_page')).toBe('50')
+  })
+
+  test('provides touch-first status chips, date presets and card actions', async ({ page }) => {
+    const api = await mockRelayApi(page)
+    await page.goto('/mobile/relay')
+
+    const toolbarPosition = await page.locator('.mobile-toolbar').evaluate(element =>
+      getComputedStyle(element).position,
+    )
+    expect(toolbarPosition).toBe('sticky')
+
+    await page.getByTestId('status-chip-completed').click()
+    await expect.poll(() => api.listRequests.length).toBe(2)
+    const statusUrl = new URL(api.listRequests[1])
+    expect(statusUrl.searchParams.get('statuses')).toContain('completed')
+
+    await page.getByTestId('relay-date-filter').click()
+    await page.getByTestId('range-next-15').click()
+    await expect.poll(() => api.listRequests.length).toBe(3)
+
+    const actionHeights = await page.locator('[data-testid="relay-card-actions"] .van-button').evaluateAll(
+      buttons => buttons.map(button => button.getBoundingClientRect().height),
+    )
+    expect(actionHeights).toHaveLength(2)
+    expect(actionHeights.every(height => height >= 44)).toBe(true)
   })
 
   test('requires a tracking number before saving shipped', async ({ page }) => {

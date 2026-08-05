@@ -15,12 +15,12 @@ import type { RelayCase, RelayCaseStatus } from '@/types/relayCase'
 defineOptions({ name: 'RelayManagementView' })
 
 const OPEN_STATUSES: RelayCaseStatus[] = ['pending', 'notified', 'agreed', 'shipped']
-const statusOptions: Array<{ value: RelayCaseStatus; label: string }> = [
-  { value: 'pending', label: '待处理' },
-  { value: 'notified', label: '已通知' },
-  { value: 'agreed', label: '已同意' },
-  { value: 'shipped', label: '已寄出' },
-  { value: 'completed', label: '已完成' },
+const statusOptions: Array<{ value: RelayCaseStatus; label: string; shortLabel: string }> = [
+  { value: 'pending', label: '待处理', shortLabel: '待处理' },
+  { value: 'notified', label: '已通知', shortLabel: '已通知' },
+  { value: 'agreed', label: '已同意', shortLabel: '已同意' },
+  { value: 'shipped', label: '已寄出', shortLabel: '已寄出' },
+  { value: 'completed', label: '已完成', shortLabel: '完成' },
 ]
 
 const loading = ref(false)
@@ -30,28 +30,22 @@ const total = ref(0)
 const statuses = ref<RelayCaseStatus[]>([...OPEN_STATUSES])
 const shipDateFrom = ref(dayjs().subtract(3, 'day').format('YYYY-MM-DD'))
 const shipDateTo = ref(dayjs().add(5, 'day').format('YYYY-MM-DD'))
-const showFilters = ref(false)
+const showDateSheet = ref(false)
+const showCalendar = ref(false)
 const showStatusSheet = ref(false)
 const activeCase = ref<RelayCase | null>(null)
-
-const statusSummary = computed(() => {
-  if (statuses.value.length === statusOptions.length) return '全部状态'
-  return statusOptions
-    .filter((option) => statuses.value.includes(option.value))
-    .map((option) => option.label)
-    .join('、') || '未选状态'
-})
 
 const refreshableIds = computed(() => items.value
   .filter((item) => item.case_id && ['shipped', 'completed'].includes(item.status))
   .map((item) => item.case_id as number))
 
+const defaultCalendarDate = computed<[Date, Date]>(() => [
+  dayjs(shipDateFrom.value).toDate(),
+  dayjs(shipDateTo.value).toDate(),
+])
+
 async function loadCases() {
-  if (!statuses.value.length) {
-    items.value = []
-    total.value = 0
-    return
-  }
+  if (!statuses.value.length) return
   loading.value = true
   try {
     const result = await listRelayCases({
@@ -72,29 +66,43 @@ async function loadCases() {
 
 function toggleStatus(status: RelayCaseStatus) {
   if (statuses.value.includes(status)) {
+    if (statuses.value.length === 1) {
+      showToast('请至少保留一个状态')
+      return
+    }
     statuses.value = statuses.value.filter((value) => value !== status)
   } else {
-    statuses.value = [...statuses.value, status]
+    statuses.value = statusOptions
+      .map((option) => option.value)
+      .filter((value) => [...statuses.value, status].includes(value))
   }
-}
-
-function applyFilters() {
-  if (!statuses.value.length) {
-    showToast('请至少选择一个状态')
-    return
-  }
-  if (!shipDateFrom.value || !shipDateTo.value || shipDateFrom.value > shipDateTo.value) {
-    showToast('请选择有效的寄出时间范围')
-    return
-  }
-  showFilters.value = false
   void loadCases()
 }
 
-function resetFilters() {
-  statuses.value = [...OPEN_STATUSES]
-  shipDateFrom.value = dayjs().subtract(3, 'day').format('YYYY-MM-DD')
-  shipDateTo.value = dayjs().add(5, 'day').format('YYYY-MM-DD')
+function setDateRange(from: dayjs.ConfigType, to: dayjs.ConfigType) {
+  shipDateFrom.value = dayjs(from).format('YYYY-MM-DD')
+  shipDateTo.value = dayjs(to).format('YYYY-MM-DD')
+  showDateSheet.value = false
+  void loadCases()
+}
+
+function useDefaultRange() {
+  setDateRange(dayjs().subtract(3, 'day'), dayjs().add(5, 'day'))
+}
+
+function useNext15Days() {
+  setDateRange(dayjs(), dayjs().add(15, 'day'))
+}
+
+function openCustomCalendar() {
+  showDateSheet.value = false
+  showCalendar.value = true
+}
+
+function confirmCalendar(values: Date[]) {
+  if (values.length !== 2) return
+  showCalendar.value = false
+  setDateRange(values[0], values[1])
 }
 
 function maintain(relayCase: RelayCase) {
@@ -139,7 +147,7 @@ onMounted(loadCases)
 
 <template>
   <div class="relay-view">
-    <van-nav-bar title="接力管理" :border="false">
+    <van-nav-bar title="接力工作台" :border="false" class="relay-nav">
       <template #right>
         <van-button
           icon="replay"
@@ -151,21 +159,46 @@ onMounted(loadCases)
           data-testid="relay-refresh-all"
           @click="refreshAll"
         >
-          刷新物流
+          刷新
         </van-button>
       </template>
     </van-nav-bar>
 
-    <button type="button" class="filter-summary" @click="showFilters = true">
-      <div>
-        <strong>{{ statusSummary }}</strong>
-        <span>寄出时间 {{ shipDateFrom }} 至 {{ shipDateTo }}</span>
+    <section class="mobile-toolbar">
+      <div class="toolbar-heading">
+        <div>
+          <strong>需要处理的接力</strong>
+          <span>共 {{ total }} 组</span>
+        </div>
+        <button
+          type="button"
+          class="date-filter-button"
+          data-testid="relay-date-filter"
+          @click="showDateSheet = true"
+        >
+          <van-icon name="calendar-o" />
+          {{ dayjs(shipDateFrom).format('M/D') }}–{{ dayjs(shipDateTo).format('M/D') }}
+          <van-icon name="arrow-down" />
+        </button>
       </div>
-      <div class="filter-count">{{ total }} 组 <van-icon name="filter-o" /></div>
-    </button>
+
+      <div class="status-chip-row" aria-label="状态快捷筛选">
+        <button
+          v-for="option in statusOptions"
+          :key="option.value"
+          type="button"
+          class="status-chip"
+          :class="{ active: statuses.includes(option.value) }"
+          :data-testid="`status-chip-${option.value}`"
+          @click="toggleStatus(option.value)"
+        >
+          {{ option.shortLabel }}
+        </button>
+      </div>
+    </section>
 
     <div class="relay-list">
-      <div v-if="loading" class="loading-wrap"><van-loading color="#1989fa" /></div>
+      <div v-if="loading" class="loading-wrap"><van-loading color="#1677ff" /></div>
       <van-empty v-else-if="!items.length" description="当前范围内没有接力组合" />
       <template v-else>
         <RelayCaseCard
@@ -178,41 +211,38 @@ onMounted(loadCases)
       </template>
     </div>
 
-    <van-popup
-      v-model:show="showFilters"
-      position="bottom"
-      round
-      closeable
-      class="filter-popup"
+    <van-action-sheet
+      v-model:show="showDateSheet"
+      title="寄出时间范围"
+      cancel-text="取消"
+      class="date-sheet"
     >
-      <h2>筛选接力单</h2>
-      <div class="filter-section">
-        <div class="section-label">状态（可多选）</div>
-        <div class="status-options">
-          <button
-            v-for="option in statusOptions"
-            :key="option.value"
-            type="button"
-            :class="{ active: statuses.includes(option.value) }"
-            @click="toggleStatus(option.value)"
-          >
-            {{ option.label }}
-          </button>
-        </div>
+      <div class="date-presets">
+        <button type="button" data-testid="range-default" @click="useDefaultRange">
+          <strong>近期待办</strong>
+          <span>T-3 天至 T+5 天</span>
+        </button>
+        <button type="button" data-testid="range-next-15" @click="useNext15Days">
+          <strong>未来 15 天</strong>
+          <span>今天至 15 天后</span>
+        </button>
+        <button type="button" data-testid="range-custom" @click="openCustomCalendar">
+          <strong>自定义范围</strong>
+          <span>{{ shipDateFrom }} 至 {{ shipDateTo }}</span>
+        </button>
       </div>
-      <div class="filter-section">
-        <div class="section-label">寄出时间范围</div>
-        <div class="date-inputs">
-          <input v-model="shipDateFrom" type="date">
-          <span>至</span>
-          <input v-model="shipDateTo" type="date">
-        </div>
-      </div>
-      <div class="filter-buttons">
-        <van-button block @click="resetFilters">重置</van-button>
-        <van-button block type="primary" @click="applyFilters">查询</van-button>
-      </div>
-    </van-popup>
+    </van-action-sheet>
+
+    <van-calendar
+      v-model:show="showCalendar"
+      type="range"
+      title="选择寄出时间范围"
+      :default-date="defaultCalendarDate"
+      :min-date="dayjs().subtract(1, 'year').toDate()"
+      :max-date="dayjs().add(2, 'year').toDate()"
+      color="#1677ff"
+      @confirm="confirmCalendar"
+    />
 
     <RelayStatusSheet
       v-model="showStatusSheet"
@@ -226,52 +256,106 @@ onMounted(loadCases)
 .relay-view {
   height: 100%;
   overflow: hidden;
-  background: #f5f6f8;
+  background: #f2f4f7;
 }
 
-.filter-summary {
-  display: flex;
-  width: 100%;
-  min-height: 58px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 14px;
-  border: 0;
-  border-bottom: 1px solid #ebedf0;
+.relay-nav {
+  --van-nav-bar-title-font-size: 18px;
+}
+
+.relay-nav :deep(.van-button) {
+  min-width: 72px;
+  min-height: 36px;
+  border-radius: 8px;
+}
+
+.mobile-toolbar {
+  position: sticky;
+  z-index: 4;
+  top: 0;
+  padding: 10px 12px 9px;
+  border-bottom: 1px solid #e6e8eb;
   background: #fff;
-  color: #323233;
-  text-align: left;
+  box-shadow: 0 2px 8px rgb(31 41 55 / 4%);
 }
 
-.filter-summary div:first-child {
+.toolbar-heading,
+.toolbar-heading > div,
+.date-filter-button,
+.status-chip-row {
   display: flex;
+  align-items: center;
+}
+
+.toolbar-heading {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.toolbar-heading > div {
   min-width: 0;
   flex-direction: column;
-  gap: 3px;
+  align-items: flex-start;
 }
 
-.filter-summary strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
+.toolbar-heading strong {
+  font-size: 14px;
 }
 
-.filter-summary span,
-.filter-count {
-  color: #969799;
+.toolbar-heading span {
+  margin-top: 2px;
+  color: #8a8f98;
   font-size: 11px;
 }
 
-.filter-count {
+.date-filter-button {
+  min-height: 44px;
   flex: none;
-  margin-left: 10px;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid #d9e6f7;
+  border-radius: 9px;
+  color: #1668dc;
+  background: #f5f9ff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-chip-row {
+  gap: 7px;
+  margin-top: 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.status-chip-row::-webkit-scrollbar {
+  display: none;
+}
+
+.status-chip {
+  min-width: 63px;
+  min-height: 44px;
+  flex: 1 0 auto;
+  padding: 0 10px;
+  border: 1px solid #e1e4e8;
+  border-radius: 19px;
+  color: #6b7280;
+  background: #f8f9fa;
+  font-size: 12px;
+}
+
+.status-chip.active {
+  border-color: #1677ff;
+  color: #fff;
+  background: #1677ff;
+  box-shadow: 0 2px 6px rgb(22 119 255 / 18%);
+  font-weight: 600;
 }
 
 .relay-list {
-  height: calc(100% - 104px);
+  height: calc(100% - 151px);
   overflow-y: auto;
-  padding: 12px 10px calc(64px + env(safe-area-inset-bottom));
+  padding: 12px 10px calc(66px + env(safe-area-inset-bottom));
   -webkit-overflow-scrolling: touch;
 }
 
@@ -282,64 +366,36 @@ onMounted(loadCases)
   justify-content: center;
 }
 
-.filter-popup {
-  padding: 16px 16px calc(18px + env(safe-area-inset-bottom));
+.date-sheet {
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
 }
 
-.filter-popup h2 {
-  margin: 2px 0 20px;
-  font-size: 18px;
-  text-align: center;
+.date-presets {
+  padding: 4px 14px 12px;
 }
 
-.filter-section {
-  margin-bottom: 20px;
-}
-
-.section-label {
-  margin-bottom: 9px;
-  color: #646566;
-  font-size: 13px;
-}
-
-.status-options {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
-
-.status-options button {
-  min-height: 44px;
-  border: 1px solid #dcdee0;
-  border-radius: 8px;
-  background: #fff;
-}
-
-.status-options button.active {
-  border-color: #1989fa;
-  color: #1989fa;
-  background: #edf7ff;
-}
-
-.date-inputs,
-.filter-buttons {
+.date-presets button {
   display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.date-inputs input {
-  min-width: 0;
-  min-height: 44px;
-  flex: 1;
-  padding: 0 8px;
-  border: 1px solid #dcdee0;
-  border-radius: 8px;
+  width: 100%;
+  min-height: 58px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid #f0f1f3;
   background: #fff;
-  font-size: 13px;
+  text-align: left;
 }
 
-.filter-buttons :deep(.van-button) {
-  min-height: 46px;
+.date-presets strong {
+  color: #202124;
+  font-size: 15px;
+}
+
+.date-presets span {
+  margin-top: 3px;
+  color: #8a8f98;
+  font-size: 12px;
 }
 </style>

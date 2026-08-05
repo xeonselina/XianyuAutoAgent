@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import { ref } from 'vue'
+
 import type { RelayAccessory, RelayCase, RelayCaseStatus } from '@/types/relayCase'
+import { relayEquipmentWarningText } from '@/utils/relayEquipmentWarnings'
 
 defineProps<{ relayCase: RelayCase }>()
 
@@ -7,6 +10,8 @@ defineEmits<{
   maintain: [relayCase: RelayCase]
   refresh: [relayCase: RelayCase]
 }>()
+
+const expanded = ref(false)
 
 const statusLabels: Record<RelayCaseStatus, string> = {
   pending: '待处理',
@@ -38,231 +43,426 @@ function lensText(value: string | null) {
 function accessoryText(accessories: RelayAccessory[]) {
   return accessories.length ? accessories.map((item) => item.name).join('、') : '无附件'
 }
+
 </script>
 
 <template>
   <article class="relay-card" data-testid="relay-card">
     <header class="card-header">
-      <div class="device-title">
-        <strong>{{ relayCase.device.model_display_name || relayCase.device.model || '-' }}</strong>
-        <span>{{ relayCase.device.name || '' }}</span>
+      <div class="deadline-block">
+        <span>前单应寄出</span>
+        <strong>{{ relayCase.planned_ship_date }}</strong>
+        <small>后单 {{ relayCase.planned_receive_date }} 前收货</small>
       </div>
-      <div class="status-area">
-        <van-tag :type="statusTypes[relayCase.status]">
+      <div class="header-meta">
+        <van-tag :type="statusTypes[relayCase.status]" size="medium">
           {{ statusLabels[relayCase.status] }}
         </van-tag>
-        <span v-if="relayCase.schedule_changed" class="schedule-warning">档期已变化</span>
+        <span class="overlap">重叠 {{ relayCase.overlap_days }} 天</span>
       </div>
     </header>
 
-    <div class="equipment-row">
-      <div><b>前单：</b>{{ lensText(relayCase.lens_combo) }} · {{ accessoryText(relayCase.accessories) }}</div>
-      <div><b>后单：</b>{{ lensText(relayCase.successor_lens_combo) }} · {{ accessoryText(relayCase.successor_accessories) }}</div>
+    <div
+      v-if="relayEquipmentWarningText(relayCase)"
+      class="equipment-warning"
+      data-testid="equipment-warning"
+    >
+      <span aria-hidden="true">⚠</span>
+      <div>
+        <strong>转寄配置需确认</strong>
+        <p>{{ relayEquipmentWarningText(relayCase) }}</p>
+      </div>
     </div>
 
-    <section class="route-section">
-      <div class="customer-block">
-        <div class="customer-heading">
+    <div v-if="relayCase.schedule_changed" class="schedule-warning">
+      <span aria-hidden="true">⚠</span> 档期已变化，请先核对后再操作
+    </div>
+
+    <section class="customer-flow">
+      <div class="customer-mini">
+        <span class="role-label">前单客户</span>
+        <div class="customer-name">
           <strong>{{ relayCase.predecessor.buyer_id || '-' }}</strong>
           <span>{{ relayCase.predecessor.customer_name || '-' }}</span>
         </div>
-        <div>{{ relayCase.predecessor.start_date }} → {{ relayCase.predecessor.end_date }}</div>
-        <a :href="`tel:${relayCase.predecessor.customer_phone || ''}`">
-          {{ relayCase.predecessor.customer_phone || '-' }}
+        <a class="phone-link" :href="`tel:${relayCase.predecessor.customer_phone || ''}`">
+          <van-icon name="phone-o" /> {{ relayCase.predecessor.customer_phone || '-' }}
         </a>
-        <div class="address">{{ relayCase.predecessor.destination || '-' }}</div>
       </div>
 
-      <div class="route-arrow" aria-hidden="true">→</div>
+      <div class="flow-arrow" aria-label="转寄给">→</div>
 
-      <div class="customer-block successor">
-        <div class="customer-heading">
+      <div class="customer-mini successor">
+        <span class="role-label">后单客户</span>
+        <div class="customer-name">
           <strong>{{ relayCase.successor.buyer_id || '-' }}</strong>
           <span>{{ relayCase.successor.customer_name || '-' }}</span>
         </div>
-        <div>{{ relayCase.successor.start_date }} → {{ relayCase.successor.end_date }}</div>
-        <a :href="`tel:${relayCase.successor.customer_phone || ''}`">
-          {{ relayCase.successor.customer_phone || '-' }}
+        <a class="phone-link" :href="`tel:${relayCase.successor.customer_phone || ''}`">
+          <van-icon name="phone-o" /> {{ relayCase.successor.customer_phone || '-' }}
         </a>
-        <div class="address">{{ relayCase.successor.destination || '-' }}</div>
       </div>
     </section>
 
-    <div class="handoff-dates">
-      <div><span>前单应寄出</span><strong>{{ relayCase.planned_ship_date }}</strong></div>
-      <van-tag type="danger" plain>重叠 {{ relayCase.overlap_days }} 天</van-tag>
-      <div class="receive-date"><span>后单应收货</span><strong>{{ relayCase.planned_receive_date }}</strong></div>
-    </div>
-
-    <div class="tracking-row">
-      <div v-if="relayCase.tracking.number" class="tracking-copy">
-        <strong>{{ relayCase.tracking.number }}</strong>
-        <span>{{ relayCase.tracking.summary || relayCase.tracking.status || '暂无物流状态' }}</span>
+    <section class="equipment-compare">
+      <div class="device-heading">
+        <van-icon name="photograph" />
+        <strong>{{ relayCase.device.model_display_name || relayCase.device.model || '-' }}</strong>
+        <span>{{ relayCase.device.name || '' }}</span>
       </div>
-      <span v-else class="muted">尚未录入顺丰运单</span>
+      <div class="compare-columns">
+        <div>
+          <span class="role-label">前单携带</span>
+          <strong>{{ lensText(relayCase.lens_combo) }}</strong>
+          <p>{{ accessoryText(relayCase.accessories) }}</p>
+        </div>
+        <div>
+          <span class="role-label">后单需要</span>
+          <strong>{{ lensText(relayCase.successor_lens_combo) }}</strong>
+          <p>{{ accessoryText(relayCase.successor_accessories) }}</p>
+        </div>
+      </div>
+    </section>
+
+    <button
+      type="button"
+      class="details-toggle"
+      data-testid="relay-expand-details"
+      @click="expanded = !expanded"
+    >
+      {{ expanded ? '收起客户详情' : '查看地址与完整租期' }}
+      <van-icon :name="expanded ? 'arrow-up' : 'arrow-down'" />
+    </button>
+
+    <section v-if="expanded" class="customer-details" data-testid="relay-card-details">
+      <div>
+        <span class="detail-title">前单</span>
+        <p>{{ relayCase.predecessor.start_date }} → {{ relayCase.predecessor.end_date }}</p>
+        <p>{{ relayCase.predecessor.destination || '地址未填写' }}</p>
+      </div>
+      <div>
+        <span class="detail-title">后单</span>
+        <p>{{ relayCase.successor.start_date }} → {{ relayCase.successor.end_date }}</p>
+        <p>{{ relayCase.successor.destination || '地址未填写' }}</p>
+      </div>
+    </section>
+
+    <section class="tracking-brief">
+      <div v-if="relayCase.tracking.number" class="tracking-copy">
+        <span class="role-label">顺丰运单</span>
+        <strong>{{ relayCase.tracking.number }}</strong>
+        <p>{{ relayCase.tracking.summary || relayCase.tracking.status || '暂无物流状态' }}</p>
+      </div>
+      <div v-else class="tracking-copy muted">
+        <span class="role-label">顺丰运单</span>
+        <p>尚未录入</p>
+      </div>
+    </section>
+
+    <footer class="card-actions" data-testid="relay-card-actions">
       <van-button
-        v-if="relayCase.case_id && relayCase.tracking.number"
-        size="small"
+        block
         plain
         type="primary"
+        icon="logistics"
+        :disabled="!relayCase.case_id || !relayCase.tracking.number"
+        data-testid="relay-logistics"
         @click="$emit('refresh', relayCase)"
       >
         刷新物流
       </van-button>
-    </div>
-
-    <van-button
-      block
-      type="primary"
-      plain
-      class="maintain-button"
-      data-testid="relay-maintain"
-      @click="$emit('maintain', relayCase)"
-    >
-      维护接力状态
-    </van-button>
+      <van-button
+        block
+        type="primary"
+        icon="edit"
+        data-testid="relay-maintain"
+        @click="$emit('maintain', relayCase)"
+      >
+        更新状态
+      </van-button>
+    </footer>
   </article>
 </template>
 
 <style scoped>
 .relay-card {
-  padding: 14px;
-  margin-bottom: 12px;
-  border: 1px solid #ebedf0;
-  border-radius: 12px;
+  padding: 0;
+  margin-bottom: 14px;
+  overflow: hidden;
+  border: 1px solid #e8eaed;
+  border-radius: 14px;
   background: #fff;
-  box-shadow: 0 2px 10px rgb(0 0 0 / 4%);
-  color: #323233;
-  font-size: 12px;
+  box-shadow: 0 4px 16px rgb(31 41 55 / 7%);
+  color: #202124;
+  font-size: 13px;
 }
 
 .card-header,
-.status-area,
-.handoff-dates,
-.tracking-row,
-.customer-heading {
+.customer-flow,
+.device-heading,
+.compare-columns,
+.details-toggle,
+.card-actions,
+.customer-name,
+.equipment-warning {
   display: flex;
   align-items: center;
 }
 
-.card-header,
-.tracking-row {
+.card-header {
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid #f0f1f3;
 }
 
-.device-title strong {
-  font-size: 17px;
-}
-
-.device-title span,
-.customer-heading span {
-  margin-left: 6px;
-  color: #646566;
-}
-
-.status-area {
+.deadline-block,
+.header-meta,
+.customer-mini,
+.tracking-copy {
+  display: flex;
   flex-direction: column;
+}
+
+.deadline-block > span,
+.role-label {
+  color: #8a8f98;
+  font-size: 11px;
+}
+
+.deadline-block > strong {
+  margin: 2px 0;
+  color: #d9480f;
+  font-size: 20px;
+  line-height: 24px;
+}
+
+.deadline-block small {
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.header-meta {
   align-items: flex-end;
-  gap: 3px;
+  gap: 6px;
+}
+
+.overlap {
+  color: #d9480f;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.equipment-warning,
+.schedule-warning {
+  margin: 10px 12px 0;
+  border: 1px solid #f0c36d;
+  border-radius: 9px;
+  color: #8a4b08;
+  background: #fff7df;
+}
+
+.equipment-warning {
+  gap: 8px;
+  padding: 9px 10px;
+}
+
+.equipment-warning > span {
+  flex: none;
+  font-size: 20px;
+}
+
+.equipment-warning strong {
+  font-size: 12px;
+}
+
+.equipment-warning p {
+  margin: 2px 0 0;
+  font-size: 11px;
+  line-height: 16px;
 }
 
 .schedule-warning {
-  color: #ed6a0c;
-  font-size: 10px;
+  padding: 8px 10px;
+  font-size: 11px;
 }
 
-.equipment-row {
-  padding: 9px 10px;
-  margin-top: 10px;
-  border-radius: 8px;
-  background: #f7f8fa;
-  line-height: 20px;
-}
-
-.route-section {
+.customer-flow {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 30px minmax(0, 1fr);
   gap: 4px;
-  padding: 12px 0;
+  padding: 14px;
 }
 
-.customer-block {
+.customer-mini {
   min-width: 0;
-  line-height: 19px;
+  gap: 5px;
 }
 
-.customer-block a {
-  color: #1989fa;
-  text-decoration: none;
-}
-
-.successor {
-  text-align: right;
-}
-
-.successor .customer-heading {
-  justify-content: flex-end;
-}
-
-.route-arrow {
-  align-self: center;
-  color: #1989fa;
-  font-size: 22px;
-  font-weight: 700;
-  text-align: center;
-}
-
-.address {
-  overflow-wrap: anywhere;
-  color: #646566;
-}
-
-.handoff-dates {
-  justify-content: space-between;
-  gap: 6px;
-  padding: 10px;
-  border-top: 1px solid #f2f3f5;
-  border-bottom: 1px solid #f2f3f5;
-}
-
-.handoff-dates div {
-  display: flex;
-  flex-direction: column;
-}
-
-.handoff-dates span,
-.tracking-copy span,
-.muted {
-  color: #969799;
-}
-
-.receive-date {
-  text-align: right;
-}
-
-.tracking-row {
-  min-height: 52px;
-  padding: 8px 0;
-}
-
-.tracking-copy {
-  display: flex;
+.customer-name {
   min-width: 0;
-  flex-direction: column;
+  gap: 5px;
 }
 
-.tracking-copy strong {
-  color: #1989fa;
-}
-
-.tracking-copy span {
+.customer-name strong {
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+}
+
+.customer-name span {
+  overflow: hidden;
+  color: #5f6368;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.maintain-button {
+.successor {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.phone-link {
+  min-height: 32px;
+  color: #1677ff;
+  line-height: 32px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.flow-arrow {
+  align-self: center;
+  color: #1677ff;
+  font-size: 25px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.equipment-compare {
+  margin: 0 12px;
+  overflow: hidden;
+  border: 1px solid #e8eaed;
+  border-radius: 10px;
+}
+
+.device-heading {
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #e8eaed;
+  background: #f7f8fa;
+}
+
+.device-heading strong {
+  font-size: 14px;
+}
+
+.device-heading span {
+  color: #73777f;
+  font-size: 12px;
+}
+
+.compare-columns > div {
+  min-width: 0;
+  flex: 1;
+  padding: 9px 10px;
+}
+
+.compare-columns > div + div {
+  border-left: 1px solid #e8eaed;
+  background: #fcfcfd;
+}
+
+.compare-columns strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.compare-columns p {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+  color: #646a73;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.details-toggle {
+  width: calc(100% - 24px);
   min-height: 44px;
+  justify-content: center;
+  gap: 5px;
+  padding: 0;
+  margin: 5px 12px 0;
+  border: 0;
+  background: transparent;
+  color: #5f6368;
+  font-size: 12px;
+}
+
+.customer-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  margin: 0 12px 10px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #e8eaed;
+}
+
+.customer-details > div {
+  padding: 9px;
+  background: #f7f8fa;
+}
+
+.detail-title {
+  color: #1677ff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.customer-details p {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  color: #5f6368;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.tracking-brief {
+  padding: 10px 14px;
+  border-top: 1px solid #f0f1f3;
+}
+
+.tracking-copy strong {
+  margin-top: 2px;
+  color: #1677ff;
+  font-size: 14px;
+}
+
+.tracking-copy p {
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: #69707a;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.muted p {
+  color: #9aa0a6;
+}
+
+.card-actions {
+  gap: 10px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid #f0f1f3;
+  background: #fbfcfd;
+}
+
+.card-actions :deep(.van-button) {
+  min-height: 46px;
+  flex: 1;
+  border-radius: 9px;
 }
 </style>

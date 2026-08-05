@@ -151,6 +151,7 @@ describe('RelayManagementView', () => {
     expect(wrapper.text()).toContain('2026-08-09')
     expect(wrapper.text()).toContain('SF1234567890')
     expect(wrapper.text()).toContain('运送中')
+    expect(wrapper.get('[data-testid="equipment-warning"]').text()).toContain('镜头组合不一致')
   })
 
   it('batch refreshes persisted shipped cases on the current page', async () => {

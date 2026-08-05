@@ -10,6 +10,7 @@ import {
   refreshRelayTrackingBatch,
 } from '@/api/relayCases'
 import RelayStatusDialog from '@/components/relay/RelayStatusDialog.vue'
+import { relayEquipmentWarningText } from '@/utils/relayEquipmentWarnings'
 import type {
   RelayAccessory,
   RelayCase,
@@ -292,6 +293,14 @@ onMounted(loadCases)
             <div class="secondary accessories">{{ accessoryText(row.accessories) }}</div>
             <div><b>后：</b>{{ lensText(row.successor_lens_combo) }}</div>
             <div class="secondary accessories">{{ accessoryText(row.successor_accessories) }}</div>
+            <div
+              v-if="relayEquipmentWarningText(row)"
+              class="equipment-warning"
+              data-testid="equipment-warning"
+            >
+              <span aria-hidden="true">⚠</span>
+              {{ relayEquipmentWarningText(row) }}
+            </div>
           </template>
         </el-table-column>
 
@@ -483,6 +492,23 @@ h1 {
   color: #d97706;
   font-size: 11px;
   line-height: 1.2;
+}
+
+.equipment-warning {
+  padding: 4px 6px;
+  margin-top: 4px;
+  border: 1px solid #f3d19e;
+  border-radius: 4px;
+  color: #b45309;
+  background: #fdf6ec;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: normal;
+}
+
+.equipment-warning span {
+  margin-right: 3px;
 }
 
 .pagination-row {
