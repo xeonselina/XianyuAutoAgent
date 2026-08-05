@@ -16,12 +16,13 @@
     >
       <van-tabbar-item name="gantt" icon="calendar-o">甘特图</van-tabbar-item>
       <van-tabbar-item name="batch-shipping" icon="logistics">批量发货</van-tabbar-item>
+      <van-tabbar-item name="relay" icon="exchange">接力</van-tabbar-item>
     </van-tabbar>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 const route = useRoute()
@@ -29,8 +30,18 @@ const router = useRouter()
 const activeTab = ref('gantt')
 
 const showTabbar = computed(() => {
-  return route.name === 'gantt' || route.name === 'batch-shipping'
+  return route.name === 'gantt' || route.name === 'batch-shipping' || route.name === 'relay'
 })
+
+watch(
+  () => route.name,
+  name => {
+    if (typeof name === 'string' && ['gantt', 'batch-shipping', 'relay'].includes(name)) {
+      activeTab.value = name
+    }
+  },
+  { immediate: true }
+)
 
 const onTabChange = (name: string) => {
   router.push({ name })
