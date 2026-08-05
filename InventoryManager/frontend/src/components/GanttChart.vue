@@ -59,17 +59,17 @@
             📦 批量发货
           </el-button>
           <el-badge
-            :value="dueTodayCount"
-            :hidden="dueTodayCount === 0"
-            class="due-today-badge"
+            :value="pendingReturnsCount"
+            :hidden="pendingReturnsCount === 0"
+            class="pending-returns-badge"
           >
             <el-button
-              data-testid="due-today-button"
+              data-testid="pending-returns-button"
               type="danger"
               :icon="Bell"
-              @click="openDueTodayReturns"
+              @click="openPendingReturns"
             >
-              今日应归还
+              待归还
             </el-button>
           </el-badge>
           <el-button
@@ -123,12 +123,12 @@
       @ignore="handleIgnoreXianyuAlert"
     />
 
-    <DueTodayReturnsDrawer
-      v-model="showDueTodayDrawer"
-      :rentals="dueTodayRentals"
-      :loading="dueTodayLoading"
-      :updating-ids="dueTodayUpdatingIds"
-      @mark-returned="handleMarkDueTodayReturned"
+    <PendingReturnsDrawer
+      v-model="showPendingReturnsDrawer"
+      :rentals="pendingReturns"
+      :loading="pendingReturnsLoading"
+      :updating-ids="pendingReturnUpdatingIds"
+      @mark-returned="handleMarkPendingReturnReturned"
     />
 
     <!-- 过滤器 -->
@@ -265,6 +265,7 @@
                 :device="device"
                 :rentals="ganttStore.getRentalsForDevice(device.id)"
                 :dates="dateArray"
+                :style="{ height: `${itemHeight}px` }"
                 @edit-rental="handleEditRental"
                 @delete-rental="handleDeleteRental"
                 @update-device-lifecycle="handleUpdateDeviceLifecycle"
@@ -426,9 +427,9 @@ import BatchPrintDialog from './rental/BatchPrintDialog.vue'
 import CustomerHistoryDialog from './CustomerHistoryDialog.vue'
 import ScheduleReorderDialog from './ScheduleReorderDialog.vue'
 import XianyuOrderAlertBar from './XianyuOrderAlertBar.vue'
-import DueTodayReturnsDrawer from './DueTodayReturnsDrawer.vue'
+import PendingReturnsDrawer from './PendingReturnsDrawer.vue'
 import { useXianyuOrderAlerts } from '@/composables/useXianyuOrderAlerts'
-import { useDueTodayRentals } from '@/composables/useDueTodayRentals'
+import { usePendingReturns } from '@/composables/usePendingReturns'
 import {
   toSystemDateString,
   isToday,
@@ -449,7 +450,7 @@ const showAddDeviceDialog = ref(false)
 const showCustomerHistoryDialog = ref(false)
 const showBatchPrintDialog = ref(false)
 const showScheduleReorderDialog = ref(false)
-const showDueTodayDrawer = ref(false)
+const showPendingReturnsDrawer = ref(false)
 const selectedRental = ref<Rental | null>(null)
 const showRentalConfirmationDialog = ref(false)
 const confirmationRental = ref<Rental | null>(null)
@@ -469,21 +470,23 @@ const {
   stopPolling: stopXianyuAlertPolling
 } = useXianyuOrderAlerts()
 const {
-  rentals: dueTodayRentals,
-  count: dueTodayCount,
-  loading: dueTodayLoading,
-  updatingIds: dueTodayUpdatingIds,
-  load: loadDueTodayReturns,
-  markReturned: markDueTodayReturned
-} = useDueTodayRentals()
+  rentals: pendingReturns,
+  count: pendingReturnsCount,
+  loading: pendingReturnsLoading,
+  updatingIds: pendingReturnUpdatingIds,
+  load: loadPendingReturns,
+  markReturned: markPendingReturnReturned
+} = usePendingReturns()
 
 // 虚拟滚动相关
 const ganttBodyRef = ref<HTMLElement>()
-const itemHeight = 44  // 每行高度
+const itemHeight = 94  // 与 GanttRow 的实际固定高度保持一致
+const virtualScrollBottomBuffer = 1  // 避免小数像素取整裁掉最后一行底边
 const visibleCount = ref(10)  // 可见行数
 const scrollTop = ref(0)
 const startIndex = ref(0)
 const endIndex = ref(0)
+let ganttBodyResizeObserver: ResizeObserver | null = null
 
 // 添加设备表单
 const addDeviceFormRef = ref()
@@ -608,7 +611,9 @@ const filteredDevices = computed(() => {
 })
 
 // 虚拟滚动计算属性
-const totalHeight = computed(() => filteredDevices.value.length * itemHeight)
+const totalHeight = computed(() => (
+  filteredDevices.value.length * itemHeight + virtualScrollBottomBuffer
+))
 
 const visibleDevices = computed(() => {
   const start = startIndex.value
@@ -683,22 +688,37 @@ const handleDateJump = (value: Date) => {
 
 // 虚拟滚动相关方法
 const updateVisibleRange = () => {
-  if (!ganttBodyRef.value) return
+  const container = ganttBodyRef.value
+  if (!container) return
 
-  const containerHeight = ganttBodyRef.value.clientHeight
+  const containerHeight = container.clientHeight
+  scrollTop.value = container.scrollTop
   visibleCount.value = Math.ceil(containerHeight / itemHeight) + 2 // 额外渲染2行缓冲
 
-  startIndex.value = Math.floor(scrollTop.value / itemHeight)
+  const requestedStartIndex = Math.floor(scrollTop.value / itemHeight)
+  const maxStartIndex = Math.max(
+    0,
+    filteredDevices.value.length - visibleCount.value
+  )
+  startIndex.value = Math.min(requestedStartIndex, maxStartIndex)
   endIndex.value = Math.min(
     startIndex.value + visibleCount.value,
     filteredDevices.value.length
   )
 }
 
-const handleScroll = (event: Event) => {
-  const target = event.target as HTMLElement
-  scrollTop.value = target.scrollTop
+const handleScroll = () => {
   updateVisibleRange()
+}
+
+const observeGanttBodyResize = () => {
+  const container = ganttBodyRef.value
+  if (!container || typeof ResizeObserver === 'undefined') return
+
+  ganttBodyResizeObserver = new ResizeObserver(() => {
+    updateVisibleRange()
+  })
+  ganttBodyResizeObserver.observe(container)
 }
 
 const initVirtualScroll = async () => {
@@ -706,6 +726,7 @@ const initVirtualScroll = async () => {
   if (ganttBodyRef.value) {
     ganttBodyRef.value.addEventListener('scroll', handleScroll)
     updateVisibleRange()
+    observeGanttBodyResize()
   }
 }
 
@@ -994,18 +1015,18 @@ const openBatchShipping = () => {
   window.open('/batch-shipping', '_blank')
 }
 
-const openDueTodayReturns = async () => {
-  showDueTodayDrawer.value = true
+const openPendingReturns = async () => {
+  showPendingReturnsDrawer.value = true
   try {
-    await loadDueTodayReturns()
+    await loadPendingReturns()
   } catch (error) {
     ElMessage.error((error as Error).message)
   }
 }
 
-const handleMarkDueTodayReturned = async (rentalId: number) => {
+const handleMarkPendingReturnReturned = async (rentalId: number) => {
   try {
-    await markDueTodayReturned(rentalId)
+    await markPendingReturnReturned(rentalId)
   } catch (error) {
     ElMessage.error((error as Error).message)
     return
@@ -1195,7 +1216,7 @@ onMounted(async () => {
     loadDailyStats(),
     loadDeviceModels(),
     loadXianyuAlerts(),
-    loadDueTodayReturns().catch((error) => {
+    loadPendingReturns().catch((error) => {
       ElMessage.error((error as Error).message)
     })
   ])
@@ -1210,6 +1231,8 @@ onUnmounted(() => {
   if (ganttBodyRef.value) {
     ganttBodyRef.value.removeEventListener('scroll', handleScroll)
   }
+  ganttBodyResizeObserver?.disconnect()
+  ganttBodyResizeObserver = null
   // 清理定时器
   if (loadStatsTimer) {
     clearTimeout(loadStatsTimer)
@@ -1226,18 +1249,21 @@ onUnmounted(() => {
 <style scoped>
 .gantt-container {
   padding: 20px;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
   width: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: white;
 }
 
 .toolbar {
+  flex: 0 0 auto;
   margin-bottom: 20px;
 }
 
-.due-today-badge {
+.pending-returns-badge {
   margin-right: 12px;
 }
 
@@ -1256,6 +1282,7 @@ onUnmounted(() => {
 }
 
 .filters {
+  flex: 0 0 auto;
   margin-bottom: 20px;
   padding: 16px;
   background: var(--el-bg-color-page);
@@ -1263,12 +1290,14 @@ onUnmounted(() => {
 }
 
 .gantt-main {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
   border: 2px solid #c0c0c0;
   border-radius: 8px;
   background: white;
   width: 100%;
-  min-height: 400px;
 }
 
 .gantt-header {
@@ -1416,18 +1445,20 @@ onUnmounted(() => {
 
 .gantt-scroll-container {
   width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
   position: relative;
   display: flex;
   flex-direction: column;
   overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .gantt-body {
-  min-height: 400px;
-  max-height: calc(100vh - 300px);
+  min-height: 0;
   width: fit-content;
   min-width: 100%;
-  flex: 1;
+  flex: 1 1 auto;
   position: relative;
   overflow-y: auto;
   overflow-x: visible;

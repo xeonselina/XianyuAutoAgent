@@ -25,11 +25,18 @@ def get_rentals():
     return RentalHandlers.handle_get_rentals()
 
 
+@bp.route('/api/rentals/pending-returns')
+@handle_response
+def get_pending_returns():
+    """获取今天及以前应归还的租赁记录"""
+    return RentalHandlers.handle_get_pending_returns()
+
+
 @bp.route('/api/rentals/due-today')
 @handle_response
 def get_due_today_rentals():
-    """获取今天应归还的租赁记录"""
-    return RentalHandlers.handle_get_due_today_rentals()
+    """待归还租赁记录的兼容接口"""
+    return RentalHandlers.handle_get_pending_returns()
 
 
 @bp.route('/api/rentals/<rental_id>')

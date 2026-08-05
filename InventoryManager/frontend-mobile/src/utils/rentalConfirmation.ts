@@ -6,15 +6,18 @@ export interface RentalConfirmationContent {
   text: string
 }
 
-const dateOnly = (value?: string | null): string => {
+const dateOnly = (value?: string | null, dayOffset = 0): string => {
   if (!value) return '未填写'
   const match = value.match(/^(\d{4}-\d{2}-\d{2})(?:$|T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?)$/)
   if (!match) return '未填写'
 
   const date = new Date(`${match[1]}T00:00:00Z`)
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === match[1]
-    ? match[1]
-    : '未填写'
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== match[1]) {
+    return '未填写'
+  }
+
+  date.setUTCDate(date.getUTCDate() + dayOffset)
+  return date.toISOString().slice(0, 10)
 }
 
 const addressWithPhone = (destination?: string, phone?: string): string => {
@@ -58,8 +61,8 @@ export const buildRentalConfirmation = (rental: Rental): RentalConfirmationConte
   const lines = [
     `收货地址：${addressWithPhone(rental.destination, rental.customer_phone)}`,
     `寄出时间：${dateOnly(rental.ship_out_time)}`,
-    `预计收货：${dateOnly(rental.start_date)}`,
-    `客户归还：${dateOnly(rental.end_date)}`,
+    `预计收货：${dateOnly(rental.start_date, -1)}`,
+    `客户归还：${dateOnly(rental.end_date, 1)}`,
     `寄出型号：${[model, lens, ...accessoryParts].join(' + ')}`,
   ]
   return { lines, text: lines.join('\n') }

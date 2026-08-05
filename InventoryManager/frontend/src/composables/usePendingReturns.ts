@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import axios from 'axios'
 
-import type { DueTodayRental } from '@/types/dueTodayRental'
+import type { PendingReturn } from '@/types/pendingReturn'
 
 const errorMessage = (error: any, fallback: string) => (
   error.response?.data?.message
@@ -10,26 +10,30 @@ const errorMessage = (error: any, fallback: string) => (
   || fallback
 )
 
-export const useDueTodayRentals = () => {
-  const rentals = ref<DueTodayRental[]>([])
+export const usePendingReturns = () => {
+  const rentals = ref<PendingReturn[]>([])
   const loading = ref(false)
   const updatingIds = ref<Set<number>>(new Set())
+  const returnedIds = new Set<number>()
   const count = computed(() => rentals.value.length)
 
   const load = async () => {
     loading.value = true
     try {
-      const response = await axios.get('/api/rentals/due-today')
+      const response = await axios.get('/api/rentals/pending-returns')
       if (!response.data.success) {
         throw new Error(
           response.data.message
           || response.data.error
-          || '获取今日应归还列表失败',
+          || '获取待归还列表失败',
         )
       }
-      rentals.value = response.data.data?.rentals || []
+      const loadedRentals: PendingReturn[] = response.data.data?.rentals || []
+      rentals.value = loadedRentals.filter(
+        (rental) => !returnedIds.has(rental.id),
+      )
     } catch (error: any) {
-      throw new Error(errorMessage(error, '获取今日应归还列表失败'))
+      throw new Error(errorMessage(error, '获取待归还列表失败'))
     } finally {
       loading.value = false
     }
@@ -57,6 +61,7 @@ export const useDueTodayRentals = () => {
         )
       }
 
+      returnedIds.add(rentalId)
       rentals.value = rentals.value.filter((rental) => rental.id !== rentalId)
       try {
         await load()

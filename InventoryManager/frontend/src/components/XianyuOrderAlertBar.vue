@@ -173,6 +173,7 @@ const confirmIgnore = async (orderNo: string) => {
 
 <style scoped>
 .xianyu-alert-bar {
+  flex: 0 0 auto;
   margin: 0 16px 12px;
   padding: 12px 16px;
   color: #7a271a;

@@ -16,14 +16,15 @@ class RentalService:
     """租赁服务类"""
 
     @staticmethod
-    def get_due_today_rentals(today: Optional[date] = None) -> List[Dict[str, Any]]:
-        """获取今天应归还的主租赁记录。"""
-        target_end_date = (today or date.today()) - timedelta(days=1)
+    def get_pending_returns(today: Optional[date] = None) -> List[Dict[str, Any]]:
+        """获取今天及以前应归还、仍未寄回的主租赁记录。"""
+        current_date = today or date.today()
+        latest_end_date = current_date - timedelta(days=1)
         rentals = (
             Rental.query
             .options(joinedload(Rental.device))
             .filter(
-                Rental.end_date == target_end_date,
+                Rental.end_date <= latest_end_date,
                 Rental.status == 'shipped',
                 Rental.parent_rental_id.is_(None),
             )
@@ -32,6 +33,8 @@ class RentalService:
 
         rows = []
         for rental in rentals:
+            due_date = rental.end_date + timedelta(days=1)
+            overdue_days = (current_date - due_date).days
             device = rental.device
             device_model = None
             if device:
@@ -44,6 +47,8 @@ class RentalService:
                 'device_model': device_model or '-',
                 'start_date': rental.start_date.isoformat(),
                 'end_date': rental.end_date.isoformat(),
+                'due_date': due_date.isoformat(),
+                'overdue_days': overdue_days,
                 'destination': rental.destination,
                 'customer_phone': rental.customer_phone,
                 'status': rental.status,
@@ -51,7 +56,7 @@ class RentalService:
 
         return sorted(
             rows,
-            key=lambda row: (row['device_model'].casefold(), row['id']),
+            key=lambda row: (-row['overdue_days'], row['id']),
         )
 
     @staticmethod
