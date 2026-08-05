@@ -1,3 +1,4 @@
+import os
 from datetime import date, datetime, time, timedelta
 
 import pytest
@@ -9,11 +10,23 @@ from app.models.rental import Rental
 from app.models.rental_relay_binding import RentalRelayBinding
 from app.models.rental_relay_case import RentalRelayCase
 from app.services.relay.relay_case_service import RelayCaseService
+from tests.support.test_database import (
+    assert_current_user_has_test_only_grants,
+    build_mysql_test_config,
+)
 
 
 @pytest.fixture
 def app():
-    return create_app("testing")
+    if not os.environ.get("TEST_DATABASE_URL"):
+        return create_app("testing")
+    app = create_app(build_mysql_test_config())
+    with app.app_context():
+        with db.engine.connect() as connection:
+            assert_current_user_has_test_only_grants(
+                connection, db.engine.url.database
+            )
+    return app
 
 
 @pytest.fixture

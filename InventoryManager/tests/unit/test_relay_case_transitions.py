@@ -1,0 +1,246 @@
+import os
+from datetime import date, datetime, time, timedelta
+
+import pytest
+
+from app import create_app, db
+from app.models.audit_log import AuditLog
+from app.models.device import Device
+from app.models.device_model import DeviceModel
+from app.models.rental import Rental
+from app.models.rental_relay_binding import RentalRelayBinding
+from app.models.rental_relay_case import RentalRelayCase
+from app.services.relay.relay_case_service import (
+    RelayBindingConflictError,
+    RelayCaseService,
+)
+from tests.support.test_database import (
+    assert_current_user_has_test_only_grants,
+    build_mysql_test_config,
+)
+
+
+@pytest.fixture
+def app():
+    if not os.environ.get("TEST_DATABASE_URL"):
+        return create_app("testing")
+    app = create_app(build_mysql_test_config())
+    with app.app_context():
+        with db.engine.connect() as connection:
+            assert_current_user_has_test_only_grants(
+                connection, db.engine.url.database
+            )
+    return app
+
+
+@pytest.fixture
+def db_session(app):
+    with app.app_context():
+        db.create_all()
+        yield db.session
+        db.session.rollback()
+        db.drop_all()
+
+
+def seed_pair(db_session, overlap_days=2):
+    model = DeviceModel(
+        name="relay-transition",
+        display_name="接力流转测试",
+        is_active=True,
+    )
+    db_session.add(model)
+    db_session.flush()
+    device = Device(
+        name="RT-01",
+        model=model.name,
+        model_id=model.id,
+        is_accessory=False,
+        lifecycle_status="active",
+    )
+    db_session.add(device)
+    db_session.flush()
+    first_ship_out = date(2026, 8, 1)
+    first_ship_in = date(2026, 8, 9)
+    second_ship_out = first_ship_in - timedelta(days=overlap_days)
+    first = Rental(
+        device_id=device.id,
+        start_date=date(2026, 8, 2),
+        end_date=date(2026, 8, 5),
+        ship_out_time=datetime.combine(first_ship_out, time(19)),
+        ship_in_time=datetime.combine(first_ship_in, time(12)),
+        customer_name="前单",
+        customer_phone="13800138000",
+        destination="杭州",
+        status="not_shipped",
+    )
+    second = Rental(
+        device_id=device.id,
+        start_date=second_ship_out + timedelta(days=3),
+        end_date=second_ship_out + timedelta(days=7),
+        ship_out_time=datetime.combine(second_ship_out, time(19)),
+        ship_in_time=datetime.combine(second_ship_out + timedelta(days=9), time(12)),
+        customer_name="后单",
+        customer_phone="13900139000",
+        destination="上海",
+        status="not_shipped",
+    )
+    db_session.add_all([first, second])
+    db_session.commit()
+    return first, second
+
+
+def test_agreed_creates_binding_audit_and_reached_milestones(app, db_session):
+    first, second = seed_pair(db_session)
+    now = datetime(2026, 8, 5, 9, 30)
+
+    relay_case = RelayCaseService.update_case(
+        first.id, second.id, "agreed", now=now
+    )
+
+    binding = RentalRelayBinding.query.filter_by(
+        predecessor_rental_id=first.id,
+        successor_rental_id=second.id,
+    ).one()
+    assert relay_case.status == "agreed"
+    assert binding.id is not None
+    assert relay_case.notified_at == now
+    assert relay_case.agreed_at == now
+    assert relay_case.shipped_at is None
+    audit = AuditLog.query.filter_by(
+        action="relay_case_status_changed"
+    ).one()
+    assert audit.details["old_status"] == "pending"
+    assert audit.details["new_status"] == "agreed"
+
+
+def test_rollback_before_agreed_removes_binding_and_later_milestones(
+    app, db_session
+):
+    first, second = seed_pair(db_session)
+    RelayCaseService.update_case(
+        first.id,
+        second.id,
+        "shipped",
+        sf_tracking_number="SF1234567890",
+        now=datetime(2026, 8, 5, 9),
+    )
+
+    relay_case = RelayCaseService.update_case(
+        first.id,
+        second.id,
+        "notified",
+        now=datetime(2026, 8, 6, 10),
+    )
+
+    assert RentalRelayBinding.query.count() == 0
+    assert relay_case.status == "notified"
+    assert relay_case.notified_at == datetime(2026, 8, 5, 9)
+    assert relay_case.agreed_at is None
+    assert relay_case.shipped_at is None
+    assert relay_case.completed_at is None
+    assert relay_case.sf_tracking_number == "SF1234567890"
+
+
+def test_shipped_requires_tracking_number(app, db_session):
+    first, second = seed_pair(db_session)
+
+    with pytest.raises(ValueError, match="顺丰运单号"):
+        RelayCaseService.update_case(first.id, second.id, "shipped")
+
+    assert RentalRelayCase.query.count() == 0
+    assert RentalRelayBinding.query.count() == 0
+
+
+def test_schedule_changed_case_cannot_newly_agree(app, db_session):
+    first, second = seed_pair(db_session)
+    relay_case = RentalRelayCase(
+        predecessor_rental_id=first.id,
+        successor_rental_id=second.id,
+        status="notified",
+    )
+    db_session.add(relay_case)
+    second.ship_out_time = first.ship_in_time
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="档期已变化"):
+        RelayCaseService.update_case(first.id, second.id, "agreed")
+
+    db_session.refresh(relay_case)
+    assert relay_case.status == "notified"
+    assert RentalRelayBinding.query.count() == 0
+
+
+def test_existing_agreed_case_can_ship_after_schedule_changes(app, db_session):
+    first, second = seed_pair(db_session)
+    relay_case = RelayCaseService.update_case(first.id, second.id, "agreed")
+    second.ship_out_time = first.ship_in_time
+    db_session.commit()
+
+    updated = RelayCaseService.update_case(
+        first.id,
+        second.id,
+        "shipped",
+        sf_tracking_number="SF9876543210",
+    )
+
+    assert updated.id == relay_case.id
+    assert updated.status == "shipped"
+    assert RentalRelayBinding.query.count() == 1
+
+
+def test_conflicting_binding_rejects_agreed_and_keeps_case_unchanged(
+    app, db_session
+):
+    first, second = seed_pair(db_session)
+    third = Rental(
+        device_id=first.device_id,
+        start_date=date(2026, 8, 20),
+        end_date=date(2026, 8, 23),
+        ship_out_time=datetime(2026, 8, 18, 19),
+        ship_in_time=datetime(2026, 8, 25, 12),
+        customer_name="冲突后单",
+        status="not_shipped",
+    )
+    db_session.add(third)
+    db_session.flush()
+    db_session.add(RentalRelayBinding(
+        predecessor_rental_id=first.id,
+        successor_rental_id=third.id,
+    ))
+    db_session.commit()
+
+    with pytest.raises(RelayBindingConflictError, match="已存在其他接力绑定"):
+        RelayCaseService.update_case(first.id, second.id, "agreed")
+
+    assert RentalRelayCase.query.count() == 0
+    assert RentalRelayBinding.query.filter_by(
+        predecessor_rental_id=first.id,
+        successor_rental_id=third.id,
+    ).count() == 1
+
+
+def test_audit_failure_rolls_back_case_and_binding(app, db_session, monkeypatch):
+    first, second = seed_pair(db_session)
+
+    def fail_audit(_cls, *_args):
+        raise RuntimeError("注入失败")
+
+    monkeypatch.setattr(
+        RelayCaseService, "_add_audit", classmethod(fail_audit)
+    )
+
+    with pytest.raises(RuntimeError, match="注入失败"):
+        RelayCaseService.update_case(first.id, second.id, "agreed")
+
+    assert RentalRelayCase.query.count() == 0
+    assert RentalRelayBinding.query.count() == 0
+    assert AuditLog.query.count() == 0
+
+
+def test_invalid_status_does_not_create_case(app, db_session):
+    first, second = seed_pair(db_session)
+
+    with pytest.raises(ValueError, match="无效的接力状态"):
+        RelayCaseService.update_case(first.id, second.id, "unknown")
+
+    assert RentalRelayCase.query.count() == 0

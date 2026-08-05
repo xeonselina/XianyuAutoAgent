@@ -1,8 +1,10 @@
 """接力候选识别和列表合并。"""
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
+from app import db
+from app.models.audit_log import AuditLog
 from app.models.rental import Rental
 from app.models.rental_relay_binding import RentalRelayBinding
 from app.models.rental_relay_case import RentalRelayCase
@@ -10,6 +12,23 @@ from app.models.rental_relay_case import RentalRelayCase
 
 OPEN_STATUSES = ("pending", "notified", "agreed", "shipped")
 ALL_STATUSES = OPEN_STATUSES + ("completed",)
+STATUS_ORDER = {
+    "pending": 0,
+    "notified": 1,
+    "agreed": 2,
+    "shipped": 3,
+    "completed": 4,
+}
+MILESTONE_FIELDS = {
+    "notified": "notified_at",
+    "agreed": "agreed_at",
+    "shipped": "shipped_at",
+    "completed": "completed_at",
+}
+
+
+class RelayBindingConflictError(ValueError):
+    """目标 rental 已被另一条不可分叉接力关系占用。"""
 
 
 @dataclass(frozen=True)
@@ -227,3 +246,162 @@ class RelayCaseService:
             },
         }
 
+    @classmethod
+    def _require_current_candidate(cls, predecessor, successor):
+        pair = (predecessor.id, successor.id)
+        if pair not in cls.find_candidates():
+            raise ValueError("档期已变化，当前组合不再满足接力条件")
+
+    @staticmethod
+    def _exact_binding(predecessor_id, successor_id, lock=False):
+        query = RentalRelayBinding.query.filter_by(
+            predecessor_rental_id=predecessor_id,
+            successor_rental_id=successor_id,
+        )
+        if lock:
+            query = query.with_for_update()
+        return query.one_or_none()
+
+    @classmethod
+    def _ensure_binding(cls, predecessor, successor):
+        existing = cls._exact_binding(
+            predecessor.id, successor.id, lock=True
+        )
+        if existing:
+            return existing
+
+        predecessor_conflict = RentalRelayBinding.query.filter(
+            RentalRelayBinding.predecessor_rental_id == predecessor.id,
+            RentalRelayBinding.successor_rental_id != successor.id,
+        ).with_for_update().first()
+        successor_conflict = RentalRelayBinding.query.filter(
+            RentalRelayBinding.successor_rental_id == successor.id,
+            RentalRelayBinding.predecessor_rental_id != predecessor.id,
+        ).with_for_update().first()
+        if predecessor_conflict or successor_conflict:
+            conflict = predecessor_conflict or successor_conflict
+            raise RelayBindingConflictError(
+                "前单或后单已存在其他接力绑定"
+                f"（{conflict.predecessor_rental_id}:"
+                f"{conflict.successor_rental_id}）"
+            )
+
+        RentalRelayBinding.validate_pair(predecessor, successor)
+        binding = RentalRelayBinding(
+            predecessor_rental_id=predecessor.id,
+            successor_rental_id=successor.id,
+        )
+        db.session.add(binding)
+        return binding
+
+    @classmethod
+    def _delete_exact_binding(cls, predecessor_id, successor_id):
+        binding = cls._exact_binding(
+            predecessor_id, successor_id, lock=True
+        )
+        if binding:
+            db.session.delete(binding)
+
+    @staticmethod
+    def _update_milestones(relay_case, target_status, now):
+        target_order = STATUS_ORDER[target_status]
+        for milestone_status, field_name in MILESTONE_FIELDS.items():
+            milestone_order = STATUS_ORDER[milestone_status]
+            if milestone_order <= target_order:
+                if getattr(relay_case, field_name) is None:
+                    setattr(relay_case, field_name, now)
+            else:
+                setattr(relay_case, field_name, None)
+
+    @classmethod
+    def _add_audit(cls, relay_case, old_status, new_status):
+        db.session.add(AuditLog(
+            rental_id=relay_case.predecessor_rental_id,
+            action="relay_case_status_changed",
+            resource_type="rental_relay_case",
+            resource_id=str(relay_case.id),
+            description="接力管理状态变更",
+            details={
+                "predecessor_rental_id": relay_case.predecessor_rental_id,
+                "successor_rental_id": relay_case.successor_rental_id,
+                "old_status": old_status,
+                "new_status": new_status,
+                "sf_tracking_number": relay_case.sf_tracking_number,
+            },
+        ))
+
+    @classmethod
+    def update_case(
+        cls,
+        predecessor_id,
+        successor_id,
+        status,
+        sf_tracking_number=None,
+        now=None,
+    ):
+        if status not in STATUS_ORDER:
+            raise ValueError("无效的接力状态")
+        if predecessor_id == successor_id:
+            raise ValueError("接力前后 rental 不能相同")
+
+        now = now or datetime.utcnow()
+        try:
+            rentals = Rental.query.filter(
+                Rental.id.in_([predecessor_id, successor_id])
+            ).with_for_update().all()
+            rental_by_id = {rental.id: rental for rental in rentals}
+            predecessor = rental_by_id.get(predecessor_id)
+            successor = rental_by_id.get(successor_id)
+            if predecessor is None or successor is None:
+                raise ValueError("前单或后单不存在")
+
+            relay_case = RentalRelayCase.query.filter_by(
+                predecessor_rental_id=predecessor_id,
+                successor_rental_id=successor_id,
+            ).with_for_update().one_or_none()
+            exact_binding = cls._exact_binding(
+                predecessor_id, successor_id, lock=True
+            )
+            old_status = (
+                relay_case.status
+                if relay_case
+                else ("agreed" if exact_binding else "pending")
+            )
+
+            crossing_into_agreed = (
+                STATUS_ORDER[old_status] < STATUS_ORDER["agreed"]
+                and STATUS_ORDER[status] >= STATUS_ORDER["agreed"]
+            )
+            if crossing_into_agreed:
+                cls._require_current_candidate(predecessor, successor)
+
+            relay_case = relay_case or RentalRelayCase(
+                predecessor_rental_id=predecessor_id,
+                successor_rental_id=successor_id,
+            )
+
+            if STATUS_ORDER[status] >= STATUS_ORDER["agreed"]:
+                cls._ensure_binding(predecessor, successor)
+            elif STATUS_ORDER[old_status] >= STATUS_ORDER["agreed"]:
+                cls._delete_exact_binding(predecessor_id, successor_id)
+
+            if STATUS_ORDER[status] >= STATUS_ORDER["shipped"]:
+                tracking_number = (
+                    sf_tracking_number
+                    or relay_case.sf_tracking_number
+                    or ""
+                ).strip()
+                if not tracking_number:
+                    raise ValueError("已寄出必须录入顺丰运单号")
+                relay_case.sf_tracking_number = tracking_number
+
+            relay_case.status = status
+            cls._update_milestones(relay_case, status, now)
+            db.session.add(relay_case)
+            db.session.flush()
+            cls._add_audit(relay_case, old_status, status)
+            db.session.commit()
+            return relay_case
+        except Exception:
+            db.session.rollback()
+            raise
