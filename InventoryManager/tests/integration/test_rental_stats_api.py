@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -133,14 +133,15 @@ def test_forecast_retains_exited_device_history_but_not_future_capacity(
 
     assert response.status_code == 200
     payload = response.get_json()
+    historical_end = date.today().replace(day=1) - timedelta(days=1)
     active_dep = calculate_period_depreciation(
-        7000, date(2026, 5, 1), date(2026, 5, 1), date(2026, 6, 30)
+        7000, date(2026, 5, 1), date(2026, 5, 1), historical_end
     )
     sold_dep = calculate_period_depreciation(
         7000,
         date(2026, 5, 2),
         date(2026, 5, 2),
-        date(2026, 6, 30),
+        historical_end,
         date(2026, 6, 1),
     )
     expected_history = 300 - 2 * 15 - active_dep - sold_dep
