@@ -5,9 +5,11 @@
 from flask import Blueprint, request, jsonify
 from app import db
 from app.models.rental import Rental
-from app.utils.sf.sf_sdk_wrapper import SFExpressSDK
+from app.services.shipping.sf_tracking_service import (
+    SFTrackingService,
+    TrackingNotFoundError,
+)
 from datetime import datetime, timedelta
-import os
 import logging
 
 logger = logging.getLogger(__name__)
@@ -19,19 +21,8 @@ SENDER_PHONE_LAST4 = '4947'  # ***REMOVED*** 的后四位
 
 
 def get_sf_client():
-    """获取顺丰 SDK 客户端实例"""
-    partner_id = os.getenv('SF_PARTNER_ID')
-    checkword = os.getenv('SF_CHECKWORD')
-    test_mode = os.getenv('SF_TEST_MODE', 'true') == 'true'
-    logger.info(f"test_mode in sf_tracking_api: {test_mode}")
-    logger.info(f"partner_id in sf_tracking_api: {partner_id}")
-    logger.info(f"checkword in sf_tracking_api: {checkword}")
-
-    return SFExpressSDK(
-        partner_id=partner_id,
-        checkword=checkword,
-        test_mode=test_mode
-    )
+    """保留旧调用入口，实际客户端由共享服务创建。"""
+    return SFTrackingService.get_client()
 
 
 @bp.route('/list', methods=['GET'])
@@ -147,24 +138,11 @@ def query_tracking():
 
         logger.info(f"查询运单物流: {tracking_number}")
 
-        # 获取顺丰客户端
-        sf_client = get_sf_client()
-
-        # 调用顺丰 API 查询路由
-        response = sf_client.search_routes(tracking_number, SENDER_PHONE_LAST4)
-
-        # 解析路由响应
-        parsed_routes = sf_client.parse_route_response(response)
-
-        if tracking_number in parsed_routes:
-            route_info = parsed_routes[tracking_number]
-            logger.info(f"运单 {tracking_number} 查询成功, 状态: {route_info.get('status')}")
-
-            return jsonify({
-                'success': True,
-                'data': route_info
-            }), 200
-        else:
+        try:
+            route_info = SFTrackingService.query(
+                tracking_number, SENDER_PHONE_LAST4
+            )
+        except TrackingNotFoundError:
             logger.warning(f"运单 {tracking_number} 未找到物流信息")
             return jsonify({
                 'success': False,
@@ -177,6 +155,15 @@ def query_tracking():
                     'delivered_time': None
                 }
             }), 200
+
+        logger.info(
+            f"运单 {tracking_number} 查询成功, "
+            f"状态: {route_info.get('status')}"
+        )
+        return jsonify({
+            'success': True,
+            'data': route_info
+        }), 200
 
     except Exception as e:
         logger.error(f"查询物流信息失败: {e}")
@@ -224,13 +211,10 @@ def batch_query_tracking():
 
         logger.info(f"批量查询 {len(tracking_numbers)} 个运单")
 
-        # 获取顺丰客户端
-        sf_client = get_sf_client()
-
-        # 调用顺丰 API 批量查询
         try:
-            response = sf_client.batch_search_routes(tracking_numbers, SENDER_PHONE_LAST4)
-            parsed_routes = sf_client.parse_route_response(response)
+            parsed_routes = SFTrackingService.batch_query(
+                tracking_numbers, SENDER_PHONE_LAST4
+            )
         except Exception as api_error:
             logger.error(f"顺丰API调用失败: {api_error}")
             return jsonify({

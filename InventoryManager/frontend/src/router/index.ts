@@ -58,6 +58,11 @@ const router = createRouter({
       component: SFTrackingView,
     },
     {
+      path: '/relay-management',
+      name: 'relay-management',
+      component: () => import('../views/RelayManagementView.vue'),
+    },
+    {
       path: '/inspection',
       name: 'inspection',
       component: InspectionView,

@@ -97,6 +97,10 @@
                   <el-icon><Location /></el-icon>
                   物流查询
                 </el-dropdown-item>
+                <el-dropdown-item command="relay-management">
+                  <el-icon><Connection /></el-icon>
+                  接力管理
+                </el-dropdown-item>
                 <el-dropdown-item command="inspection">
                   <el-icon><CircleCheck /></el-icon>
                   验机
@@ -1051,6 +1055,9 @@ const handleMoreCommand = (command: string) => {
       break
     case 'sf-tracking':
       router.push('/sf-tracking')
+      break
+    case 'relay-management':
+      router.push('/relay-management')
       break
     case 'inspection':
       window.open('/inspection-records', '_blank')

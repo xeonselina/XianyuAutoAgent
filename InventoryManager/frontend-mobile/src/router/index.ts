@@ -45,6 +45,11 @@ const router = createRouter({
       path: '/customer-history',
       name: 'customer-history',
       component: () => import('@/views/CustomerHistoryView.vue')
+    },
+    {
+      path: '/relay',
+      name: 'relay',
+      component: () => import('@/views/RelayManagementView.vue')
     }
   ],
   scrollBehavior(to, from, savedPosition) {

@@ -62,6 +62,7 @@ def unified_favicon():
 @bp.route('/statistics')
 @bp.route('/rental-stats')
 @bp.route('/sf-tracking')
+@bp.route('/relay-management')
 @bp.route('/inspection')
 @bp.route('/inspection-records')
 def vue_router_routes(subpath=None):
