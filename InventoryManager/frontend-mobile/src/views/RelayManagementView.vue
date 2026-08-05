@@ -24,9 +24,12 @@ const statusOptions: Array<{ value: RelayCaseStatus; label: string; shortLabel: 
 ]
 
 const loading = ref(false)
+const loadingMore = ref(false)
 const refreshing = ref(false)
 const items = ref<RelayCase[]>([])
 const total = ref(0)
+const page = ref(1)
+const pages = ref(0)
 const statuses = ref<RelayCaseStatus[]>([...OPEN_STATUSES])
 const shipDateFrom = ref(dayjs().subtract(3, 'day').format('YYYY-MM-DD'))
 const shipDateTo = ref(dayjs().add(5, 'day').format('YYYY-MM-DD'))
@@ -38,30 +41,49 @@ const activeCase = ref<RelayCase | null>(null)
 const refreshableIds = computed(() => items.value
   .filter((item) => item.case_id && ['shipped', 'completed'].includes(item.status))
   .map((item) => item.case_id as number))
+const hasMore = computed(
+  () => page.value < pages.value && items.value.length < total.value,
+)
 
 const defaultCalendarDate = computed<[Date, Date]>(() => [
   dayjs(shipDateFrom.value).toDate(),
   dayjs(shipDateTo.value).toDate(),
 ])
 
-async function loadCases() {
+async function loadCases(append = false) {
   if (!statuses.value.length) return
-  loading.value = true
+  const requestedPage = append ? page.value + 1 : 1
+  if (append) {
+    loadingMore.value = true
+  } else {
+    loading.value = true
+  }
   try {
     const result = await listRelayCases({
       statuses: statuses.value,
       shipDateFrom: shipDateFrom.value,
       shipDateTo: shipDateTo.value,
-      page: 1,
+      page: requestedPage,
       perPage: 50,
     })
-    items.value = result.items
+    items.value = append ? [...items.value, ...result.items] : result.items
     total.value = result.total
+    page.value = result.page
+    pages.value = result.pages
   } catch (error) {
     showFailToast(error instanceof Error ? error.message : '加载接力列表失败')
   } finally {
-    loading.value = false
+    if (append) {
+      loadingMore.value = false
+    } else {
+      loading.value = false
+    }
   }
+}
+
+async function loadMore() {
+  if (!hasMore.value || loadingMore.value) return
+  await loadCases(true)
 }
 
 function toggleStatus(status: RelayCaseStatus) {
@@ -208,6 +230,21 @@ onMounted(loadCases)
           @maintain="maintain"
           @refresh="refreshOne"
         />
+        <div v-if="hasMore" class="load-more-wrap">
+          <van-button
+            block
+            plain
+            type="primary"
+            :loading="loadingMore"
+            data-testid="relay-load-more"
+            @click="loadMore"
+          >
+            加载更多（已显示 {{ items.length }}/{{ total }}）
+          </van-button>
+        </div>
+        <div v-else class="list-finished">
+          已显示全部 {{ items.length }} 组
+        </div>
       </template>
     </div>
 
@@ -364,6 +401,22 @@ onMounted(loadCases)
   min-height: 180px;
   align-items: center;
   justify-content: center;
+}
+
+.load-more-wrap {
+  padding: 4px 2px 8px;
+}
+
+.load-more-wrap :deep(.van-button) {
+  min-height: 44px;
+  border-radius: 10px;
+}
+
+.list-finished {
+  padding: 8px 0 2px;
+  color: #9aa0a6;
+  font-size: 12px;
+  text-align: center;
 }
 
 .date-sheet {

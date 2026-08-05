@@ -150,6 +150,32 @@ def test_candidates_only_compare_adjacent_non_cancelled_main_rentals(
     assert all(child.id not in pair for pair in candidates)
 
 
+def test_candidate_order_keeps_rental_with_missing_ship_in_time(
+    app, db_session
+):
+    device = add_device(db_session, "missing-ship-in")
+    first, middle = add_pair(db_session, device, overlap_days=2)
+    first.ship_in_time = datetime(2026, 8, 12, 12)
+    middle.ship_in_time = None
+    last = Rental(
+        device_id=device.id,
+        start_date=date(2026, 8, 12),
+        end_date=date(2026, 8, 15),
+        ship_out_time=datetime(2026, 8, 9, 19),
+        ship_in_time=datetime(2026, 8, 18, 12),
+        customer_name="最后一单",
+        status="not_shipped",
+    )
+    db_session.add(last)
+    db_session.commit()
+
+    candidates = RelayCaseService.find_candidates()
+
+    assert (first.id, middle.id) in candidates
+    assert candidates[(first.id, middle.id)].overlap_days == 5
+    assert (first.id, last.id) not in candidates
+
+
 def test_list_item_contains_customer_equipment_and_computed_dates(
     app, db_session
 ):
@@ -222,6 +248,34 @@ def test_invalid_pending_is_hidden_but_notified_is_retained_with_warning(
     assert payload["total"] == 1
     assert payload["items"][0]["status"] == "notified"
     assert payload["items"][0]["schedule_changed"] is True
+
+
+@pytest.mark.parametrize("missing_field", ["predecessor_ship_in", "successor_ship_out"])
+def test_persisted_invalid_case_with_missing_schedule_is_safely_listed(
+    app, db_session, missing_field
+):
+    device = add_device(db_session, f"persisted-{missing_field}")
+    first, second = add_pair(db_session, device, overlap_days=2)
+    db_session.add(RentalRelayCase(
+        predecessor_rental_id=first.id,
+        successor_rental_id=second.id,
+        status="notified",
+    ))
+    if missing_field == "predecessor_ship_in":
+        first.ship_in_time = None
+    else:
+        second.ship_out_time = None
+    db_session.commit()
+
+    payload = RelayCaseService.list_cases(
+        statuses=["notified"],
+        ship_date_from=date(2026, 8, 1),
+        ship_date_to=date(2026, 8, 31),
+    )
+
+    assert payload["total"] == 1
+    assert payload["items"][0]["schedule_changed"] is True
+    assert payload["items"][0]["overlap_days"] == 0
 
 
 def test_existing_binding_without_case_is_exposed_as_agreed(app, db_session):

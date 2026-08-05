@@ -53,7 +53,6 @@ class RelayCaseService:
             Rental.parent_rental_id.is_(None),
             Rental.status != "cancelled",
             Rental.ship_out_time.isnot(None),
-            Rental.ship_in_time.isnot(None),
         ).order_by(
             Rental.device_id,
             Rental.ship_out_time,
@@ -69,6 +68,11 @@ class RelayCaseService:
             for predecessor, successor in zip(
                 device_rentals, device_rentals[1:]
             ):
+                if (
+                    predecessor.ship_in_time is None
+                    or successor.ship_out_time is None
+                ):
+                    continue
                 overlap_days = (
                     predecessor.ship_in_time.date()
                     - successor.ship_out_time.date()
@@ -130,17 +134,18 @@ class RelayCaseService:
         successor = candidate.successor if candidate else (
             case.successor if case else binding.successor
         )
-        overlap_days = (
-            candidate.overlap_days
-            if candidate
-            else max(
+        if candidate:
+            overlap_days = candidate.overlap_days
+        elif predecessor.ship_in_time and successor.ship_out_time:
+            overlap_days = max(
                 0,
                 (
                     predecessor.ship_in_time.date()
                     - successor.ship_out_time.date()
                 ).days,
             )
-        )
+        else:
+            overlap_days = 0
         status = case.status if case else ("agreed" if binding else "pending")
         return {
             "case_id": case.id if case else None,

@@ -74,5 +74,23 @@ describe('relayCases API', () => {
       { case_ids: [7, 8] },
     )
   })
-})
 
+  it('surfaces the backend business message from a failed mutation', async () => {
+    vi.mocked(axios.put).mockRejectedValue({
+      response: {
+        status: 409,
+        data: { success: false, message: '目标订单已存在其他接力绑定' },
+      },
+    })
+
+    let caught: unknown
+    try {
+      await updateRelayCase(1, 2, { status: 'agreed' })
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(Error)
+    expect((caught as Error).message).toBe('目标订单已存在其他接力绑定')
+  })
+})

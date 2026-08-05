@@ -21,6 +21,23 @@ function unwrap<T>(response: { data: ApiResponse<T> }): T {
   return response.data.data
 }
 
+async function request<T>(
+  pending: Promise<{ data: ApiResponse<T> }>,
+): Promise<T> {
+  try {
+    return unwrap(await pending)
+  } catch (error) {
+    const response = (error as {
+      response?: { data?: { message?: unknown } }
+    } | null)?.response
+    const message = response?.data?.message
+    if (typeof message === 'string' && message.trim()) {
+      throw new Error(message)
+    }
+    throw error
+  }
+}
+
 export async function listRelayCases(params: {
   statuses: RelayCaseStatus[]
   shipDateFrom: string
@@ -28,7 +45,7 @@ export async function listRelayCases(params: {
   page?: number
   perPage?: number
 }): Promise<RelayCaseListResponse> {
-  const response = await axios.get<ApiResponse<RelayCaseListResponse>>('/api/relay-cases', {
+  return request(axios.get<ApiResponse<RelayCaseListResponse>>('/api/relay-cases', {
     params: {
       statuses: params.statuses.join(','),
       ship_date_from: params.shipDateFrom,
@@ -36,8 +53,7 @@ export async function listRelayCases(params: {
       page: params.page ?? 1,
       per_page: params.perPage ?? 50,
     },
-  })
-  return unwrap(response)
+  }))
 }
 
 export async function updateRelayCase(
@@ -45,26 +61,23 @@ export async function updateRelayCase(
   successorId: number,
   payload: { status: RelayCaseStatus; sf_tracking_number?: string },
 ): Promise<RelayCaseMutationResponse> {
-  const response = await axios.put<ApiResponse<RelayCaseMutationResponse>>(
+  return request(axios.put<ApiResponse<RelayCaseMutationResponse>>(
     `/api/relay-cases/${predecessorId}/${successorId}`,
     payload,
-  )
-  return unwrap(response)
+  ))
 }
 
 export async function refreshRelayTracking(caseId: number): Promise<RelayTracking> {
-  const response = await axios.post<ApiResponse<RelayTracking>>(
+  return request(axios.post<ApiResponse<RelayTracking>>(
     `/api/relay-cases/${caseId}/tracking/refresh`,
-  )
-  return unwrap(response)
+  ))
 }
 
 export async function refreshRelayTrackingBatch(
   caseIds: number[],
 ): Promise<RelayTrackingBatchResponse> {
-  const response = await axios.post<ApiResponse<RelayTrackingBatchResponse>>(
+  return request(axios.post<ApiResponse<RelayTrackingBatchResponse>>(
     '/api/relay-cases/tracking/refresh-batch',
     { case_ids: caseIds },
-  )
-  return unwrap(response)
+  ))
 }

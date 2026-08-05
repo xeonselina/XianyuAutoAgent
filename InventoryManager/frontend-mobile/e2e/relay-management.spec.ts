@@ -199,4 +199,69 @@ test.describe('mobile relay management', () => {
     await page.getByTestId('relay-refresh-all').click()
     await expect.poll(api.batchRefreshes).toBe(1)
   })
+
+  test('loads the next page when the selected range has more than 50 cases', async ({ page }) => {
+    const requests: string[] = []
+    const secondCase = {
+      ...relayCase,
+      case_id: 8,
+      pair_key: '3:4',
+      predecessor: { ...relayCase.predecessor, id: 3, buyer_id: '月月' },
+      successor: { ...relayCase.successor, id: 4, buyer_id: '晨晨' },
+    }
+    await page.route('**/api/relay-cases**', async route => {
+      const url = new URL(route.request().url())
+      if (route.request().method() !== 'GET') {
+        await route.fulfill({ status: 404, json: { success: false, message: 'unexpected request' } })
+        return
+      }
+      requests.push(url.toString())
+      const requestedPage = Number(url.searchParams.get('page') || '1')
+      await route.fulfill({
+        json: {
+          success: true,
+          data: {
+            ...relayList,
+            items: requestedPage === 1 ? [relayCase] : [secondCase],
+            total: 51,
+            page: requestedPage,
+            pages: 2,
+          },
+        },
+      })
+    })
+
+    await page.goto('/mobile/relay')
+    await page.getByTestId('relay-load-more').click()
+
+    await expect(page.getByText('晨晨')).toBeVisible()
+    expect(requests).toHaveLength(2)
+    expect(new URL(requests[1]).searchParams.get('page')).toBe('2')
+  })
+
+  test('shows the backend business message when status update is rejected', async ({ page }) => {
+    await page.route('**/api/relay-cases**', async route => {
+      const request = route.request()
+      const url = new URL(request.url())
+      if (request.method() === 'GET') {
+        await route.fulfill({ json: { success: true, data: relayList } })
+        return
+      }
+      if (request.method() === 'PUT' && url.pathname === '/api/relay-cases/1/2') {
+        await route.fulfill({
+          status: 409,
+          json: { success: false, message: '档期已变化，当前组合不再满足接力条件' },
+        })
+        return
+      }
+      await route.fulfill({ status: 404, json: { success: false, message: 'unexpected request' } })
+    })
+
+    await page.goto('/mobile/relay')
+    await page.getByTestId('relay-maintain').click()
+    await page.getByTestId('relay-status-completed').click()
+    await page.getByTestId('save-relay-status').click()
+
+    await expect(page.getByRole('alert')).toContainText('档期已变化，当前组合不再满足接力条件')
+  })
 })
