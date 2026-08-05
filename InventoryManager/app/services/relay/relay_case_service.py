@@ -2,12 +2,14 @@
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+import re
 
 from app import db
 from app.models.audit_log import AuditLog
 from app.models.rental import Rental
 from app.models.rental_relay_binding import RentalRelayBinding
 from app.models.rental_relay_case import RentalRelayCase
+from app.services.shipping.sf_tracking_service import SFTrackingService
 
 
 OPEN_STATUSES = ("pending", "notified", "agreed", "shipped")
@@ -405,3 +407,47 @@ class RelayCaseService:
         except Exception:
             db.session.rollback()
             raise
+
+    @classmethod
+    def refresh_tracking(cls, case_id, now=None):
+        now = now or datetime.utcnow()
+        relay_case = RentalRelayCase.query.filter_by(id=case_id).one_or_none()
+        if relay_case is None:
+            raise ValueError("接力记录不存在")
+        if relay_case.status not in {"shipped", "completed"}:
+            raise ValueError("接力记录尚未寄出，不能查询物流")
+        if not relay_case.sf_tracking_number:
+            raise ValueError("接力记录缺少顺丰运单号")
+
+        try:
+            phone_digits = re.sub(
+                r"\D", "", relay_case.predecessor.customer_phone or ""
+            )
+            if len(phone_digits) < 4:
+                raise ValueError("缺少前单客户手机号，无法查询顺丰物流")
+
+            route_info = SFTrackingService.query(
+                relay_case.sf_tracking_number,
+                phone_digits[-4:],
+            )
+            relay_case.sf_tracking_status = route_info.get(
+                "status", "unknown"
+            )
+            status_text = route_info.get("status_text") or "未知状态"
+            last_update = route_info.get("last_update")
+            relay_case.sf_tracking_summary = (
+                f"{status_text} · {last_update}"
+                if last_update
+                else status_text
+            )
+        except Exception as exc:
+            relay_case.sf_tracking_status = "query_failed"
+            relay_case.sf_tracking_summary = str(exc) or "顺丰物流查询失败"
+
+        relay_case.sf_last_checked_at = now
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            raise
+        return cls._tracking(relay_case)
