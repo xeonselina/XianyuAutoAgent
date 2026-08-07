@@ -59,6 +59,30 @@
         @status-change="handleStatusChange"
       />
 
+      <!-- 损坏反馈 -->
+      <el-divider content-position="left">
+        <span class="divider-title damage-divider-title">⚠️ 损坏反馈</span>
+      </el-divider>
+      <el-alert
+        v-if="form.damageNote.trim()"
+        class="damage-note-warning"
+        title="已记录用户损坏反馈，验货时将重点提示"
+        type="error"
+        :closable="false"
+        show-icon
+      />
+      <el-form-item label="损坏备注">
+        <el-input
+          v-model="form.damageNote"
+          class="damage-note-input"
+          type="textarea"
+          :rows="3"
+          maxlength="1000"
+          show-word-limit
+          placeholder="填写用户反馈的损坏位置、现象等；清空后将取消验货提醒"
+        />
+      </el-form-item>
+
       <!-- 附件选择 -->
       <el-divider content-position="left">
         <span class="divider-title">🔧 附件选择</span>
@@ -163,6 +187,7 @@ const form = ref({
   xianyuOrderNo: '',
   orderAmount: '',
   buyerId: '',
+  damageNote: '',
   photoTransfer: false,  // 代传照片标记
   lensCombo: undefined as ('lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual' | undefined)
 })
@@ -328,6 +353,7 @@ const handleSubmit = async () => {
       xianyu_order_no: form.value.xianyuOrderNo,
       order_amount: form.value.orderAmount ? parseFloat(form.value.orderAmount) : undefined,
       buyer_id: form.value.buyerId,
+      damage_note: form.value.damageNote,
       photo_transfer: form.value.photoTransfer,  // 代传照片标记
       lens_combo: form.value.lensCombo
     }
@@ -605,6 +631,7 @@ const initForm = async () => {
       xianyuOrderNo: rentalData.xianyu_order_no || '',
       orderAmount: rentalData.order_amount ? String(rentalData.order_amount) : '',
       buyerId: rentalData.buyer_id || '',
+      damageNote: rentalData.damage_note || '',
       photoTransfer: rentalData.photo_transfer || false,  // 代传照片标记
       lensCombo: rentalData.lens_combo || undefined
     }
@@ -656,6 +683,14 @@ watch(
   font-size: 15px;
   font-weight: 600;
   color: var(--el-text-color-primary);
+}
+
+.damage-divider-title {
+  color: var(--el-color-danger);
+}
+
+.damage-note-warning {
+  margin-bottom: 16px;
 }
 
 :deep(.el-divider) {

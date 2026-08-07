@@ -26,6 +26,7 @@ export interface RentalFormData {
   xianyu_order_no?: string
   order_amount?: number
   buyer_id?: string
+  damage_note?: string | null
   ship_out_tracking_no?: string
   ship_in_tracking_no?: string
   scheduled_ship_time?: string
@@ -75,6 +76,7 @@ export interface RentalUpdatePayload {
   xianyu_order_no?: string
   order_amount?: number
   buyer_id?: string
+  damage_note?: string | null
   ship_out_tracking_no?: string
   ship_in_tracking_no?: string
   scheduled_ship_time?: string
@@ -116,6 +118,7 @@ export interface Rental {
   xianyu_order_no?: string
   order_amount?: number
   buyer_id?: string
+  damage_note?: string | null
   ship_out_tracking_no?: string
   ship_in_tracking_no?: string
   scheduled_ship_time?: string | null

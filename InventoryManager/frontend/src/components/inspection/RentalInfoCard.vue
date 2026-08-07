@@ -9,6 +9,16 @@
           </el-tag>
         </div>
       </template>
+
+      <el-alert
+        v-if="rental.damage_note"
+        class="damage-alert"
+        title="用户反馈设备可能损坏"
+        type="error"
+        :description="rental.damage_note"
+        :closable="false"
+        show-icon
+      />
       
       <el-descriptions :column="1" border size="large">
         <el-descriptions-item label="客户姓名">
@@ -110,6 +120,15 @@ const getStatusType = (status: string) => {
   justify-content: space-between;
   align-items: center;
   font-weight: bold;
+}
+
+.damage-alert {
+  margin-bottom: 16px;
+}
+
+:deep(.damage-alert .el-alert__description) {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .accessories-list {

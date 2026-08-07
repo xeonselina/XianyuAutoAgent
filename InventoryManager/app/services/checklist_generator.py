@@ -79,6 +79,14 @@ class ChecklistGenerator:
                 'order': order_counter
             })
             order_counter += 1
+
+        # 6. 客户已反馈损坏时，要求验货人显式确认处理。
+        if rental.damage_note:
+            checklist.append({
+                'name': f'处理用户反馈：{rental.damage_note}',
+                'order': order_counter,
+                'default_checked': False
+            })
         
         return checklist
     
@@ -110,6 +118,9 @@ class ChecklistGenerator:
             count += 1
         
         if rental.photo_transfer:
+            count += 1
+
+        if rental.damage_note:
             count += 1
         
         return count
