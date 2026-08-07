@@ -15,7 +15,7 @@ class InspectionCheckItem(db.Model):
         nullable=False,
         index=True
     )
-    item_name = db.Column(db.String(100), nullable=False, comment='检查项名称')
+    item_name = db.Column(db.String(1020), nullable=False, comment='检查项名称')
     is_checked = db.Column(db.Boolean, nullable=False, default=False, comment='是否勾选')
     item_order = db.Column(db.Integer, nullable=False, default=0, comment='显示顺序')
 

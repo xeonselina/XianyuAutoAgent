@@ -26,8 +26,25 @@ def upgrade():
             )
         )
 
+    with op.batch_alter_table("inspection_check_item", schema=None) as batch_op:
+        batch_op.alter_column(
+            "item_name",
+            existing_type=sa.String(length=100),
+            type_=sa.String(length=1020),
+            existing_nullable=False,
+            existing_comment="检查项名称",
+        )
+
 
 def downgrade():
+    with op.batch_alter_table("inspection_check_item", schema=None) as batch_op:
+        batch_op.alter_column(
+            "item_name",
+            existing_type=sa.String(length=1020),
+            type_=sa.String(length=100),
+            existing_nullable=False,
+            existing_comment="检查项名称",
+        )
+
     with op.batch_alter_table("rentals", schema=None) as batch_op:
         batch_op.drop_column("damage_note")
-

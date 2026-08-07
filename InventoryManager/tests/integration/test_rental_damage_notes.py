@@ -107,3 +107,50 @@ def test_overlong_damage_note_is_rejected_without_changing_value(client, rental)
     assert response.status_code == 400
     assert db.session.get(Rental, rental.id).damage_note == "原备注"
 
+
+def test_damage_check_item_is_unchecked_and_keeps_report_snapshot(client, rental):
+    rental.damage_note = "屏幕右下角碎裂"
+    db.session.commit()
+
+    lookup = client.get(f"/api/inspections/rental/latest/{rental.device_id}")
+
+    assert lookup.status_code == 200
+    checklist = lookup.get_json()["data"]["checklist"]
+    assert checklist[-1] == {
+        "name": "处理用户反馈：屏幕右下角碎裂",
+        "order": len(checklist),
+        "default_checked": False,
+    }
+
+    create_response = client.post(
+        "/api/inspections",
+        json={
+            "rental_id": rental.id,
+            "device_id": rental.device_id,
+            "check_items": [
+                {
+                    "name": item["name"],
+                    "order": item["order"],
+                    "is_checked": item.get("default_checked", True),
+                }
+                for item in checklist
+            ],
+        },
+    )
+
+    assert create_response.status_code == 201
+    inspection = create_response.get_json()["data"]
+    assert inspection["status"] == "abnormal"
+    assert inspection["check_items"][-1]["item_name"] == "处理用户反馈：屏幕右下角碎裂"
+    assert inspection["check_items"][-1]["is_checked"] is False
+
+    clear_response = client.put(
+        f"/web/rentals/{rental.id}",
+        json={"damage_note": None},
+    )
+    assert clear_response.status_code == 200
+
+    saved_response = client.get(f"/api/inspections/{inspection['id']}")
+    saved_item = saved_response.get_json()["data"]["check_items"][-1]
+    assert saved_item["item_name"] == "处理用户反馈：屏幕右下角碎裂"
+    assert saved_item["is_checked"] is False
