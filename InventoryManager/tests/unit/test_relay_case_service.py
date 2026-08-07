@@ -102,16 +102,20 @@ def add_pair(
     return first, second
 
 
-def test_candidates_require_two_full_overlap_days(app, db_session):
+def test_candidates_require_positive_overlap_days(app, db_session):
+    zero_day_device = add_device(db_session, "zero")
     one_day_device = add_device(db_session, "one")
     two_day_device = add_device(db_session, "two")
+    zero_days = add_pair(db_session, zero_day_device, overlap_days=0)
     one_day = add_pair(db_session, one_day_device, overlap_days=1)
     two_days = add_pair(db_session, two_day_device, overlap_days=2)
     db_session.commit()
 
     candidates = RelayCaseService.find_candidates()
 
-    assert (one_day[0].id, one_day[1].id) not in candidates
+    assert (zero_days[0].id, zero_days[1].id) not in candidates
+    assert (one_day[0].id, one_day[1].id) in candidates
+    assert candidates[(one_day[0].id, one_day[1].id)].overlap_days == 1
     assert (two_days[0].id, two_days[1].id) in candidates
     assert candidates[(two_days[0].id, two_days[1].id)].overlap_days == 2
 

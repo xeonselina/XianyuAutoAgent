@@ -2,14 +2,14 @@
 
 ### Requirement: 识别潜在接力组合
 
-系统 SHALL（必须）在同一设备的非取消主 rental 中，按物流寄出时间排序并比较相邻组合。当前单预计收回自然日与后单寄出自然日的差值至少为 2 天时，组合必须作为潜在接力。
+系统 SHALL（必须）在同一设备的非取消主 rental 中，按物流寄出时间排序并比较相邻组合。当前单预计收回自然日晚于后单寄出自然日，即差值至少为 1 天时，组合必须作为潜在接力。
 
-#### Scenario: 恰好重叠两天
-- **WHEN** 前单 `ship_in_time` 自然日比后单 `ship_out_time` 自然日晚 2 天
+#### Scenario: 恰好相差一天
+- **WHEN** 前单 `ship_in_time` 自然日比后单 `ship_out_time` 自然日晚 1 天
 - **THEN** 列表必须返回该组合
 
-#### Scenario: 仅重叠一天
-- **WHEN** 前单 `ship_in_time` 自然日比后单 `ship_out_time` 自然日晚 1 天
+#### Scenario: 同日衔接
+- **WHEN** 前单 `ship_in_time` 自然日与后单 `ship_out_time` 自然日相同
 - **THEN** 列表不得把该组合作为潜在接力
 
 #### Scenario: 排除不合法记录

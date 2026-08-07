@@ -77,7 +77,7 @@ class RelayCaseService:
                     predecessor.ship_in_time.date()
                     - successor.ship_out_time.date()
                 ).days
-                if overlap_days < 2:
+                if overlap_days <= 0:
                     continue
                 candidate = RelayCandidate(
                     predecessor=predecessor,
