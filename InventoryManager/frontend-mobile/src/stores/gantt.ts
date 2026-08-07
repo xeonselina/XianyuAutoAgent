@@ -93,6 +93,7 @@ export interface Rental {
   xianyu_order_no?: string
   order_amount?: number
   buyer_id?: string
+  damage_note?: string | null
 }
 
 export interface AvailableSlot {

@@ -157,6 +157,30 @@
           />
         </van-cell-group>
 
+        <!-- 损坏反馈 -->
+        <van-cell-group inset title="损坏反馈" style="margin-top:12px">
+          <van-notice-bar
+            v-if="form.damageNote.trim()"
+            data-testid="damage-note-warning"
+            text="已记录用户损坏反馈，验货时将重点提示"
+            color="#ee0a24"
+            background="#fff0f0"
+            left-icon="warning-o"
+            wrapable
+          />
+          <van-field
+            v-model="form.damageNote"
+            data-testid="damage-note"
+            label="损坏备注"
+            type="textarea"
+            rows="3"
+            :maxlength="1000"
+            show-word-limit
+            autosize
+            placeholder="填写损坏位置、现象等；清空后取消验货提醒"
+          />
+        </van-cell-group>
+
         <!-- 镜头组合 -->
         <van-cell-group inset title="镜头组合" style="margin-top:12px">
           <van-field label="组合">
@@ -420,6 +444,7 @@ const form = ref({
   shipInTime: '',    // ISO string
   status: 'not_shipped',
   bundledAccessories: [] as string[],
+  damageNote: '',
   photoTransfer: false,
   phoneHolderId: null as number | null,
   tripodId: null as number | null,
@@ -571,6 +596,7 @@ const initForm = (rental: Rental) => {
   form.value.bundledAccessories = []
   if (rental.includes_handle) form.value.bundledAccessories.push('handle')
   if (rental.includes_lens_mount) form.value.bundledAccessories.push('lens_mount')
+  form.value.damageNote = rental.damage_note || ''
   form.value.photoTransfer = rental.photo_transfer || false
   form.value.lensCombo = rental.lens_combo || undefined
 
@@ -755,6 +781,7 @@ const onSubmit = async () => {
       status: form.value.status,
       includes_handle: form.value.bundledAccessories.includes('handle'),
       includes_lens_mount: form.value.bundledAccessories.includes('lens_mount'),
+      damage_note: form.value.damageNote,
       photo_transfer: form.value.photoTransfer,
       lens_combo: form.value.lensCombo,
       accessories: [
