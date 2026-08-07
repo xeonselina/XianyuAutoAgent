@@ -33,6 +33,13 @@ class Rental(db.Model):
     order_amount = db.Column(db.DECIMAL(10, 2), nullable=True, comment='订单金额(元)')
     buyer_id = db.Column(db.String(100), nullable=True, comment='买家ID(闲鱼EID)')
 
+    # 客户在租赁过程中反馈的当前设备损坏情况
+    damage_note = db.Column(
+        db.Text,
+        nullable=True,
+        comment='客户反馈的当前设备损坏备注'
+    )
+
     # 物流信息
     ship_out_tracking_no = db.Column(db.String(50), comment='寄出快递单号')
     ship_in_tracking_no = db.Column(db.String(50), comment='寄回快递单号')
@@ -131,6 +138,7 @@ class Rental(db.Model):
             'xianyu_order_no': self.xianyu_order_no,
             'order_amount': float(self.order_amount) if self.order_amount else None,
             'buyer_id': self.buyer_id,
+            'damage_note': self.damage_note,
             'ship_out_tracking_no': self.ship_out_tracking_no,
             'ship_in_tracking_no': self.ship_in_tracking_no,
             'scheduled_ship_time': self.scheduled_ship_time.isoformat() if self.scheduled_ship_time else None,

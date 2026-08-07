@@ -317,6 +317,17 @@ class RentalHandlers:
             if not data:
                 return bad_request('缺少更新数据')
 
+            # 在修改任何字段前校验并标准化损坏备注，避免无效请求产生部分更新。
+            if 'damage_note' in data:
+                raw_damage_note = data['damage_note']
+                if raw_damage_note is not None and not isinstance(raw_damage_note, str):
+                    return bad_request('损坏备注必须是字符串或 null')
+
+                normalized_damage_note = (raw_damage_note.strip() or None) if raw_damage_note else None
+                if normalized_damage_note and len(normalized_damage_note) > 1000:
+                    return bad_request('损坏备注不能超过 1000 个字符')
+                data['damage_note'] = normalized_damage_note
+
             current_app.logger.info(f"更新租赁记录: {data}")
             current_app.logger.info(f"accessories 字段内容: {data.get('accessories', '未提供')}, 类型: {type(data.get('accessories'))}")
 
@@ -332,6 +343,9 @@ class RentalHandlers:
 
             if 'destination' in data:
                 rental.destination = data['destination']
+
+            if 'damage_note' in data:
+                rental.damage_note = data['damage_note']
 
             if 'end_date' in data:
                 end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date()
@@ -445,6 +459,7 @@ class RentalHandlers:
                     'customer_name': rental.customer_name,
                     'customer_phone': rental.customer_phone,
                     'destination': rental.destination,
+                    'damage_note': rental.damage_note,
                     'end_date': rental.end_date.isoformat(),
                     'ship_out_tracking_no': rental.ship_out_tracking_no,
                     'ship_in_tracking_no': rental.ship_in_tracking_no,
