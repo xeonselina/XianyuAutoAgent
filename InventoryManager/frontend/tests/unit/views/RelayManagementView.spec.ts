@@ -81,7 +81,11 @@ const response: RelayCaseListResponse = {
   },
 }
 
-const expectedNotice = '你好，因为档期紧张，请你帮忙在2026-08-06将设备用顺丰标快寄给下一个客户，地址如下： 上海市浦东新区世纪大道 2 号。邮费由我们承担。为避免纠纷，寄出前可以拍个视频，拍下寄出的有什么东西。谢谢'
+const expectedNotice = `你好，因为档期紧张，请你帮忙在2026-08-06将设备用顺丰标快寄给下一个客户
+
+地址如下： 上海市浦东新区世纪大道 2 号。
+
+邮费由我们承担。为避免纠纷，寄出前可以拍个视频，拍下寄出的有什么东西。谢谢`
 
 const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
 const execCommandDescriptor = Object.getOwnPropertyDescriptor(document, 'execCommand')

@@ -87,7 +87,11 @@ function rentalPeriod(customer: RelayCustomer) {
 
 function relayNoticeText(relayCase: RelayCase) {
   const destination = relayCase.successor.destination?.trim() || '地址未填写'
-  return `你好，因为档期紧张，请你帮忙在${relayCase.planned_ship_date}将设备用顺丰标快寄给下一个客户，地址如下： ${destination}。邮费由我们承担。为避免纠纷，寄出前可以拍个视频，拍下寄出的有什么东西。谢谢`
+  return [
+    `你好，因为档期紧张，请你帮忙在${relayCase.planned_ship_date}将设备用顺丰标快寄给下一个客户`,
+    `地址如下： ${destination}。`,
+    '邮费由我们承担。为避免纠纷，寄出前可以拍个视频，拍下寄出的有什么东西。谢谢',
+  ].join('\n\n')
 }
 
 function fallbackCopy(text: string) {
@@ -572,7 +576,7 @@ h1 {
 .relay-notice-text {
   margin: 0;
   overflow-wrap: anywhere;
-  white-space: normal;
+  white-space: pre-wrap;
   user-select: text;
   color: #4b5563;
   line-height: 18px;
