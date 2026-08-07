@@ -55,7 +55,7 @@ export const useInspectionStore = defineStore('inspection', () => {
         // 初始化 checkItems（所有项默认已勾选）
         checkItems.value = response.data.checklist.map((item: ChecklistItem) => ({
           item_name: item.name,
-          is_checked: true,
+          is_checked: item.default_checked ?? true,
           item_order: item.order
         }))
 
@@ -87,7 +87,7 @@ export const useInspectionStore = defineStore('inspection', () => {
         // 初始化 checkItems（所有项默认已勾选）
         checkItems.value = response.data.checklist.map((item: ChecklistItem) => ({
           item_name: item.name,
-          is_checked: true,
+          is_checked: item.default_checked ?? true,
           item_order: item.order
         }))
 

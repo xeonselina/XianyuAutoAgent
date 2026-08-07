@@ -60,6 +60,7 @@ export interface UpdateInspectionRequest {
 export interface ChecklistItem {
   name: string
   order: number
+  default_checked?: boolean
 }
 
 /**
