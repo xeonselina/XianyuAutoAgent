@@ -1,4 +1,4 @@
-import ElementPlus from 'element-plus'
+import ElementPlus, { ElMessage } from 'element-plus'
 import { flushPromises, mount } from '@vue/test-utils'
 import { h } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -81,6 +81,20 @@ const response: RelayCaseListResponse = {
   },
 }
 
+const expectedNotice = '你好，因为档期紧张，请你帮忙在2026-08-06将设备用顺丰标快寄给下一个客户，地址如下： 上海市浦东新区世纪大道 2 号。邮费由我们承担。为避免纠纷，寄出前可以拍个视频，拍下寄出的有什么东西。谢谢'
+
+const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+const execCommandDescriptor = Object.getOwnPropertyDescriptor(document, 'execCommand')
+
+const restoreProperty = (
+  target: object,
+  key: PropertyKey,
+  descriptor: PropertyDescriptor | undefined,
+) => {
+  if (descriptor) Object.defineProperty(target, key, descriptor)
+  else Reflect.deleteProperty(target, key)
+}
+
 
 const mountView = () => mount(RelayManagementView, {
   global: {
@@ -106,6 +120,8 @@ const mountView = () => mount(RelayManagementView, {
 describe('RelayManagementView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.spyOn(ElMessage, 'success').mockImplementation(() => undefined as never)
+    vi.spyOn(ElMessage, 'error').mockImplementation(() => undefined as never)
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-05T08:00:00+08:00'))
     vi.mocked(listRelayCases).mockResolvedValue(response)
@@ -115,6 +131,9 @@ describe('RelayManagementView', () => {
   })
 
   afterEach(() => {
+    restoreProperty(navigator, 'clipboard', clipboardDescriptor)
+    restoreProperty(document, 'execCommand', execCommandDescriptor)
+    vi.restoreAllMocks()
     vi.useRealTimers()
   })
 
@@ -133,17 +152,17 @@ describe('RelayManagementView', () => {
     expect(wrapper.text()).toContain('接力管理')
   })
 
-  it('renders both customers, rental periods, equipment, dates and tracking', async () => {
+  it('renders relay details and notice without exposing buyer IDs', async () => {
     const wrapper = mountView()
     await flushPromises()
 
     expect(wrapper.find('[data-testid="relay-wide-table"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('鹿鹿')
     expect(wrapper.text()).toContain('王先生')
     expect(wrapper.text()).toContain('13800138000')
     expect(wrapper.text()).toContain('杭州市西湖区文三路 1 号')
-    expect(wrapper.text()).toContain('星星')
     expect(wrapper.text()).toContain('李女士')
+    expect(wrapper.text()).not.toContain('鹿鹿')
+    expect(wrapper.text()).not.toContain('星星')
     expect(wrapper.text()).toContain('X300U')
     expect(wrapper.text()).toContain('400MM 镜头')
     expect(wrapper.text()).toContain('手柄')
@@ -151,7 +170,44 @@ describe('RelayManagementView', () => {
     expect(wrapper.text()).toContain('2026-08-09')
     expect(wrapper.text()).toContain('SF1234567890')
     expect(wrapper.text()).toContain('运送中')
+    expect(wrapper.get('[data-testid="relay-notice-text"]').text()).toBe(expectedNotice)
     expect(wrapper.get('[data-testid="equipment-warning"]').text()).toContain('镜头组合不一致')
+  })
+
+  it('copies the relay notice with the Clipboard API', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="copy-relay-notice"]').trigger('click')
+    await flushPromises()
+
+    expect(writeText).toHaveBeenCalledWith(expectedNotice)
+    expect(ElMessage.success).toHaveBeenCalledWith('通知文案已复制')
+  })
+
+  it('falls back to textarea copying when the Clipboard API is unavailable', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: undefined,
+    })
+    const execCommand = vi.fn().mockReturnValue(true)
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: execCommand,
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="copy-relay-notice"]').trigger('click')
+    await flushPromises()
+
+    expect(execCommand).toHaveBeenCalledWith('copy')
+    expect(ElMessage.success).toHaveBeenCalledWith('通知文案已复制')
   })
 
   it('batch refreshes persisted shipped cases on the current page', async () => {

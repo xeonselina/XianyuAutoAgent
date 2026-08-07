@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, EditPen, Refresh } from '@element-plus/icons-vue'
+import { ArrowLeft, CopyDocument, EditPen, Refresh } from '@element-plus/icons-vue'
 
 import {
   listRelayCases,
@@ -83,6 +83,44 @@ function accessoryText(accessories: RelayAccessory[]) {
 
 function rentalPeriod(customer: RelayCustomer) {
   return `${customer.start_date} → ${customer.end_date}`
+}
+
+function relayNoticeText(relayCase: RelayCase) {
+  const destination = relayCase.successor.destination?.trim() || '地址未填写'
+  return `你好，因为档期紧张，请你帮忙在${relayCase.planned_ship_date}将设备用顺丰标快寄给下一个客户，地址如下： ${destination}。邮费由我们承担。为避免纠纷，寄出前可以拍个视频，拍下寄出的有什么东西。谢谢`
+}
+
+function fallbackCopy(text: string) {
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  try {
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    textarea.remove()
+  }
+}
+
+async function copyRelayNotice(relayCase: RelayCase) {
+  const text = relayNoticeText(relayCase)
+  let copied = false
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      copied = true
+    }
+  } catch {
+    copied = false
+  }
+  if (!copied) copied = fallbackCopy(text)
+  if (copied) ElMessage.success('通知文案已复制')
+  else ElMessage.error('复制失败，请手动选择文案复制')
 }
 
 function statusLabel(status: RelayCaseStatus) {
@@ -257,10 +295,7 @@ onMounted(loadCases)
 
         <el-table-column label="前一个客户" min-width="250">
           <template #default="{ row }">
-            <div class="customer-name">
-              {{ row.predecessor.buyer_id || '-' }}
-              <span>{{ row.predecessor.customer_name || '-' }}</span>
-            </div>
+            <div class="customer-name">{{ row.predecessor.customer_name || '-' }}</div>
             <div class="secondary">{{ rentalPeriod(row.predecessor) }}</div>
             <div>{{ row.predecessor.customer_phone || '-' }}</div>
             <div class="address" :title="row.predecessor.destination || ''">
@@ -271,10 +306,7 @@ onMounted(loadCases)
 
         <el-table-column label="后一个客户" min-width="250">
           <template #default="{ row }">
-            <div class="customer-name">
-              {{ row.successor.buyer_id || '-' }}
-              <span>{{ row.successor.customer_name || '-' }}</span>
-            </div>
+            <div class="customer-name">{{ row.successor.customer_name || '-' }}</div>
             <div class="secondary">{{ rentalPeriod(row.successor) }}</div>
             <div>{{ row.successor.customer_phone || '-' }}</div>
             <div class="address" :title="row.successor.destination || ''">
@@ -300,6 +332,26 @@ onMounted(loadCases)
             >
               <span aria-hidden="true">⚠</span>
               {{ relayEquipmentWarningText(row) }}
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="通知文案" min-width="330">
+          <template #default="{ row }">
+            <div class="relay-notice">
+              <el-button
+                type="primary"
+                size="small"
+                plain
+                :icon="CopyDocument"
+                data-testid="copy-relay-notice"
+                @click="copyRelayNotice(row)"
+              >
+                复制
+              </el-button>
+              <p class="relay-notice-text" data-testid="relay-notice-text">
+                {{ relayNoticeText(row) }}
+              </p>
             </div>
           </template>
         </el-table-column>
@@ -465,7 +517,6 @@ h1 {
   font-weight: 700;
 }
 
-.customer-name span,
 .device-name span {
   margin-left: 5px;
   color: #4b5563;
@@ -509,6 +560,22 @@ h1 {
 
 .equipment-warning span {
   margin-right: 3px;
+}
+
+.relay-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.relay-notice-text {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  user-select: text;
+  color: #4b5563;
+  line-height: 18px;
 }
 
 .pagination-row {
