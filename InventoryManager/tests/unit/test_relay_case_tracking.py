@@ -76,13 +76,13 @@ def seed_shipped_case(db_session, phone="13800138000"):
     )
     db_session.add_all([first, second])
     db_session.commit()
-    relay_case = RelayCaseService.update_case(
+    outcome = RelayCaseService.update_case(
         first.id,
         second.id,
         "shipped",
         sf_tracking_number="SF1234567890",
     )
-    return relay_case
+    return outcome.relay_case
 
 
 def test_refresh_uses_predecessor_phone_and_does_not_complete(

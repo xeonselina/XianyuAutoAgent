@@ -65,7 +65,10 @@ const relayList = {
   },
 }
 
-async function mockRelayApi(page: Page) {
+async function mockRelayApi(
+  page: Page,
+  xianyuSync?: { attempted: boolean; success: boolean; message: string },
+) {
   const listRequests: string[] = []
   const updateBodies: unknown[] = []
   let batchRefreshes = 0
@@ -91,6 +94,7 @@ async function mockRelayApi(page: Page) {
             status: 'shipped',
             sf_tracking_number: 'SF999',
             tracking: { number: 'SF999', status: 'unknown', summary: null, last_checked_at: null },
+            xianyu_sync: xianyuSync,
           },
         },
       })
@@ -166,7 +170,9 @@ test.describe('mobile relay management', () => {
     await page.getByTestId('range-next-15').click()
     await expect.poll(() => api.listRequests.length).toBe(3)
 
-    const actionHeights = await page.locator('[data-testid="relay-card-actions"] .van-button').evaluateAll(
+    const actionButtons = page.locator('[data-testid="relay-card-actions"] .van-button')
+    await expect(actionButtons).toHaveCount(2)
+    const actionHeights = await actionButtons.evaluateAll(
       buttons => buttons.map(button => button.getBoundingClientRect().height),
     )
     expect(actionHeights).toHaveLength(2)
@@ -174,7 +180,11 @@ test.describe('mobile relay management', () => {
   })
 
   test('requires a tracking number before saving shipped', async ({ page }) => {
-    const api = await mockRelayApi(page)
+    const api = await mockRelayApi(page, {
+      attempted: true,
+      success: true,
+      message: 'ok',
+    })
     await page.goto('/mobile/relay')
 
     await page.getByTestId('relay-maintain').click()
@@ -188,6 +198,25 @@ test.describe('mobile relay management', () => {
     await page.getByTestId('save-relay-status').click()
     await expect.poll(() => api.updateBodies.length).toBe(1)
     expect(api.updateBodies[0]).toEqual({ status: 'shipped', sf_tracking_number: 'SF999' })
+    await expect(page.getByText('接力状态已更新，已同步闲鱼')).toBeVisible()
+    await expect.poll(() => api.listRequests.length).toBe(2)
+  })
+
+  test('warns when local shipping succeeds but xianyu reporting fails', async ({ page }) => {
+    const api = await mockRelayApi(page, {
+      attempted: true,
+      success: false,
+      message: '闲鱼接口繁忙',
+    })
+    await page.goto('/mobile/relay')
+
+    await page.getByTestId('relay-maintain').click()
+    await page.getByTestId('save-relay-status').click()
+
+    await expect.poll(() => api.updateBodies.length).toBe(1)
+    await expect(page.getByText('接力已标记已寄出，但闲鱼上报失败：闲鱼接口繁忙')).toBeVisible()
+    await expect(page.getByTestId('save-relay-status')).toBeHidden()
+    await expect.poll(() => api.listRequests.length).toBe(2)
   })
 
   test('refreshes current-page logistics and is reachable from the bottom tab', async ({ page }) => {

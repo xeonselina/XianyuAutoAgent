@@ -14,6 +14,7 @@ from app.services.relay.relay_case_service import (
     RelayBindingConflictError,
     RelayCaseService,
 )
+from app.services import xianyu_order_service
 from tests.support.test_database import (
     assert_current_user_has_test_only_grants,
     build_mysql_test_config,
@@ -93,9 +94,10 @@ def test_agreed_creates_binding_audit_and_reached_milestones(app, db_session):
     first, second = seed_pair(db_session)
     now = datetime(2026, 8, 5, 9, 30)
 
-    relay_case = RelayCaseService.update_case(
+    outcome = RelayCaseService.update_case(
         first.id, second.id, "agreed", now=now
     )
+    relay_case = outcome.relay_case
 
     binding = RentalRelayBinding.query.filter_by(
         predecessor_rental_id=first.id,
@@ -125,12 +127,13 @@ def test_rollback_before_agreed_removes_binding_and_later_milestones(
         now=datetime(2026, 8, 5, 9),
     )
 
-    relay_case = RelayCaseService.update_case(
+    outcome = RelayCaseService.update_case(
         first.id,
         second.id,
         "notified",
         now=datetime(2026, 8, 6, 10),
     )
+    relay_case = outcome.relay_case
 
     assert RentalRelayBinding.query.count() == 0
     assert relay_case.status == "notified"
@@ -149,6 +152,220 @@ def test_shipped_requires_tracking_number(app, db_session):
 
     assert RentalRelayCase.query.count() == 0
     assert RentalRelayBinding.query.count() == 0
+
+
+def test_first_shipped_syncs_successor_and_reports_xianyu_success(
+    app, db_session, monkeypatch
+):
+    first, second = seed_pair(db_session)
+    second.xianyu_order_no = "5126917575981011333"
+    original_ship_out_time = second.ship_out_time
+    db_session.commit()
+    shipped_rentals = []
+
+    class FakeXianyuService:
+        def ship_order(self, rental):
+            shipped_rentals.append(rental.id)
+            return {"success": True, "message": "ok", "data": {}}
+
+    monkeypatch.setattr(
+        xianyu_order_service,
+        "get_xianyu_service",
+        lambda: FakeXianyuService(),
+    )
+
+    outcome = RelayCaseService.update_case(
+        first.id,
+        second.id,
+        "shipped",
+        sf_tracking_number="SF1234567890",
+        now=datetime(2026, 8, 9, 13, 56),
+    )
+
+    db_session.refresh(second)
+    assert second.ship_out_tracking_no == "SF1234567890"
+    assert second.status == "shipped"
+    assert second.ship_out_time == original_ship_out_time
+    assert shipped_rentals == [second.id]
+    assert outcome.xianyu_sync == {
+        "attempted": True,
+        "success": True,
+        "message": "ok",
+    }
+
+
+def test_first_shipped_fills_missing_successor_ship_out_time(
+    app, db_session, monkeypatch
+):
+    first, second = seed_pair(db_session)
+    RelayCaseService.update_case(first.id, second.id, "agreed")
+    second.ship_out_time = None
+    db_session.commit()
+    monkeypatch.setattr(
+        xianyu_order_service,
+        "get_xianyu_service",
+        lambda: type(
+            "FakeXianyuService",
+            (),
+            {"ship_order": lambda self, rental: {
+                "success": True,
+                "message": "ok",
+            }},
+        )(),
+    )
+    shipped_at = datetime(2026, 8, 9, 14, 5)
+
+    RelayCaseService.update_case(
+        first.id,
+        second.id,
+        "shipped",
+        sf_tracking_number="SF2234567890",
+        now=shipped_at,
+    )
+
+    db_session.refresh(second)
+    assert second.ship_out_time == shipped_at
+
+
+def test_xianyu_failure_keeps_successor_shipped(
+    app, db_session, monkeypatch
+):
+    first, second = seed_pair(db_session)
+    second.xianyu_order_no = "3315624386722187397"
+    db_session.commit()
+    monkeypatch.setattr(
+        xianyu_order_service,
+        "get_xianyu_service",
+        lambda: type(
+            "FakeXianyuService",
+            (),
+            {"ship_order": lambda self, rental: {
+                "success": False,
+                "message": "闲鱼接口繁忙",
+                "code": 500,
+            }},
+        )(),
+    )
+
+    outcome = RelayCaseService.update_case(
+        first.id,
+        second.id,
+        "shipped",
+        sf_tracking_number="SF3234567890",
+    )
+
+    db_session.refresh(second)
+    assert outcome.relay_case.status == "shipped"
+    assert second.status == "shipped"
+    assert second.ship_out_tracking_no == "SF3234567890"
+    assert outcome.xianyu_sync == {
+        "attempted": True,
+        "success": False,
+        "message": "闲鱼接口繁忙",
+    }
+
+
+def test_xianyu_exception_keeps_successor_shipped(
+    app, db_session, monkeypatch, caplog
+):
+    first, second = seed_pair(db_session)
+
+    class FailingXianyuService:
+        def ship_order(self, rental):
+            raise RuntimeError("闲鱼网络超时")
+
+    monkeypatch.setattr(
+        xianyu_order_service,
+        "get_xianyu_service",
+        lambda: FailingXianyuService(),
+    )
+
+    outcome = RelayCaseService.update_case(
+        first.id,
+        second.id,
+        "shipped",
+        sf_tracking_number="SF4234567890",
+    )
+
+    db_session.refresh(second)
+    assert second.status == "shipped"
+    assert outcome.xianyu_sync == {
+        "attempted": True,
+        "success": False,
+        "message": "闲鱼网络超时",
+    }
+    assert "接力后一单同步闲鱼失败" in caplog.text
+
+
+def test_repeated_shipped_does_not_report_xianyu_twice(
+    app, db_session, monkeypatch
+):
+    first, second = seed_pair(db_session)
+    shipped_rentals = []
+
+    class FakeXianyuService:
+        def ship_order(self, rental):
+            shipped_rentals.append(rental.id)
+            return {"success": True, "message": "ok"}
+
+    fake_service = FakeXianyuService()
+    monkeypatch.setattr(
+        xianyu_order_service,
+        "get_xianyu_service",
+        lambda: fake_service,
+    )
+
+    first_outcome = RelayCaseService.update_case(
+        first.id,
+        second.id,
+        "shipped",
+        sf_tracking_number="SF5234567890",
+    )
+    repeated_outcome = RelayCaseService.update_case(
+        first.id,
+        second.id,
+        "shipped",
+        sf_tracking_number="SF5234567890",
+    )
+
+    assert first_outcome.xianyu_sync["attempted"] is True
+    assert repeated_outcome.xianyu_sync == {
+        "attempted": False,
+        "success": False,
+        "message": "",
+    }
+    assert shipped_rentals == [second.id]
+
+
+def test_direct_completed_does_not_update_successor_or_report_xianyu(
+    app, db_session, monkeypatch
+):
+    first, second = seed_pair(db_session)
+    shipped_rentals = []
+
+    class FakeXianyuService:
+        def ship_order(self, rental):
+            shipped_rentals.append(rental.id)
+            return {"success": True, "message": "ok"}
+
+    monkeypatch.setattr(
+        xianyu_order_service,
+        "get_xianyu_service",
+        lambda: FakeXianyuService(),
+    )
+
+    outcome = RelayCaseService.update_case(
+        first.id,
+        second.id,
+        "completed",
+        sf_tracking_number="SF6234567890",
+    )
+
+    db_session.refresh(second)
+    assert second.status == "not_shipped"
+    assert second.ship_out_tracking_no is None
+    assert outcome.xianyu_sync["attempted"] is False
+    assert shipped_rentals == []
 
 
 def test_schedule_changed_case_cannot_newly_agree(app, db_session):
@@ -172,7 +389,9 @@ def test_schedule_changed_case_cannot_newly_agree(app, db_session):
 
 def test_existing_agreed_case_can_ship_after_schedule_changes(app, db_session):
     first, second = seed_pair(db_session)
-    relay_case = RelayCaseService.update_case(first.id, second.id, "agreed")
+    relay_case = RelayCaseService.update_case(
+        first.id, second.id, "agreed"
+    ).relay_case
     second.ship_out_time = first.ship_in_time
     db_session.commit()
 
@@ -181,7 +400,7 @@ def test_existing_agreed_case_can_ship_after_schedule_changes(app, db_session):
         second.id,
         "shipped",
         sf_tracking_number="SF9876543210",
-    )
+    ).relay_case
 
     assert updated.id == relay_case.id
     assert updated.status == "shipped"
@@ -235,6 +454,86 @@ def test_audit_failure_rolls_back_case_and_binding(app, db_session, monkeypatch)
     assert RentalRelayCase.query.count() == 0
     assert RentalRelayBinding.query.count() == 0
     assert AuditLog.query.count() == 0
+
+
+def test_shipped_audit_failure_rolls_back_successor_and_skips_xianyu(
+    app, db_session, monkeypatch
+):
+    first, second = seed_pair(db_session)
+    shipped_rentals = []
+
+    class FakeXianyuService:
+        def ship_order(self, rental):
+            shipped_rentals.append(rental.id)
+            return {"success": True, "message": "ok"}
+
+    def fail_audit(_cls, *_args):
+        raise RuntimeError("注入失败")
+
+    monkeypatch.setattr(
+        xianyu_order_service,
+        "get_xianyu_service",
+        lambda: FakeXianyuService(),
+    )
+    monkeypatch.setattr(
+        RelayCaseService, "_add_audit", classmethod(fail_audit)
+    )
+
+    with pytest.raises(RuntimeError, match="注入失败"):
+        RelayCaseService.update_case(
+            first.id,
+            second.id,
+            "shipped",
+            sf_tracking_number="SF7234567890",
+        )
+
+    db_session.refresh(second)
+    assert second.status == "not_shipped"
+    assert second.ship_out_tracking_no is None
+    assert RentalRelayCase.query.count() == 0
+    assert RentalRelayBinding.query.count() == 0
+    assert shipped_rentals == []
+
+
+def test_shipped_commit_failure_rolls_back_successor_and_skips_xianyu(
+    app, db_session, monkeypatch
+):
+    first, second = seed_pair(db_session)
+    shipped_rentals = []
+
+    class FakeXianyuService:
+        def ship_order(self, rental):
+            shipped_rentals.append(rental.id)
+            return {"success": True, "message": "ok"}
+
+    monkeypatch.setattr(
+        xianyu_order_service,
+        "get_xianyu_service",
+        lambda: FakeXianyuService(),
+    )
+    real_commit = db.session.commit
+    monkeypatch.setattr(
+        db.session,
+        "commit",
+        lambda: (_ for _ in ()).throw(RuntimeError("提交失败")),
+    )
+
+    with pytest.raises(RuntimeError, match="提交失败"):
+        RelayCaseService.update_case(
+            first.id,
+            second.id,
+            "shipped",
+            sf_tracking_number="SF8234567890",
+        )
+
+    monkeypatch.setattr(db.session, "commit", real_commit)
+    db.session.expire_all()
+    persisted_successor = db.session.get(Rental, second.id)
+    assert persisted_successor.status == "not_shipped"
+    assert persisted_successor.ship_out_tracking_no is None
+    assert RentalRelayCase.query.count() == 0
+    assert RentalRelayBinding.query.count() == 0
+    assert shipped_rentals == []
 
 
 def test_invalid_status_does_not_create_case(app, db_session):

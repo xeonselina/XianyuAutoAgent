@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 import re
 
+from flask import current_app
+
 from app import db
 from app.models.audit_log import AuditLog
 from app.models.rental import Rental
@@ -42,6 +44,12 @@ class RelayCandidate:
     @property
     def pair(self):
         return self.predecessor.id, self.successor.id
+
+
+@dataclass(frozen=True)
+class RelayCaseUpdateOutcome:
+    relay_case: RentalRelayCase
+    xianyu_sync: dict
 
 
 class RelayCaseService:
@@ -337,6 +345,34 @@ class RelayCaseService:
             },
         ))
 
+    @staticmethod
+    def _sync_successor_to_xianyu(successor):
+        from app.services import xianyu_order_service
+
+        try:
+            result = xianyu_order_service.get_xianyu_service().ship_order(
+                successor
+            )
+            sync_success = bool(result.get("success"))
+            message = result.get("message") or (
+                "ok" if sync_success else "闲鱼发货失败"
+            )
+            return {
+                "attempted": True,
+                "success": sync_success,
+                "message": str(message),
+            }
+        except Exception as exc:
+            current_app.logger.exception(
+                "接力后一单同步闲鱼失败: successor_rental_id=%s",
+                successor.id,
+            )
+            return {
+                "attempted": True,
+                "success": False,
+                "message": str(exc) or "闲鱼发货失败",
+            }
+
     @classmethod
     def update_case(
         cls,
@@ -374,6 +410,10 @@ class RelayCaseService:
                 if relay_case
                 else ("agreed" if exact_binding else "pending")
             )
+            entering_shipped = (
+                STATUS_ORDER[old_status] < STATUS_ORDER["shipped"]
+                and status == "shipped"
+            )
 
             crossing_into_agreed = (
                 STATUS_ORDER[old_status] < STATUS_ORDER["agreed"]
@@ -401,6 +441,11 @@ class RelayCaseService:
                 if not tracking_number:
                     raise ValueError("已寄出必须录入顺丰运单号")
                 relay_case.sf_tracking_number = tracking_number
+                if entering_shipped:
+                    successor.ship_out_tracking_no = tracking_number
+                    successor.status = "shipped"
+                    if successor.ship_out_time is None:
+                        successor.ship_out_time = now
 
             relay_case.status = status
             cls._update_milestones(relay_case, status, now)
@@ -408,10 +453,21 @@ class RelayCaseService:
             db.session.flush()
             cls._add_audit(relay_case, old_status, status)
             db.session.commit()
-            return relay_case
         except Exception:
             db.session.rollback()
             raise
+
+        xianyu_sync = {
+            "attempted": False,
+            "success": False,
+            "message": "",
+        }
+        if entering_shipped:
+            xianyu_sync = cls._sync_successor_to_xianyu(successor)
+        return RelayCaseUpdateOutcome(
+            relay_case=relay_case,
+            xianyu_sync=xianyu_sync,
+        )
 
     @classmethod
     def refresh_tracking(cls, case_id, now=None):

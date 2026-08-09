@@ -123,17 +123,20 @@ class RelayCaseHandlers:
         if not status:
             return bad_request("缺少接力状态")
         try:
-            relay_case = RelayCaseService.update_case(
+            outcome = RelayCaseService.update_case(
                 predecessor_id,
                 successor_id,
                 status,
                 sf_tracking_number=data.get("sf_tracking_number"),
             )
+            relay_case = outcome.relay_case
             tracking = None
             if status == "shipped":
                 tracking = RelayCaseService.refresh_tracking(relay_case.id)
+            payload = cls._case_payload(relay_case, tracking)
+            payload["xianyu_sync"] = outcome.xianyu_sync
             return success(
-                data=cls._case_payload(relay_case, tracking),
+                data=payload,
                 message="接力状态已更新",
             )
         except RelayBindingConflictError as exc:

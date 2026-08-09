@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { showConfirmDialog, showSuccessToast } from 'vant'
+import { showConfirmDialog, showSuccessToast, showToast } from 'vant'
 
 import { updateRelayCase } from '@/api/relayCases'
 import type { RelayCase, RelayCaseStatus } from '@/types/relayCase'
@@ -83,11 +83,22 @@ async function save() {
 
   saving.value = true
   try {
-    await updateRelayCase(relayCase.predecessor.id, relayCase.successor.id, {
+    const result = await updateRelayCase(relayCase.predecessor.id, relayCase.successor.id, {
       status: targetStatus.value,
       sf_tracking_number: needsTracking.value ? trackingNumber.value.trim() : undefined,
     })
-    showSuccessToast('接力状态已更新')
+    const xianyuSync = result.xianyu_sync
+    if (xianyuSync?.attempted && xianyuSync.success) {
+      showSuccessToast('接力状态已更新，已同步闲鱼')
+    } else if (xianyuSync?.attempted) {
+      showToast({
+        message: `接力已标记已寄出，但闲鱼上报失败：${xianyuSync.message || '未知错误'}`,
+        duration: 5000,
+        wordBreak: 'break-word',
+      })
+    } else {
+      showSuccessToast('接力状态已更新')
+    }
     emit('saved')
     close()
   } catch (error) {

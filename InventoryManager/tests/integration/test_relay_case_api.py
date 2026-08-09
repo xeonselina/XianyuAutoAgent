@@ -9,6 +9,7 @@ from app.models.device_model import DeviceModel
 from app.models.rental import Rental
 from app.models.rental_relay_binding import RentalRelayBinding
 from app.models.rental_relay_case import RentalRelayCase
+from app.services import xianyu_order_service
 from app.services.relay.relay_case_service import RelayCaseService
 from app.services.shipping.sf_tracking_service import SFTrackingService
 from tests.support.test_database import (
@@ -198,6 +199,20 @@ def test_shipped_saves_then_refreshes_tracking(
     client, db_session, monkeypatch
 ):
     first, second = seed_pair(db_session, "ship")
+    second.xianyu_order_no = "5126917575981011333"
+    db_session.commit()
+    shipped_rentals = []
+
+    class FakeXianyuService:
+        def ship_order(self, rental):
+            shipped_rentals.append(rental.id)
+            return {"success": True, "message": "ok", "data": {}}
+
+    monkeypatch.setattr(
+        xianyu_order_service,
+        "get_xianyu_service",
+        lambda: FakeXianyuService(),
+    )
     monkeypatch.setattr(
         SFTrackingService,
         "query",
@@ -216,7 +231,79 @@ def test_shipped_saves_then_refreshes_tracking(
     payload = response.get_json()["data"]
     assert payload["status"] == "shipped"
     assert payload["tracking"]["status"] == "in_transit"
+    assert payload["xianyu_sync"] == {
+        "attempted": True,
+        "success": True,
+        "message": "ok",
+    }
+    db_session.refresh(second)
+    assert second.status == "shipped"
+    assert second.ship_out_tracking_no == "SF1234567890"
+    assert shipped_rentals == [second.id]
     assert RentalRelayBinding.query.count() == 1
+
+
+@pytest.mark.parametrize(
+    ("xianyu_result", "expected_message"),
+    [
+        (
+            {"success": False, "message": "没有闲鱼订单号", "skipped": True},
+            "没有闲鱼订单号",
+        ),
+        (
+            {"success": False, "message": "闲鱼接口繁忙", "code": 500},
+            "闲鱼接口繁忙",
+        ),
+        (RuntimeError("闲鱼网络超时"), "闲鱼网络超时"),
+    ],
+)
+def test_shipped_xianyu_failure_keeps_local_state_and_refreshes_tracking(
+    client,
+    db_session,
+    monkeypatch,
+    xianyu_result,
+    expected_message,
+):
+    first, second = seed_pair(db_session, "ship-xianyu-failure")
+    second.xianyu_order_no = "3315624386722187397"
+    db_session.commit()
+
+    class FakeXianyuService:
+        def ship_order(self, rental):
+            if isinstance(xianyu_result, Exception):
+                raise xianyu_result
+            return xianyu_result
+
+    monkeypatch.setattr(
+        xianyu_order_service,
+        "get_xianyu_service",
+        lambda: FakeXianyuService(),
+    )
+    monkeypatch.setattr(
+        SFTrackingService,
+        "query",
+        classmethod(lambda cls, number, phone: sf_route(number)),
+    )
+
+    response = client.put(
+        f"/api/relay-cases/{first.id}/{second.id}",
+        json={
+            "status": "shipped",
+            "sf_tracking_number": "SF2234567890",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()["data"]
+    assert payload["xianyu_sync"] == {
+        "attempted": True,
+        "success": False,
+        "message": expected_message,
+    }
+    assert payload["tracking"]["status"] == "in_transit"
+    db_session.refresh(second)
+    assert second.status == "shipped"
+    assert second.ship_out_tracking_no == "SF2234567890"
 
 
 def test_binding_conflict_returns_409(client, db_session):
@@ -277,11 +364,11 @@ def test_single_and_batch_tracking_refresh_support_partial_failures(
         second.id,
         "shipped",
         sf_tracking_number="SF1234567890",
-    )
+    ).relay_case
     agreed_pair = seed_pair(db_session, "agreed")
     agreed = RelayCaseService.update_case(
         agreed_pair[0].id, agreed_pair[1].id, "agreed"
-    )
+    ).relay_case
     monkeypatch.setattr(
         SFTrackingService,
         "query",

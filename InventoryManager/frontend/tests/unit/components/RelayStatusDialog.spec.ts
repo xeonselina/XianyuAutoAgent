@@ -1,7 +1,7 @@
-import ElementPlus, { ElSelect } from 'element-plus'
+import ElementPlus, { ElMessage, ElSelect } from 'element-plus'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import RelayStatusDialog from '@/components/relay/RelayStatusDialog.vue'
 import type { RelayCase } from '@/types/relayCase'
@@ -84,6 +84,8 @@ const mountDialog = (relayCase: RelayCase = baseCase) => mount(
 describe('RelayStatusDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.spyOn(ElMessage, 'success').mockImplementation(() => undefined as never)
+    vi.spyOn(ElMessage, 'warning').mockImplementation(() => undefined as never)
     vi.mocked(updateRelayCase).mockResolvedValue({
       case_id: 7,
       predecessor_rental_id: 1,
@@ -97,7 +99,16 @@ describe('RelayStatusDialog', () => {
       agreed_at: null,
       shipped_at: null,
       completed_at: null,
+      xianyu_sync: {
+        attempted: true,
+        success: true,
+        message: 'ok',
+      },
     })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it('requires a tracking number before saving shipped', async () => {
@@ -122,5 +133,51 @@ describe('RelayStatusDialog', () => {
       sf_tracking_number: 'SF123',
     })
     expect(wrapper.emitted('saved')).toHaveLength(1)
+  })
+
+  it('reports successful xianyu synchronization', async () => {
+    const wrapper = mountDialog()
+    wrapper.findComponent(ElSelect).vm.$emit('update:modelValue', 'shipped')
+    await nextTick()
+    await wrapper.get('[data-testid="tracking-number"]').setValue('SF123')
+    await wrapper.get('[data-testid="save-relay-status"]').trigger('click')
+    await flushPromises()
+
+    expect(ElMessage.success).toHaveBeenCalledWith('接力状态已更新，已同步闲鱼')
+    expect(ElMessage.warning).not.toHaveBeenCalled()
+  })
+
+  it('warns about xianyu failure but still saves and closes', async () => {
+    vi.mocked(updateRelayCase).mockResolvedValueOnce({
+      case_id: 7,
+      predecessor_rental_id: 1,
+      successor_rental_id: 2,
+      status: 'shipped',
+      sf_tracking_number: 'SF123',
+      tracking: {
+        number: 'SF123', status: 'unknown', summary: null, last_checked_at: null,
+      },
+      notified_at: null,
+      agreed_at: null,
+      shipped_at: null,
+      completed_at: null,
+      xianyu_sync: {
+        attempted: true,
+        success: false,
+        message: '闲鱼接口繁忙',
+      },
+    })
+    const wrapper = mountDialog()
+    wrapper.findComponent(ElSelect).vm.$emit('update:modelValue', 'shipped')
+    await nextTick()
+    await wrapper.get('[data-testid="tracking-number"]').setValue('SF123')
+    await wrapper.get('[data-testid="save-relay-status"]').trigger('click')
+    await flushPromises()
+
+    expect(ElMessage.warning).toHaveBeenCalledWith(
+      '接力已标记已寄出，但闲鱼上报失败：闲鱼接口繁忙',
+    )
+    expect(wrapper.emitted('saved')).toHaveLength(1)
+    expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
   })
 })

@@ -89,7 +89,16 @@ async function save() {
           : undefined,
       },
     )
-    ElMessage.success('接力状态已更新')
+    const xianyuSync = result.xianyu_sync
+    if (xianyuSync?.attempted && xianyuSync.success) {
+      ElMessage.success('接力状态已更新，已同步闲鱼')
+    } else if (xianyuSync?.attempted) {
+      ElMessage.warning(
+        `接力已标记已寄出，但闲鱼上报失败：${xianyuSync.message || '未知错误'}`,
+      )
+    } else {
+      ElMessage.success('接力状态已更新')
+    }
     emit('saved', result)
     close()
   } catch (error) {

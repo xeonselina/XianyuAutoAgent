@@ -29,6 +29,12 @@ export interface RelayTracking {
   last_checked_at: string | null
 }
 
+export interface RelayXianyuSync {
+  attempted: boolean
+  success: boolean
+  message: string
+}
+
 export interface RelayCase {
   case_id: number | null
   pair_key: string
@@ -77,6 +83,7 @@ export interface RelayCaseMutationResponse {
   status: RelayCaseStatus
   sf_tracking_number: string | null
   tracking: RelayTracking
+  xianyu_sync?: RelayXianyuSync
 }
 
 export interface RelayTrackingBatchResponse {
