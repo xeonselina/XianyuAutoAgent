@@ -79,6 +79,14 @@
         <el-table-column label="设备状态" width="130">
           <template #default="{ row }">
             <span v-if="!row.has_previous_rental">-</span>
+            <el-tag
+              v-else-if="row.previous_rental_status === 'returned'"
+              color="#7232dd"
+              effect="dark"
+              size="small"
+            >
+              寄回在途
+            </el-tag>
             <el-tag v-else-if="row.previous_rental_completed" type="success" size="small">
               ✓ 设备在库
             </el-tag>
