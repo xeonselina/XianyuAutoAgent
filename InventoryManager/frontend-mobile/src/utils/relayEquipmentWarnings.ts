@@ -1,6 +1,13 @@
-import type { RelayCase } from '@/types/relayCase'
+import type { RelayAccessory } from '@/types/relayCase'
 
-export function relayEquipmentWarningText(relayCase: RelayCase): string {
+interface RelayEquipmentSnapshot {
+  lens_combo: string | null
+  accessories: RelayAccessory[]
+  successor_lens_combo: string | null
+  successor_accessories: RelayAccessory[]
+}
+
+export function relayEquipmentWarningText(relayCase: RelayEquipmentSnapshot): string {
   const warnings: string[] = []
   if (relayCase.lens_combo !== relayCase.successor_lens_combo) {
     warnings.push('镜头组合不一致')

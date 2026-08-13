@@ -15,6 +15,18 @@ def list_relay_cases():
     return RelayCaseHandlers.handle_list()
 
 
+@bp.route("/api/relay-cases/manual-options", methods=["GET"])
+@handle_response
+def list_manual_relay_options():
+    return RelayCaseHandlers.handle_manual_options()
+
+
+@bp.route("/api/relay-cases/manual", methods=["POST"])
+@handle_response
+def create_manual_relay_case():
+    return RelayCaseHandlers.handle_manual_create()
+
+
 @bp.route(
     "/api/relay-cases/<int:predecessor_id>/<int:successor_id>",
     methods=["PUT"],

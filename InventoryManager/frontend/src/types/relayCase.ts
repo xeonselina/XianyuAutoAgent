@@ -48,6 +48,7 @@ export interface RelayCase {
   pair_key: string
   status: RelayCaseStatus
   binding_id: number | null
+  source?: 'automatic' | 'manual'
   schedule_changed: boolean
   overlap_days: number
   planned_ship_date: string
@@ -62,6 +63,29 @@ export interface RelayCase {
   tracking: RelayTracking
   created_at: string | null
   updated_at: string | null
+}
+
+export interface ManualRelayRental extends RelayCustomer {
+  status: 'not_shipped' | 'scheduled_for_shipping' | 'shipped' | 'returned'
+  ship_out_time: string | null
+  ship_in_time: string | null
+}
+
+export interface ManualRelayOption {
+  device: RelayDevice
+  predecessor: ManualRelayRental
+  successor: ManualRelayRental
+  lens_combo: string | null
+  accessories: RelayAccessory[]
+  successor_lens_combo: string | null
+  successor_accessories: RelayAccessory[]
+  can_create: boolean
+  blocked_reason: string | null
+}
+
+export interface ManualRelayOptionsResponse {
+  items: ManualRelayOption[]
+  total: number
 }
 
 export interface RelayCaseListResponse {

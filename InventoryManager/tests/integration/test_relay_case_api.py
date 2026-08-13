@@ -4,6 +4,7 @@ from datetime import date, datetime, time, timedelta
 import pytest
 
 from app import create_app, db
+from app.models.audit_log import AuditLog
 from app.models.device import Device
 from app.models.device_model import DeviceModel
 from app.models.rental import Rental
@@ -180,6 +181,106 @@ def test_update_creates_notified_case(client, db_session):
         predecessor_rental_id=first.id,
         successor_rental_id=second.id,
     ).one().notified_at is not None
+
+
+def prepare_manual_pair(db_session, suffix="manual"):
+    first, second = seed_pair(db_session, suffix)
+    first.status = "returned"
+    second.status = "not_shipped"
+    second.ship_out_time = first.ship_in_time + timedelta(days=1)
+    second.start_date = second.ship_out_time.date() + timedelta(days=1)
+    second.end_date = second.start_date + timedelta(days=4)
+    db_session.commit()
+    return first, second
+
+
+def test_manual_options_resolve_returned_current_and_next_rental(
+    client, db_session
+):
+    first, second = prepare_manual_pair(db_session, "manual-options")
+
+    response = client.get("/api/relay-cases/manual-options")
+
+    assert response.status_code == 200
+    payload = response.get_json()["data"]
+    assert payload["total"] == 1
+    option = payload["items"][0]
+    assert option["device"]["id"] == first.device_id
+    assert option["predecessor"]["id"] == first.id
+    assert option["predecessor"]["status"] == "returned"
+    assert option["successor"]["id"] == second.id
+    assert option["successor"]["status"] == "not_shipped"
+    assert option["can_create"] is True
+    assert option["blocked_reason"] is None
+
+
+def test_manual_create_binds_pair_as_agreed_and_keeps_it_visible(
+    client, db_session
+):
+    first, second = prepare_manual_pair(db_session, "manual-create")
+
+    response = client.post(
+        "/api/relay-cases/manual",
+        json={"device_id": first.device_id},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()["data"]
+    assert payload["predecessor_rental_id"] == first.id
+    assert payload["successor_rental_id"] == second.id
+    assert payload["status"] == "agreed"
+    assert RentalRelayBinding.query.filter_by(
+        predecessor_rental_id=first.id,
+        successor_rental_id=second.id,
+    ).one_or_none() is not None
+    relay_case = RentalRelayCase.query.filter_by(
+        predecessor_rental_id=first.id,
+        successor_rental_id=second.id,
+    ).one()
+    assert AuditLog.query.filter_by(
+        action="relay_case_manually_created",
+        resource_id=str(relay_case.id),
+    ).one_or_none() is not None
+
+    list_response = client.get(
+        "/api/relay-cases",
+        query_string={
+            "statuses": "agreed",
+            "ship_date_from": (date.today() - timedelta(days=2)).isoformat(),
+            "ship_date_to": (date.today() + timedelta(days=2)).isoformat(),
+        },
+    )
+    list_payload = list_response.get_json()["data"]
+    assert list_payload["total"] == 1
+    assert list_payload["items"][0]["source"] == "manual"
+    assert list_payload["items"][0]["schedule_changed"] is False
+
+def test_manual_create_rejects_pair_that_is_already_bound(client, db_session):
+    first, second = prepare_manual_pair(db_session, "manual-duplicate")
+    db_session.add(RentalRelayBinding(
+        predecessor_rental_id=first.id,
+        successor_rental_id=second.id,
+    ))
+    db_session.commit()
+
+    response = client.post(
+        "/api/relay-cases/manual",
+        json={"device_id": first.device_id},
+    )
+
+    assert response.status_code == 409
+    assert "已标记为接力" in response.get_json()["message"]
+
+
+def test_manual_options_require_an_ongoing_current_rental(client, db_session):
+    first, _ = prepare_manual_pair(db_session, "manual-completed")
+    first.status = "completed"
+    db_session.commit()
+
+    response = client.get("/api/relay-cases/manual-options")
+
+    assert response.status_code == 200
+    assert response.get_json()["data"] == {"items": [], "total": 0}
 
 
 def test_shipped_requires_tracking_number(client, db_session):

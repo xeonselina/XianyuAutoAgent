@@ -8,6 +8,7 @@ from flask import current_app
 
 from app import db
 from app.models.audit_log import AuditLog
+from app.models.device import Device
 from app.models.rental import Rental
 from app.models.rental_relay_binding import RentalRelayBinding
 from app.models.rental_relay_case import RentalRelayCase
@@ -29,6 +30,8 @@ MILESTONE_FIELDS = {
     "shipped": "shipped_at",
     "completed": "completed_at",
 }
+MANUAL_CURRENT_STATUSES = ("shipped", "returned")
+MANUAL_NEXT_STATUSES = ("not_shipped", "scheduled_for_shipping")
 
 
 class RelayBindingConflictError(ValueError):
@@ -135,7 +138,7 @@ class RelayCaseService:
         }
 
     @classmethod
-    def _item(cls, pair, candidate, case, binding):
+    def _item(cls, pair, candidate, case, binding, source="automatic"):
         predecessor = candidate.predecessor if candidate else (
             case.predecessor if case else binding.predecessor
         )
@@ -160,7 +163,8 @@ class RelayCaseService:
             "pair_key": f"{pair[0]}:{pair[1]}",
             "status": status,
             "binding_id": binding.id if binding else None,
-            "schedule_changed": candidate is None,
+            "source": source,
+            "schedule_changed": candidate is None and source != "manual",
             "overlap_days": overlap_days,
             "planned_ship_date": (
                 predecessor.end_date + timedelta(days=1)
@@ -217,6 +221,14 @@ class RelayCaseService:
             (binding.predecessor_rental_id, binding.successor_rental_id): binding
             for binding in RentalRelayBinding.query.all()
         }
+        manual_case_ids = {
+            int(resource_id)
+            for (resource_id,) in db.session.query(AuditLog.resource_id).filter(
+                AuditLog.action == "relay_case_manually_created",
+                AuditLog.resource_id.isnot(None),
+            ).all()
+            if resource_id.isdigit()
+        }
 
         pairs = set(candidates) | set(cases) | set(bindings)
         items = []
@@ -225,11 +237,16 @@ class RelayCaseService:
             case = cases.get(pair)
             binding = bindings.get(pair)
             status = case.status if case else ("agreed" if binding else "pending")
-            if candidate is None and status == "pending":
+            source = (
+                "manual"
+                if case and case.id in manual_case_ids
+                else "automatic"
+            )
+            if candidate is None and status == "pending" and source != "manual":
                 continue
             if status not in statuses:
                 continue
-            item = cls._item(pair, candidate, case, binding)
+            item = cls._item(pair, candidate, case, binding, source=source)
             planned_ship_date = date.fromisoformat(item["planned_ship_date"])
             if not ship_date_from <= planned_ship_date <= ship_date_to:
                 continue
@@ -261,11 +278,194 @@ class RelayCaseService:
             },
         }
 
+    @staticmethod
+    def _manual_rental(rental):
+        return {
+            "id": rental.id,
+            "status": rental.status,
+            "start_date": rental.start_date.isoformat(),
+            "end_date": rental.end_date.isoformat(),
+            "ship_out_time": (
+                rental.ship_out_time.isoformat()
+                if rental.ship_out_time else None
+            ),
+            "ship_in_time": (
+                rental.ship_in_time.isoformat()
+                if rental.ship_in_time else None
+            ),
+            "buyer_id": rental.buyer_id,
+            "customer_name": rental.customer_name,
+            "customer_phone": rental.customer_phone,
+            "destination": rental.destination,
+        }
+
+    @classmethod
+    def _manual_pairs(cls):
+        rentals = Rental.query.join(
+            Device, Device.id == Rental.device_id
+        ).filter(
+            Rental.parent_rental_id.is_(None),
+            Rental.ship_out_time.isnot(None),
+            Rental.status.in_(
+                MANUAL_CURRENT_STATUSES + MANUAL_NEXT_STATUSES
+            ),
+            Device.lifecycle_status == "active",
+            Device.is_accessory.is_(False),
+        ).order_by(
+            Rental.device_id,
+            Rental.ship_out_time,
+            Rental.id,
+        ).all()
+
+        by_device = {}
+        for rental in rentals:
+            by_device.setdefault(rental.device_id, []).append(rental)
+
+        pairs = {}
+        for device_id, device_rentals in by_device.items():
+            current_rentals = [
+                rental for rental in device_rentals
+                if rental.status in MANUAL_CURRENT_STATUSES
+            ]
+            if not current_rentals:
+                continue
+            predecessor = current_rentals[-1]
+            successor = next(
+                (
+                    rental for rental in device_rentals
+                    if rental.status in MANUAL_NEXT_STATUSES
+                    and rental.ship_out_time > predecessor.ship_out_time
+                ),
+                None,
+            )
+            if successor:
+                pairs[device_id] = (predecessor, successor)
+        return pairs
+
+    @classmethod
+    def list_manual_options(cls):
+        pairs = cls._manual_pairs()
+        bindings = RentalRelayBinding.query.all()
+        exact_pairs = {
+            (binding.predecessor_rental_id, binding.successor_rental_id)
+            for binding in bindings
+        }
+        predecessor_bindings = {
+            binding.predecessor_rental_id: binding for binding in bindings
+        }
+        successor_bindings = {
+            binding.successor_rental_id: binding for binding in bindings
+        }
+
+        items = []
+        for predecessor, successor in pairs.values():
+            pair = (predecessor.id, successor.id)
+            blocked_reason = None
+            if pair in exact_pairs:
+                blocked_reason = "当前单和下一单已标记为接力"
+            elif predecessor.id in predecessor_bindings:
+                blocked_reason = "当前 rental 已接力给其他订单"
+            elif successor.id in successor_bindings:
+                blocked_reason = "下一笔 rental 已从其他订单接力"
+
+            items.append({
+                "device": cls._device(predecessor),
+                "predecessor": cls._manual_rental(predecessor),
+                "successor": cls._manual_rental(successor),
+                "lens_combo": predecessor.lens_combo,
+                "accessories": predecessor.get_all_accessories_for_display(),
+                "successor_lens_combo": successor.lens_combo,
+                "successor_accessories": (
+                    successor.get_all_accessories_for_display()
+                ),
+                "can_create": blocked_reason is None,
+                "blocked_reason": blocked_reason,
+            })
+
+        items.sort(key=lambda item: (
+            item["device"]["name"] or "",
+            item["device"]["id"] or 0,
+        ))
+        return {"items": items, "total": len(items)}
+
+    @classmethod
+    def create_manual_case(cls, device_id, now=None):
+        now = now or datetime.utcnow()
+        pair = cls._manual_pairs().get(device_id)
+        if pair is None:
+            raise ValueError("该设备没有可接力的当前 rental 和下一笔 rental")
+        predecessor, successor = pair
+
+        try:
+            rentals = Rental.query.filter(
+                Rental.id.in_([predecessor.id, successor.id])
+            ).with_for_update().all()
+            rental_by_id = {rental.id: rental for rental in rentals}
+            predecessor = rental_by_id.get(predecessor.id)
+            successor = rental_by_id.get(successor.id)
+            if predecessor is None or successor is None:
+                raise ValueError("当前 rental 或下一笔 rental 不存在")
+            latest_pair = cls._manual_pairs().get(device_id)
+            if not latest_pair or (
+                latest_pair[0].id != predecessor.id
+                or latest_pair[1].id != successor.id
+            ):
+                raise ValueError("档期已变化，请刷新后重试")
+
+            if cls._exact_binding(
+                predecessor.id, successor.id, lock=True
+            ):
+                raise RelayBindingConflictError(
+                    "当前单和下一单已标记为接力"
+                )
+
+            cls._ensure_binding(predecessor, successor)
+            relay_case = RentalRelayCase.query.filter_by(
+                predecessor_rental_id=predecessor.id,
+                successor_rental_id=successor.id,
+            ).with_for_update().one_or_none()
+            relay_case = relay_case or RentalRelayCase(
+                predecessor_rental_id=predecessor.id,
+                successor_rental_id=successor.id,
+            )
+            relay_case.status = "agreed"
+            cls._update_milestones(relay_case, "agreed", now)
+            db.session.add(relay_case)
+            db.session.flush()
+            db.session.add(AuditLog(
+                device_id=device_id,
+                rental_id=predecessor.id,
+                action="relay_case_manually_created",
+                resource_type="rental_relay_case",
+                resource_id=str(relay_case.id),
+                description="人工标记设备当前单与下一单为接力",
+                details={
+                    "device_id": device_id,
+                    "predecessor_rental_id": predecessor.id,
+                    "successor_rental_id": successor.id,
+                },
+            ))
+            db.session.commit()
+            return relay_case
+        except Exception:
+            db.session.rollback()
+            raise
+
     @classmethod
     def _require_current_candidate(cls, predecessor, successor):
         pair = (predecessor.id, successor.id)
         if pair not in cls.find_candidates():
             raise ValueError("档期已变化，当前组合不再满足接力条件")
+
+    @staticmethod
+    def _is_manual_case(relay_case):
+        if relay_case is None or relay_case.id is None:
+            return False
+        return AuditLog.query.filter_by(
+            action="relay_case_manually_created",
+            resource_type="rental_relay_case",
+            resource_id=str(relay_case.id),
+        ).first() is not None
 
     @staticmethod
     def _exact_binding(predecessor_id, successor_id, lock=False):
@@ -419,7 +619,11 @@ class RelayCaseService:
                 STATUS_ORDER[old_status] < STATUS_ORDER["agreed"]
                 and STATUS_ORDER[status] >= STATUS_ORDER["agreed"]
             )
-            if crossing_into_agreed:
+            if (
+                crossing_into_agreed
+                and exact_binding is None
+                and not cls._is_manual_case(relay_case)
+            ):
                 cls._require_current_candidate(predecessor, successor)
 
             relay_case = relay_case or RentalRelayCase(

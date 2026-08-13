@@ -65,18 +65,69 @@ const relayList = {
   },
 }
 
+const manualOption = {
+  device: relayCase.device,
+  predecessor: {
+    ...relayCase.predecessor,
+    status: 'returned',
+    ship_out_time: '2026-08-01T19:00:00',
+    ship_in_time: '2026-08-08T12:00:00',
+  },
+  successor: {
+    ...relayCase.successor,
+    status: 'not_shipped',
+    ship_out_time: '2026-08-09T19:00:00',
+    ship_in_time: '2026-08-15T12:00:00',
+  },
+  lens_combo: relayCase.lens_combo,
+  accessories: relayCase.accessories,
+  successor_lens_combo: relayCase.successor_lens_combo,
+  successor_accessories: relayCase.successor_accessories,
+  can_create: true,
+  blocked_reason: null,
+}
+
 async function mockRelayApi(
   page: Page,
   xianyuSync?: { attempted: boolean; success: boolean; message: string },
 ) {
   const listRequests: string[] = []
   const updateBodies: unknown[] = []
+  const manualCreateBodies: unknown[] = []
   let batchRefreshes = 0
 
   await page.route('**/api/relay-cases**', async route => {
     const request = route.request()
     const url = new URL(request.url())
 
+    if (request.method() === 'GET' && url.pathname === '/api/relay-cases/manual-options') {
+      await route.fulfill({
+        json: { success: true, data: { items: [manualOption], total: 1 } },
+      })
+      return
+    }
+    if (request.method() === 'POST' && url.pathname === '/api/relay-cases/manual') {
+      manualCreateBodies.push(request.postDataJSON())
+      await route.fulfill({
+        json: {
+          success: true,
+          data: {
+            case_id: 8,
+            predecessor_rental_id: 1,
+            successor_rental_id: 2,
+            status: 'agreed',
+            sf_tracking_number: null,
+            tracking: {
+              number: null,
+              status: null,
+              summary: null,
+              last_checked_at: null,
+            },
+          },
+        },
+      })
+      return
+    }
     if (request.method() === 'GET' && url.pathname === '/api/relay-cases') {
       listRequests.push(url.toString())
       await route.fulfill({ json: { success: true, data: relayList } })
@@ -114,7 +165,12 @@ async function mockRelayApi(
     await route.fulfill({ status: 404, json: { success: false, message: 'unexpected request' } })
   })
 
-  return { listRequests, updateBodies, batchRefreshes: () => batchRefreshes }
+  return {
+    listRequests,
+    updateBodies,
+    manualCreateBodies,
+    batchRefreshes: () => batchRefreshes,
+  }
 }
 
 test.describe('mobile relay management', () => {
@@ -177,6 +233,21 @@ test.describe('mobile relay management', () => {
     )
     expect(actionHeights).toHaveLength(2)
     expect(actionHeights.every(height => height >= 44)).toBe(true)
+  })
+
+  test('marks the current and next rental by selecting only a device', async ({ page }) => {
+    const api = await mockRelayApi(page)
+    await page.goto('/mobile/relay')
+
+    await page.getByTestId('open-manual-relay').click()
+    await expect(page.getByText('标记设备接力')).toBeVisible()
+    await page.getByTestId('manual-relay-device').click()
+    await expect(page.getByText('当前 rental #1')).toBeVisible()
+    await expect(page.getByText('下一笔 rental #2')).toBeVisible()
+    await page.getByTestId('confirm-manual-relay').click()
+
+    await expect.poll(() => api.manualCreateBodies.length).toBe(1)
+    expect(api.manualCreateBodies[0]).toEqual({ device_id: 11 })
   })
 
   test('requires a tracking number before saving shipped', async ({ page }) => {

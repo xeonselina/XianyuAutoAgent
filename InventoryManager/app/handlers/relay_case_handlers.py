@@ -148,6 +148,37 @@ class RelayCaseHandlers:
             current_app.logger.exception("更新接力状态失败")
             return server_error("更新接力状态失败，所有修改已回滚")
 
+    @classmethod
+    def handle_manual_options(cls):
+        try:
+            return success(data=RelayCaseService.list_manual_options())
+        except Exception:
+            current_app.logger.exception("加载人工接力设备选项失败")
+            return server_error("加载人工接力设备选项失败")
+
+    @classmethod
+    def handle_manual_create(cls):
+        data = request.get_json(silent=True) or {}
+        try:
+            device_id = int(data.get("device_id"))
+        except (TypeError, ValueError):
+            return bad_request("device_id 必须是整数")
+
+        try:
+            relay_case = RelayCaseService.create_manual_case(device_id)
+            return success(
+                data=cls._case_payload(relay_case),
+                message="接力关系已建立",
+            )
+        except RelayBindingConflictError as exc:
+            return error(str(exc), status_code=409)
+        except ValueError as exc:
+            return bad_request(str(exc))
+        except Exception:
+            db.session.rollback()
+            current_app.logger.exception("人工建立接力失败")
+            return server_error("人工建立接力失败，所有修改已回滚")
+
     @staticmethod
     def handle_refresh_tracking(case_id):
         try:

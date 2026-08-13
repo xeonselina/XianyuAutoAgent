@@ -12,7 +12,9 @@ import {
 
 
 vi.mock('@/api/relayCases', () => ({
+  createManualRelayCase: vi.fn(),
   listRelayCases: vi.fn(),
+  listManualRelayOptions: vi.fn(),
   refreshRelayTracking: vi.fn(),
   refreshRelayTrackingBatch: vi.fn(),
 }))
@@ -105,6 +107,10 @@ const mountView = () => mount(RelayManagementView, {
     plugins: [ElementPlus],
     stubs: {
       RelayStatusDialog: true,
+      ManualRelayDialog: {
+        props: ['modelValue'],
+        template: '<div v-if="modelValue" data-testid="manual-relay-dialog-stub" />',
+      },
       ElTable: {
         props: ['data'],
         template: '<div data-testid="relay-wide-table"><slot /></div>',
@@ -154,6 +160,15 @@ describe('RelayManagementView', () => {
     })
     expect(wrapper.text()).toContain('寄出时间范围')
     expect(wrapper.text()).toContain('接力管理')
+  })
+
+  it('opens the manual relay dialog from the page header', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-manual-relay"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="manual-relay-dialog-stub"]').exists()).toBe(true)
   })
 
   it('renders relay details and notice without exposing buyer IDs', async () => {

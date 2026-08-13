@@ -5,6 +5,7 @@ import type {
   RelayCaseListResponse,
   RelayCaseMutationResponse,
   RelayCaseStatus,
+  ManualRelayOptionsResponse,
   RelayTracking,
   RelayTrackingBatchResponse,
 } from '@/types/relayCase'
@@ -67,6 +68,21 @@ export async function updateRelayCase(
   return request(axios.put<ApiResponse<RelayCaseMutationResponse>>(
     `/api/relay-cases/${predecessorId}/${successorId}`,
     payload,
+  ))
+}
+
+export async function listManualRelayOptions(): Promise<ManualRelayOptionsResponse> {
+  return request(axios.get<ApiResponse<ManualRelayOptionsResponse>>(
+    '/api/relay-cases/manual-options',
+  ))
+}
+
+export async function createManualRelayCase(
+  deviceId: number,
+): Promise<RelayCaseMutationResponse> {
+  return request(axios.post<ApiResponse<RelayCaseMutationResponse>>(
+    '/api/relay-cases/manual',
+    { device_id: deviceId },
   ))
 }
 

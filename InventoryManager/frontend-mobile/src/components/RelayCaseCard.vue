@@ -58,6 +58,9 @@ function accessoryText(accessories: RelayAccessory[]) {
         <van-tag :type="statusTypes[relayCase.status]" size="medium">
           {{ statusLabels[relayCase.status] }}
         </van-tag>
+        <van-tag v-if="relayCase.source === 'manual'" plain type="primary">
+          人工
+        </van-tag>
         <span class="overlap">重叠 {{ relayCase.overlap_days }} 天</span>
       </div>
     </header>

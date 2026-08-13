@@ -65,6 +65,7 @@ declare module 'vue' {
     ImagePreviewDialog: typeof import('./src/components/ImagePreviewDialog.vue')['default']
     InspectionRecordCard: typeof import('./src/components/inspection/InspectionRecordCard.vue')['default']
     LensComboSelector: typeof import('./src/components/rental/LensComboSelector.vue')['default']
+    ManualRelayDialog: typeof import('./src/components/relay/ManualRelayDialog.vue')['default']
     PendingReturnsDrawer: typeof import('./src/components/PendingReturnsDrawer.vue')['default']
     RelayStatusDialog: typeof import('./src/components/relay/RelayStatusDialog.vue')['default']
     RentalAccessorySelector: typeof import('./src/components/rental/RentalAccessorySelector.vue')['default']

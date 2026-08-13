@@ -2,7 +2,9 @@ import axios from 'axios'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  createManualRelayCase,
   listRelayCases,
+  listManualRelayOptions,
   refreshRelayTracking,
   refreshRelayTrackingBatch,
   updateRelayCase,
@@ -61,6 +63,8 @@ describe('relayCases API', () => {
     })
     await refreshRelayTracking(7)
     await refreshRelayTrackingBatch([7, 8])
+    await listManualRelayOptions()
+    await createManualRelayCase(11)
 
     expect(axios.put).toHaveBeenCalledWith('/api/relay-cases/1/2', {
       status: 'notified',
@@ -72,6 +76,13 @@ describe('relayCases API', () => {
     expect(axios.post).toHaveBeenCalledWith(
       '/api/relay-cases/tracking/refresh-batch',
       { case_ids: [7, 8] },
+    )
+    expect(axios.get).toHaveBeenCalledWith(
+      '/api/relay-cases/manual-options',
+    )
+    expect(axios.post).toHaveBeenCalledWith(
+      '/api/relay-cases/manual',
+      { device_id: 11 },
     )
   })
 

@@ -8,6 +8,7 @@ import {
   refreshRelayTracking,
   refreshRelayTrackingBatch,
 } from '@/api/relayCases'
+import ManualRelaySheet from '@/components/ManualRelaySheet.vue'
 import RelayCaseCard from '@/components/RelayCaseCard.vue'
 import RelayStatusSheet from '@/components/RelayStatusSheet.vue'
 import type { RelayCase, RelayCaseStatus } from '@/types/relayCase'
@@ -36,6 +37,7 @@ const shipDateTo = ref(dayjs().add(5, 'day').format('YYYY-MM-DD'))
 const showDateSheet = ref(false)
 const showCalendar = ref(false)
 const showStatusSheet = ref(false)
+const showManualSheet = ref(false)
 const activeCase = ref<RelayCase | null>(null)
 
 const refreshableIds = computed(() => items.value
@@ -179,18 +181,29 @@ onMounted(loadCases)
   <div class="relay-view">
     <van-nav-bar title="接力工作台" :border="false" class="relay-nav">
       <template #right>
-        <van-button
-          icon="replay"
-          size="small"
-          plain
-          type="primary"
-          :loading="refreshing"
-          :disabled="!refreshableIds.length"
-          data-testid="relay-refresh-all"
-          @click="refreshAll"
-        >
-          刷新
-        </van-button>
+        <div class="nav-actions">
+          <van-button
+            icon="plus"
+            size="small"
+            type="primary"
+            data-testid="open-manual-relay"
+            @click="showManualSheet = true"
+          >
+            标记
+          </van-button>
+          <van-button
+            icon="replay"
+            size="small"
+            plain
+            type="primary"
+            :loading="refreshing"
+            :disabled="!refreshableIds.length"
+            data-testid="relay-refresh-all"
+            @click="refreshAll"
+          >
+            刷新
+          </van-button>
+        </div>
       </template>
     </van-nav-bar>
 
@@ -294,6 +307,10 @@ onMounted(loadCases)
       :relay-case="activeCase"
       @saved="saved"
     />
+    <ManualRelaySheet
+      v-model="showManualSheet"
+      @saved="saved"
+    />
   </div>
 </template>
 
@@ -309,9 +326,14 @@ onMounted(loadCases)
 }
 
 .relay-nav :deep(.van-button) {
-  min-width: 72px;
+  min-width: 60px;
   min-height: 36px;
   border-radius: 8px;
+}
+
+.nav-actions {
+  display: flex;
+  gap: 6px;
 }
 
 .mobile-toolbar {

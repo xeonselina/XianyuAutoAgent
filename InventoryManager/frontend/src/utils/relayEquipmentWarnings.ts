@@ -1,6 +1,14 @@
 import type { RelayCase } from '@/types/relayCase'
 
-export function relayEquipmentWarnings(relayCase: RelayCase): string[] {
+type RelayEquipmentSnapshot = Pick<
+  RelayCase,
+  | 'lens_combo'
+  | 'successor_lens_combo'
+  | 'accessories'
+  | 'successor_accessories'
+>
+
+export function relayEquipmentWarnings(relayCase: RelayEquipmentSnapshot): string[] {
   const warnings: string[] = []
   if (relayCase.lens_combo !== relayCase.successor_lens_combo) {
     warnings.push('镜头组合不一致')
@@ -13,6 +21,6 @@ export function relayEquipmentWarnings(relayCase: RelayCase): string[] {
   return warnings
 }
 
-export function relayEquipmentWarningText(relayCase: RelayCase): string {
+export function relayEquipmentWarningText(relayCase: RelayEquipmentSnapshot): string {
   return relayEquipmentWarnings(relayCase).join('；')
 }

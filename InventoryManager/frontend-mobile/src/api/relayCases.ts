@@ -1,6 +1,7 @@
 import axios from 'axios'
 
 import type {
+  ManualRelayOptionsResponse,
   RelayCaseListResponse,
   RelayCaseMutationResponse,
   RelayCaseStatus,
@@ -54,6 +55,21 @@ export async function listRelayCases(params: {
       per_page: params.perPage ?? 50,
     },
   }))
+}
+
+export async function listManualRelayOptions(): Promise<ManualRelayOptionsResponse> {
+  return request(axios.get<ApiResponse<ManualRelayOptionsResponse>>(
+    '/api/relay-cases/manual-options',
+  ))
+}
+
+export async function createManualRelayCase(
+  deviceId: number,
+): Promise<RelayCaseMutationResponse> {
+  return request(axios.post<ApiResponse<RelayCaseMutationResponse>>(
+    '/api/relay-cases/manual',
+    { device_id: deviceId },
+  ))
 }
 
 export async function updateRelayCase(

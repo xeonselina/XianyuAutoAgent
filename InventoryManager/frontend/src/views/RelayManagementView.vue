@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, CopyDocument, EditPen, Refresh } from '@element-plus/icons-vue'
+import { ArrowLeft, Connection, CopyDocument, EditPen, Refresh } from '@element-plus/icons-vue'
 
 import {
   listRelayCases,
@@ -10,6 +10,7 @@ import {
   refreshRelayTrackingBatch,
 } from '@/api/relayCases'
 import RelayStatusDialog from '@/components/relay/RelayStatusDialog.vue'
+import ManualRelayDialog from '@/components/relay/ManualRelayDialog.vue'
 import { relayEquipmentWarningText } from '@/utils/relayEquipmentWarnings'
 import type {
   RelayAccessory,
@@ -66,6 +67,7 @@ const shipDateRange = ref<[string, string]>([
 ])
 const dialogVisible = ref(false)
 const activeCase = ref<RelayCase | null>(null)
+const manualDialogVisible = ref(false)
 
 const refreshableCaseIds = computed(() => items.value
   .filter((item) => item.case_id !== null && ['shipped', 'completed'].includes(item.status))
@@ -229,15 +231,25 @@ onMounted(loadCases)
           <p>集中处理前一位客户直接转寄给后一位客户的潜在组合</p>
         </div>
       </div>
-      <el-button
-        :icon="Refresh"
-        :loading="batchRefreshing"
-        :disabled="!refreshableCaseIds.length"
-        data-testid="batch-refresh"
-        @click="refreshBatch"
-      >
-        批量刷新物流
-      </el-button>
+      <div class="header-actions">
+        <el-button
+          type="primary"
+          :icon="Connection"
+          data-testid="open-manual-relay"
+          @click="manualDialogVisible = true"
+        >
+          标记接力
+        </el-button>
+        <el-button
+          :icon="Refresh"
+          :loading="batchRefreshing"
+          :disabled="!refreshableCaseIds.length"
+          data-testid="batch-refresh"
+          @click="refreshBatch"
+        >
+          批量刷新物流
+        </el-button>
+      </div>
     </header>
 
     <section class="filter-bar">
@@ -385,6 +397,9 @@ onMounted(loadCases)
             <el-tag :type="statusType(row.status)">
               {{ statusLabel(row.status) }}
             </el-tag>
+            <el-tag v-if="row.source === 'manual'" size="small" effect="plain" class="manual-tag">
+              人工
+            </el-tag>
             <el-tooltip v-if="row.schedule_changed" content="档期已变化" placement="top">
               <div class="schedule-warning">档期已变化</div>
             </el-tooltip>
@@ -422,6 +437,10 @@ onMounted(loadCases)
       :relay-case="activeCase"
       @saved="handleSaved"
     />
+    <ManualRelayDialog
+      v-model="manualDialogVisible"
+      @saved="handleSaved"
+    />
   </main>
 </template>
 
@@ -436,6 +455,7 @@ onMounted(loadCases)
 
 .page-header,
 .title-area,
+.header-actions,
 .filter-bar,
 .filter-item,
 .filter-actions,
@@ -447,6 +467,10 @@ onMounted(loadCases)
 .page-header {
   justify-content: space-between;
   margin-bottom: 14px;
+}
+
+.header-actions {
+  gap: 8px;
 }
 
 .title-area {
@@ -547,6 +571,10 @@ h1 {
   color: #d97706;
   font-size: 11px;
   line-height: 1.2;
+}
+
+.manual-tag {
+  margin-top: 5px;
 }
 
 .equipment-warning {
