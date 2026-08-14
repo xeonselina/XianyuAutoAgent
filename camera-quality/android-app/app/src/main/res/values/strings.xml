@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">长焦清晰度检测</string>
+    <string name="probe_title">摄像头能力检测</string>
+    <string name="teleconverter_badge">200mm 增距镜 · 旋转 180°</string>
+    <string name="scan_cameras">重新扫描</string>
+    <string name="open_telephoto">启动 85mm 长焦</string>
+    <string name="capture">拍摄样张</string>
+    <string name="permission_needed">需要摄像头权限才能检测镜头能力</string>
+    <string name="waiting_for_scan">等待扫描摄像头能力</string>
+</resources>

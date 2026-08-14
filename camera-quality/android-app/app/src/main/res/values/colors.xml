@@ -1,0 +1,8 @@
+<resources>
+    <color name="screen_background">#101317</color>
+    <color name="panel_background">#1A2027</color>
+    <color name="primary">#66D9A6</color>
+    <color name="text_primary">#F2F5F7</color>
+    <color name="text_secondary">#AAB4BE</color>
+    <color name="danger">#FF6B6B</color>
+</resources>
