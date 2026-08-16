@@ -696,18 +696,25 @@ class RelayCaseService:
                 phone_digits[-4:],
             )
             relay_case.sf_tracking_status = route_info.get(
-                "status", "unknown"
+                "status", "processing"
             )
-            status_text = route_info.get("status_text") or "未知状态"
+            status_text = route_info.get("status_text") or "物流状态待更新"
             last_update = route_info.get("last_update")
-            relay_case.sf_tracking_summary = (
-                f"{status_text} · {last_update}"
-                if last_update
-                else status_text
-            )
+            latest_route = route_info.get("latest_route") or {}
+            summary_parts = [
+                status_text,
+                latest_route.get("remark"),
+                latest_route.get("accept_address"),
+                last_update,
+            ]
+            # 状态名和轨迹文案经常重复；按顺序去重后再落库。
+            relay_case.sf_tracking_summary = " · ".join(dict.fromkeys(
+                str(part).strip() for part in summary_parts if part
+            ))[:500]
         except Exception as exc:
             relay_case.sf_tracking_status = "query_failed"
             relay_case.sf_tracking_summary = str(exc) or "顺丰物流查询失败"
+            route_info = None
 
         relay_case.sf_last_checked_at = now
         try:
@@ -715,4 +722,14 @@ class RelayCaseService:
         except Exception:
             db.session.rollback()
             raise
-        return cls._tracking(relay_case)
+        tracking = cls._tracking(relay_case)
+        if route_info:
+            tracking.update({
+                "status_text": route_info.get("status_text"),
+                "last_update": route_info.get("last_update"),
+                "delivered_time": route_info.get("delivered_time"),
+                "routes": route_info.get("routes") or [],
+            })
+        else:
+            tracking["routes"] = []
+        return tracking

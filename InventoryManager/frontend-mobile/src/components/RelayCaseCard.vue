@@ -4,7 +4,10 @@ import { ref } from 'vue'
 import type { RelayAccessory, RelayCase, RelayCaseStatus } from '@/types/relayCase'
 import { relayEquipmentWarningText } from '@/utils/relayEquipmentWarnings'
 
-defineProps<{ relayCase: RelayCase }>()
+defineProps<{
+  relayCase: RelayCase
+  trackingLoading?: boolean
+}>()
 
 defineEmits<{
   maintain: [relayCase: RelayCase]
@@ -168,11 +171,12 @@ function accessoryText(accessories: RelayAccessory[]) {
         plain
         type="primary"
         icon="logistics"
+        :loading="trackingLoading"
         :disabled="!relayCase.case_id || !relayCase.tracking.number"
         data-testid="relay-logistics"
         @click="$emit('refresh', relayCase)"
       >
-        刷新物流
+        查看物流详情
       </van-button>
       <van-button
         block

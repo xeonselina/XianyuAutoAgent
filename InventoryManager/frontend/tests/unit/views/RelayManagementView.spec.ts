@@ -7,6 +7,7 @@ import RelayManagementView from '@/views/RelayManagementView.vue'
 import type { RelayCase, RelayCaseListResponse } from '@/types/relayCase'
 import {
   listRelayCases,
+  refreshRelayTracking,
   refreshRelayTrackingBatch,
 } from '@/api/relayCases'
 
@@ -120,6 +121,16 @@ const mountView = () => mount(RelayManagementView, {
           return () => h('div', slots.default?.({ row: relayCase }))
         },
       },
+      ElDialog: {
+        props: ['modelValue'],
+        template: '<div v-if="modelValue"><slot /></div>',
+      },
+      ElTimeline: {
+        template: '<div><slot /></div>',
+      },
+      ElTimelineItem: {
+        template: '<div><slot /></div>',
+      },
       teleport: true,
       transition: false,
     },
@@ -135,6 +146,21 @@ describe('RelayManagementView', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-08-05T08:00:00+08:00'))
     vi.mocked(listRelayCases).mockResolvedValue(response)
+    vi.mocked(refreshRelayTracking).mockResolvedValue({
+      ...relayCase.tracking,
+      status_text: '已到达杭州中转场',
+      last_update: '2026-08-05 10:00:00',
+      routes: [{
+        accept_time: '2026-08-05 10:00:00',
+        accept_address: '杭州中转场',
+        remark: '快件已到达杭州中转场，准备发往上海',
+        op_code: '36',
+        first_status_code: '2',
+        first_status_name: '运输中',
+        secondary_status_code: '201',
+        secondary_status_name: '到达中转场',
+      }],
+    })
     vi.mocked(refreshRelayTrackingBatch).mockResolvedValue({
       items: [], total: 1, success_count: 1,
     })
@@ -191,6 +217,19 @@ describe('RelayManagementView', () => {
     expect(wrapper.text()).toContain('运送中')
     expect(wrapper.get('[data-testid="relay-notice-text"]').text()).toBe(expectedNotice)
     expect(wrapper.get('[data-testid="equipment-warning"]').text()).toContain('镜头组合不一致')
+  })
+
+  it('queries and renders the complete SF tracking timeline', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="relay-tracking-details"]').trigger('click')
+    await flushPromises()
+
+    expect(refreshRelayTracking).toHaveBeenCalledWith(7)
+    expect(wrapper.get('[data-testid="relay-tracking-dialog"]').text()).toContain('已到达杭州中转场')
+    expect(wrapper.get('[data-testid="relay-tracking-dialog"]').text()).toContain('快件已到达杭州中转场，准备发往上海')
+    expect(wrapper.get('[data-testid="relay-tracking-dialog"]').text()).toContain('杭州中转场')
   })
 
   it('copies the relay notice with the Clipboard API', async () => {

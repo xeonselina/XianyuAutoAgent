@@ -228,6 +228,76 @@ class SFExpressSDK:
 
         return self._call_sf_express_service("EXP_RECE_SEARCH_ROUTES", msg_data)
 
+    @staticmethod
+    def _resolve_route_status(route: Dict) -> tuple[str, str]:
+        """把顺丰状态归一化，同时保留接口返回的具体中文状态。
+
+        顺丰会持续增加二级状态和操作码。这里仅用稳定的一级状态码做
+        大类映射，其余状态再根据顺丰返回的状态名和轨迹文案判断；即使
+        遇到尚未见过的新码，也会展示原始状态/轨迹，而不会落成“未知”。
+        """
+        first_code = str(route.get("first_status_code") or "").strip()
+        first_name = str(route.get("first_status_name") or "").strip()
+        secondary_name = str(
+            route.get("secondary_status_name") or ""
+        ).strip()
+        remark = str(route.get("remark") or "").strip()
+        op_code = str(route.get("op_code") or "").strip()
+        detail_text = " ".join(
+            value for value in (secondary_name, first_name, remark) if value
+        )
+
+        # 具体轨迹比一级大类更准确，例如一级仍是“派送”时，二级状态
+        # 可能已经是“派送失败”；因此异常/退回等状态优先判断。
+        if any(keyword in detail_text for keyword in ("退回", "退件")):
+            status = "returned"
+            fallback_text = "退回中"
+        elif any(
+            keyword in detail_text
+            for keyword in (
+                "异常", "滞留", "破损", "丢失", "拒收", "取消",
+                "无法派送", "派送失败",
+            )
+        ):
+            status = "exception"
+            fallback_text = "物流异常"
+        # 已签收操作码 80 是现有接口中最明确的终态标识。
+        elif (
+            first_code == "4"
+            or op_code == "80"
+            or any(keyword in detail_text for keyword in ("签收", "妥投"))
+        ):
+            status = "delivered"
+            fallback_text = "已签收"
+        elif any(
+            keyword in detail_text
+            for keyword in ("派送", "派件", "配送", "投递")
+        ) or first_code == "3":
+            status = "delivering"
+            fallback_text = "派送中"
+        elif (
+            any(keyword in detail_text for keyword in ("揽收", "收件"))
+            or first_code == "1"
+        ):
+            status = "picked_up"
+            fallback_text = "已揽收"
+        elif any(
+            keyword in detail_text
+            for keyword in (
+                "运输", "运送", "中转", "转运", "发往", "到达",
+                "离开", "装车", "航班", "清关", "通关",
+            )
+        ) or first_code == "2":
+            status = "in_transit"
+            fallback_text = "运输中"
+        else:
+            status = "processing"
+            fallback_text = "处理中"
+
+        # 二级状态最具体，其次一级状态；都没有时使用轨迹文案。
+        status_text = secondary_name or first_name or remark or fallback_text
+        return status, status_text
+
     def parse_route_response(self, response: Dict) -> Dict[str, Dict]:
         """
         解析路由查询响应
@@ -268,23 +338,36 @@ class SFExpressSDK:
                 route_info = {
                     "tracking_number": tracking_no,
                     "routes": [],
-                    "status": "unknown",
-                    "status_text": "未知",
+                    "status": "processing",
+                    "status_text": "暂无轨迹",
                     "delivered_time": None,
-                    "last_update": None
+                    "last_update": None,
+                    "latest_route": None,
                 }
 
                 # 解析路由详情
                 for route_detail in route.get("routes", []):
                     route_item = {
-                        "accept_time": route_detail.get("acceptTime", ""),
-                        "accept_address": route_detail.get("acceptAddress", ""),
-                        "remark": route_detail.get("remark", ""),
-                        "op_code": route_detail.get("opCode", ""),
-                        "first_status_code": route_detail.get("firstStatusCode", ""),
-                        "first_status_name": route_detail.get("firstStatusName", ""),
-                        "secondary_status_code": route_detail.get("secondaryStatusCode", ""),
-                        "secondary_status_name": route_detail.get("secondaryStatusName", "")
+                        "accept_time": str(
+                            route_detail.get("acceptTime") or ""
+                        ),
+                        "accept_address": str(
+                            route_detail.get("acceptAddress") or ""
+                        ),
+                        "remark": str(route_detail.get("remark") or ""),
+                        "op_code": str(route_detail.get("opCode") or ""),
+                        "first_status_code": str(
+                            route_detail.get("firstStatusCode") or ""
+                        ),
+                        "first_status_name": str(
+                            route_detail.get("firstStatusName") or ""
+                        ),
+                        "secondary_status_code": str(
+                            route_detail.get("secondaryStatusCode") or ""
+                        ),
+                        "secondary_status_name": str(
+                            route_detail.get("secondaryStatusName") or ""
+                        ),
                     }
                     route_info["routes"].append(route_item)
 
@@ -292,29 +375,13 @@ class SFExpressSDK:
                 if route_info["routes"]:
                     latest_route = route_info["routes"][-1]  # 最后一条是最新的
                     route_info["last_update"] = latest_route["accept_time"]
+                    route_info["latest_route"] = latest_route
+                    status, status_text = self._resolve_route_status(latest_route)
+                    route_info["status"] = status
+                    route_info["status_text"] = status_text
 
-                    # 使用 firstStatusCode 判断状态
-                    first_status_code = latest_route.get("first_status_code", "")
-                    first_status_name = latest_route.get("first_status_name", "")
-                    op_code = latest_route.get("op_code", "")
-
-                    # 根据一级状态码判断
-                    if first_status_code == "4" or op_code == "80":
-                        route_info["status"] = "delivered"
-                        route_info["status_text"] = "已签收"
+                    if status == "delivered":
                         route_info["delivered_time"] = latest_route["accept_time"]
-                    elif first_status_code == "3":
-                        route_info["status"] = "delivering"
-                        route_info["status_text"] = "派送中"
-                    elif first_status_code == "2":
-                        route_info["status"] = "in_transit"
-                        route_info["status_text"] = "运送中"
-                    elif first_status_code == "1":
-                        route_info["status"] = "picked_up"
-                        route_info["status_text"] = "已揽收"
-                    else:
-                        route_info["status"] = "processing"
-                        route_info["status_text"] = first_status_name or "处理中"
 
                 result[tracking_no] = route_info
 

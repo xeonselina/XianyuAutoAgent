@@ -97,7 +97,21 @@ def test_refresh_uses_predecessor_phone_and_does_not_complete(
             "tracking_number": number,
             "status": "delivered",
             "status_text": "已签收",
-            "routes": [],
+            "routes": [{
+                "accept_time": "2026-08-05 10:32:00",
+                "accept_address": "杭州市",
+                "remark": "快件已由客户本人签收",
+                "op_code": "80",
+                "first_status_code": "4",
+                "first_status_name": "已签收",
+                "secondary_status_code": "",
+                "secondary_status_name": "",
+            }],
+            "latest_route": {
+                "accept_time": "2026-08-05 10:32:00",
+                "accept_address": "杭州市",
+                "remark": "快件已由客户本人签收",
+            },
             "last_update": "2026-08-05 10:32:00",
             "delivered_time": "2026-08-05 10:32:00",
         }
@@ -116,8 +130,13 @@ def test_refresh_uses_predecessor_phone_and_does_not_complete(
     }
     assert relay_case.status == "shipped"
     assert relay_case.sf_tracking_status == "delivered"
-    assert relay_case.sf_tracking_summary == "已签收 · 2026-08-05 10:32:00"
+    assert relay_case.sf_tracking_summary == (
+        "已签收 · 快件已由客户本人签收 · 杭州市 · "
+        "2026-08-05 10:32:00"
+    )
     assert result["status"] == "delivered"
+    assert result["status_text"] == "已签收"
+    assert result["routes"][0]["remark"] == "快件已由客户本人签收"
 
 
 def test_refresh_without_phone_keeps_shipped_and_caches_reason(

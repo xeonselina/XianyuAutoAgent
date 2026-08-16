@@ -11,7 +11,7 @@ import {
 import ManualRelaySheet from '@/components/ManualRelaySheet.vue'
 import RelayCaseCard from '@/components/RelayCaseCard.vue'
 import RelayStatusSheet from '@/components/RelayStatusSheet.vue'
-import type { RelayCase, RelayCaseStatus } from '@/types/relayCase'
+import type { RelayCase, RelayCaseStatus, RelayTracking } from '@/types/relayCase'
 
 defineOptions({ name: 'RelayManagementView' })
 
@@ -38,7 +38,10 @@ const showDateSheet = ref(false)
 const showCalendar = ref(false)
 const showStatusSheet = ref(false)
 const showManualSheet = ref(false)
+const showTrackingSheet = ref(false)
 const activeCase = ref<RelayCase | null>(null)
+const activeTracking = ref<RelayTracking | null>(null)
+const trackingLoadingCaseId = ref<number | null>(null)
 
 const refreshableIds = computed(() => items.value
   .filter((item) => item.case_id && ['shipped', 'completed'].includes(item.status))
@@ -46,6 +49,9 @@ const refreshableIds = computed(() => items.value
 const hasMore = computed(
   () => page.value < pages.value && items.value.length < total.value,
 )
+const trackingRoutes = computed(() => [
+  ...(activeTracking.value?.routes || []),
+].reverse())
 
 const defaultCalendarDate = computed<[Date, Date]>(() => [
   dayjs(shipDateFrom.value).toDate(),
@@ -136,12 +142,16 @@ function maintain(relayCase: RelayCase) {
 
 async function refreshOne(relayCase: RelayCase) {
   if (!relayCase.case_id) return
+  trackingLoadingCaseId.value = relayCase.case_id
   try {
-    await refreshRelayTracking(relayCase.case_id)
-    showSuccessToast('物流状态已刷新')
-    await loadCases()
+    const tracking = await refreshRelayTracking(relayCase.case_id)
+    relayCase.tracking = tracking
+    activeTracking.value = tracking
+    showTrackingSheet.value = true
   } catch (error) {
-    showFailToast(error instanceof Error ? error.message : '物流刷新失败')
+    showFailToast(error instanceof Error ? error.message : '物流详情查询失败')
+  } finally {
+    trackingLoadingCaseId.value = null
   }
 }
 
@@ -248,6 +258,7 @@ onMounted(loadCases)
           v-for="relayCase in items"
           :key="relayCase.pair_key"
           :relay-case="relayCase"
+          :tracking-loading="trackingLoadingCaseId === relayCase.case_id"
           @maintain="maintain"
           @refresh="refreshOne"
         />
@@ -301,6 +312,41 @@ onMounted(loadCases)
       color="#1677ff"
       @confirm="confirmCalendar"
     />
+
+    <van-action-sheet
+      v-model:show="showTrackingSheet"
+      title="顺丰物流详情"
+      class="tracking-sheet"
+      data-testid="relay-tracking-sheet"
+    >
+      <div v-if="activeTracking" class="tracking-detail">
+        <section class="tracking-overview">
+          <span>运单号</span>
+          <strong>{{ activeTracking.number }}</strong>
+          <p>{{ activeTracking.status_text || activeTracking.summary || '暂无轨迹' }}</p>
+          <small v-if="activeTracking.last_update">
+            最后更新 {{ activeTracking.last_update }}
+          </small>
+        </section>
+
+        <ol v-if="trackingRoutes.length" class="tracking-timeline">
+          <li
+            v-for="(route, index) in trackingRoutes"
+            :key="`${route.accept_time}-${index}`"
+            :class="{ latest: index === 0 }"
+          >
+            <div class="timeline-dot" />
+            <time>{{ route.accept_time }}</time>
+            <strong>
+              {{ route.secondary_status_name || route.first_status_name || '物流轨迹' }}
+            </strong>
+            <p>{{ route.remark || '顺丰暂未提供轨迹描述' }}</p>
+            <span v-if="route.accept_address">{{ route.accept_address }}</span>
+          </li>
+        </ol>
+        <van-empty v-else description="顺丰暂未返回物流轨迹" image-size="72" />
+      </div>
+    </van-action-sheet>
 
     <RelayStatusSheet
       v-model="showStatusSheet"
@@ -480,5 +526,99 @@ onMounted(loadCases)
   margin-top: 3px;
   color: #8a8f98;
   font-size: 12px;
+}
+
+.tracking-sheet {
+  max-height: 82vh;
+}
+
+.tracking-detail {
+  max-height: calc(82vh - 56px);
+  padding: 0 16px calc(20px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+}
+
+.tracking-overview {
+  padding: 12px 14px;
+  margin-bottom: 18px;
+  border: 1px solid #d9e8fb;
+  border-radius: 10px;
+  background: #f3f8ff;
+}
+
+.tracking-overview span,
+.tracking-overview small {
+  display: block;
+  color: #7b8490;
+  font-size: 11px;
+}
+
+.tracking-overview strong {
+  display: block;
+  margin-top: 3px;
+  color: #1677ff;
+  font-size: 15px;
+}
+
+.tracking-overview p {
+  margin: 8px 0 4px;
+  color: #202124;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.tracking-timeline {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.tracking-timeline li {
+  position: relative;
+  padding: 0 0 22px 24px;
+  border-left: 2px solid #dfe5ec;
+}
+
+.tracking-timeline li:last-child {
+  border-left-color: transparent;
+}
+
+.timeline-dot {
+  position: absolute;
+  top: 3px;
+  left: -6px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #aeb7c2;
+  box-shadow: 0 0 0 1px #aeb7c2;
+}
+
+.tracking-timeline .latest .timeline-dot {
+  background: #1677ff;
+  box-shadow: 0 0 0 1px #1677ff;
+}
+
+.tracking-timeline time,
+.tracking-timeline span {
+  display: block;
+  color: #858c96;
+  font-size: 11px;
+}
+
+.tracking-timeline strong {
+  display: block;
+  margin-top: 3px;
+  color: #30343b;
+  font-size: 14px;
+}
+
+.tracking-timeline p {
+  margin: 4px 0;
+  color: #505761;
+  font-size: 13px;
+  line-height: 19px;
 }
 </style>

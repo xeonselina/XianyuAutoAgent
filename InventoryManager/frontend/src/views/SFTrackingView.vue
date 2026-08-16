@@ -346,6 +346,8 @@ export default {
         'in_transit': '运送中',
         'delivering': '派送中',
         'delivered': '已签收',
+        'returned': '退回中',
+        'exception': '物流异常',
         'processing': '处理中',
         'not_found': '未找到',
         'unknown': '未知'
@@ -364,6 +366,8 @@ export default {
         'in_transit': 'status-transit',
         'delivering': 'status-delivering',
         'delivered': 'status-delivered',
+        'returned': 'status-returned',
+        'exception': 'status-exception',
         'processing': 'status-processing',
         'not_found': 'status-notfound',
         'unknown': 'status-unknown'
@@ -488,6 +492,8 @@ code {
 .status-transit { background: #fff3cd; color: #000; }
 .status-delivering { background: #cfe2ff; color: #000; }
 .status-delivered { background: #d1e7dd; color: #000; font-weight: 600; }
+.status-returned { background: #fff3cd; color: #664d03; }
+.status-exception { background: #f8d7da; color: #842029; }
 .status-processing { background: #e2e3e5; color: #000; }
 .status-notfound { background: #f8d7da; color: #000; }
 .status-unknown { background: #e2e3e5; color: #000; }
