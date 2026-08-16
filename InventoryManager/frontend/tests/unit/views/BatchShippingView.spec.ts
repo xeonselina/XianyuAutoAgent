@@ -1,4 +1,4 @@
-import ElementPlus, { ElTag } from 'element-plus'
+import ElementPlus, { ElTag, ElTooltip } from 'element-plus'
 import { mount } from '@vue/test-utils'
 import {
   computed,
@@ -38,6 +38,8 @@ type RentalRow = PreviousRentalState & {
   ship_out_tracking_no: null
   scheduled_ship_time: null
   express_type_id: number
+  is_relay_shipping: boolean
+  relay_predecessor_rental_id: number | null
 }
 
 const rowKey: InjectionKey<Ref<RentalRow>> = Symbol('batch-shipping-row')
@@ -106,9 +108,14 @@ const baseRental: RentalRow = {
   has_previous_rental: true,
   previous_rental_status: 'completed',
   previous_rental_completed: true,
+  is_relay_shipping: false,
+  relay_predecessor_rental_id: null,
 }
 
-const mountWithRental = async (previousState: PreviousRentalState) => {
+const mountWithRental = async (
+  previousState: PreviousRentalState,
+  overrides: Partial<RentalRow> = {},
+) => {
   const wrapper = mount(BatchShippingView, {
     global: {
       plugins: [ElementPlus],
@@ -121,7 +128,11 @@ const mountWithRental = async (previousState: PreviousRentalState) => {
     },
   })
 
-  wrapper.vm.$.setupState.rentals = [{ ...baseRental, ...previousState }]
+  wrapper.vm.$.setupState.rentals = [{
+    ...baseRental,
+    ...previousState,
+    ...overrides,
+  }]
   await nextTick()
   return wrapper
 }
@@ -193,5 +204,34 @@ describe('BatchShippingView device status', () => {
 
     expect(deviceStatus.text().trim()).toBe('-')
     expect(deviceStatus.findComponent(ElTag).exists()).toBe(false)
+  })
+
+  it('marks relay shipping, disables selection, and adds a hover reason', async () => {
+    const wrapper = await mountWithRental({
+      has_previous_rental: true,
+      previous_rental_status: 'completed',
+      previous_rental_completed: true,
+    }, {
+      is_relay_shipping: true,
+      relay_predecessor_rental_id: 100,
+    })
+
+    const customerColumn = wrapper.get('[data-column="客户"]')
+    expect(customerColumn.get('[data-testid="relay-shipping-tag"]').text()).toBe('接力寄出')
+    expect(customerColumn.findComponent(ElTooltip).props('content')).toContain('无需在批量发货中处理')
+
+    const setup = wrapper.vm.$.setupState as {
+      isSelectableRow: (row: RentalRow) => boolean
+      handleCellMouseEnter: (row: RentalRow, column: unknown, cell: HTMLElement) => void
+      handleCellMouseLeave: (row: RentalRow, column: unknown, cell: HTMLElement) => void
+    }
+    const relayRow = { ...baseRental, is_relay_shipping: true }
+    expect(setup.isSelectableRow(relayRow)).toBe(false)
+
+    const selectionCell = document.createElement('td')
+    setup.handleCellMouseEnter(relayRow, { type: 'selection' }, selectionCell)
+    expect(selectionCell.title).toContain('接力订单')
+    setup.handleCellMouseLeave(relayRow, { type: 'selection' }, selectionCell)
+    expect(selectionCell.hasAttribute('title')).toBe(false)
   })
 })

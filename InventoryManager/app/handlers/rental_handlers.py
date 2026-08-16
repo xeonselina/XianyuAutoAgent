@@ -682,10 +682,34 @@ class RentalHandlers:
                 Rental.start_date.asc()
             ).all()
 
+            # 接力关系中的后一单由前一位客户直接寄出，不应再由仓库
+            # 批量预约发货。一次性查询，避免逐条判断产生 N+1 查询。
+            from app.models.rental_relay_binding import RentalRelayBinding
+
+            rental_ids = [rental.id for rental in rentals]
+            relay_bindings = (
+                RentalRelayBinding.query.filter(
+                    RentalRelayBinding.successor_rental_id.in_(rental_ids)
+                ).all()
+                if rental_ids
+                else []
+            )
+            relay_by_successor = {
+                binding.successor_rental_id: binding
+                for binding in relay_bindings
+            }
+
             # 构建响应数据，包含上一单状态
             rentals_data = []
             for rental in rentals:
                 rental_dict = rental.to_dict()
+                relay_binding = relay_by_successor.get(rental.id)
+                rental_dict['is_relay_shipping'] = relay_binding is not None
+                rental_dict['relay_predecessor_rental_id'] = (
+                    relay_binding.predecessor_rental_id
+                    if relay_binding
+                    else None
+                )
 
                 # 查询该设备的上一单（按开始日期对比，适用所有状态）
                 previous_rental = Rental.query.filter(

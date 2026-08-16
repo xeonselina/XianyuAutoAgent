@@ -1,10 +1,16 @@
 <template>
-  <div class="card" :class="{ checked: modelValue, disabled: isShipped }">
+  <div
+    class="card"
+    :class="{ checked: modelValue, disabled: isDisabled, relay: isRelayShipping }"
+    :title="isRelayShipping ? RELAY_SELECTION_REASON : undefined"
+    data-testid="batch-shipping-card"
+    :data-rental-id="rental.id"
+  >
     <!-- 复选框 -->
     <div class="card-check">
       <van-checkbox
         :model-value="modelValue"
-        :disabled="isShipped"
+        :disabled="isDisabled"
         @update:model-value="$emit('update:modelValue', $event)"
       />
     </div>
@@ -16,9 +22,19 @@
         <span class="device-customer">
           {{ rental.device?.name || '—' }} · {{ rental.customer_name }}
         </span>
-        <van-tag :color="statusColor(rental.status)" text-color="#fff">
-          {{ statusLabel(rental.status) }}
-        </van-tag>
+        <span class="card-tags">
+          <van-tag
+            v-if="isRelayShipping"
+            color="#ed6a0c"
+            text-color="#fff"
+            data-testid="relay-shipping-tag"
+          >
+            接力寄出
+          </van-tag>
+          <van-tag :color="statusColor(rental.status)" text-color="#fff">
+            {{ statusLabel(rental.status) }}
+          </van-tag>
+        </span>
       </div>
 
       <!-- 信息行 -->
@@ -43,7 +59,9 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import dayjs from 'dayjs'
+import { showToast } from 'vant'
 import type { Rental } from '@/stores/gantt'
 
 const props = defineProps<{
@@ -55,10 +73,19 @@ const emit = defineEmits<{
   (e: 'update:modelValue', val: boolean): void
 }>()
 
-const isShipped = ['shipped', 'returned', 'completed'].includes(props.rental.status)
+const RELAY_SELECTION_REASON = '接力订单由前一位客户直接寄出，不能批量发货'
+const isShipped = computed(() => (
+  ['shipped', 'returned', 'completed'].includes(props.rental.status)
+))
+const isRelayShipping = computed(() => Boolean(props.rental.is_relay_shipping))
+const isDisabled = computed(() => isShipped.value || isRelayShipping.value)
 
 const onBodyClick = () => {
-  if (isShipped) return
+  if (isRelayShipping.value) {
+    showToast(RELAY_SELECTION_REASON)
+    return
+  }
+  if (isShipped.value) return
   emit('update:modelValue', !props.modelValue)
 }
 
@@ -100,6 +127,11 @@ const statusColor = (s: string) => STATUS_MAP[s]?.color ?? '#999'
   opacity: 0.6;
 }
 
+.card.relay {
+  border-left: 3px solid #ed6a0c;
+  background: #fff8f2;
+}
+
 .card-check {
   flex-shrink: 0;
 }
@@ -125,6 +157,12 @@ const statusColor = (s: string) => STATUS_MAP[s]?.color ?? '#999'
   white-space: nowrap;
   flex: 1;
   margin-right: 8px;
+}
+
+.card-tags {
+  display: flex;
+  flex: none;
+  gap: 4px;
 }
 
 .card-meta {

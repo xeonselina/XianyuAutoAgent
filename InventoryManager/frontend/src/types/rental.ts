@@ -144,6 +144,9 @@ export interface Rental {
   // 计算属性
   duration_days?: number
   is_overdue?: boolean
+  // 接力后一单由前一位客户直接寄出，不参与仓库批量发货
+  is_relay_shipping?: boolean
+  relay_predecessor_rental_id?: number | null
 }
 
 /**

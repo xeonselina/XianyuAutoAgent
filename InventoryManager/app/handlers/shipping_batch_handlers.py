@@ -7,6 +7,7 @@ from datetime import datetime
 from flask import request, current_app
 from app import db
 from app.models.rental import Rental
+from app.models.rental_relay_binding import RentalRelayBinding
 from app.utils.response import (
     ApiResponse,
     success,
@@ -48,12 +49,38 @@ class ShippingBatchHandlers:
 
             # 查询租赁记录
             rentals = Rental.query.filter(Rental.id.in_(rental_ids)).all()
+            relay_successor_ids = {
+                successor_id
+                for (successor_id,) in db.session.query(
+                    RentalRelayBinding.successor_rental_id
+                ).filter(
+                    RentalRelayBinding.successor_rental_id.in_(rental_ids)
+                ).all()
+            }
 
             success_count = 0
             failed_rentals = []
             results = []
 
             for rental in rentals:
+                if rental.id in relay_successor_ids:
+                    reason = '接力订单由前一位客户直接寄出，不能批量预约发货'
+                    current_app.logger.info(
+                        f"Rental {rental.id} 为接力后一单，跳过批量发货"
+                    )
+                    results.append({
+                        'success': False,
+                        'rental_id': rental.id,
+                        'message': reason,
+                        'waybill_no': None
+                    })
+                    failed_rentals.append({
+                        'id': rental.id,
+                        'reason': reason,
+                        'waybill_no': None
+                    })
+                    continue
+
                 # 跳过已发货或已预约发货的订单
                 if rental.status in ('shipped', 'scheduled_for_shipping'):
                     current_app.logger.info(f"Rental {rental.id} 已发货或已预约发货，跳过")

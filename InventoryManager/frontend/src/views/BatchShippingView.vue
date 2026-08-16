@@ -55,14 +55,41 @@
         </div>
       </div>
 
-      <el-table :data="rentals" border stripe @selection-change="handleSelectionChange" :row-key="(row: any) => row.id">
+      <el-table
+        :data="rentals"
+        border
+        stripe
+        :row-key="(row: any) => row.id"
+        @selection-change="handleSelectionChange"
+        @cell-mouse-enter="handleCellMouseEnter"
+        @cell-mouse-leave="handleCellMouseLeave"
+      >
         <el-table-column type="selection" width="55" :selectable="isSelectableRow" />
         <el-table-column label="设备名称" width="80">
           <template #default="{ row }">
             {{ row.device?.name || '-' }}
           </template>
         </el-table-column>
-        <el-table-column prop="customer_name" label="客户" width="120" />
+        <el-table-column label="客户" width="130">
+          <template #default="{ row }">
+            <div>{{ row.customer_name }}</div>
+            <el-tooltip
+              v-if="row.is_relay_shipping"
+              :content="RELAY_SELECTION_REASON"
+              placement="top"
+            >
+              <el-tag
+                type="warning"
+                effect="dark"
+                size="small"
+                class="relay-shipping-tag"
+                data-testid="relay-shipping-tag"
+              >
+                接力寄出
+              </el-tag>
+            </el-tooltip>
+          </template>
+        </el-table-column>
         <el-table-column label="设备" width="180">
           <template #default="{ row }">
             {{ row.device?.device_model?.name || row.device?.name || '-' }}
@@ -227,6 +254,7 @@ const waybillPrintDialogVisible = ref(false)
 const printing = ref(false)
 const printProgress = ref(0)
 const printResults = ref<any>(null)
+const RELAY_SELECTION_REASON = '接力订单由前一位客户直接寄出，无需在批量发货中处理'
 
 // Computed
 // 统计预约发货状态且有运单号和预约时间的订单（用于打印面单）
@@ -240,11 +268,27 @@ const goBack = () => {
 
 // Selection handlers
 const handleSelectionChange = (selection: any[]) => {
-  selectedRentals.value = selection
+  selectedRentals.value = selection.filter(isSelectableRow)
 }
 
 const isSelectableRow = (row: any) => {
-  return row.status !== 'shipped' && row.status !== 'scheduled_for_shipping'
+  return (
+    row.status !== 'shipped' &&
+    row.status !== 'scheduled_for_shipping' &&
+    !row.is_relay_shipping
+  )
+}
+
+const handleCellMouseEnter = (row: any, column: any, cell: HTMLElement) => {
+  if (column.type === 'selection' && row.is_relay_shipping) {
+    cell.title = RELAY_SELECTION_REASON
+  }
+}
+
+const handleCellMouseLeave = (_row: any, column: any, cell: HTMLElement) => {
+  if (column.type === 'selection') {
+    cell.removeAttribute('title')
+  }
 }
 
 const previewOrders = async () => {
@@ -495,6 +539,11 @@ const printSingle = async (rentalId: number) => {
 .actions {
   display: flex;
   gap: 10px;
+}
+
+.relay-shipping-tag {
+  margin-top: 4px;
+  cursor: help;
 }
 
 .scan-instruction {
