@@ -120,6 +120,21 @@ def test_candidates_require_positive_overlap_days(app, db_session):
     assert candidates[(two_days[0].id, two_days[1].id)].overlap_days == 2
 
 
+def test_candidates_exclude_completed_predecessor(app, db_session):
+    device = add_device(db_session, "completed-predecessor")
+    first, second = add_pair(
+        db_session,
+        device,
+        overlap_days=2,
+        first_status="completed",
+    )
+    db_session.commit()
+
+    candidates = RelayCaseService.find_candidates()
+
+    assert (first.id, second.id) not in candidates
+
+
 def test_candidates_only_compare_adjacent_non_cancelled_main_rentals(
     app, db_session
 ):
@@ -301,6 +316,40 @@ def test_existing_binding_without_case_is_exposed_as_agreed(app, db_session):
     assert payload["total"] == 1
     assert payload["items"][0]["status"] == "agreed"
     assert payload["items"][0]["binding_id"] == binding.id
+
+
+def test_list_hides_persisted_case_when_predecessor_is_completed(
+    app, db_session
+):
+    device = add_device(db_session, "persisted-completed-predecessor")
+    first, second = add_pair(
+        db_session,
+        device,
+        overlap_days=2,
+        first_status="completed",
+    )
+    db_session.add_all([
+        RentalRelayCase(
+            predecessor_rental_id=first.id,
+            successor_rental_id=second.id,
+            status="agreed",
+        ),
+        RentalRelayBinding(
+            predecessor_rental_id=first.id,
+            successor_rental_id=second.id,
+        ),
+    ])
+    db_session.commit()
+
+    payload = RelayCaseService.list_cases(
+        statuses=["agreed"],
+        ship_date_from=date(2026, 8, 1),
+        ship_date_to=date(2026, 8, 31),
+    )
+
+    assert payload["items"] == []
+    assert payload["total"] == 0
+    assert payload["open_total"] == 0
 
 
 def test_list_filters_by_planned_ship_date_and_paginates(app, db_session):

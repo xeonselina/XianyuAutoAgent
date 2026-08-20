@@ -79,6 +79,8 @@ class RelayCaseService:
             for predecessor, successor in zip(
                 device_rentals, device_rentals[1:]
             ):
+                if predecessor.status == "completed":
+                    continue
                 if (
                     predecessor.ship_in_time is None
                     or successor.ship_out_time is None
@@ -242,6 +244,11 @@ class RelayCaseService:
                 if case and case.id in manual_case_ids
                 else "automatic"
             )
+            predecessor = candidate.predecessor if candidate else (
+                case.predecessor if case else binding.predecessor
+            )
+            if predecessor.status == "completed":
+                continue
             if candidate is None and status == "pending" and source != "manual":
                 continue
             if status not in statuses:
