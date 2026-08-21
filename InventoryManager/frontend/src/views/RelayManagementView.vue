@@ -18,6 +18,7 @@ import type {
   RelayCaseListResponse,
   RelayCaseStatus,
   RelayCustomer,
+  RelayTracking,
 } from '@/types/relayCase'
 
 const OPEN_STATUSES: RelayCaseStatus[] = [
@@ -68,10 +69,16 @@ const shipDateRange = ref<[string, string]>([
 const dialogVisible = ref(false)
 const activeCase = ref<RelayCase | null>(null)
 const manualDialogVisible = ref(false)
+const trackingDialogVisible = ref(false)
+const activeTracking = ref<RelayTracking | null>(null)
+const trackingLoadingCaseId = ref<number | null>(null)
 
 const refreshableCaseIds = computed(() => items.value
   .filter((item) => item.case_id !== null && ['shipped', 'completed'].includes(item.status))
   .map((item) => item.case_id as number))
+const trackingRoutes = computed(() => [
+  ...(activeTracking.value?.routes || []),
+].reverse())
 
 function lensText(value: string | null) {
   if (!value) return '未填写镜头'
@@ -184,12 +191,16 @@ function editCase(relayCase: RelayCase) {
 
 async function refreshOne(relayCase: RelayCase) {
   if (relayCase.case_id === null) return
+  trackingLoadingCaseId.value = relayCase.case_id
   try {
-    await refreshRelayTracking(relayCase.case_id)
-    ElMessage.success('物流状态已刷新')
-    await loadCases()
+    const tracking = await refreshRelayTracking(relayCase.case_id)
+    relayCase.tracking = tracking
+    activeTracking.value = tracking
+    trackingDialogVisible.value = true
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '物流刷新失败')
+    ElMessage.error(error instanceof Error ? error.message : '物流详情查询失败')
+  } finally {
+    trackingLoadingCaseId.value = null
   }
 }
 
@@ -383,9 +394,11 @@ onMounted(loadCases)
                 type="primary"
                 size="small"
                 :icon="Refresh"
+                :loading="trackingLoadingCaseId === row.case_id"
+                data-testid="relay-tracking-details"
                 @click="refreshOne(row)"
               >
-                刷新物流
+                查看物流详情
               </el-button>
             </template>
             <span v-else class="secondary">尚未录入</span>
@@ -441,6 +454,52 @@ onMounted(loadCases)
       v-model="manualDialogVisible"
       @saved="handleSaved"
     />
+    <el-dialog
+      v-model="trackingDialogVisible"
+      title="顺丰物流详情"
+      width="680px"
+      destroy-on-close
+      data-testid="relay-tracking-dialog"
+    >
+      <div v-if="activeTracking" class="tracking-detail">
+        <div class="tracking-overview">
+          <div>
+            <span>运单号</span>
+            <strong>{{ activeTracking.number }}</strong>
+          </div>
+          <div>
+            <span>最新状态</span>
+            <strong>{{ activeTracking.status_text || activeTracking.summary || '暂无轨迹' }}</strong>
+          </div>
+          <div v-if="activeTracking.last_update">
+            <span>最后更新</span>
+            <strong>{{ activeTracking.last_update }}</strong>
+          </div>
+        </div>
+
+        <el-timeline v-if="trackingRoutes.length" class="tracking-timeline">
+          <el-timeline-item
+            v-for="(route, index) in trackingRoutes"
+            :key="`${route.accept_time}-${index}`"
+            :timestamp="route.accept_time"
+            :type="index === 0 ? 'primary' : undefined"
+            placement="top"
+          >
+            <div class="route-card">
+              <strong>
+                {{ route.secondary_status_name || route.first_status_name || '物流轨迹' }}
+              </strong>
+              <p>{{ route.remark || '顺丰暂未提供轨迹描述' }}</p>
+              <span v-if="route.accept_address">{{ route.accept_address }}</span>
+              <small v-if="route.op_code || route.first_status_code || route.secondary_status_code">
+                状态码：{{ [route.first_status_code, route.secondary_status_code, route.op_code].filter(Boolean).join(' / ') }}
+              </small>
+            </div>
+          </el-timeline-item>
+        </el-timeline>
+        <el-empty v-else description="顺丰暂未返回物流轨迹" :image-size="72" />
+      </div>
+    </el-dialog>
   </main>
 </template>
 
@@ -564,6 +623,52 @@ h1 {
 
 .tracking-number {
   color: #2563eb;
+}
+
+.tracking-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  margin-bottom: 20px;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #eff6ff;
+}
+
+.tracking-overview > div {
+  min-width: 0;
+}
+
+.tracking-overview span,
+.route-card span,
+.route-card small {
+  display: block;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.tracking-overview strong {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.tracking-timeline {
+  max-height: 55vh;
+  padding: 4px 8px 0 4px;
+  overflow-y: auto;
+}
+
+.route-card p {
+  margin: 4px 0;
+  color: #374151;
+  line-height: 1.55;
+}
+
+.route-card small {
+  margin-top: 4px;
+  color: #9ca3af;
 }
 
 .schedule-warning {

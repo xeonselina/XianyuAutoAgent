@@ -159,7 +159,26 @@ async function mockRelayApi(
       return
     }
     if (request.method() === 'POST' && url.pathname === '/api/relay-cases/7/tracking/refresh') {
-      await route.fulfill({ json: { success: true, data: relayCase.tracking } })
+      await route.fulfill({
+        json: {
+          success: true,
+          data: {
+            ...relayCase.tracking,
+            status_text: '已到达杭州中转场',
+            last_update: '2026-08-05 10:00:00',
+            routes: [{
+              accept_time: '2026-08-05 10:00:00',
+              accept_address: '杭州中转场',
+              remark: '快件已到达杭州中转场，准备发往上海',
+              op_code: '36',
+              first_status_code: '2',
+              first_status_name: '运输中',
+              secondary_status_code: '201',
+              secondary_status_name: '到达中转场',
+            }],
+          },
+        },
+      })
       return
     }
     await route.fulfill({ status: 404, json: { success: false, message: 'unexpected request' } })
@@ -233,6 +252,18 @@ test.describe('mobile relay management', () => {
     )
     expect(actionHeights).toHaveLength(2)
     expect(actionHeights.every(height => height >= 44)).toBe(true)
+  })
+
+  test('opens the complete SF tracking timeline from a relay card', async ({ page }) => {
+    await mockRelayApi(page)
+    await page.goto('/mobile/relay')
+
+    await page.getByTestId('relay-logistics').click()
+
+    await expect(page.getByTestId('relay-tracking-sheet')).toBeVisible()
+    await expect(page.getByText('已到达杭州中转场', { exact: true })).toBeVisible()
+    await expect(page.getByText('快件已到达杭州中转场，准备发往上海')).toBeVisible()
+    await expect(page.getByText('杭州中转场', { exact: true })).toBeVisible()
   })
 
   test('marks the current and next rental by selecting only a device', async ({ page }) => {

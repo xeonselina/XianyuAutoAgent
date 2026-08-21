@@ -25,8 +25,23 @@ export interface RelayAccessory {
 export interface RelayTracking {
   number: string | null
   status: string | null
+  status_text?: string | null
   summary: string | null
   last_checked_at: string | null
+  last_update?: string | null
+  delivered_time?: string | null
+  routes?: RelayTrackingRoute[]
+}
+
+export interface RelayTrackingRoute {
+  accept_time: string
+  accept_address: string
+  remark: string
+  op_code: string
+  first_status_code: string
+  first_status_name: string
+  secondary_status_code: string
+  secondary_status_name: string
 }
 
 export interface RelayXianyuSync {

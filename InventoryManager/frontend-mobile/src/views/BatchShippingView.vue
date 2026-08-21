@@ -156,16 +156,23 @@ const filteredRentals = computed(() => {
   return rentals.value.filter(r => r.status === statusFilter.value)
 })
 
+const isSelectableRental = (rental: Rental) => (
+  !['shipped', 'returned', 'completed'].includes(rental.status) &&
+  !rental.is_relay_shipping
+)
+
 const selectedIds = computed(() => {
-  return Object.entries(checkedIds)
-    .filter(([, v]) => v)
-    .map(([id]) => Number(id))
+  return rentals.value
+    .filter(rental => checkedIds[rental.id] && isSelectableRental(rental))
+    .map(rental => rental.id)
 })
 
 const selectedCount = computed(() => selectedIds.value.length)
 const allSelected = computed(() =>
-  filteredRentals.value.length > 0 &&
-  filteredRentals.value.every(r => checkedIds[r.id])
+  filteredRentals.value.some(isSelectableRental) &&
+  filteredRentals.value
+    .filter(isSelectableRental)
+    .every(rental => checkedIds[rental.id])
 )
 
 const filterActions = [
@@ -224,8 +231,10 @@ const onQuery = async () => {
 const toggleSelectAll = () => {
   const shouldSelect = !allSelected.value
   filteredRentals.value.forEach(r => {
-    if (!['shipped', 'returned', 'completed'].includes(r.status)) {
+    if (isSelectableRental(r)) {
       checkedIds[r.id] = shouldSelect
+    } else {
+      checkedIds[r.id] = false
     }
   })
 }

@@ -1,11 +1,17 @@
 <template>
   <div class="app-container">
     <!-- 主内容区 -->
-    <router-view v-slot="{ Component }">
-      <keep-alive :include="['GanttView', 'BatchShippingView']">
-        <component :is="Component" />
-      </keep-alive>
-    </router-view>
+    <main
+      class="app-content"
+      :class="{ 'app-content--with-tabbar': showTabbar }"
+      data-testid="app-content"
+    >
+      <router-view v-slot="{ Component }">
+        <keep-alive :include="['GanttView', 'BatchShippingView']">
+          <component :is="Component" />
+        </keep-alive>
+      </router-view>
+    </main>
 
     <!-- 底部标签栏（仅在主视图显示） -->
     <van-tabbar
@@ -60,9 +66,16 @@ html, body, #app {
   flex-direction: column;
 }
 
-.app-container > .router-view-container {
+.app-content {
   flex: 1;
+  min-height: 0;
   overflow: hidden;
+}
+
+/* 标签栏是 fixed 定位，需要给页面内容留出等高空间，避免最后一行被遮挡。 */
+.app-content--with-tabbar {
+  box-sizing: border-box;
+  padding-bottom: calc(var(--van-tabbar-height) + env(safe-area-inset-bottom));
 }
 
 /* Vant 主题色 */
