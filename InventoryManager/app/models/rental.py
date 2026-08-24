@@ -10,12 +10,25 @@ import uuid
 class Rental(db.Model):
     """租赁记录模型"""
     __tablename__ = 'rentals'
+    __table_args__ = (
+        db.UniqueConstraint(
+            'xianyu_shop_id',
+            'xianyu_order_no',
+            name='uq_rental_shop_order'
+        ),
+    )
     
     # 主键
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     
     # 关联信息
     device_id = db.Column(db.Integer, db.ForeignKey('devices.id'), nullable=False, comment='设备ID')
+    warehouse_id = db.Column(
+        db.Integer,
+        db.ForeignKey('warehouses.id', ondelete='RESTRICT'),
+        nullable=False,
+        comment='履约仓库ID'
+    )
     
     # 时间信息
     start_date = db.Column(db.Date, nullable=False, comment='开始日期')
@@ -30,6 +43,12 @@ class Rental(db.Model):
 
     # 订单信息
     xianyu_order_no = db.Column(db.String(50), nullable=True, comment='闲鱼订单号')
+    xianyu_shop_id = db.Column(
+        db.Integer,
+        db.ForeignKey('xianyu_shops.id', ondelete='RESTRICT'),
+        nullable=True,
+        comment='闲鱼店铺ID'
+    )
     order_amount = db.Column(db.DECIMAL(10, 2), nullable=True, comment='订单金额(元)')
     buyer_id = db.Column(db.String(100), nullable=True, comment='买家ID(闲鱼EID)')
 
@@ -79,6 +98,8 @@ class Rental(db.Model):
     audit_logs = db.relationship('AuditLog', backref='rental', lazy='dynamic')
     # 子租赁记录（附件租赁）
     child_rentals = db.relationship('Rental', backref=db.backref('parent_rental', remote_side='Rental.id'), lazy='dynamic')
+    warehouse = db.relationship('Warehouse')
+    xianyu_shop = db.relationship('XianyuShop')
     
     def __repr__(self):
         return f'<Rental {self.id}: {self.device_id} ({self.start_date} - {self.end_date})>'
@@ -128,6 +149,7 @@ class Rental(db.Model):
         return {
             'id': self.id,
             'device_id': self.device_id,
+            'warehouse_id': self.warehouse_id,
             'start_date': self.start_date.isoformat(),
             'end_date': self.end_date.isoformat(),
             'ship_out_time': self.ship_out_time.isoformat() if self.ship_out_time else None,
@@ -136,6 +158,7 @@ class Rental(db.Model):
             'customer_phone': self.customer_phone,
             'destination': self.destination,
             'xianyu_order_no': self.xianyu_order_no,
+            'xianyu_shop_id': self.xianyu_shop_id,
             'order_amount': float(self.order_amount) if self.order_amount else None,
             'buyer_id': self.buyer_id,
             'damage_note': self.damage_note,

@@ -16,11 +16,19 @@ class XianyuOrderAlert(db.Model):
             "state IN ('pending', 'ignored')",
             name="ck_xianyu_order_alert_state",
         ),
+        db.UniqueConstraint(
+            "xianyu_shop_id",
+            "order_no",
+            name="uq_xianyu_alert_shop_order",
+        ),
     )
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    order_no = db.Column(
-        db.String(50), nullable=False, unique=True, index=True
+    order_no = db.Column(db.String(50), nullable=False, index=True)
+    xianyu_shop_id = db.Column(
+        db.Integer,
+        db.ForeignKey("xianyu_shops.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     state = db.Column(
         db.String(20), nullable=False, default="pending", index=True
@@ -50,6 +58,7 @@ class XianyuOrderAlert(db.Model):
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
     )
+    xianyu_shop = db.relationship("XianyuShop")
 
     @validates("order_no")
     def normalize_order_no(self, _key, value):
@@ -73,6 +82,7 @@ class XianyuOrderAlert(db.Model):
         """返回告警条所需的非内部字段。"""
         return {
             "order_no": self.order_no,
+            "xianyu_shop_id": self.xianyu_shop_id,
             "pay_amount": self.pay_amount,
             "buyer_nick": self.buyer_nick,
             "receiver_name": self.receiver_name,

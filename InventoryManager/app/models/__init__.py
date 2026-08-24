@@ -12,10 +12,18 @@ from .inspection_check_item import InspectionCheckItem
 from .rental_relay_binding import RentalRelayBinding
 from .rental_relay_case import RentalRelayCase
 from .xianyu_order_alert import XianyuOrderAlert, XianyuOrderSyncState
+from .warehouse import (
+    Warehouse,
+    WarehouseKuaimaiConfig,
+    WarehouseSFConfig,
+)
+from .xianyu_shop import XianyuShop
 
 __all__ = [
     'Device', 'Rental', 'AuditLog', 'DeviceModel', 'RentalStatistics',
     'InspectionRecord', 'InspectionCheckItem', 'RentalRelayBinding',
     'RentalRelayCase',
-    'XianyuOrderAlert', 'XianyuOrderSyncState'
+    'XianyuOrderAlert', 'XianyuOrderSyncState',
+    'Warehouse', 'WarehouseSFConfig', 'WarehouseKuaimaiConfig',
+    'XianyuShop'
 ]
