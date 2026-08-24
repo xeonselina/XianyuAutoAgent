@@ -5,7 +5,9 @@ import logging
 import os
 import re
 import secrets
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from datetime import datetime
+from threading import Lock
 
 from alembic import command as alembic_command
 from alembic.config import Config as AlembicConfig
@@ -25,6 +27,9 @@ LOGGER = logging.getLogger(__name__)
 DEFAULT_DATABASE_PREFIX = "inventory_tenant_"
 DEFAULT_USER_PREFIX = "im_t"
 _IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9_]+$")
+_MIGRATION_LOCK = Lock()
+MARIADB_MIN_DATETIME = datetime(1000, 1, 1)
+MARIADB_MAX_DATETIME = datetime(9999, 12, 31, 23, 59, 59)
 
 
 class TenantPhoneConflict(ValueError):
@@ -33,6 +38,18 @@ class TenantPhoneConflict(ValueError):
 
 class TenantNotFound(LookupError):
     """The requested tenant does not exist in the control database."""
+
+
+def validate_tenant_expiration(value):
+    """Return one UTC-naive expiration representable by MariaDB DATETIME."""
+    if (
+        not isinstance(value, datetime)
+        or value.tzinfo is not None
+        or value < MARIADB_MIN_DATETIME
+        or value > MARIADB_MAX_DATETIME
+    ):
+        raise ValueError("expires_at is outside the MariaDB DATETIME range")
+    return value
 
 
 def _validated_identifier(value, maximum_length):
@@ -71,35 +88,36 @@ def business_migration_head(migrations_directory):
 
 def run_business_migrations(database_url, migrations_directory):
     """Upgrade one tenant using a minimal temporary Flask migration app."""
-    migration_app = Flask("tenant_business_migration")
-    migration_app.config.update(
-        SQLALCHEMY_DATABASE_URI=database_url,
-        SQLALCHEMY_TRACK_MODIFICATIONS=False,
-        SQLALCHEMY_ENGINE_OPTIONS={"pool_pre_ping": True},
-    )
-    migration_db = SQLAlchemy()
-    migration = Migrate()
-    migration_db.init_app(migration_app)
-    migration.init_app(
-        migration_app,
-        migration_db,
-        directory=migrations_directory,
-    )
-    with migration_app.app_context():
-        alembic_logger = logging.getLogger("alembic")
-        previous_level = alembic_logger.level
-        try:
-            alembic_config = migration.get_config(migrations_directory)
-            alembic_config.attributes["programmatic_provisioning"] = True
-            alembic_logger.setLevel(logging.CRITICAL + 1)
-            with redirect_stdout(io.StringIO()), redirect_stderr(
-                io.StringIO()
-            ):
-                alembic_command.upgrade(alembic_config, "head")
-        finally:
-            alembic_logger.setLevel(previous_level)
-            migration_db.session.remove()
-            migration_db.engine.dispose()
+    with _MIGRATION_LOCK:
+        migration_app = Flask("tenant_business_migration")
+        migration_app.config.update(
+            SQLALCHEMY_DATABASE_URI=database_url,
+            SQLALCHEMY_TRACK_MODIFICATIONS=False,
+            SQLALCHEMY_ENGINE_OPTIONS={"pool_pre_ping": True},
+        )
+        migration_db = SQLAlchemy()
+        migration = Migrate()
+        migration_db.init_app(migration_app)
+        migration.init_app(
+            migration_app,
+            migration_db,
+            directory=migrations_directory,
+        )
+        with migration_app.app_context():
+            alembic_logger = logging.getLogger("alembic")
+            previous_level = alembic_logger.level
+            try:
+                alembic_config = migration.get_config(migrations_directory)
+                alembic_config.attributes["programmatic_provisioning"] = True
+                alembic_logger.setLevel(logging.CRITICAL + 1)
+                with redirect_stdout(io.StringIO()), redirect_stderr(
+                    io.StringIO()
+                ):
+                    alembic_command.upgrade(alembic_config, "head")
+            finally:
+                alembic_logger.setLevel(previous_level)
+                migration_db.session.remove()
+                migration_db.engine.dispose()
 
 
 class TenantProvisioner:
@@ -131,15 +149,14 @@ class TenantProvisioner:
         self.engine = create_engine(
             provisioner_database_url,
             pool_pre_ping=True,
-            pool_size=1,
-            max_overflow=0,
+            pool_size=5,
+            max_overflow=5,
         )
 
     def create(self, name, admin_phone, expires_at):
         normalized_name = self._normalize_name(name)
         normalized_phone = normalize_china_phone(admin_phone)
-        if not hasattr(expires_at, "isoformat"):
-            raise ValueError("expires_at must be a datetime")
+        expires_at = validate_tenant_expiration(expires_at)
 
         raw_password = secrets.token_urlsafe(32)
         encrypted_password = self.store.secret_box.encrypt(
@@ -198,6 +215,10 @@ class TenantProvisioner:
         return self._provision(tenant_id)
 
     def upgrade(self, tenant):
+        with self._tenant_lock(tenant.id):
+            return self._upgrade_unlocked(tenant)
+
+    def _upgrade_unlocked(self, tenant):
         database_url = self._tenant_database_url(tenant)
         run_business_migrations(
             database_url,
@@ -209,9 +230,22 @@ class TenantProvisioner:
         self.engine.dispose()
 
     def _provision(self, tenant_id):
+        try:
+            with self._tenant_lock(tenant_id) as connection:
+                return self._provision_locked(tenant_id, connection)
+        except Exception as exc:
+            self._record_failure(
+                tenant_id,
+                "Business database setup failed.",
+                "provisioning lock",
+                exc,
+            )
+            return self._get_tenant(tenant_id)
+
+    def _provision_locked(self, tenant_id, connection):
         tenant = self._get_tenant(tenant_id)
         try:
-            self._ensure_database_and_user(tenant)
+            self._ensure_database_and_user(tenant, connection)
         except Exception as exc:
             self._record_failure(
                 tenant_id,
@@ -223,7 +257,7 @@ class TenantProvisioner:
 
         tenant = self._get_tenant(tenant_id)
         try:
-            self.upgrade(tenant)
+            self._upgrade_unlocked(tenant)
         except Exception as exc:
             self._record_failure(
                 tenant_id,
@@ -239,7 +273,29 @@ class TenantProvisioner:
             tenant.provisioning_error = None
         return self._get_tenant(tenant_id)
 
-    def _ensure_database_and_user(self, tenant):
+    @contextmanager
+    def _tenant_lock(self, tenant_id):
+        if not isinstance(tenant_id, int) or tenant_id <= 0:
+            raise ValueError("tenant identifier must be a positive integer")
+        lock_name = f"tenant-provision-{tenant_id:08d}"
+        with self.engine.connect() as connection:
+            acquired = connection.scalar(
+                text("SELECT GET_LOCK(:name, :timeout)"),
+                {"name": lock_name, "timeout": 120},
+            )
+            connection.commit()
+            if acquired != 1:
+                raise TimeoutError("timed out acquiring tenant provision lock")
+            try:
+                yield connection
+            finally:
+                connection.execute(
+                    text("SELECT RELEASE_LOCK(:name)"),
+                    {"name": lock_name},
+                )
+                connection.commit()
+
+    def _ensure_database_and_user(self, tenant, connection):
         database_name = _validated_identifier(tenant.db_name, 64)
         database_username = _validated_identifier(
             tenant.db_username,
@@ -249,34 +305,40 @@ class TenantProvisioner:
             tenant.db_password_ciphertext,
             purpose="tenant-db-password",
         )
-        with self.engine.begin() as connection:
-            connection.execute(
-                text(
-                    f"CREATE DATABASE IF NOT EXISTS `{database_name}` "
-                    "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
-                )
+        connection.execute(
+            text(
+                f"CREATE DATABASE IF NOT EXISTS `{database_name}` "
+                "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
             )
-            connection.execute(
-                text(
-                    f"CREATE USER IF NOT EXISTS "
-                    f"`{database_username}`@'%' "
-                    "IDENTIFIED BY :password"
-                ),
-                {"password": password},
+        )
+        connection.execute(
+            text(
+                f"CREATE USER IF NOT EXISTS "
+                f"`{database_username}`@'%' "
+                "IDENTIFIED BY :password"
+            ),
+            {"password": password},
+        )
+        connection.execute(
+            text(
+                f"ALTER USER `{database_username}`@'%' "
+                "IDENTIFIED BY :password"
+            ),
+            {"password": password},
+        )
+        connection.execute(
+            text(
+                "REVOKE ALL PRIVILEGES, GRANT OPTION FROM "
+                f"`{database_username}`@'%'"
             )
-            connection.execute(
-                text(
-                    f"ALTER USER `{database_username}`@'%' "
-                    "IDENTIFIED BY :password"
-                ),
-                {"password": password},
+        )
+        connection.execute(
+            text(
+                f"GRANT ALL PRIVILEGES ON `{database_name}`.* "
+                f"TO `{database_username}`@'%'"
             )
-            connection.execute(
-                text(
-                    f"GRANT ALL PRIVILEGES ON `{database_name}`.* "
-                    f"TO `{database_username}`@'%'"
-                )
-            )
+        )
+        connection.commit()
 
     def _tenant_database_url(self, tenant):
         database_name = _validated_identifier(tenant.db_name, 64)

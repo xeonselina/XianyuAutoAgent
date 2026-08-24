@@ -221,6 +221,8 @@ def test_runtime_config_changes_cannot_enable_production_auth_bypass():
         TENCENT_SMS_SDK_APP_ID = "test-sdk-app-id"
         TENCENT_SMS_SIGN_NAME = "test-sign"
         TENCENT_SMS_TEMPLATE_ID = "test-template"
+        CONTROL_DATABASE_URL = "mysql+pymysql://app@127.0.0.1:9/control"
+        PROVISIONER_DATABASE_URL = "mysql+pymysql://root@127.0.0.1:9/mysql"
 
     application = create_app(ProductionRuntimeConfig)
 

@@ -2,16 +2,23 @@ import base64
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime, timedelta
 from pathlib import Path
+from threading import Barrier
 
 import pyotp
 import pytest
+from alembic import command as alembic_command
 from alembic.config import Config as AlembicConfig
 from alembic.script import ScriptDirectory
+from flask import Flask
+from flask_migrate import Migrate
+from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import create_engine, inspect, select, text
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 from werkzeug.security import check_password_hash
 
 from app import create_app, db
@@ -23,6 +30,10 @@ from app.control.models import (
     Tenant,
     TenantMember,
 )
+from app.models.audit_log import AuditLog
+from app.models.device import Device
+from app.models.device_model import DeviceModel
+from app.models.rental import Rental
 from config import TestingConfig
 
 
@@ -250,6 +261,31 @@ def _migration_head():
     return ScriptDirectory.from_config(alembic_config).get_current_head()
 
 
+def _run_migration_revision(database_url, revision):
+    migration_app = Flask("task5_partial_migration")
+    migration_app.config.update(
+        SQLALCHEMY_DATABASE_URI=database_url,
+        SQLALCHEMY_TRACK_MODIFICATIONS=False,
+        SQLALCHEMY_ENGINE_OPTIONS={"pool_pre_ping": True},
+    )
+    migration_db = SQLAlchemy()
+    migration = Migrate()
+    migration_db.init_app(migration_app)
+    migration.init_app(
+        migration_app,
+        migration_db,
+        directory=MIGRATIONS_DIRECTORY,
+    )
+    with migration_app.app_context():
+        try:
+            config = migration.get_config(MIGRATIONS_DIRECTORY)
+            config.attributes["programmatic_provisioning"] = True
+            alembic_command.upgrade(config, revision)
+        finally:
+            migration_db.session.remove()
+            migration_db.engine.dispose()
+
+
 def _bootstrap_platform_admin(environment, username="platform-admin"):
     runner = environment["app"].test_cli_runner()
     result = runner.invoke(
@@ -352,6 +388,171 @@ def _tenant_engine(environment, snapshot):
         ),
         pool_pre_ping=True,
     )
+
+
+def _root_tenant_engine(environment, database_name):
+    if not TEST_DATABASE_PATTERN.fullmatch(database_name):
+        raise RuntimeError("refusing unexpected root tenant database")
+    return create_engine(
+        environment["root_engine"].url.set(database=database_name),
+        pool_pre_ping=True,
+    )
+
+
+def _seed_legacy_init_schema(environment, snapshot):
+    engine = _root_tenant_engine(environment, snapshot["db_name"])
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE devices (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(100) NOT NULL,
+                    serial_number VARCHAR(100) UNIQUE,
+                    status ENUM(
+                        'idle', 'pending_ship', 'renting',
+                        'pending_return', 'returned', 'offline'
+                    ) DEFAULT 'idle',
+                    location VARCHAR(100),
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                        ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE rentals (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    device_id INT NOT NULL,
+                    start_date DATE NOT NULL,
+                    end_date DATE NOT NULL,
+                    ship_out_time DATETIME,
+                    ship_in_time DATETIME,
+                    customer_name VARCHAR(100) NOT NULL,
+                    customer_phone VARCHAR(20),
+                    destination TEXT,
+                    ship_out_tracking_no VARCHAR(50),
+                    ship_in_tracking_no VARCHAR(50),
+                    status ENUM(
+                        'pending', 'active', 'completed',
+                        'cancelled', 'overdue'
+                    ) DEFAULT 'pending',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                        ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (device_id) REFERENCES devices(id)
+                        ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE audit_logs (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    device_id INT,
+                    rental_id INT,
+                    action VARCHAR(50) NOT NULL,
+                    old_value TEXT,
+                    new_value TEXT,
+                    user_id VARCHAR(100),
+                    `timestamp` DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (device_id) REFERENCES devices(id)
+                        ON DELETE SET NULL,
+                    FOREIGN KEY (rental_id) REFERENCES rentals(id)
+                        ON DELETE SET NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """
+            )
+            for statement in (
+                "CREATE INDEX idx_devices_status ON devices(status)",
+                "CREATE INDEX idx_rentals_device_id ON rentals(device_id)",
+                "CREATE INDEX idx_rentals_dates ON rentals(start_date, end_date)",
+                "CREATE INDEX idx_rentals_status ON rentals(status)",
+                "CREATE INDEX idx_rentals_tracking ON rentals("
+                "ship_out_tracking_no, ship_in_tracking_no)",
+                "CREATE INDEX idx_audit_logs_device_id ON audit_logs(device_id)",
+                "CREATE INDEX idx_audit_logs_rental_id ON audit_logs(rental_id)",
+                "CREATE INDEX idx_audit_logs_timestamp ON audit_logs(`timestamp`)",
+            ):
+                connection.exec_driver_sql(statement)
+            connection.exec_driver_sql(
+                "INSERT INTO devices (name, serial_number) "
+                "VALUES ('Legacy device', 'legacy-device')"
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO rentals ("
+                "device_id, start_date, end_date, customer_name"
+                ") VALUES (1, '2026-01-01', '2026-01-02', 'Legacy customer')"
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO audit_logs ("
+                "device_id, rental_id, action, old_value, new_value, user_id"
+                ") VALUES (1, 1, 'legacy_action', 'before', 'after', 'legacy')"
+            )
+    finally:
+        engine.dispose()
+
+
+def _smoke_current_business_models(environment, snapshot):
+    engine = _tenant_engine(environment, snapshot)
+    try:
+        with Session(engine) as session:
+            device_model = DeviceModel(
+                name=f"task5-smoke-{snapshot['tenant_id']}",
+                display_name="Task 5 smoke model",
+                is_active=True,
+                is_accessory=False,
+            )
+            session.add(device_model)
+            session.flush()
+            device = Device(
+                name="Task 5 smoke device",
+                serial_number=f"task5-smoke-{snapshot['tenant_id']}",
+                model="task5-smoke",
+                model_id=device_model.id,
+                is_accessory=False,
+                lifecycle_status="active",
+            )
+            session.add(device)
+            session.flush()
+            rental = Rental(
+                device_id=device.id,
+                start_date=datetime(2026, 1, 1).date(),
+                end_date=datetime(2026, 1, 2).date(),
+                customer_name="Task 5 smoke customer",
+                status="not_shipped",
+                lens_combo="bare",
+            )
+            session.add(rental)
+            session.commit()
+            device_id = device.id
+            rental_id = rental.id
+
+        with Session(engine) as session:
+            session.add(
+                AuditLog(
+                    device_id=device_id,
+                    rental_id=rental_id,
+                    action="task5_smoke",
+                    resource_type="rental",
+                    resource_id=str(rental_id),
+                    description="Current audit schema smoke",
+                    details={"source": "task5"},
+                    ip_address="127.0.0.1",
+                    user_agent="task5-test",
+                )
+            )
+            session.commit()
+            audit = session.scalar(
+                select(AuditLog).where(AuditLog.action == "task5_smoke")
+            )
+            assert audit.resource_type == "rental"
+            assert audit.details == {"source": "task5"}
+            assert session.get(Device, device_id).model == "task5-smoke"
+            assert session.get(Rental, rental_id).damage_note is None
+    finally:
+        engine.dispose()
 
 
 def test_default_identifier_formatter_is_exact_and_rejects_unsafe_prefixes():
@@ -534,6 +735,18 @@ def test_platform_create_runs_real_migrations_with_minimal_grants_and_retries(
     assert missing_csrf.status_code == 403
     assert missing_csrf.get_json()["code"] == "CSRF_INVALID"
 
+    invalid_expiry = client.post(
+        "/platform/api/tenants",
+        json={
+            "name": "Invalid expiry",
+            "admin_phone": "13800138000",
+            "expires_at": "0999-12-31T23:59:59Z",
+        },
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    assert invalid_expiry.status_code == 400
+    assert invalid_expiry.get_json()["code"] == "INVALID_REQUEST"
+
     create_response = _create_tenant(client, csrf_token)
     assert create_response.status_code == 201, create_response.get_json()
     tenant_payload = create_response.get_json()["data"]
@@ -550,6 +763,7 @@ def test_platform_create_runs_real_migrations_with_minimal_grants_and_retries(
         f"{TEST_USER_PREFIX}{tenant_payload['id']:08d}"
     )
     assert first_snapshot["provisioning_error"] is None
+    _smoke_current_business_models(platform_environment, first_snapshot)
 
     tenant_engine = _tenant_engine(platform_environment, first_snapshot)
     try:
@@ -596,6 +810,14 @@ def test_platform_create_runs_real_migrations_with_minimal_grants_and_retries(
     finally:
         tenant_engine.dispose()
 
+    with platform_environment["root_engine"].begin() as connection:
+        connection.execute(
+            text(
+                "GRANT SELECT ON `tenant_a_saas_test`.* "
+                f"TO `{first_snapshot['db_username']}`@'%'"
+            )
+        )
+
     retry_response = client.post(
         f"/platform/api/tenants/{tenant_payload['id']}/retry",
         headers={"X-CSRF-Token": csrf_token},
@@ -604,6 +826,25 @@ def test_platform_create_runs_real_migrations_with_minimal_grants_and_retries(
     _assert_safe_tenant_payload(retry_response.get_json()["data"])
     second_snapshot = _tenant_snapshot(store, tenant_payload["id"])
     assert second_snapshot == first_snapshot
+
+    tenant_engine = _tenant_engine(platform_environment, second_snapshot)
+    try:
+        with tenant_engine.connect() as connection:
+            grants = [
+                grant.replace("\\_", "_").replace("\\%", "%")
+                for grant in connection.exec_driver_sql(
+                    "SHOW GRANTS FOR CURRENT_USER"
+                ).scalars()
+            ]
+            assert len(grants) == 2
+            assert any(grant.startswith("GRANT USAGE ON *.*") for grant in grants)
+            assert sum(
+                f"ON `{second_snapshot['db_name']}`.*" in grant
+                for grant in grants
+            ) == 1
+            assert all("tenant_a_saas_test" not in grant for grant in grants)
+    finally:
+        tenant_engine.dispose()
 
     conflict = _create_tenant(
         client,
@@ -654,6 +895,8 @@ def test_failed_migration_keeps_member_and_resources_then_retry_reuses_them(
     assert failed_snapshot["db_name"] in databases
     assert failed_snapshot["db_username"] in users
 
+    _seed_legacy_init_schema(platform_environment, failed_snapshot)
+
     with store.session() as session:
         credentials = create_auth_session(
             session,
@@ -690,14 +933,356 @@ def test_failed_migration_keeps_member_and_resources_then_retry_reuses_them(
             immutable_field
         ]
 
+    _smoke_current_business_models(platform_environment, active_snapshot)
+
     tenant_engine = _tenant_engine(platform_environment, active_snapshot)
     try:
+        with Session(tenant_engine) as session:
+            legacy_audit = session.scalar(
+                select(AuditLog).where(AuditLog.action == "legacy_action")
+            )
+            assert legacy_audit.resource_type == "rental"
+            assert legacy_audit.resource_id == "1"
+            assert legacy_audit.details == {
+                "old_value": "before",
+                "new_value": "after",
+                "legacy_user_id": "legacy",
+            }
+            assert legacy_audit.created_at is not None
         with tenant_engine.connect() as connection:
             assert connection.exec_driver_sql(
                 "SELECT version_num FROM alembic_version"
             ).scalar_one() == _migration_head()
     finally:
         tenant_engine.dispose()
+
+
+def test_concurrent_different_tenant_creates_both_reach_head(
+    platform_environment,
+):
+    _bootstrap_platform_admin(platform_environment)
+    first_client, first_csrf, _response = _platform_login(
+        platform_environment
+    )
+    second_client, second_csrf, _response = _platform_login(
+        platform_environment
+    )
+    barrier = Barrier(2)
+
+    def create_one(client, csrf_token, phone, name):
+        barrier.wait(timeout=5)
+        return _create_tenant(
+            client,
+            csrf_token,
+            phone=phone,
+            name=name,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = (
+            executor.submit(
+                create_one,
+                first_client,
+                first_csrf,
+                "13800138000",
+                "Concurrent tenant A",
+            ),
+            executor.submit(
+                create_one,
+                second_client,
+                second_csrf,
+                "13900139000",
+                "Concurrent tenant B",
+            ),
+        )
+        responses = [future.result(timeout=30) for future in futures]
+
+    assert [response.status_code for response in responses] == [201, 201]
+    assert all(
+        response.get_json()["data"]["provisioning_status"] == "active"
+        for response in responses
+    )
+    store = platform_environment["app"].extensions["control_store"]
+    with store.session() as session:
+        tenants = session.scalars(select(Tenant).order_by(Tenant.id)).all()
+        assert len(tenants) == 2
+        assert all(tenant.provisioning_status == "active" for tenant in tenants)
+
+
+def test_concurrent_same_tenant_retries_both_succeed(
+    platform_environment,
+):
+    _bootstrap_platform_admin(platform_environment)
+    creator, creator_csrf, _response = _platform_login(platform_environment)
+    created = _create_tenant(creator, creator_csrf)
+    assert created.status_code == 201, created.get_json()
+    tenant_id = created.get_json()["data"]["id"]
+    first_client, first_csrf, _response = _platform_login(
+        platform_environment
+    )
+    second_client, second_csrf, _response = _platform_login(
+        platform_environment
+    )
+    barrier = Barrier(2)
+
+    def retry_one(client, csrf_token):
+        barrier.wait(timeout=5)
+        return client.post(
+            f"/platform/api/tenants/{tenant_id}/retry",
+            headers={"X-CSRF-Token": csrf_token},
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = (
+            executor.submit(retry_one, first_client, first_csrf),
+            executor.submit(retry_one, second_client, second_csrf),
+        )
+        responses = [future.result(timeout=30) for future in futures]
+
+    assert [response.status_code for response in responses] == [200, 200]
+    assert all(
+        response.get_json()["data"]["provisioning_status"] == "active"
+        for response in responses
+    )
+    store = platform_environment["app"].extensions["control_store"]
+    snapshot = _tenant_snapshot(store, tenant_id)
+    engine = _tenant_engine(platform_environment, snapshot)
+    try:
+        with engine.connect() as connection:
+            assert connection.exec_driver_sql(
+                "SELECT version_num FROM alembic_version"
+            ).scalar_one() == _migration_head()
+    finally:
+        engine.dispose()
+
+
+def test_retry_waits_for_cross_worker_tenant_lock(platform_environment):
+    _bootstrap_platform_admin(platform_environment)
+    creator, csrf_token, _response = _platform_login(platform_environment)
+    created = _create_tenant(creator, csrf_token)
+    assert created.status_code == 201, created.get_json()
+    tenant_id = created.get_json()["data"]["id"]
+    lock_name = f"tenant-provision-{tenant_id:08d}"
+
+    lock_connection = platform_environment["root_engine"].connect()
+    try:
+        assert lock_connection.scalar(
+            text("SELECT GET_LOCK(:name, 0)"),
+            {"name": lock_name},
+        ) == 1
+        lock_connection.commit()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            retry_future = executor.submit(
+                creator.post,
+                f"/platform/api/tenants/{tenant_id}/retry",
+                headers={"X-CSRF-Token": csrf_token},
+            )
+            with pytest.raises(FutureTimeout):
+                retry_future.result(timeout=0.5)
+            assert lock_connection.scalar(
+                text("SELECT RELEASE_LOCK(:name)"),
+                {"name": lock_name},
+            ) == 1
+            lock_connection.commit()
+            response = retry_future.result(timeout=30)
+        assert response.status_code == 200, response.get_json()
+    finally:
+        lock_connection.execute(
+            text("SELECT RELEASE_LOCK(:name)"),
+            {"name": lock_name},
+        )
+        lock_connection.commit()
+        lock_connection.close()
+
+
+def test_upgrade_all_waits_for_cross_worker_tenant_lock(platform_environment):
+    _bootstrap_platform_admin(platform_environment)
+    creator, csrf_token, _response = _platform_login(platform_environment)
+    created = _create_tenant(creator, csrf_token)
+    assert created.status_code == 201, created.get_json()
+    tenant_id = created.get_json()["data"]["id"]
+    lock_name = f"tenant-provision-{tenant_id:08d}"
+
+    lock_connection = platform_environment["root_engine"].connect()
+    try:
+        assert lock_connection.scalar(
+            text("SELECT GET_LOCK(:name, 0)"),
+            {"name": lock_name},
+        ) == 1
+        lock_connection.commit()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            upgrade_future = executor.submit(
+                platform_environment["app"].test_cli_runner().invoke,
+                args=["upgrade-tenant-databases"],
+            )
+            with pytest.raises(FutureTimeout):
+                upgrade_future.result(timeout=0.5)
+            assert lock_connection.scalar(
+                text("SELECT RELEASE_LOCK(:name)"),
+                {"name": lock_name},
+            ) == 1
+            lock_connection.commit()
+            result = upgrade_future.result(timeout=30)
+        assert result.exit_code == 0, result.output
+    finally:
+        lock_connection.execute(
+            text("SELECT RELEASE_LOCK(:name)"),
+            {"name": lock_name},
+        )
+        lock_connection.commit()
+        lock_connection.close()
+
+
+def test_retry_repairs_partial_damage_note_revision(platform_environment):
+    _bootstrap_platform_admin(platform_environment)
+    client, csrf_token, _response = _platform_login(platform_environment)
+    created = _create_tenant(client, csrf_token)
+    assert created.status_code == 201, created.get_json()
+    tenant_id = created.get_json()["data"]["id"]
+    store = platform_environment["app"].extensions["control_store"]
+    snapshot = _tenant_snapshot(store, tenant_id)
+    engine = _tenant_engine(platform_environment, snapshot)
+    try:
+        with engine.begin() as connection:
+            assert "damage_note" in {
+                column["name"]
+                for column in inspect(connection).get_columns("rentals")
+            }
+            connection.exec_driver_sql(
+                "UPDATE alembic_version SET version_num = %s",
+                ("20260805_relay_cases",),
+            )
+    finally:
+        engine.dispose()
+
+    retried = client.post(
+        f"/platform/api/tenants/{tenant_id}/retry",
+        headers={"X-CSRF-Token": csrf_token},
+    )
+
+    assert retried.status_code == 200, retried.get_json()
+    engine = _tenant_engine(platform_environment, snapshot)
+    try:
+        with engine.connect() as connection:
+            assert connection.exec_driver_sql(
+                "SELECT version_num FROM alembic_version"
+            ).scalar_one() == _migration_head()
+    finally:
+        engine.dispose()
+
+
+def test_retry_repairs_unstamped_0670_revision(
+    platform_environment,
+    tmp_path,
+):
+    _bootstrap_platform_admin(platform_environment)
+    client, csrf_token, _response = _platform_login(platform_environment)
+    provisioner = platform_environment["app"].extensions[
+        "tenant_provisioner"
+    ]
+    provisioner.migrations_directory = str(tmp_path / "missing-migrations")
+    failed = _create_tenant(client, csrf_token)
+    assert failed.status_code == 503
+    tenant_id = failed.get_json()["data"]["id"]
+    store = platform_environment["app"].extensions["control_store"]
+    snapshot = _tenant_snapshot(store, tenant_id)
+    engine = _tenant_engine(platform_environment, snapshot)
+    database_url = engine.url.render_as_string(hide_password=False)
+    engine.dispose()
+
+    _run_migration_revision(database_url, "0670a790bdd7")
+    engine = _tenant_engine(platform_environment, snapshot)
+    try:
+        with engine.begin() as connection:
+            assert connection.exec_driver_sql(
+                "SELECT version_num FROM alembic_version"
+            ).scalar_one() == "0670a790bdd7"
+            connection.exec_driver_sql(
+                "UPDATE alembic_version SET version_num = %s",
+                ("501259f48019",),
+            )
+    finally:
+        engine.dispose()
+
+    provisioner.migrations_directory = MIGRATIONS_DIRECTORY
+    retried = client.post(
+        f"/platform/api/tenants/{tenant_id}/retry",
+        headers={"X-CSRF-Token": csrf_token},
+    )
+
+    assert retried.status_code == 200, retried.get_json()
+    engine = _tenant_engine(platform_environment, snapshot)
+    try:
+        with engine.connect() as connection:
+            assert connection.exec_driver_sql(
+                "SELECT version_num FROM alembic_version"
+            ).scalar_one() == _migration_head()
+    finally:
+        engine.dispose()
+
+
+def test_concurrent_expiry_extensions_accumulate(platform_environment):
+    _bootstrap_platform_admin(platform_environment)
+    first_client, first_csrf, _response = _platform_login(
+        platform_environment
+    )
+    second_client, second_csrf, _response = _platform_login(
+        platform_environment
+    )
+    store = platform_environment["app"].extensions["control_store"]
+    initial_expiry = datetime(2030, 1, 1)
+    with store.session() as session:
+        tenant = Tenant(
+            name="Concurrent extension tenant",
+            status="active",
+            expires_at=initial_expiry,
+            db_name="inventory_test_tenant_99999997",
+            db_username="im_test_t99999997",
+            db_password_ciphertext=store.secret_box.encrypt(
+                "test-only-extension-password",
+                purpose="tenant-db-password",
+            ),
+            provisioning_status="active",
+        )
+        session.add(tenant)
+        session.flush()
+        session.add(
+            TenantMember(
+                tenant_id=tenant.id,
+                phone="+8613800138000",
+                role="admin",
+                status="active",
+            )
+        )
+        tenant_id = tenant.id
+    with store.engine.begin() as connection:
+        connection.exec_driver_sql(
+            "CREATE TRIGGER task5_delay_tenant_update "
+            "BEFORE UPDATE ON tenants FOR EACH ROW "
+            "SET @task5_delay = SLEEP(0.25)"
+        )
+    barrier = Barrier(2)
+
+    def extend_one(client, csrf_token):
+        barrier.wait(timeout=5)
+        return client.patch(
+            f"/platform/api/tenants/{tenant_id}",
+            json={"extend_days": 1},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = (
+            executor.submit(extend_one, first_client, first_csrf),
+            executor.submit(extend_one, second_client, second_csrf),
+        )
+        responses = [future.result(timeout=10) for future in futures]
+
+    assert [response.status_code for response in responses] == [200, 200]
+    with store.session() as session:
+        assert session.get(Tenant, tenant_id).expires_at == (
+            initial_expiry + timedelta(days=2)
+        )
 
 
 def test_platform_list_and_patch_manage_lifecycle_without_leaking_secrets(
@@ -745,6 +1330,50 @@ def test_platform_list_and_patch_manage_lifecycle_without_leaking_secrets(
     )
     assert invalid_name.status_code == 400
     assert invalid_name.get_json()["code"] == "INVALID_REQUEST"
+
+    with store.session() as session:
+        conflicting_tenant = Tenant(
+            name="Phone owner tenant",
+            status="active",
+            expires_at=datetime(2030, 1, 1),
+            db_name="inventory_test_tenant_99999996",
+            db_username="im_test_t99999996",
+            db_password_ciphertext=store.secret_box.encrypt(
+                "test-only-conflict-password",
+                purpose="tenant-db-password",
+            ),
+            provisioning_status="active",
+        )
+        session.add(conflicting_tenant)
+        session.flush()
+        session.add(
+            TenantMember(
+                tenant_id=conflicting_tenant.id,
+                phone="+8613700137000",
+                role="admin",
+                status="active",
+            )
+        )
+
+    phone_conflict = client.patch(
+        f"/platform/api/tenants/{tenant_id}",
+        json={"admin_phone": "13700137000"},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    assert phone_conflict.status_code == 409
+    assert phone_conflict.get_json()["code"] == "PHONE_CONFLICT"
+
+    for invalid_expiry in (
+        {"expires_at": "0999-12-31T23:59:59Z"},
+        {"extend_days": 10**100},
+    ):
+        invalid_response = client.patch(
+            f"/platform/api/tenants/{tenant_id}",
+            json=invalid_expiry,
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        assert invalid_response.status_code == 400
+        assert invalid_response.get_json()["code"] == "INVALID_REQUEST"
 
     direct_expiry = "2031-02-03T04:05:06Z"
     direct_update = client.patch(

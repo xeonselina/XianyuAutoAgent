@@ -153,6 +153,22 @@ def create_app(config_class=Config):
             )
         if app.config.get('DEV_SMS_CODE'):
             raise RuntimeError('Production forbids DEV_SMS_CODE')
+        if not app.config.get('CONTROL_DATABASE_URL'):
+            raise RuntimeError(
+                'Production requires CONTROL_DATABASE_URL'
+            )
+        if not app.config.get('PROVISIONER_DATABASE_URL'):
+            raise RuntimeError(
+                'Production requires PROVISIONER_DATABASE_URL'
+            )
+        if app.config.get('TENANT_DB_NAME_PREFIX') != 'inventory_tenant_':
+            raise RuntimeError(
+                'Production requires TENANT_DB_NAME_PREFIX=inventory_tenant_'
+            )
+        if app.config.get('TENANT_DB_USER_PREFIX') != 'im_t':
+            raise RuntimeError(
+                'Production requires TENANT_DB_USER_PREFIX=im_t'
+            )
 
     cors_origins = _validated_cors_origins(
         app.config.get('CORS_ORIGINS')

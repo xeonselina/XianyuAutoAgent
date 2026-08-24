@@ -421,6 +421,8 @@ def test_production_rejects_fake_sms_sender(auth_module):
         TESTING = True
         SAAS_MASTER_KEY = MASTER_KEY
         DEV_SMS_CODE = None
+        CONTROL_DATABASE_URL = "mysql+pymysql://app@127.0.0.1:9/control"
+        PROVISIONER_DATABASE_URL = "mysql+pymysql://root@127.0.0.1:9/mysql"
         SMS_SENDER = auth_module.FakeSmsSender()
 
     with pytest.raises(RuntimeError, match="FakeSmsSender"):
@@ -495,6 +497,14 @@ def test_gunicorn_entrypoint_selects_production_security_profile():
             "DATABASE_URL_HOST": (
                 "mysql+pymysql://entrypoint@127.0.0.1:9/entrypoint_test"
             ),
+            "CONTROL_DATABASE_URL": (
+                "mysql+pymysql://app@127.0.0.1:9/control"
+            ),
+            "PROVISIONER_DATABASE_URL": (
+                "mysql+pymysql://root@127.0.0.1:9/mysql"
+            ),
+            "TENANT_DB_NAME_PREFIX": "inventory_tenant_",
+            "TENANT_DB_USER_PREFIX": "im_t",
             "SAAS_MASTER_KEY": MASTER_KEY,
             "CORS_ORIGINS": "https://inventory.example",
             "TENCENTCLOUD_SECRET_ID": "test-secret-id",

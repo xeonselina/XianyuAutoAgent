@@ -26,6 +26,7 @@ from app.provisioning import (
     TenantNotFound,
     TenantPhoneConflict,
     business_migration_head,
+    validate_tenant_expiration,
 )
 from app.utils.response import error, success
 
@@ -120,9 +121,12 @@ def _parse_datetime(value):
         parsed = datetime.fromisoformat(normalized)
     except ValueError as exc:
         raise ValueError("expires_at must be an ISO datetime") from exc
-    if parsed.tzinfo is not None:
-        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
-    return parsed
+    try:
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        return validate_tenant_expiration(parsed)
+    except (OverflowError, ValueError) as exc:
+        raise ValueError("expires_at must fit MariaDB DATETIME") from exc
 
 
 def _tenant_payload(session, tenant):
@@ -399,7 +403,11 @@ def patch_tenant(tenant_id):
     )
     try:
         with scope as session:
-            tenant = session.get(Tenant, tenant_id)
+            tenant = session.scalar(
+                select(Tenant)
+                .where(Tenant.id == tenant_id)
+                .with_for_update()
+            )
             if tenant is None:
                 return error(
                     "租户不存在",
@@ -414,8 +422,8 @@ def patch_tenant(tenant_id):
                 tenant.expires_at = values["expires_at"]
             if "extend_days" in values:
                 base = max(tenant.expires_at, datetime.utcnow())
-                tenant.expires_at = base + timedelta(
-                    days=values["extend_days"]
+                tenant.expires_at = validate_tenant_expiration(
+                    base + timedelta(days=values["extend_days"])
                 )
             if phone is not None:
                 first_admin = session.scalar(
@@ -442,6 +450,8 @@ def patch_tenant(tenant_id):
             status_code=409,
             code="PHONE_CONFLICT",
         ).to_flask_response()
+    except (OverflowError, ValueError):
+        return _invalid_request("租户修改内容无效")
 
     return success(
         data=_tenant_payload_by_id(tenant_id)

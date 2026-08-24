@@ -154,6 +154,75 @@ def test_production_startup_rejects_development_sms_code(master_key):
         create_app(DevSmsProductionConfig)
 
 
+@pytest.mark.parametrize(
+    "overrides,error_pattern",
+    [
+        (
+            {
+                "CONTROL_DATABASE_URL": None,
+                "PROVISIONER_DATABASE_URL": (
+                    "mysql+pymysql://root@127.0.0.1:9/mysql"
+                ),
+            },
+            "CONTROL_DATABASE_URL",
+        ),
+        (
+            {
+                "CONTROL_DATABASE_URL": (
+                    "mysql+pymysql://app@127.0.0.1:9/control"
+                ),
+                "PROVISIONER_DATABASE_URL": None,
+            },
+            "PROVISIONER_DATABASE_URL",
+        ),
+        (
+            {
+                "CONTROL_DATABASE_URL": (
+                    "mysql+pymysql://app@127.0.0.1:9/control"
+                ),
+                "PROVISIONER_DATABASE_URL": (
+                    "mysql+pymysql://root@127.0.0.1:9/mysql"
+                ),
+                "TENANT_DB_NAME_PREFIX": "inventory_test_tenant_",
+            },
+            "TENANT_DB_NAME_PREFIX",
+        ),
+        (
+            {
+                "CONTROL_DATABASE_URL": (
+                    "mysql+pymysql://app@127.0.0.1:9/control"
+                ),
+                "PROVISIONER_DATABASE_URL": (
+                    "mysql+pymysql://root@127.0.0.1:9/mysql"
+                ),
+                "TENANT_DB_USER_PREFIX": "im_test_t",
+            },
+            "TENANT_DB_USER_PREFIX",
+        ),
+    ],
+)
+def test_production_requires_saas_databases_and_exact_prefixes(
+    master_key,
+    overrides,
+    error_pattern,
+):
+    attributes = {
+        "SAAS_MASTER_KEY": master_key,
+        "DEV_SMS_CODE": None,
+        "TENANT_DB_NAME_PREFIX": "inventory_tenant_",
+        "TENANT_DB_USER_PREFIX": "im_t",
+        **overrides,
+    }
+    unsafe_config = type(
+        "UnsafeSaasProductionConfig",
+        (ProductionConfig,),
+        attributes,
+    )
+
+    with pytest.raises(RuntimeError, match=error_pattern):
+        create_app(unsafe_config)
+
+
 def test_testing_startup_allows_development_security_defaults():
     application = create_app(TestingConfig)
 
