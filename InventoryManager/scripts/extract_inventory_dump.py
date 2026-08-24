@@ -69,16 +69,66 @@ def _validate_target_database(target_database: str) -> None:
 
 
 class _SqlSafetyScanner:
-    """Stream SQL tokens while ignoring strings and comments."""
+    """Stream lexical tokens into a small database-object context parser."""
 
-    _OBJECT_PREFIXES = {"FROM", "JOIN", "REFERENCES", "UPDATE"}
-    _OBJECT_TYPES = {"EVENT", "FUNCTION", "PROCEDURE", "TABLE", "TRIGGER", "VIEW"}
+    _DDL_COMMANDS = {"ALTER", "CREATE", "DROP", "RENAME", "TRUNCATE"}
+    _DATABASE_TYPES = {"DATABASE", "SCHEMA"}
+    _OBJECT_TYPES = {
+        "EVENT",
+        "FUNCTION",
+        "INDEX",
+        "PROCEDURE",
+        "TABLE",
+        "TRIGGER",
+        "VIEW",
+    }
+    _DDL_PREFIX_WORDS = {
+        "ALGORITHM",
+        "CURRENT_USER",
+        "DEFINER",
+        "EXISTS",
+        "FULLTEXT",
+        "IF",
+        "IGNORE",
+        "INVOKER",
+        "MERGE",
+        "NOT",
+        "OFFLINE",
+        "ONLINE",
+        "OR",
+        "REPLACE",
+        "SECURITY",
+        "SPATIAL",
+        "SQL",
+        "TEMPORARY",
+        "TEMPTABLE",
+        "UNDEFINED",
+        "UNIQUE",
+    }
     _OBJECT_MODIFIERS = {
         "EXISTS",
         "IF",
+        "IGNORE",
+        "LATERAL",
         "LOW_PRIORITY",
         "NOT",
+        "ONLY",
         "TEMPORARY",
+    }
+    _FROM_LIST_END = {
+        "EXCEPT",
+        "GROUP",
+        "HAVING",
+        "INTERSECT",
+        "INTO",
+        "LIMIT",
+        "ORDER",
+        "PROCEDURE",
+        "QUALIFY",
+        "RETURNING",
+        "UNION",
+        "WHERE",
+        "WINDOW",
     }
 
     def __init__(self, target_database: str) -> None:
@@ -86,27 +136,39 @@ class _SqlSafetyScanner:
         self.string_quote: str | None = None
         self.in_block_comment = False
         self.in_executable_comment = False
+        self.executable_version_pending = False
         self.quoted_identifier: list[str] | None = None
-        self.words: list[str] = []
+
+        self.statement_command: str | None = None
+        self.ddl_command: str | None = None
+        self.ddl_seeking_type = False
+        self.ddl_object_type: str | None = None
+        self.ddl_on_seen = False
+        self.ddl_definer_part: str | None = None
         self.expect_database = False
         self.expect_object = False
-        self.candidate_database: str | None = None
-        self.candidate_has_dot = False
-        self.rename_table = False
-        self.object_list = False
-        self.forbidden_database_candidate: str | None = None
-        self.forbidden_candidate_has_dot = False
+        self.reference_first: str | None = None
+        self.reference_after_dot = False
+        self.object_lists: list[tuple[str, int]] = []
+        self.parenthesized_objects: list[tuple[int, str]] = []
+        self.parenthesis_depth = 0
+        self.previous_word: str | None = None
 
     def finish_statement(self) -> None:
-        self.words.clear()
+        self.statement_command = None
+        self.ddl_command = None
+        self.ddl_seeking_type = False
+        self.ddl_object_type = None
+        self.ddl_on_seen = False
+        self.ddl_definer_part = None
         self.expect_database = False
         self.expect_object = False
-        self.candidate_database = None
-        self.candidate_has_dot = False
-        self.rename_table = False
-        self.object_list = False
-        self.forbidden_database_candidate = None
-        self.forbidden_candidate_has_dot = False
+        self.reference_first = None
+        self.reference_after_dot = False
+        self.object_lists.clear()
+        self.parenthesized_objects.clear()
+        self.parenthesis_depth = 0
+        self.previous_word = None
 
     def scan(self, line: str) -> None:
         index = 0
@@ -129,16 +191,32 @@ class _SqlSafetyScanner:
 
             if self.in_executable_comment and line.startswith("*/", index):
                 self.in_executable_comment = False
+                self.executable_version_pending = False
                 index += 2
                 continue
+
+            if self.in_executable_comment and self.executable_version_pending:
+                if line[index].isspace():
+                    index += 1
+                    continue
+                if line[index].isdigit():
+                    while index < len(line) and line[index].isdigit():
+                        index += 1
+                    self.executable_version_pending = False
+                    continue
+                self.executable_version_pending = False
 
             character = line[index]
             if character in {"'", '"'}:
                 self.string_quote = character
                 index += 1
-            elif line.startswith("/*!", index):
+            elif not self.in_executable_comment and (
+                line.startswith("/*!", index)
+                or line.startswith("/*M!", index)
+            ):
                 self.in_executable_comment = True
-                index += 3
+                self.executable_version_pending = True
+                index += 4 if line.startswith("/*M!", index) else 3
             elif line.startswith("/*", index):
                 self.in_block_comment = True
                 index += 2
@@ -156,20 +234,12 @@ class _SqlSafetyScanner:
                     line[end].isalnum() or line[end] in {"_", "$"}
                 ):
                     end += 1
-                self._token(line[index:end])
+                self._word(line[index:end], quoted=False)
                 index = end
-            elif character == ".":
-                if self.candidate_database is not None:
-                    self.candidate_has_dot = True
-                if self.forbidden_database_candidate is not None:
-                    self.forbidden_candidate_has_dot = True
+            elif character.isspace():
                 index += 1
             else:
-                self._clear_unqualified_candidate()
-                if character == ";":
-                    self.finish_statement()
-                elif character == "," and self.object_list:
-                    self.expect_object = True
+                self._symbol(character)
                 index += 1
 
     def _scan_string(self, line: str, index: int) -> int:
@@ -196,7 +266,7 @@ class _SqlSafetyScanner:
                     self.quoted_identifier.append("`")
                     index += 2
                 else:
-                    self._token("".join(self.quoted_identifier))
+                    self._word("".join(self.quoted_identifier), quoted=True)
                     self.quoted_identifier = None
                     return index + 1
             else:
@@ -204,88 +274,245 @@ class _SqlSafetyScanner:
                 index += 1
         return index
 
-    def _token(self, token: str) -> None:
-        upper = token.upper()
-        if self.forbidden_candidate_has_dot:
-            raise UnsafeDatabaseError("提取结果包含其他数据库引用")
-        self.forbidden_database_candidate = None
+    def _word(self, token: str, *, quoted: bool) -> None:
+        keyword = None if quoted else token.upper()
+
+        if self.reference_first is not None:
+            if self.reference_after_dot:
+                self._finish_reference()
+                return
+            self._finish_reference()
+
+        if (
+            self.parenthesized_objects
+            and self.parenthesized_objects[-1][0] == self.parenthesis_depth
+        ):
+            _, list_kind = self.parenthesized_objects.pop()
+            if keyword not in {"SELECT", "VALUES", "WITH"}:
+                if list_kind != "SINGLE":
+                    self.object_lists.append(
+                        (list_kind, self.parenthesis_depth)
+                    )
+                self.reference_first = token.lower()
+                self.previous_word = keyword
+                return
 
         if self.expect_database:
-            if upper not in {"EXISTS", "IF", "NOT"}:
-                if token.lower() != self.target_database:
-                    raise UnsafeDatabaseError("提取结果包含其他数据库引用")
-                self.expect_database = False
-            self._remember(upper)
+            if keyword in {"EXISTS", "IF", "NOT"}:
+                self.previous_word = keyword
+                return
+            if token.lower() != self.target_database:
+                raise UnsafeDatabaseError("提取结果包含其他数据库引用")
+            self.expect_database = False
+            self.previous_word = keyword
             return
 
         if self.expect_object:
-            if self.candidate_database is None and upper in self._OBJECT_MODIFIERS:
-                self._remember(upper)
+            if keyword in self._OBJECT_MODIFIERS:
+                self.previous_word = keyword
                 return
-            if self.candidate_database is None:
-                self.candidate_database = token.lower()
-                self.candidate_has_dot = False
-                self._remember(upper)
-                return
-            if self.candidate_has_dot:
-                if self.candidate_database != self.target_database:
-                    raise UnsafeDatabaseError("提取结果包含其他数据库引用")
-                self.expect_object = False
-                self.candidate_database = None
-                self.candidate_has_dot = False
-                self._remember(upper)
-                return
-            self._clear_unqualified_candidate()
-
-        previous_words = self.words[-3:]
-        if (
-            upper in {"DATABASE", "SCHEMA"}
-            and previous_words
-            and previous_words[-1] in {"ALTER", "CREATE", "DROP"}
-        ):
-            self.expect_database = True
-        elif upper in self._OBJECT_TYPES and (
-            previous_words
-            and previous_words[-1]
-            in {"ALTER", "CREATE", "DROP", "RENAME", "TRUNCATE"}
-            or upper == "TABLE"
-            and len(previous_words) >= 2
-            and previous_words[-1] == "TEMPORARY"
-            and previous_words[-2] in {"CREATE", "DROP"}
-        ):
-            self.expect_object = True
-            self.rename_table = "RENAME" in previous_words
-            self.object_list = previous_words[-1] in {"DROP", "RENAME"}
-        elif upper == "INTO" and previous_words and previous_words[-1] in {
-            "INSERT",
-            "REPLACE",
-        }:
-            self.expect_object = True
-        elif upper in self._OBJECT_PREFIXES:
-            self.expect_object = True
-            self.object_list = upper == "FROM"
-        elif upper == "TABLES" and previous_words and previous_words[-1] == "LOCK":
-            self.expect_object = True
-            self.object_list = True
-        elif upper == "TO" and self.rename_table:
-            self.expect_object = True
-        self._remember(upper)
-        if (
-            token.lower() in SYSTEM_DATABASES
-            and token.lower() != self.target_database
-        ):
-            self.forbidden_database_candidate = token.lower()
-
-    def _clear_unqualified_candidate(self) -> None:
-        if self.candidate_database is not None and not self.candidate_has_dot:
-            self.candidate_database = None
             self.expect_object = False
-        if not self.forbidden_candidate_has_dot:
-            self.forbidden_database_candidate = None
+            self.reference_first = token.lower()
+            self.reference_after_dot = False
+            self.previous_word = keyword
+            return
 
-    def _remember(self, token: str) -> None:
-        self.words.append(token)
-        del self.words[:-3]
+        if self.statement_command is None and keyword is not None:
+            self.statement_command = keyword
+            if keyword in self._DDL_COMMANDS:
+                self.ddl_command = keyword
+                self.ddl_seeking_type = True
+            elif keyword == "USE":
+                self.expect_database = True
+            elif keyword == "UPDATE":
+                self._start_object_list("UPDATE")
+            elif keyword in {"CALL", "HANDLER"}:
+                self.expect_object = True
+            self.previous_word = keyword
+            return
+
+        if self.ddl_seeking_type:
+            if keyword in self._DATABASE_TYPES:
+                self.ddl_seeking_type = False
+                self.ddl_definer_part = None
+                self.expect_database = True
+                self.previous_word = keyword
+                return
+            if keyword in self._OBJECT_TYPES:
+                self.ddl_seeking_type = False
+                self.ddl_definer_part = None
+                self.ddl_object_type = keyword
+                if self.ddl_command in {"DROP", "RENAME"}:
+                    self._start_object_list("DDL")
+                else:
+                    self.expect_object = True
+                self.previous_word = keyword
+                return
+            if self.ddl_definer_part in {"HOST", "USER"}:
+                self.ddl_definer_part = (
+                    "AFTER_USER"
+                    if self.ddl_definer_part == "USER"
+                    else None
+                )
+                self.previous_word = keyword
+                return
+            if self.ddl_definer_part == "AFTER_USER":
+                self.ddl_definer_part = None
+            if keyword == "DEFINER":
+                self.ddl_definer_part = "EQUALS"
+                self.previous_word = keyword
+                return
+            if keyword in self._DDL_PREFIX_WORDS or keyword is None:
+                self.previous_word = keyword
+                return
+            if self.ddl_command == "TRUNCATE":
+                self.ddl_seeking_type = False
+                self.ddl_object_type = "TABLE"
+                self.reference_first = token.lower()
+                self.previous_word = keyword
+                return
+            self.ddl_seeking_type = False
+            self.ddl_definer_part = None
+
+        self._end_object_list_at_clause(keyword)
+
+        if keyword == "FROM":
+            self._start_object_list("FROM")
+        elif keyword == "JOIN" or keyword == "REFERENCES":
+            self.expect_object = True
+        elif keyword == "INTO" and (
+            self.statement_command in {"INSERT", "REPLACE"}
+            or self.previous_word in {"INSERT", "REPLACE"}
+        ):
+            self.expect_object = True
+        elif keyword == "USING" and self.statement_command == "DELETE":
+            self._start_object_list("FROM")
+        elif (
+            keyword == "TABLES"
+            and self.statement_command == "LOCK"
+            and self.previous_word == "LOCK"
+        ):
+            self._start_object_list("LOCK")
+        elif (
+            keyword == "TABLE"
+            and self.statement_command == "LOAD"
+            and self.previous_word == "INTO"
+        ):
+            self.expect_object = True
+        elif (
+            keyword == "TO"
+            and self.ddl_object_type == "TABLE"
+            and (
+                self.ddl_command == "RENAME"
+                or self.previous_word == "RENAME"
+            )
+        ):
+            self.expect_object = True
+        elif (
+            keyword == "ON"
+            and self.ddl_object_type in {"INDEX", "TRIGGER"}
+            and not self.ddl_on_seen
+        ):
+            self.ddl_on_seen = True
+            self.expect_object = True
+        elif (
+            keyword == "LIKE"
+            and self.ddl_command == "CREATE"
+            and self.ddl_object_type == "TABLE"
+        ):
+            self.expect_object = True
+
+        self.previous_word = keyword
+
+    def _symbol(self, symbol: str) -> None:
+        if self.reference_first is not None:
+            if symbol == "." and not self.reference_after_dot:
+                if self.reference_first != self.target_database:
+                    raise UnsafeDatabaseError("提取结果包含其他数据库引用")
+                self.reference_after_dot = True
+                return
+            self._finish_reference()
+
+        if (
+            self.ddl_seeking_type
+            and self.ddl_definer_part == "EQUALS"
+            and symbol == "="
+        ):
+            self.ddl_definer_part = "USER"
+        elif (
+            self.ddl_seeking_type
+            and self.ddl_definer_part == "AFTER_USER"
+            and symbol == "@"
+        ):
+            self.ddl_definer_part = "HOST"
+
+        if symbol == ";":
+            self.finish_statement()
+            return
+        if symbol == "(":
+            list_kind: str | None = None
+            if self.expect_object:
+                self.expect_object = False
+                list_kind = "SINGLE"
+                if self.object_lists:
+                    active_kind, active_depth = self.object_lists[-1]
+                    if active_depth == self.parenthesis_depth:
+                        list_kind = active_kind
+            elif (
+                self.parenthesized_objects
+                and self.parenthesized_objects[-1][0]
+                == self.parenthesis_depth
+            ):
+                _, list_kind = self.parenthesized_objects.pop()
+            self.parenthesis_depth += 1
+            if list_kind is not None:
+                self.parenthesized_objects.append(
+                    (self.parenthesis_depth, list_kind)
+                )
+            return
+        if symbol == ")":
+            if self.parenthesis_depth:
+                self.parenthesis_depth -= 1
+            while (
+                self.parenthesized_objects
+                and self.parenthesized_objects[-1][0]
+                > self.parenthesis_depth
+            ):
+                self.parenthesized_objects.pop()
+            while (
+                self.object_lists
+                and self.object_lists[-1][1] > self.parenthesis_depth
+            ):
+                self.object_lists.pop()
+            return
+        if symbol == "," and self.object_lists:
+            kind, depth = self.object_lists[-1]
+            if depth == self.parenthesis_depth:
+                self.expect_object = True
+
+    def _finish_reference(self) -> None:
+        self.reference_first = None
+        self.reference_after_dot = False
+
+    def _start_object_list(self, kind: str) -> None:
+        while (
+            self.object_lists
+            and self.object_lists[-1][1] >= self.parenthesis_depth
+        ):
+            self.object_lists.pop()
+        self.object_lists.append((kind, self.parenthesis_depth))
+        self.expect_object = True
+
+    def _end_object_list_at_clause(self, keyword: str | None) -> None:
+        if not self.object_lists:
+            return
+        kind, depth = self.object_lists[-1]
+        if depth != self.parenthesis_depth:
+            return
+        if kind == "FROM" and keyword in self._FROM_LIST_END:
+            self.object_lists.pop()
+        elif kind == "UPDATE" and keyword == "SET":
+            self.object_lists.pop()
 
 
 def _validate_output(path: Path, target_database: str) -> None:

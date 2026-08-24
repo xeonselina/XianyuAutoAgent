@@ -104,6 +104,56 @@ def test_rejects_missing_source_without_replacing_existing_output(tmp_path):
         "DROP VIEW `mysql`.`stolen_view`;\n",
         "/*!50000 DROP VIEW `mysql`.`stolen_view` */;\n",
         "DROP VIEW `inventory_management`.`devices`;\n",
+        pytest.param(
+            "DROP TABLE inventory_management_restore_test.safe, "
+            "mysql . stolen_devices;\n",
+            id="space-before-qualified-object-dot",
+        ),
+        pytest.param(
+            "DROP TABLE inventory_management_restore_test.safe,\n"
+            "mysql\n"
+            ".\n"
+            "stolen_devices;\n",
+            id="newlines-around-qualified-object-dot",
+        ),
+        pytest.param(
+            "CREATE OR REPLACE VIEW other_database.v AS SELECT 1;\n",
+            id="create-or-replace-view",
+        ),
+        pytest.param(
+            "/*!50000 DROP VIEW other_database\n.\nstolen_view */;\n",
+            id="mysql-executable-comment-with-newline-qualified-object",
+        ),
+        pytest.param(
+            "/*M!100100 DROP VIEW other_database . stolen_view */;\n",
+            id="mariadb-executable-comment-with-spaced-qualified-object",
+        ),
+        pytest.param(
+            "SELECT * FROM inventory_management . devices;\n",
+            id="source-qualified-reference-with-spaces",
+        ),
+        pytest.param(
+            "SELECT * FROM inventory_management\n.\ndevices;\n",
+            id="source-qualified-reference-with-newlines",
+        ),
+        pytest.param(
+            "CREATE DEFINER = app_user@app_host "
+            "VIEW other_database.v AS SELECT 1;\n",
+            id="create-view-with-unquoted-definer",
+        ),
+        pytest.param(
+            "SELECT * FROM (other_database . stolen_devices);\n",
+            id="parenthesized-qualified-table",
+        ),
+        pytest.param(
+            "DELIMITER $$\n"
+            "CREATE TRIGGER safe_trigger BEFORE INSERT ON devices\n"
+            "FOR EACH ROW BEGIN\n"
+            "  INSERT INTO other_database.stolen_devices(id) VALUES (1);\n"
+            "END$$\n"
+            "DELIMITER ;\n",
+            id="qualified-insert-inside-trigger-body",
+        ),
     ],
 )
 def test_rejects_cross_database_sql_without_replacing_existing_output(
@@ -130,11 +180,19 @@ def test_rejects_cross_database_sql_without_replacing_existing_output(
     assert list(tmp_path.glob(".restore.sql.*.tmp")) == []
 
 
-def test_preserves_target_qualified_statement(tmp_path):
+@pytest.mark.parametrize(
+    "safe_statement",
+    [
+        "DROP VIEW inventory_management_restore_test.safe_view;\n",
+        "DROP VIEW inventory_management_restore_test . safe_view;\n",
+        "DROP VIEW inventory_management_restore_test\n.\nsafe_view;\n",
+    ],
+)
+def test_preserves_target_qualified_statement(tmp_path, safe_statement):
     source = tmp_path / "backup.sql"
     source.write_text(
         "USE `inventory_management`;\n"
-        "DROP VIEW inventory_management_restore_test.safe_view;\n",
+        f"{safe_statement}",
         encoding="utf-8",
     )
     target = tmp_path / "restore.sql"
@@ -145,9 +203,52 @@ def test_preserves_target_qualified_statement(tmp_path):
         target_database="inventory_management_restore_test",
     )
 
-    assert "DROP VIEW inventory_management_restore_test.safe_view;" in (
-        target.read_text(encoding="utf-8")
+    assert safe_statement in target.read_text(encoding="utf-8")
+
+
+def test_preserves_select_function_commas_after_from_object_list(tmp_path):
+    source = tmp_path / "backup.sql"
+    safe_statement = (
+        "SELECT * FROM inventory_management_restore_test.safe AS alias "
+        "WHERE COALESCE(alias.id, alias.id) > 0;\n"
     )
+    source.write_text(
+        "USE `inventory_management`;\n"
+        f"{safe_statement}",
+        encoding="utf-8",
+    )
+    target = tmp_path / "restore.sql"
+
+    extract_database(
+        source,
+        target,
+        target_database="inventory_management_restore_test",
+    )
+
+    assert safe_statement in target.read_text(encoding="utf-8")
+
+
+def test_preserves_database_like_table_alias_column_expression(tmp_path):
+    source = tmp_path / "backup.sql"
+    safe_statement = (
+        "SELECT inventory_management.id "
+        "FROM inventory_management_restore_test.safe "
+        "AS inventory_management;\n"
+    )
+    source.write_text(
+        "USE `inventory_management`;\n"
+        f"{safe_statement}",
+        encoding="utf-8",
+    )
+    target = tmp_path / "restore.sql"
+
+    extract_database(
+        source,
+        target,
+        target_database="inventory_management_restore_test",
+    )
+
+    assert safe_statement in target.read_text(encoding="utf-8")
 
 
 def test_preserves_cross_database_looking_text_in_literals_and_comments(tmp_path):
