@@ -35,6 +35,23 @@ CURRENT_DATABASE_RE = re.compile(
     re.IGNORECASE,
 )
 DELIMITER_RE = re.compile(r"^\s*DELIMITER\s+(?P<delimiter>\S+)", re.IGNORECASE)
+DATABASE_AFFECTING_RE = re.compile(
+    r"^\s*(?:DROP\s+(?:DATABASE|SCHEMA)(?:\s+IF\s+EXISTS)?|"
+    r"ALTER\s+(?:DATABASE|SCHEMA)|CREATE\s+SCHEMA"
+    r"(?:\s+IF\s+NOT\s+EXISTS)?)\s+"
+    r"(?P<identifier>`[A-Za-z0-9_$-]+`|[A-Za-z0-9_$-]+)",
+    re.IGNORECASE,
+)
+QUALIFIED_DATABASE_RE = re.compile(
+    r"`(?P<database>[A-Za-z0-9_$-]+)`\s*\.\s*`[A-Za-z0-9_$-]+`"
+)
+QUALIFIED_TABLE_DDL_RE = re.compile(
+    r"^\s*(?:CREATE|ALTER|DROP|TRUNCATE)\s+TABLE"
+    r"(?:\s+IF\s+(?:NOT\s+)?EXISTS)?\s+"
+    r"(?P<database>[A-Za-z0-9_$-]+)\s*\.\s*"
+    r"(?:`[A-Za-z0-9_$-]+`|[A-Za-z0-9_$-]+)",
+    re.IGNORECASE,
+)
 
 
 class UnsafeDatabaseError(ValueError):
@@ -76,6 +93,24 @@ def _validate_output(path: Path, target_database: str) -> None:
                 match = matcher.match(line)
                 if match and _identifier(match) != target:
                     raise UnsafeDatabaseError("提取结果仍包含其他数据库")
+            _reject_unsafe_database_reference(line, target_database)
+
+
+def _reject_unsafe_database_reference(line: str, target_database: str) -> None:
+    target = target_database.lower()
+    database_statement = DATABASE_AFFECTING_RE.match(line)
+    if database_statement and _identifier(database_statement) != target:
+        raise UnsafeDatabaseError("提取结果包含其他数据库引用")
+
+    qualified_databases = [
+        match.group("database").lower()
+        for match in QUALIFIED_DATABASE_RE.finditer(line)
+    ]
+    table_ddl = QUALIFIED_TABLE_DDL_RE.match(line)
+    if table_ddl:
+        qualified_databases.append(table_ddl.group("database").lower())
+    if any(database != target for database in qualified_databases):
+        raise UnsafeDatabaseError("提取结果包含其他数据库引用")
 
 
 def extract_database(
@@ -109,6 +144,7 @@ def extract_database(
 
             def write_line(line: str) -> None:
                 nonlocal bytes_written, delimiter, statements
+                _reject_unsafe_database_reference(line, target_database)
                 temporary.write(line)
                 bytes_written += len(line.encode("utf-8"))
 

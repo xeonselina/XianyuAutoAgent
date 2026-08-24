@@ -92,6 +92,37 @@ def test_rejects_missing_source_without_replacing_existing_output(tmp_path):
     assert list(tmp_path.glob(".restore.sql.*.tmp")) == []
 
 
+@pytest.mark.parametrize(
+    "unsafe_statement",
+    [
+        "DROP DATABASE `mysql`;\n",
+        "CREATE TABLE `mysql`.`stolen_devices` (id int);\n",
+    ],
+)
+def test_rejects_cross_database_sql_without_replacing_existing_output(
+    tmp_path, unsafe_statement
+):
+    source = tmp_path / "backup.sql"
+    source.write_text(
+        "USE `inventory_management`;\n"
+        "CREATE TABLE devices(id int);\n"
+        f"{unsafe_statement}",
+        encoding="utf-8",
+    )
+    target = tmp_path / "restore.sql"
+    target.write_text("keep this file", encoding="utf-8")
+
+    with pytest.raises(UnsafeDatabaseError, match="其他数据库"):
+        extract_database(
+            source,
+            target,
+            target_database="inventory_management_restore_test",
+        )
+
+    assert target.read_text(encoding="utf-8") == "keep this file"
+    assert list(tmp_path.glob(".restore.sql.*.tmp")) == []
+
+
 def test_rejects_targets_that_are_not_explicit_test_databases(tmp_path):
     with pytest.raises(UnsafeDatabaseError):
         extract_database(
