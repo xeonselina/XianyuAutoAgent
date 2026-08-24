@@ -29,6 +29,24 @@ export interface InspectionRecord {
   rental?: Rental
   device?: any
   check_items: CheckItem[]
+  warehouse_impacts?: WarehouseImpacts | null
+}
+
+export interface WarehouseImpactRow {
+  rental_id: number
+  reason?: string
+  code?: string
+}
+
+export interface WarehouseImpacts {
+  primary_device_id: number
+  moved_device_ids: number[]
+  target_warehouse_id: number
+  auto_fixable: WarehouseImpactRow[]
+  shortages: WarehouseImpactRow[]
+  manual: WarehouseImpactRow[]
+  blocked: WarehouseImpactRow[]
+  token: string
 }
 
 /**
@@ -42,6 +60,8 @@ export interface CreateInspectionRequest {
     is_checked: boolean
     order: number
   }>
+  receiving_warehouse_id?: number
+  received_device_ids?: number[]
 }
 
 /**

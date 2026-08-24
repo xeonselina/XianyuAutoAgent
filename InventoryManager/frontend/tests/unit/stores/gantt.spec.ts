@@ -11,6 +11,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useGanttStore } from '@/stores/gantt'
+import { useTenantStore } from '@/stores/tenant'
 import axios from 'axios'
 
 // Mock axios
@@ -20,6 +21,12 @@ describe('Gantt Store', () => {
   beforeEach(() => {
     // Create a fresh pinia instance and make it active
     setActivePinia(createPinia())
+    useTenantStore().setWarehousesForSession([{
+      id: 1,
+      name: '测试仓库',
+      province: '广东省',
+      city: '深圳市',
+    }])
     // Clear all mocks before each test
     vi.clearAllMocks()
   })
@@ -147,11 +154,15 @@ describe('Gantt Store', () => {
       await store.previewScheduleReorder([])
       await store.executeScheduleReorder('signed')
 
-      expect(axios.post).toHaveBeenNthCalledWith(1, '/api/gantt/reorder/analyze')
+      expect(axios.post).toHaveBeenNthCalledWith(
+        1,
+        '/api/gantt/reorder/analyze',
+        { warehouse_id: 1 },
+      )
       expect(axios.post).toHaveBeenNthCalledWith(
         2,
         '/api/gantt/reorder/preview',
-        { decisions: [] }
+        { decisions: [], warehouse_id: 1 }
       )
       expect(axios.post).toHaveBeenNthCalledWith(
         3,
@@ -195,7 +206,8 @@ describe('Gantt Store', () => {
         serial_number: deviceData.serial_number,
         model: deviceData.model,
         model_id: deviceData.model_id,
-        is_accessory: deviceData.is_accessory
+        is_accessory: deviceData.is_accessory,
+        warehouse_id: 1,
       })
       expect(result.success).toBe(true)
     })
@@ -275,7 +287,10 @@ describe('Gantt Store', () => {
 
       const result = await store.updateRental(1, rentalUpdate)
       
-      expect(axios.put).toHaveBeenCalledWith('/web/rentals/1', rentalUpdate)
+      expect(axios.put).toHaveBeenCalledWith('/web/rentals/1', {
+        ...rentalUpdate,
+        warehouse_id: 1,
+      })
       expect(result.success).toBe(true)
     })
 
@@ -634,7 +649,10 @@ describe('Gantt Store', () => {
 
       const result = await store.createRental(rentalData)
       
-      expect(axios.post).toHaveBeenCalledWith('/api/rentals', rentalData)
+      expect(axios.post).toHaveBeenCalledWith('/api/rentals', {
+        ...rentalData,
+        warehouse_id: 1,
+      })
       expect(result.success).toBe(true)
     })
 

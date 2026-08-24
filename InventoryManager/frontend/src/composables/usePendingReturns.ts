@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import axios from 'axios'
 
 import type { PendingReturn } from '@/types/pendingReturn'
+import { useTenantStore } from '@/stores/tenant'
 
 const errorMessage = (error: any, fallback: string) => (
   error.response?.data?.message
@@ -11,6 +12,7 @@ const errorMessage = (error: any, fallback: string) => (
 )
 
 export const usePendingReturns = () => {
+  const tenantStore = useTenantStore()
   const rentals = ref<PendingReturn[]>([])
   const loading = ref(false)
   const updatingIds = ref<Set<number>>(new Set())
@@ -20,7 +22,9 @@ export const usePendingReturns = () => {
   const load = async () => {
     loading.value = true
     try {
-      const response = await axios.get('/api/rentals/pending-returns')
+      const response = await axios.get('/api/rentals/pending-returns', {
+        params: { warehouse_id: tenantStore.currentWarehouseId },
+      })
       if (!response.data.success) {
         throw new Error(
           response.data.message

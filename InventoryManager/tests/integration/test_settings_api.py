@@ -288,6 +288,55 @@ def _create_warehouse(environment, province="广东省", city="深圳市"):
     return response.get_json()["data"]
 
 
+def test_active_admin_and_operator_can_list_public_warehouses(
+    settings_api_environment,
+):
+    warehouse = _create_warehouse(settings_api_environment)
+    configured = settings_api_environment["admin_client"].put(
+        f"/api/settings/warehouses/{warehouse['id']}/sf",
+        json={
+            "partner_id": "public-state-only",
+            "checkword": "must-not-leak",
+            "monthly_card": "must-not-leak-either",
+        },
+        headers=_csrf(settings_api_environment),
+    )
+    assert configured.status_code == 200
+
+    for role in ("admin", "operator"):
+        response = settings_api_environment[f"{role}_client"].get(
+            "/api/warehouses"
+        )
+
+        assert response.status_code == 200
+        assert response.get_json()["data"] == [{
+            "id": warehouse["id"],
+            "province": "广东省",
+            "city": "深圳市",
+            "name": "广东省深圳市仓库",
+            "sf_configured": True,
+            "kuaimai_configured": False,
+            "created_at": response.get_json()["data"][0]["created_at"],
+            "updated_at": response.get_json()["data"][0]["updated_at"],
+        }]
+        serialized = json.dumps(response.get_json(), ensure_ascii=False)
+        assert "sf_config" not in response.get_json()["data"][0]
+        assert "kuaimai_config" not in response.get_json()["data"][0]
+        assert "ciphertext" not in serialized
+        assert "must-not-leak" not in serialized
+
+
+def test_public_warehouse_list_still_requires_a_tenant_session(
+    settings_api_environment,
+):
+    response = settings_api_environment["app"].test_client().get(
+        "/api/warehouses"
+    )
+
+    assert response.status_code == 401
+    assert response.get_json()["code"] == "AUTH_REQUIRED"
+
+
 @pytest.mark.parametrize(
     "method,path,body",
     [

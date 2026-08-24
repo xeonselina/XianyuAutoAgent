@@ -1,5 +1,27 @@
 <template>
   <div class="app-container">
+    <header v-if="auth.session" class="mobile-tenant-header">
+      <strong>{{ auth.session.tenant.name }}</strong>
+      <span v-if="tenant.warehouses.length === 1">
+        {{ tenant.warehouses[0].name }}
+      </span>
+      <select
+        v-else-if="tenant.warehouses.length > 1"
+        :value="tenant.currentWarehouseId"
+        aria-label="当前仓库"
+        @change="selectWarehouse"
+      >
+        <option value="all">全部仓库</option>
+        <option
+          v-for="warehouse in tenant.warehouses"
+          :key="warehouse.id"
+          :value="warehouse.id"
+        >
+          {{ warehouse.name }}
+        </option>
+      </select>
+      <span>{{ auth.session.member.role === 'admin' ? 'Admin' : 'Operator' }}</span>
+    </header>
     <!-- 主内容区 -->
     <main
       class="app-content"
@@ -30,10 +52,19 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useMobileAuthStore } from '@/stores/auth'
+import { useMobileTenantStore } from '@/stores/tenant'
 
 const route = useRoute()
 const router = useRouter()
 const activeTab = ref('gantt')
+const auth = useMobileAuthStore()
+const tenant = useMobileTenantStore()
+
+const selectWarehouse = (event: Event) => {
+  const value = (event.target as HTMLSelectElement).value
+  tenant.selectWarehouse(value === 'all' ? 'all' : Number(value))
+}
 
 const showTabbar = computed(() => {
   return route.name === 'gantt' || route.name === 'batch-shipping' || route.name === 'relay'
@@ -52,6 +83,14 @@ watch(
 const onTabChange = (name: string) => {
   router.push({ name })
 }
+
+watch(
+  () => auth.session,
+  (session) => {
+    if (session) void tenant.loadWarehouses().catch(() => undefined)
+  },
+  { immediate: true },
+)
 </script>
 
 <style>
@@ -71,6 +110,19 @@ html, body, #app {
   min-height: 0;
   overflow: hidden;
 }
+
+.mobile-tenant-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #ebedf0;
+  background: #fff;
+}
+
+.mobile-tenant-header strong { margin-right: auto; }
+.mobile-tenant-header select { max-width: 145px; }
 
 /* 标签栏是 fixed 定位，需要给页面内容留出等高空间，避免最后一行被遮挡。 */
 .app-content--with-tabbar {

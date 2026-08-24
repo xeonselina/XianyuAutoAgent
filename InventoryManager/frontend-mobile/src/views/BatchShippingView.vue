@@ -119,7 +119,9 @@ import dayjs from 'dayjs'
 import axios from 'axios'
 import type { Rental } from '@/stores/gantt'
 import BatchShippingCard from '@/components/BatchShippingCard.vue'
+import { useMobileTenantStore } from '@/stores/tenant'
 
+const tenantStore = useMobileTenantStore()
 const loading = ref(false)
 const scheduling = ref(false)
 const printing = ref(false)
@@ -214,7 +216,11 @@ const onQuery = async () => {
   Object.keys(checkedIds).forEach(k => { checkedIds[Number(k)] = false })
   try {
     const res = await axios.get('/api/rentals/by-ship-date', {
-      params: { start_date: startDate.value, end_date: endDate.value }
+      params: {
+        start_date: startDate.value,
+        end_date: endDate.value,
+        warehouse_id: tenantStore.currentWarehouseId,
+      }
     })
     if (res.data.success) {
       rentals.value = res.data.data?.rentals || []

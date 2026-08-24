@@ -69,9 +69,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useMobileTenantStore } from '@/stores/tenant'
 import axios from 'axios'
 
 const router = useRouter()
+const tenantStore = useMobileTenantStore()
 
 const keyword = ref('')
 const results = ref<any[]>([])
@@ -104,7 +106,11 @@ const doSearch = async () => {
   loading.value = true
   searched.value = true
   try {
-    const res = await axios.post('/api/rentals/search', { q, per_page: 50 })
+    const res = await axios.post('/api/rentals/search', {
+      q,
+      per_page: 50,
+      warehouse_id: tenantStore.currentWarehouseId,
+    })
     if (res.data.success) {
       results.value = res.data.data?.rentals ?? res.data.data?.items ?? res.data.data ?? []
     } else {

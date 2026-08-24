@@ -34,6 +34,7 @@
           <el-button
             type="primary"
             :icon="Sort"
+            :disabled="tenantStore.currentWarehouseId === 'all'"
             @click="showScheduleReorderDialog = true"
           >
             一键重排档期
@@ -42,6 +43,7 @@
             type="success"
             @click="showAddDeviceDialog = true"
             :icon="Plus"
+            :disabled="tenantStore.currentWarehouseId === 'all'"
           >
             添加设备
           </el-button>
@@ -273,6 +275,7 @@
                 @edit-rental="handleEditRental"
                 @delete-rental="handleDeleteRental"
                 @update-device-lifecycle="handleUpdateDeviceLifecycle"
+                @move-device="openWarehouseMovement"
               />
             </div>
           </div>
@@ -312,6 +315,14 @@
     <ScheduleReorderDialog
       v-model="showScheduleReorderDialog"
       @completed="handleScheduleReorderCompleted"
+    />
+
+    <WarehouseMovementDialog
+      v-if="movementDevice?.warehouse_id"
+      v-model="showWarehouseMovement"
+      :device-id="movementDevice.id"
+      :current-warehouse-id="movementDevice.warehouse_id"
+      @moved="handleWarehouseMoved"
     />
 
     <!-- 添加设备对话框 -->
@@ -430,6 +441,7 @@ import { EditRentalDialogNew } from './rental'
 import BatchPrintDialog from './rental/BatchPrintDialog.vue'
 import CustomerHistoryDialog from './CustomerHistoryDialog.vue'
 import ScheduleReorderDialog from './ScheduleReorderDialog.vue'
+import WarehouseMovementDialog from './WarehouseMovementDialog.vue'
 import XianyuOrderAlertBar from './XianyuOrderAlertBar.vue'
 import PendingReturnsDrawer from './PendingReturnsDrawer.vue'
 import { useXianyuOrderAlerts } from '@/composables/useXianyuOrderAlerts'
@@ -442,9 +454,11 @@ import {
   getCurrentDate
 } from '@/utils/dateUtils'
 import dayjs from 'dayjs'
+import { useTenantStore } from '@/stores/tenant'
 
 const router = useRouter()
 const ganttStore = useGanttStore()
+const tenantStore = useTenantStore()
 
 // 响应式状态
 const showBookingDialog = ref(false)
@@ -455,6 +469,8 @@ const showCustomerHistoryDialog = ref(false)
 const showBatchPrintDialog = ref(false)
 const showScheduleReorderDialog = ref(false)
 const showPendingReturnsDrawer = ref(false)
+const showWarehouseMovement = ref(false)
+const movementDevice = ref<Device | null>(null)
 const selectedRental = ref<Rental | null>(null)
 const showRentalConfirmationDialog = ref(false)
 const confirmationRental = ref<Rental | null>(null)
@@ -1015,6 +1031,20 @@ const handleUpdateDeviceLifecycle = async (device: Device, newLifecycle: string)
   }
 }
 
+const openWarehouseMovement = (device: Device) => {
+  if (!device.warehouse_id) {
+    ElMessage.error('设备缺少仓库信息')
+    return
+  }
+  movementDevice.value = device
+  showWarehouseMovement.value = true
+}
+
+const handleWarehouseMoved = async () => {
+  await ganttStore.loadData()
+  movementDevice.value = null
+}
+
 const openBatchShipping = () => {
   window.open('/batch-shipping', '_blank')
 }
@@ -1078,7 +1108,7 @@ const loadDailyStats = async () => {
 
   loadStatsTimer = setTimeout(async () => {
     try {
-      const cacheKey = `${selectedDeviceModel.value || 'all'}_${dateArray.value[0]?.getTime() || 0}_${dateArray.value[dateArray.value.length - 1]?.getTime() || 0}`
+      const cacheKey = `${tenantStore.currentWarehouseId}_${selectedDeviceModel.value || 'all'}_${dateArray.value[0]?.getTime() || 0}_${dateArray.value[dateArray.value.length - 1]?.getTime() || 0}`
 
       // 检查缓存
       if (statsCache.has(cacheKey)) {
@@ -1090,6 +1120,7 @@ const loadDailyStats = async () => {
         dateArray.value.map(async (date) => {
           const dateStr = toSystemDateString(date)
           const params: any = { date: dateStr }
+          params.warehouse_id = tenantStore.currentWarehouseId
 
           // 如果选择了设备型号，添加到参数中
           if (selectedDeviceModel.value) {
@@ -1203,6 +1234,12 @@ watch(availableDeviceModels, (newModels) => {
 // 监听设备型号筛选变化，重新加载统计数据
 watch(selectedDeviceModel, () => {
   loadDailyStats()
+})
+
+watch(() => tenantStore.currentWarehouseId, async () => {
+  statsCache.clear()
+  await ganttStore.loadData()
+  await loadDailyStats()
 })
 
 // 监听设备数据变化，重新计算虚拟滚动

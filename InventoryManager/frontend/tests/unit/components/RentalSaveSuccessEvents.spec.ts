@@ -8,6 +8,7 @@ import axios from 'axios'
 import BookingDialog from '@/components/BookingDialog.vue'
 import EditRentalDialogNew from '@/components/rental/EditRentalDialogNew.vue'
 import { useGanttStore, type Rental } from '@/stores/gantt'
+import { useTenantStore } from '@/stores/tenant'
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({
@@ -151,6 +152,12 @@ const mountBookingDialog = (initialXianyuOrderNo?: string) => {
   const pinia = createPinia()
   setActivePinia(pinia)
   const store = useGanttStore()
+  useTenantStore().setWarehousesForSession([{
+    id: 1,
+    province: '广东省',
+    city: '深圳市',
+    name: '深圳仓库',
+  }])
   const wrapper = shallowMount(BookingDialog, {
     props: {
       modelValue: true,

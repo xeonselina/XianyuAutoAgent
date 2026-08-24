@@ -11,6 +11,7 @@ import {
   type Ref,
 } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
+import { createPinia } from 'pinia'
 
 import BatchShippingView from '@/views/BatchShippingView.vue'
 
@@ -118,7 +119,7 @@ const mountWithRental = async (
 ) => {
   const wrapper = mount(BatchShippingView, {
     global: {
-      plugins: [ElementPlus],
+      plugins: [createPinia(), ElementPlus],
       stubs: {
         ElTable: ElTableStub,
         ElTableColumn: ElTableColumnStub,

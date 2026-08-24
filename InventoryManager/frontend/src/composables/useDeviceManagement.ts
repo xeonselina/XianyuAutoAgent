@@ -6,6 +6,7 @@ import { ref } from 'vue'
 import { useGanttStore } from '@/stores/gantt'
 import type { Device, DeviceModel } from '@/stores/gantt'
 import axios from 'axios'
+import { useTenantStore } from '@/stores/tenant'
 
 export interface DeviceWithStatus extends Device {
   conflicted?: boolean
@@ -15,6 +16,7 @@ export interface DeviceWithStatus extends Device {
 
 export function useDeviceManagement() {
   const ganttStore = useGanttStore()
+  const tenantStore = useTenantStore()
 
   const loading = ref(false)
   const devices = ref<DeviceWithStatus[]>([])
@@ -44,7 +46,13 @@ export function useDeviceManagement() {
   const loadAccessories = async () => {
     loading.value = true
     try {
-      const response = await axios.get('/api/devices?is_accessory=true&per_page=100')
+      const response = await axios.get('/api/devices', {
+        params: {
+          is_accessory: true,
+          per_page: 100,
+          warehouse_id: tenantStore.currentWarehouseId,
+        },
+      })
       accessories.value = (response.data.devices || [])
         .map((device: Device) => ({ ...device }))
     } catch (error) {

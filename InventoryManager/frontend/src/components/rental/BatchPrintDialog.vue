@@ -115,6 +115,7 @@ import dayjs from 'dayjs'
 import axios from 'axios'
 import VueDatePicker from '@vuepic/vue-datepicker'
 import '@vuepic/vue-datepicker/dist/main.css'
+import { useTenantStore } from '@/stores/tenant'
 
 // Props & Emits
 interface Props {
@@ -128,6 +129,7 @@ const emit = defineEmits<{
 
 // Router
 const router = useRouter()
+const tenantStore = useTenantStore()
 
 // Refs
 const formRef = ref()
@@ -185,7 +187,8 @@ const handlePreview = async () => {
     const response = await axios.get('/api/rentals/by-ship-date', {
       params: {
         start_date: startDateStr,
-        end_date: endDateStr
+        end_date: endDateStr,
+        warehouse_id: tenantStore.currentWarehouseId,
       }
     })
 

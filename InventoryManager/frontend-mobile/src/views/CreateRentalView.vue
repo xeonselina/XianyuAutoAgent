@@ -7,6 +7,13 @@
       :border="false"
     />
 
+    <van-notice-bar
+      v-if="tenantStore.currentWarehouseId === 'all'"
+      text="新建租赁前请在顶部选择具体仓库"
+      color="#ed6a0c"
+      background="#fffbe8"
+    />
+
     <div class="form-scroll">
       <van-form ref="formRef" @submit="onSubmit">
         <!-- 闲鱼订单号 -->
@@ -276,6 +283,7 @@ import { showToast, showConfirmDialog } from 'vant'
 import axios from 'axios'
 import dayjs from 'dayjs'
 import { useGanttStore } from '@/stores/gantt'
+import { useMobileTenantStore } from '@/stores/tenant'
 import type { DeviceModel, Device, Rental } from '@/stores/gantt'
 import RentalConfirmationPopup from '@/components/RentalConfirmationPopup.vue'
 import { extractPhoneNumber } from '@/utils/phoneExtractor'
@@ -295,6 +303,7 @@ import {
 const router = useRouter()
 const route = useRoute()
 const ganttStore = useGanttStore()
+const tenantStore = useMobileTenantStore()
 const conflictDetection = useConflictDetection()
 
 // 表单状态
@@ -540,6 +549,10 @@ const confirmLogisticsTiming = async (): Promise<boolean> => {
 
 // 提交
 const onSubmit = async () => {
+  if (tenantStore.currentWarehouseId === 'all') {
+    showToast('请先选择具体仓库')
+    return
+  }
   if (!form.value.deviceId) {
     showToast('请选择可用设备')
     return
@@ -655,7 +668,12 @@ const loadInitData = async () => {
   try {
     const [modelsRes, accessoriesRes] = await Promise.all([
       axios.get('/api/device-models'),
-      axios.get('/api/devices?is_accessory=true')
+      axios.get('/api/devices', {
+        params: {
+          is_accessory: true,
+          warehouse_id: tenantStore.currentWarehouseId,
+        },
+      })
     ])
     if (modelsRes.data.success) {
       deviceModels.value = modelsRes.data.data || []
@@ -682,6 +700,14 @@ onMounted(async () => {
     await ganttStore.loadData()
   }
   await loadInitData()
+})
+
+watch(() => tenantStore.currentWarehouseId, async () => {
+  form.value.deviceId = null
+  form.value.phoneHolderId = null
+  form.value.tripodId = null
+  availableSlots.value = []
+  await Promise.all([ganttStore.loadData(), loadInitData()])
 })
 </script>
 

@@ -237,8 +237,10 @@ import { ElMessage } from 'element-plus'
 import { ArrowLeft, Search, Printer, Clock } from '@element-plus/icons-vue'
 import axios from 'axios'
 import dayjs from 'dayjs'
+import { useTenantStore } from '@/stores/tenant'
 
 const router = useRouter()
+const tenantStore = useTenantStore()
 
 // State
 const dateRange = ref<[Date, Date] | null>(null)
@@ -303,7 +305,8 @@ const previewOrders = async () => {
     const response = await axios.get('/api/rentals/by-ship-date', {
       params: {
         start_date: dayjs(start).format('YYYY-MM-DD'),
-        end_date: dayjs(end).format('YYYY-MM-DD')
+        end_date: dayjs(end).format('YYYY-MM-DD'),
+        warehouse_id: tenantStore.currentWarehouseId,
       }
     })
 

@@ -1,10 +1,21 @@
+<script setup lang="ts">
+import MemberSettings from '@/components/settings/MemberSettings.vue'
+import WarehouseSettings from '@/components/settings/WarehouseSettings.vue'
+</script>
+
 <template>
   <main class="settings-shell">
     <h1>租户设置</h1>
-    <p>成员、仓库与闲鱼店铺配置将在下一阶段接入。</p>
+    <el-tabs>
+      <el-tab-pane label="成员"><MemberSettings /></el-tab-pane>
+      <el-tab-pane label="仓库"><WarehouseSettings /></el-tab-pane>
+      <el-tab-pane label="闲鱼店铺">
+        <el-empty description="下一阶段配置" />
+      </el-tab-pane>
+    </el-tabs>
   </main>
 </template>
 
 <style scoped>
-.settings-shell { max-width: 960px; margin: 0 auto; padding: 32px 24px; }
+.settings-shell { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
 </style>

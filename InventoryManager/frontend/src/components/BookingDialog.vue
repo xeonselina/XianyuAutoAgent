@@ -9,6 +9,13 @@
     @close="handleClose"
     @closed="handleClosed"
   >
+    <el-alert
+      v-if="tenantStore.currentWarehouseId === 'all'"
+      title="新建租赁前请在顶部选择具体仓库"
+      type="warning"
+      :closable="false"
+      style="margin-bottom: 16px"
+    />
     <el-form
       ref="formRef"
       :model="form"
@@ -330,6 +337,7 @@
           type="primary"
           @click="handleSubmit"
           :loading="submitting"
+          :disabled="tenantStore.currentWarehouseId === 'all'"
         >
           提交预定
         </el-button>
@@ -359,6 +367,7 @@ import {
   getLogisticsMismatch
 } from '@/utils/logisticsWarning'
 import LensComboSelector from './rental/LensComboSelector.vue'
+import { useTenantStore } from '@/stores/tenant'
 
 // Props & Emits
 interface Props {
@@ -378,6 +387,7 @@ const ganttStore = useGanttStore()
 const deviceManagement = useDeviceManagement()
 const availability = useAvailabilityCheck()
 const conflictDetection = useConflictDetection()
+const tenantStore = useTenantStore()
 
 // Refs
 const formRef = ref<FormInstance>()
@@ -1016,6 +1026,21 @@ watch(() => props.modelValue, async (visible) => {
     }
   }
 }, { immediate: true })
+
+watch(() => tenantStore.currentWarehouseId, async () => {
+  invalidateSlotSearch()
+  form.value.selectedDeviceId = null
+  form.value.phoneHolderId = null
+  form.value.tripodId = null
+  availableSlot.value = null
+  availability.resetAll()
+  if (props.modelValue) {
+    await Promise.all([
+      deviceManagement.loadDevices(),
+      deviceManagement.loadAccessories(),
+    ])
+  }
+})
 
 // Watch destination change to extract phone number
 watch(() => form.value.destination, (newDestination) => {

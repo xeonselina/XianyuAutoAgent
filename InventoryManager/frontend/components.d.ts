@@ -8,6 +8,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AppHeader: typeof import('./src/components/AppHeader.vue')['default']
     BatchPrintDialog: typeof import('./src/components/rental/BatchPrintDialog.vue')['default']
     BookingDialog: typeof import('./src/components/BookingDialog.vue')['default']
     ChecklistForm: typeof import('./src/components/inspection/ChecklistForm.vue')['default']
@@ -48,6 +49,7 @@ declare module 'vue' {
     ElSelect: typeof import('element-plus/es')['ElSelect']
     ElStep: typeof import('element-plus/es')['ElStep']
     ElSteps: typeof import('element-plus/es')['ElSteps']
+    ElSwitch: typeof import('element-plus/es')['ElSwitch']
     ElTable: typeof import('element-plus/es')['ElTable']
     ElTableColumn: typeof import('element-plus/es')['ElTableColumn']
     ElTabPane: typeof import('element-plus/es')['ElTabPane']
@@ -68,6 +70,7 @@ declare module 'vue' {
     InspectionRecordCard: typeof import('./src/components/inspection/InspectionRecordCard.vue')['default']
     LensComboSelector: typeof import('./src/components/rental/LensComboSelector.vue')['default']
     ManualRelayDialog: typeof import('./src/components/relay/ManualRelayDialog.vue')['default']
+    MemberSettings: typeof import('./src/components/settings/MemberSettings.vue')['default']
     PendingReturnsDrawer: typeof import('./src/components/PendingReturnsDrawer.vue')['default']
     RelayStatusDialog: typeof import('./src/components/relay/RelayStatusDialog.vue')['default']
     RentalAccessorySelector: typeof import('./src/components/rental/RentalAccessorySelector.vue')['default']
@@ -81,6 +84,8 @@ declare module 'vue' {
     RouterView: typeof import('vue-router')['RouterView']
     ScheduleReorderDialog: typeof import('./src/components/ScheduleReorderDialog.vue')['default']
     SimplifiedShippingSlip: typeof import('./src/components/printing/SimplifiedShippingSlip.vue')['default']
+    WarehouseMovementDialog: typeof import('./src/components/WarehouseMovementDialog.vue')['default']
+    WarehouseSettings: typeof import('./src/components/settings/WarehouseSettings.vue')['default']
     XianyuOrderAlertBar: typeof import('./src/components/XianyuOrderAlertBar.vue')['default']
   }
   export interface GlobalDirectives {

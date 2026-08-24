@@ -73,7 +73,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 import axios from 'axios'
@@ -81,9 +81,11 @@ import { useGanttStore } from '@/stores/gantt'
 import type { Rental } from '@/stores/gantt'
 import GanttGrid from '@/components/GanttGrid.vue'
 import RentalBottomSheet from '@/components/RentalBottomSheet.vue'
+import { useMobileTenantStore } from '@/stores/tenant'
 
 const router = useRouter()
 const ganttStore = useGanttStore()
+const tenantStore = useMobileTenantStore()
 
 // 窗口起始日期：今天 -2 天
 const windowOffset = ref(0) // 以7天为单位的偏移
@@ -109,7 +111,9 @@ const fetchDailyStats = async () => {
   const start = dayjs(windowStart.value)
   const dates = Array.from({ length: DAYS }, (_, i) => start.add(i, 'day').format('YYYY-MM-DD'))
   const results = await Promise.allSettled(
-    dates.map(date => axios.get('/api/gantt/daily-stats', { params: { date } }))
+    dates.map(date => axios.get('/api/gantt/daily-stats', {
+      params: { date, warehouse_id: tenantStore.currentWarehouseId },
+    }))
   )
   const stats: typeof dailyStats.value = {}
   results.forEach((result, i) => {
@@ -165,6 +169,11 @@ const filteredDevices = computed(() => {
 })
 
 onMounted(() => {
+  ganttStore.loadData()
+  fetchDailyStats()
+})
+
+watch(() => tenantStore.currentWarehouseId, () => {
   ganttStore.loadData()
   fetchDailyStats()
 })

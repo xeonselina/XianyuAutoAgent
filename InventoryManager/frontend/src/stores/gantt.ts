@@ -8,6 +8,7 @@ import {
   formatDisplayDate
 } from '@/utils/dateUtils'
 import dayjs from 'dayjs'
+import { useTenantStore } from '@/stores/tenant'
 
 export interface DeviceModel {
   id: number
@@ -48,6 +49,7 @@ export interface Device {
   lifecycle_date?: string
   created_at: string
   updated_at: string
+  warehouse_id?: number
 }
 
 export interface Rental {
@@ -94,6 +96,7 @@ export interface Rental {
   order_amount?: number
   buyer_id?: string
   damage_note?: string | null
+  warehouse_id?: number
 }
 
 export interface AvailableSlot {
@@ -184,6 +187,14 @@ const apiErrorMessage = (err: any, fallback: string) => {
 }
 
 export const useGanttStore = defineStore('gantt', () => {
+  const tenantStore = useTenantStore()
+  const concreteWarehouseId = () => {
+    if (tenantStore.currentWarehouseId === 'all') {
+      throw new Error('请选择具体仓库')
+    }
+    return tenantStore.currentWarehouseId
+  }
+
   // 状态
   const devices = ref<Device[]>([])
   const rentals = ref<Rental[]>([])
@@ -228,7 +239,8 @@ export const useGanttStore = defineStore('gantt', () => {
       const response = await axios.get('/api/gantt/data', {
         params: {
           start_date: toDateString(dateRange.value.start),
-          end_date: toDateString(dateRange.value.end)
+          end_date: toDateString(dateRange.value.end),
+          warehouse_id: tenantStore.currentWarehouseId,
         }
       })
       
@@ -278,7 +290,8 @@ export const useGanttStore = defineStore('gantt', () => {
         end_date: endDate,
         logistics_days: logisticsDays,
         model: model,
-        is_accessory: isAccessory
+        is_accessory: isAccessory,
+        warehouse_id: concreteWarehouseId(),
       })
 
       if (response.data.success) {
@@ -302,6 +315,7 @@ export const useGanttStore = defineStore('gantt', () => {
 
   const createRental = async (rentalData: any) => {
     try {
+      const warehouseId = concreteWarehouseId()
       console.log('=== 前端发送创建租赁请求 ===')
       console.log('完整请求数据:', rentalData)
       console.log('ship_out_time 值:', rentalData.ship_out_time)
@@ -309,7 +323,10 @@ export const useGanttStore = defineStore('gantt', () => {
       console.log('ship_out_time 类型:', typeof rentalData.ship_out_time)
       console.log('ship_in_time 类型:', typeof rentalData.ship_in_time)
       
-      const response = await axios.post('/api/rentals', rentalData)
+      const response = await axios.post('/api/rentals', {
+        ...rentalData,
+        warehouse_id: warehouseId,
+      })
       
       console.log('后端响应:', response.data)
       
@@ -327,7 +344,10 @@ export const useGanttStore = defineStore('gantt', () => {
 
   const updateRental = async (rentalId: number, updateData: any) => {
     try {
-      const response = await axios.put(`/web/rentals/${rentalId}`, updateData)
+      const response = await axios.put(`/web/rentals/${rentalId}`, {
+        ...updateData,
+        warehouse_id: concreteWarehouseId(),
+      })
       if (response.data.success) {
         await loadData()
         return response.data
@@ -427,7 +447,8 @@ export const useGanttStore = defineStore('gantt', () => {
         serial_number: deviceData.serial_number,
         model: deviceData.model,
         model_id: deviceData.model_id,
-        is_accessory: deviceData.is_accessory
+        is_accessory: deviceData.is_accessory,
+        warehouse_id: concreteWarehouseId(),
       })
       
       if (response.data.success) {
@@ -443,7 +464,9 @@ export const useGanttStore = defineStore('gantt', () => {
 
   const analyzeScheduleReorder = async (): Promise<ReorderAnalysis> => {
     try {
-      const response = await axios.post('/api/gantt/reorder/analyze')
+      const response = await axios.post('/api/gantt/reorder/analyze', {
+        warehouse_id: concreteWarehouseId(),
+      })
       if (!response.data.success) {
         throw new Error(response.data.message || response.data.error || '分析接力关系失败')
       }
@@ -457,7 +480,10 @@ export const useGanttStore = defineStore('gantt', () => {
     decisions: RelayDecision[]
   ): Promise<ReorderPreview> => {
     try {
-      const response = await axios.post('/api/gantt/reorder/preview', { decisions })
+      const response = await axios.post('/api/gantt/reorder/preview', {
+        decisions,
+        warehouse_id: concreteWarehouseId(),
+      })
       if (!response.data.success) {
         throw new Error(response.data.message || response.data.error || '计算重排预览失败')
       }

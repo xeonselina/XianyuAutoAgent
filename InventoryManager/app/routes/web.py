@@ -6,6 +6,7 @@ from flask import Blueprint, current_app, g, jsonify, request
 
 from app import db
 from app.auth import csrf_matches, resolve_tenant_session
+from app.models.warehouse import Warehouse
 from app.routes.web_pages import bp as web_pages_bp
 from app.routes.gantt_api import bp as gantt_api_bp
 from app.routes.device_api import bp as device_api_bp
@@ -150,4 +151,14 @@ def health_check():
         'status': 'healthy',
         'timestamp': '2024-01-01T00:00:00Z',
         'service': 'Inventory Manager Web API'
+    })
+
+
+@bp.get('/api/warehouses')
+def list_public_warehouses():
+    """Return the current tenant's non-secret warehouse navigation data."""
+    warehouses = Warehouse.query.order_by(Warehouse.id).all()
+    return jsonify({
+        'success': True,
+        'data': [warehouse.to_dict() for warehouse in warehouses],
     })

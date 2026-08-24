@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import axios from 'axios'
+import { useMobileTenantStore } from '@/stores/tenant'
 import {
   getCurrentDate,
   toDateString,
@@ -48,6 +49,7 @@ export interface Device {
   lifecycle_date?: string
   created_at: string
   updated_at: string
+  warehouse_id?: number
 }
 
 export interface Rental {
@@ -97,6 +99,7 @@ export interface Rental {
   // 接力后一单由前一位客户直接寄出，不参与仓库批量发货
   is_relay_shipping?: boolean
   relay_predecessor_rental_id?: number | null
+  warehouse_id?: number
 }
 
 export interface AvailableSlot {
@@ -108,6 +111,7 @@ export interface AvailableSlot {
 }
 
 export const useGanttStore = defineStore('gantt', () => {
+  const tenantStore = useMobileTenantStore()
   // 状态
   const devices = ref<Device[]>([])
   const rentals = ref<Rental[]>([])
@@ -152,7 +156,8 @@ export const useGanttStore = defineStore('gantt', () => {
       const response = await axios.get('/api/gantt/data', {
         params: {
           start_date: toDateString(dateRange.value.start),
-          end_date: toDateString(dateRange.value.end)
+          end_date: toDateString(dateRange.value.end),
+          warehouse_id: tenantStore.currentWarehouseId,
         }
       })
       
@@ -202,7 +207,8 @@ export const useGanttStore = defineStore('gantt', () => {
         end_date: endDate,
         logistics_days: logisticsDays,
         model: model,
-        is_accessory: isAccessory
+        is_accessory: isAccessory,
+        warehouse_id: tenantStore.requireConcreteWarehouse(),
       })
 
       if (response.data.success) {
@@ -226,6 +232,7 @@ export const useGanttStore = defineStore('gantt', () => {
 
   const createRental = async (rentalData: any) => {
     try {
+      const warehouseId = tenantStore.requireConcreteWarehouse()
       console.log('=== 前端发送创建租赁请求 ===')
       console.log('完整请求数据:', rentalData)
       console.log('ship_out_time 值:', rentalData.ship_out_time)
@@ -233,7 +240,10 @@ export const useGanttStore = defineStore('gantt', () => {
       console.log('ship_out_time 类型:', typeof rentalData.ship_out_time)
       console.log('ship_in_time 类型:', typeof rentalData.ship_in_time)
       
-      const response = await axios.post('/api/rentals', rentalData)
+      const response = await axios.post('/api/rentals', {
+        ...rentalData,
+        warehouse_id: warehouseId,
+      })
       
       console.log('后端响应:', response.data)
       
@@ -251,7 +261,10 @@ export const useGanttStore = defineStore('gantt', () => {
 
   const updateRental = async (rentalId: number, updateData: any) => {
     try {
-      const response = await axios.put(`/web/rentals/${rentalId}`, updateData)
+      const response = await axios.put(`/web/rentals/${rentalId}`, {
+        ...updateData,
+        warehouse_id: tenantStore.requireConcreteWarehouse(),
+      })
       if (response.data.success) {
         await loadData()
         return response.data
@@ -351,7 +364,8 @@ export const useGanttStore = defineStore('gantt', () => {
         serial_number: deviceData.serial_number,
         model: deviceData.model,
         model_id: deviceData.model_id,
-        is_accessory: deviceData.is_accessory
+        is_accessory: deviceData.is_accessory,
+        warehouse_id: tenantStore.requireConcreteWarehouse(),
       })
       
       if (response.data.success) {

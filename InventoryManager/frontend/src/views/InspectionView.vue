@@ -16,6 +16,39 @@
         v-if="inspectionStore.currentRental"
         :rental="inspectionStore.currentRental"
       />
+
+      <el-card
+        v-if="inspectionStore.currentRental && !isEditMode"
+        class="receipt-card"
+      >
+        <template #header>收货仓库与实际附件</template>
+        <el-form label-width="110px">
+          <el-form-item label="收货仓库">
+            <el-select v-model="inspectionStore.receivingWarehouseId">
+              <el-option
+                v-for="warehouse in tenantStore.warehouses"
+                :key="warehouse.id"
+                :label="warehouse.name"
+                :value="warehouse.id"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item
+            v-if="inspectionStore.currentRental.accessories?.length"
+            label="实际收到"
+          >
+            <el-checkbox-group v-model="inspectionStore.receivedDeviceIds">
+              <el-checkbox
+                v-for="accessory in inspectionStore.currentRental.accessories"
+                :key="accessory.id"
+                :value="accessory.id"
+              >
+                {{ accessory.name }}
+              </el-checkbox>
+            </el-checkbox-group>
+          </el-form-item>
+        </el-form>
+      </el-card>
       
       <!-- 验货清单 -->
       <ChecklistForm 
@@ -40,6 +73,23 @@
           </el-button>
         </template>
       </el-result>
+
+      <el-card v-if="inspectionStore.warehouseImpacts" class="impact-card">
+        <template #header>入仓影响</template>
+        <p>
+          可自动修正 {{ inspectionStore.warehouseImpacts.auto_fixable.length }} 条，
+          缺货 {{ inspectionStore.warehouseImpacts.shortages.length }} 条，
+          人工处理 {{ inspectionStore.warehouseImpacts.manual.length }} 条，
+          已阻止 {{ inspectionStore.warehouseImpacts.blocked.length }} 条。
+        </p>
+        <el-button
+          type="primary"
+          :loading="inspectionStore.loading"
+          @click="handleRepairImpacts"
+        >
+          一键修正可处理租赁
+        </el-button>
+      </el-card>
     </div>
   </div>
 </template>
@@ -51,6 +101,7 @@ import { useInspectionStore } from '../stores/inspection'
 import DeviceSearchInput from '../components/inspection/DeviceSearchInput.vue'
 import RentalInfoCard from '../components/inspection/RentalInfoCard.vue'
 import ChecklistForm from '../components/inspection/ChecklistForm.vue'
+import { useTenantStore } from '@/stores/tenant'
 
 // Route & Router
 const route = useRoute()
@@ -58,6 +109,7 @@ const router = useRouter()
 
 // Store
 const inspectionStore = useInspectionStore()
+const tenantStore = useTenantStore()
 
 // Refs
 const deviceSearchRef = ref<InstanceType<typeof DeviceSearchInput>>()
@@ -110,13 +162,20 @@ const handleSubmit = async () => {
     // 创建模式: 创建新的验货记录
     success = await inspectionStore.submitInspection()
     if (success) {
-      // 直接重置并开始下一台验机
-      inspectionStore.reset()
-      setTimeout(() => {
-        deviceSearchRef.value?.clearAndFocus()
-      }, 100)
+      if (inspectionStore.warehouseImpacts) {
+        showSuccessResult.value = true
+      } else {
+        inspectionStore.reset()
+        setTimeout(() => {
+          deviceSearchRef.value?.clearAndFocus()
+        }, 100)
+      }
     }
   }
+}
+
+const handleRepairImpacts = async () => {
+  await inspectionStore.repairWarehouseImpacts()
 }
 
 const handleReset = () => {
@@ -140,6 +199,7 @@ const handleReset = () => {
 
 // 生命周期 - 检查是否是编辑模式
 onMounted(async () => {
+  await tenantStore.loadWarehouses()
   const editId = route.query.edit
   if (editId) {
     isEditMode.value = true
@@ -174,6 +234,8 @@ onMounted(async () => {
   text-align: center;
   color: #303133;
 }
+
+.receipt-card, .impact-card { margin-bottom: 20px; }
 
 /* iPad 优化 */
 @media (min-width: 768px) {

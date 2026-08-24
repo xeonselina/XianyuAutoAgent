@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 
 import type { PendingReturn } from '@/types/pendingReturn'
 import { usePendingReturns } from '@/composables/usePendingReturns'
@@ -47,6 +48,7 @@ const pendingReturnsResponse = (rentals: PendingReturn[]) => ({
 
 describe('usePendingReturns', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
     axiosGet.mockReset()
     axiosPut.mockReset()
   })
@@ -57,7 +59,9 @@ describe('usePendingReturns', () => {
 
     await state.load()
 
-    expect(axiosGet).toHaveBeenCalledWith('/api/rentals/pending-returns')
+    expect(axiosGet).toHaveBeenCalledWith('/api/rentals/pending-returns', {
+      params: { warehouse_id: 'all' },
+    })
     expect(state.rentals.value).toEqual([pendingReturn])
     expect(state.count.value).toBe(1)
     expect(state.loading.value).toBe(false)

@@ -198,12 +198,14 @@ import {
 } from '@element-plus/icons-vue'
 import axios from 'axios'
 import dayjs from 'dayjs'
+import { useTenantStore } from '@/stores/tenant'
 // @ts-ignore
 import JsBarcode from 'jsbarcode'
 
 // Router
 const route = useRoute()
 const router = useRouter()
+const tenantStore = useTenantStore()
 
 // State
 const rentals = ref<any[]>([])
@@ -232,7 +234,8 @@ const fetchRentals = async () => {
     const response = await axios.get('/api/rentals/by-ship-date', {
       params: {
         start_date: startDate,
-        end_date: endDate
+        end_date: endDate,
+        warehouse_id: tenantStore.currentWarehouseId,
       }
     })
 

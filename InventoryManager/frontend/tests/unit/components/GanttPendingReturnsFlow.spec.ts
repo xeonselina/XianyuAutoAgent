@@ -229,7 +229,9 @@ describe('GanttChart pending-returns flow', () => {
     const { wrapper } = await mountGantt()
 
     expect(wrapper.get('.pending-returns-badge').attributes('data-value')).toBe('1')
-    expect(axiosGet).toHaveBeenCalledWith('/api/rentals/pending-returns')
+    expect(axiosGet).toHaveBeenCalledWith('/api/rentals/pending-returns', {
+      params: { warehouse_id: 'all' },
+    })
     expect(wrapper.get('[data-testid="pending-returns-button"]').text()).toContain(
       '待归还',
     )

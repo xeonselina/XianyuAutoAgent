@@ -5,6 +5,14 @@
         <div class="device-name">{{ device.name }}</div>
         <div class="device-details">
           <span class="device-sn">{{ device.serial_number }}</span>
+          <el-button
+            link
+            size="small"
+            data-testid="move-device"
+            @click="$emit('move-device', device)"
+          >
+            移仓
+          </el-button>
         </div>
         <div class="device-lifecycle">
           <el-select
@@ -129,6 +137,7 @@ const emit = defineEmits<{
   'edit-rental': [rental: Rental]
   'delete-rental': [rental: Rental]
   'update-device-lifecycle': [device: Device, newLifecycle: string]
+  'move-device': [device: Device]
 }>()
 
 // Tooltip相关状态

@@ -5,7 +5,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { Rental } from '../types/rental'
-import type { CheckItem, ChecklistItem, InspectionRecord, InspectionListParams, InspectionListResponse } from '../types/inspection'
+import type { CheckItem, ChecklistItem, InspectionRecord, InspectionListParams, InspectionListResponse, WarehouseImpacts } from '../types/inspection'
 import {
   getLatestRentalByDeviceId,
   getLatestRentalByDeviceName,
@@ -15,6 +15,7 @@ import {
   getInspectionList
 } from '../api/inspection'
 import { ElMessage } from 'element-plus'
+import axios from 'axios'
 
 export const useInspectionStore = defineStore('inspection', () => {
   // 状态
@@ -23,6 +24,17 @@ export const useInspectionStore = defineStore('inspection', () => {
   const checklist = ref<ChecklistItem[]>([])
   const checkItems = ref<CheckItem[]>([])
   const currentInspection = ref<InspectionRecord | null>(null)
+  const receivingWarehouseId = ref<number | null>(null)
+  const receivedDeviceIds = ref<number[]>([])
+  const warehouseImpacts = ref<WarehouseImpacts | null>(null)
+
+  const prepareWarehouseReceipt = (rental: Rental) => {
+    receivingWarehouseId.value = rental.warehouse_id
+    receivedDeviceIds.value = (rental.accessories || [])
+      .map((item) => item.id)
+      .filter((id): id is number => typeof id === 'number')
+    warehouseImpacts.value = null
+  }
   
   // 验货记录列表状态
   const inspectionRecords = ref<InspectionRecord[]>([])
@@ -50,6 +62,7 @@ export const useInspectionStore = defineStore('inspection', () => {
       const response = await getLatestRentalByDeviceId(deviceId)
       if (response.success && response.data) {
         currentRental.value = response.data.rental
+        prepareWarehouseReceipt(response.data.rental)
         checklist.value = response.data.checklist
 
         // 初始化 checkItems（所有项默认已勾选）
@@ -82,6 +95,7 @@ export const useInspectionStore = defineStore('inspection', () => {
       const response = await getLatestRentalByDeviceName(deviceName)
       if (response.success && response.data) {
         currentRental.value = response.data.rental
+        prepareWarehouseReceipt(response.data.rental)
         checklist.value = response.data.checklist
 
         // 初始化 checkItems（所有项默认已勾选）
@@ -123,11 +137,14 @@ export const useInspectionStore = defineStore('inspection', () => {
           name: item.item_name,
           is_checked: item.is_checked,
           order: item.item_order
-        }))
+        })),
+        receiving_warehouse_id: receivingWarehouseId.value ?? undefined,
+        received_device_ids: receivedDeviceIds.value,
       })
 
       if (response.success && response.data) {
         currentInspection.value = response.data
+        warehouseImpacts.value = response.data.warehouse_impacts || null
 
         // 判断验货状态
         const status = response.data.status
@@ -221,6 +238,34 @@ export const useInspectionStore = defineStore('inspection', () => {
     checklist.value = []
     checkItems.value = []
     currentInspection.value = null
+    receivingWarehouseId.value = null
+    receivedDeviceIds.value = []
+    warehouseImpacts.value = null
+  }
+
+  const repairWarehouseImpacts = async () => {
+    const impacts = warehouseImpacts.value
+    if (!impacts) return false
+    loading.value = true
+    try {
+      const response = await axios.post(
+        `/api/devices/${impacts.primary_device_id}/move`,
+        { token: impacts.token },
+      )
+      if (!response.data.success) {
+        throw new Error(response.data.message || '仓库影响修正失败')
+      }
+      warehouseImpacts.value = null
+      ElMessage.success('未来租赁已修正')
+      return true
+    } catch (error: any) {
+      ElMessage.error(
+        error.response?.data?.message || error.message || '仓库影响修正失败',
+      )
+      return false
+    } finally {
+      loading.value = false
+    }
   }
 
   /**
@@ -293,6 +338,9 @@ export const useInspectionStore = defineStore('inspection', () => {
     checklist,
     checkItems,
     currentInspection,
+    receivingWarehouseId,
+    receivedDeviceIds,
+    warehouseImpacts,
     inspectionRecords,
     pagination,
     filters,
@@ -308,6 +356,7 @@ export const useInspectionStore = defineStore('inspection', () => {
     clearFilters,
     reset,
     toggleCheckItem,
-    calculateStatus
+    calculateStatus,
+    repairWarehouseImpacts,
   }
 })

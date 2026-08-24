@@ -214,11 +214,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeft, Download } from '@element-plus/icons-vue'
+import { useTenantStore } from '@/stores/tenant'
 
 const router = useRouter()
+const tenantStore = useTenantStore()
 
 // ── 周期统计 ─────────────────────────────────────
 const periodType = ref<'week' | 'month'>('month')
@@ -266,7 +268,9 @@ function formatMoney(val: number) {
 // ── 型号列表 ──────────────────────────────────────
 async function fetchModels() {
   try {
-    const res = await fetch('/api/rental-stats/models')
+    const res = await fetch(
+      `/api/rental-stats/models?warehouse_id=${tenantStore.currentWarehouseId}`,
+    )
     const json = await res.json()
     if (json.success) {
       modelOptions.value = json.data
@@ -283,6 +287,7 @@ async function fetchStats() {
     const params = new URLSearchParams({
       period_type: periodType.value,
       model: modelFilter.value === 'all' ? 'all' : String(modelFilter.value),
+      warehouse_id: String(tenantStore.currentWarehouseId),
     })
     if (dateRange.value) {
       params.set('start_date', dateRange.value[0])
@@ -304,7 +309,9 @@ async function fetchStats() {
 async function fetchForecast() {
   forecastLoading.value = true
   try {
-    const res = await fetch('/api/rental-stats/x200u-forecast')
+    const res = await fetch(
+      `/api/rental-stats/x200u-forecast?warehouse_id=${tenantStore.currentWarehouseId}`,
+    )
     const json = await res.json()
     if (json.success) {
       forecastData.value = json
@@ -379,6 +386,12 @@ function getScenarioLabel(name: string, rate: number) {
 }
 
 onMounted(() => {
+  fetchModels()
+  fetchStats()
+  fetchForecast()
+})
+
+watch(() => tenantStore.currentWarehouseId, () => {
   fetchModels()
   fetchStats()
   fetchForecast()

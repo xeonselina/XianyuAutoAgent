@@ -7,6 +7,13 @@
       :border="false"
     />
 
+    <van-notice-bar
+      v-if="tenantStore.currentWarehouseId === 'all'"
+      text="保存前请在顶部选择具体仓库"
+      color="#ed6a0c"
+      background="#fffbe8"
+    />
+
     <div class="form-scroll" v-if="!initialLoading">
       <van-form ref="formRef" @submit="onSubmit">
         <!-- 订单信息 -->
@@ -385,6 +392,7 @@ import { showConfirmDialog, showToast } from 'vant'
 import axios from 'axios'
 import dayjs from 'dayjs'
 import { useGanttStore } from '@/stores/gantt'
+import { useMobileTenantStore } from '@/stores/tenant'
 import type { Rental, Device } from '@/stores/gantt'
 import RentalConfirmationPopup from '@/components/RentalConfirmationPopup.vue'
 import { useConflictDetection } from '@/composables/useConflictDetection'
@@ -403,6 +411,7 @@ import {
 const router = useRouter()
 const route = useRoute()
 const ganttStore = useGanttStore()
+const tenantStore = useMobileTenantStore()
 const conflictDetection = useConflictDetection()
 
 const rentalId = computed(() => Number(route.params.id))
@@ -748,6 +757,10 @@ const queryTrackingStatus = async (type: 'out' | 'in') => {
 
 // 提交
 const onSubmit = async () => {
+  if (tenantStore.currentWarehouseId === 'all') {
+    showToast('请先选择具体仓库')
+    return
+  }
   if (!form.value.deviceId) {
     showToast('请选择设备')
     return
@@ -837,7 +850,13 @@ const onShipToXianyu = async () => {
 
 const loadAccessories = async () => {
   try {
-    const res = await axios.get('/api/devices', { params: { is_accessory: true, per_page: 100 } })
+    const res = await axios.get('/api/devices', {
+      params: {
+        is_accessory: true,
+        per_page: 100,
+        warehouse_id: tenantStore.currentWarehouseId,
+      },
+    })
     const all: Device[] = res.data.devices || []
     accessories.value.phoneHolders = all.filter(d =>
       d.model?.toLowerCase().includes('phone_holder') ||
@@ -877,6 +896,15 @@ onMounted(async () => {
   } finally {
     initialLoading.value = false
   }
+})
+
+watch(() => tenantStore.currentWarehouseId, async () => {
+  allDevices.value = []
+  form.value.deviceId = null
+  form.value.phoneHolderId = null
+  form.value.tripodId = null
+  await Promise.all([ganttStore.loadData(), loadAccessories()])
+  allDevices.value = ganttStore.devices
 })
 </script>
 
