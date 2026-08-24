@@ -43,6 +43,8 @@ schedule==1.2.0
 
 # HTTP请求库
 requests==2.31.0
+tencentcloud-sdk-python-common==3.1.92
+tencentcloud-sdk-python-sms==3.1.92
 # 使用兼容的 urllib3 版本，避免 SSL 递归错误
 urllib3>=1.26.0,<2.0.0
 

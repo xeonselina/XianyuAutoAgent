@@ -33,6 +33,7 @@ const statusOrder: Record<RelayCaseStatus, number> = {
 
 const targetStatus = ref<RelayCaseStatus>('pending')
 const trackingNumber = ref('')
+const accessoryNote = ref('')
 const validationError = ref('')
 const saving = ref(false)
 
@@ -46,6 +47,7 @@ watch(
     if (!props.modelValue || !props.relayCase) return
     targetStatus.value = props.relayCase.status
     trackingNumber.value = props.relayCase.tracking.number || ''
+    accessoryNote.value = props.relayCase.accessory_note || ''
     validationError.value = ''
   },
   { immediate: true },
@@ -87,6 +89,7 @@ async function save() {
         sf_tracking_number: showTrackingInput.value
           ? trackingNumber.value.trim()
           : undefined,
+        accessory_note: accessoryNote.value.trim() || null,
       },
     )
     const xianyuSync = result.xianyu_sync
@@ -159,6 +162,18 @@ async function save() {
             data-testid="tracking-number"
             clearable
             placeholder="请输入顺丰运单号"
+            @input="validationError = ''"
+          />
+        </el-form-item>
+        <el-form-item label="内部补寄备注">
+          <el-input
+            v-model="accessoryNote"
+            data-testid="accessory-note"
+            type="textarea"
+            :rows="3"
+            maxlength="500"
+            show-word-limit
+            placeholder="仅内部可见；附件不足时可记录线下补寄安排，不会创建第二运单"
             @input="validationError = ''"
           />
         </el-form-item>

@@ -4,6 +4,7 @@
 
 from datetime import datetime, date, timedelta
 from flask import current_app
+from sqlalchemy import select
 from app import db
 from app.models.rental import Rental
 from app.models.device import Device
@@ -11,13 +12,19 @@ from app.services.inventory_service import InventoryService
 from app.utils.date_utils import (
     parse_date_strings,
     validate_date_range,
-    convert_dates_to_datetime,
 )
 from app.models.device_model import DeviceModel
+from app.services.scheduling import (
+    ACTIVE_RENTAL_STATUSES,
+    RentalSchedule,
+    ScheduleOverlapPolicy,
+)
 
 
 class GanttService:
     """甘特图服务类"""
+
+    _schedule_overlap_policy = ScheduleOverlapPolicy()
 
     @staticmethod
     def get_gantt_data(start_date_str=None, end_date_str=None) -> dict:
@@ -255,14 +262,6 @@ class GanttService:
                 f"ship_in_date: {ship_in_date}, model: {model_filter}"
             )
 
-            # 转换时间用于查询
-            ship_out_time, ship_in_time = convert_dates_to_datetime(
-                ship_out_date,
-                ship_in_date,
-                ship_out_hour="19:00:00",
-                ship_in_hour="12:00:00"
-            )
-
             # 根据 model_filter 查找设备
             device_type = "附件" if is_accessory else "主设备"
 
@@ -280,36 +279,121 @@ class GanttService:
                 devices = devices_query.all()
                 current_app.logger.info(f"查找所有{device_type}, 找到 {len(devices)} 台设备")
 
-            # 检查设备可用性
-            available_devices = []
-            available_device_objects = []
-            for device in devices:
-                availability = InventoryService.check_device_availability(
-                    device.id, ship_out_time, ship_in_time
+            # D17/D33: customer-use overlap is the only hard schedule conflict.
+            # Read all candidate schedules once and reuse the same pure policy as
+            # booking, Gantt warnings, and relay discovery. Logistics-window
+            # overlap remains a non-blocking warning instead of shrinking the
+            # available-device result.
+            device_ids = tuple(device.id for device in devices)
+            schedule_buffer = timedelta(days=8)
+            schedule_rows = tuple(
+                db.session.execute(
+                    select(Rental)
+                    .where(
+                        Rental.device_id.in_(device_ids or (-1,)),
+                        Rental.parent_rental_id.is_(None),
+                        Rental.status.in_(
+                            tuple(sorted(ACTIVE_RENTAL_STATUSES))
+                        ),
+                        Rental.start_date <= end_date + schedule_buffer,
+                        Rental.end_date >= start_date - schedule_buffer,
+                    )
+                    .order_by(
+                        Rental.device_id.asc(),
+                        Rental.start_date.asc(),
+                        Rental.id.asc(),
+                    )
+                ).scalars()
+            )
+            schedules_by_device = {}
+            for rental in schedule_rows:
+                schedules_by_device.setdefault(rental.device_id, []).append(
+                    RentalSchedule(
+                        rental_id=rental.id,
+                        device_id=rental.device_id,
+                        start_date=rental.start_date,
+                        end_date=rental.end_date,
+                        logistics_days=rental.logistics_days,
+                        status=rental.status,
+                        planned_ship_out_date=rental.planned_ship_out_date,
+                        planned_return_date=rental.planned_return_date,
+                    )
                 )
-                if availability['available']:
-                    available_devices.append(device.id)
-                    available_device_objects.append(device)
+
+            candidate_window = (
+                GanttService._schedule_overlap_policy.calculate_planned_window(
+                    start_date=start_date,
+                    end_date=end_date,
+                    logistics_days=logistics_days,
+                    tenant_timezone=current_app.config.get(
+                        "TIMEZONE", "Asia/Shanghai"
+                    ),
+                )
+            )
+            available_device_objects = []
+            warning_rows = []
+            for device in devices:
+                evaluation = GanttService._schedule_overlap_policy.evaluate(
+                    schedules_by_device.get(device.id, ()),
+                    candidate=RentalSchedule(
+                        rental_id=None,
+                        device_id=device.id,
+                        start_date=start_date,
+                        end_date=end_date,
+                        logistics_days=logistics_days,
+                        status="not_shipped",
+                        planned_ship_out_date=(
+                            candidate_window.planned_ship_out_date
+                        ),
+                        planned_return_date=(
+                            candidate_window.planned_return_date
+                        ),
+                    ),
+                    tenant_timezone=current_app.config.get(
+                        "TIMEZONE", "Asia/Shanghai"
+                    ),
+                    require_planned_facts=True,
+                )
+                if not evaluation.can_submit:
+                    continue
+                available_device_objects.append(device)
+                warning_rows.extend(
+                    {
+                        "code": warning.code,
+                        "device_id": device.id,
+                        "predecessor_rental_id": (
+                            warning.predecessor_rental_id
+                        ),
+                        "successor_rental_id": warning.successor_rental_id,
+                        "overlap_days": warning.overlap_days,
+                        "blocking": warning.blocking,
+                        "relay_candidate": warning.relay_candidate,
+                    }
+                    for warning in evaluation.warnings
+                )
 
             # 返回结果
-            if available_devices:
-                # 获取第一个可用设备的详细信息
-                first_device = Device.query.get(available_devices[0])
+            if available_device_objects:
+                first_device = available_device_objects[0]
                 
-                message_parts = [f'找到 {len(available_devices)} 台 {model_filter} 型号的可用设备']
+                message_parts = [
+                    f'找到 {len(available_device_objects)} 台 '
+                    f'{model_filter} 型号的可用设备'
+                ]
                 
                 result = {
                     'is_accessory': is_accessory,
                     'ship_out_date': ship_out_date.isoformat(),
                     'ship_in_date': ship_in_date.isoformat(),
                     'available_devices': [d.to_dict() for d in available_device_objects],
-                    'total_available': len(available_devices),
+                    'total_available': len(available_device_objects),
                     'available_accessories': [],
                     'device_model': None,
                     'device': first_device.to_dict() if first_device else None,
+                    'warnings': warning_rows,
                     'message': '，'.join(message_parts)
                 }
-                current_app.logger.info(f"找到可用档期: {len(available_devices)}台{device_type}")
+                current_app.logger.info(f"找到可用档期: {len(available_device_objects)}台{device_type}")
                 return result
             else:
                 current_app.logger.info(f"未找到可用档期: {device_type}")

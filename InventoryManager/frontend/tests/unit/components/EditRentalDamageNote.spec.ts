@@ -33,6 +33,62 @@ vi.mock('@/composables/useConflictDetection', () => ({
   }),
 }))
 
+vi.mock('@/composables/useRentalBooking', () => ({
+  useRentalBooking: () => {
+    const result = {
+      request_id: 'edit-availability',
+      evaluated_at: '2026-08-22T00:00:00Z',
+      preferred_warehouse_id: 3,
+      requested_accessory_type_ids: [],
+      estimate_by_warehouse: {
+        '3': {
+          warehouse_id: 3,
+          status: 'manual_confirmed',
+          safe_failure_reason: null,
+          logistics_days: 1,
+          manual_confirmation_required: false,
+          confirmation_context: 'c'.repeat(64),
+        },
+      },
+      candidates: [{
+        device: {
+          id: 9,
+          name: '测试设备',
+          serial_number: 'TEST-9',
+          model: 'x200u',
+          model_id: 1,
+          warehouse_id: 3,
+        },
+        warehouse: {
+          id: 3,
+          name: '测试仓',
+          is_default: true,
+          province: '广东省',
+          city: '深圳市',
+          district: '南山区',
+          address_summary: '广东省深圳市南山区',
+        },
+        available: true,
+        hard_conflicts: [],
+        warnings: [],
+        relay_candidate: false,
+        logistics_days: 1,
+        planned_ship_out_date: '2026-07-30',
+        planned_return_date: '2026-08-07',
+        submission_ready: true,
+        accessories: [],
+      }],
+    }
+    return {
+      availability: { value: result },
+      availabilityFailed: { value: false },
+      availabilityLoading: { value: false },
+      evaluateAvailability: vi.fn().mockResolvedValue(result),
+      resetAvailability: vi.fn(),
+    }
+  },
+}))
+
 vi.mock('@/composables/useRentalFormValidation', () => ({
   getEditRentalRules: () => ({}),
 }))
@@ -90,6 +146,21 @@ const rental = {
   photo_transfer: false,
   accessories: [],
   damage_note: '屏幕右下角碎裂',
+  customer_province: '广东省',
+  customer_city: '深圳市',
+  customer_district: '南山区',
+  customer_address_detail: '测试路1号',
+  preferred_warehouse_id: 3,
+  logistics_days: 1,
+  logistics_estimate_origin_warehouse_id: 3,
+  requested_accessory_type_ids: [],
+  device: {
+    id: 9,
+    name: '测试设备',
+    serial_number: 'TEST-9',
+    model: 'x200u',
+    model_id: 1,
+  },
 } as Rental & { damage_note?: string | null }
 
 describe('desktop rental damage note editing', () => {
@@ -104,7 +175,39 @@ describe('desktop rental damage note editing', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     const store = useGanttStore()
-    vi.spyOn(store, 'getRentalById').mockResolvedValue({ ...rental })
+    const getEditContext = vi.spyOn(
+      store,
+      'getRentalEditContext'
+    ).mockResolvedValue({
+      request_id: 'test-edit-context',
+      evaluated_at: '2026-08-22T00:00:00Z',
+      rental: { ...rental },
+      devices: [{
+        id: 9,
+        name: '测试设备',
+        serial_number: 'TEST-9',
+        model: 'x200u',
+        model_id: 1,
+        warehouse_id: 3,
+        is_accessory: false,
+        lifecycle_status: 'active',
+        created_at: '2026-08-01T00:00:00',
+        updated_at: '2026-08-01T00:00:00',
+      }],
+      legacy_device_bound_accessories: [],
+      warehouses: [{
+        id: 3,
+        name: '测试仓',
+        is_default: true,
+        province: '广东省',
+        city: '深圳市',
+        district: '南山区',
+        address_summary: '广东省深圳市南山区',
+      }],
+      device_models: [{ id: 1, name: 'x200u', display_name: 'X200U' }],
+      accessory_types: [],
+      form_policy: {},
+    })
     const update = vi.spyOn(store, 'updateRental').mockResolvedValue({ success: true })
     const wrapper = mount(EditRentalDialogNew, {
       props: { modelValue: true, rental: { ...rental } },
@@ -130,10 +233,18 @@ describe('desktop rental damage note editing', () => {
     })
     await flushPromises()
 
-    const textarea = wrapper.get('textarea.damage-note-input')
+    expect(getEditContext).toHaveBeenCalledTimes(1)
+    expect(getEditContext).toHaveBeenCalledWith(rental.id)
+    const textareas = wrapper.findAll('textarea.damage-note-input')
+    const textarea = textareas[textareas.length - 1]
+    if (!textarea) throw new Error('未找到损坏备注输入框')
     expect(textarea.element.value).toBe('屏幕右下角碎裂')
     expect(textarea.attributes('maxlength')).toBe('1000')
-    expect(wrapper.get('.damage-note-warning').text()).toContain('已记录用户损坏反馈')
+    expect(
+      wrapper.findAll('.damage-note-warning').some(
+        warning => warning.text().includes('已记录用户损坏反馈'),
+      ),
+    ).toBe(true)
 
     await textarea.setValue('镜头卡口松动')
     const saveButton = wrapper.findAll('button').find(button => button.text() === '保存')

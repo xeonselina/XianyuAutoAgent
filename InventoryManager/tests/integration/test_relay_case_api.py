@@ -14,22 +14,21 @@ from app.services import xianyu_order_service
 from app.services.relay.relay_case_service import RelayCaseService
 from app.services.shipping.sf_tracking_service import SFTrackingService
 from tests.support.test_database import (
-    assert_current_user_has_test_only_grants,
     build_mysql_test_config,
+    clear_guarded_mysql_test_rows,
+    guarded_mysql_test_metadata,
 )
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def app():
     if not os.environ.get("TEST_DATABASE_URL"):
-        return create_app("testing")
-    app = create_app(build_mysql_test_config())
-    with app.app_context():
-        with db.engine.connect() as connection:
-            assert_current_user_has_test_only_grants(
-                connection, db.engine.url.database
-            )
-    return app
+        pytest.fail("TEST_DATABASE_URL is required for database tests")
+    application = create_app(build_mysql_test_config())
+    with application.app_context():
+        with guarded_mysql_test_metadata(db.engine, db.metadata):
+            yield application
+        db.session.remove()
 
 
 @pytest.fixture
@@ -40,10 +39,12 @@ def client(app):
 @pytest.fixture
 def db_session(app):
     with app.app_context():
-        db.create_all()
-        yield db.session
-        db.session.rollback()
-        db.drop_all()
+        clear_guarded_mysql_test_rows(db.engine, db.metadata)
+        try:
+            yield db.session
+        finally:
+            db.session.rollback()
+            db.session.remove()
 
 
 def seed_pair(db_session, suffix, planned_ship_date=None):
@@ -72,6 +73,9 @@ def seed_pair(db_session, suffix, planned_ship_date=None):
         device_id=device.id,
         start_date=planned_ship_date - timedelta(days=4),
         end_date=planned_ship_date - timedelta(days=1),
+        logistics_days=0,
+        planned_ship_out_date=planned_ship_date - timedelta(days=5),
+        planned_return_date=planned_ship_date,
         ship_out_time=datetime.combine(first_ship_out, time(19)),
         ship_in_time=datetime.combine(first_ship_in, time(12)),
         customer_name=f"前单 {suffix}",
@@ -84,6 +88,9 @@ def seed_pair(db_session, suffix, planned_ship_date=None):
         device_id=device.id,
         start_date=planned_ship_date + timedelta(days=4),
         end_date=planned_ship_date + timedelta(days=8),
+        logistics_days=5,
+        planned_ship_out_date=planned_ship_date - timedelta(days=2),
+        planned_return_date=planned_ship_date + timedelta(days=14),
         ship_out_time=datetime.combine(second_ship_out, time(19)),
         ship_in_time=datetime.combine(planned_ship_date + timedelta(days=10), time(12)),
         customer_name=f"后单 {suffix}",
@@ -190,6 +197,9 @@ def prepare_manual_pair(db_session, suffix="manual"):
     second.ship_out_time = first.ship_in_time + timedelta(days=1)
     second.start_date = second.ship_out_time.date() + timedelta(days=1)
     second.end_date = second.start_date + timedelta(days=4)
+    buffer = timedelta(days=second.logistics_days + 1)
+    second.planned_ship_out_date = second.start_date - buffer
+    second.planned_return_date = second.end_date + buffer
     db_session.commit()
     return first, second
 
@@ -413,6 +423,9 @@ def test_binding_conflict_returns_409(client, db_session):
         device_id=first.device_id,
         start_date=date.today() + timedelta(days=20),
         end_date=date.today() + timedelta(days=23),
+        logistics_days=1,
+        planned_ship_out_date=date.today() + timedelta(days=18),
+        planned_return_date=date.today() + timedelta(days=25),
         ship_out_time=datetime.combine(
             date.today() + timedelta(days=18), time(19)
         ),

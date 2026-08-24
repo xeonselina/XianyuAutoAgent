@@ -3,13 +3,42 @@
 """
 
 from flask import Blueprint, request, jsonify, current_app
-from app.utils.scheduler_tasks import manual_query_tracking
-from app.utils.scheduler import run_task_now, get_scheduler_status
 import logging
 
 logger = logging.getLogger(__name__)
 
 bp = Blueprint('tracking_api', __name__)
+
+
+def _legacy_test_runtime_enabled() -> bool:
+    return (
+        current_app.testing is True
+        and current_app.config.get(
+            "ENABLE_LEGACY_SINGLE_TENANT_TRACKING_API"
+        )
+        is True
+    )
+
+
+@bp.before_request
+def require_tenant_tracking_runtime():
+    if _legacy_test_runtime_enabled():
+        return None
+    response = jsonify({
+        "success": False,
+        "message": "租户物流服务尚未就绪",
+    })
+    response.status_code = 503
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
+    return response
+
+
+@bp.after_request
+def protect_tracking_responses(response):
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 
 @bp.route('/api/tracking/query', methods=['POST'])
@@ -22,6 +51,8 @@ def query_tracking():
         "tracking_number": "快递单号"
     }
     """
+    from app.utils.scheduler_tasks import manual_query_tracking
+
     try:
         data = request.get_json()
         if not data:
@@ -64,6 +95,8 @@ def batch_query_tracking():
         "tracking_numbers": ["单号1", "单号2", ...]
     }
     """
+    from app.utils.scheduler_tasks import manual_query_tracking
+
     try:
         data = request.get_json()
         if not data:
@@ -113,6 +146,8 @@ def update_tracking_now():
     """
     立即执行快递状态更新任务
     """
+    from app.utils.scheduler import run_task_now
+
     try:
         success = run_task_now('update_tracking')
         
@@ -140,6 +175,8 @@ def get_tracking_scheduler_status():
     """
     获取定时调度器状态
     """
+    from app.utils.scheduler import get_scheduler_status
+
     try:
         status = get_scheduler_status()
         return jsonify({

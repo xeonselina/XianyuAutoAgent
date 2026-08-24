@@ -1,5 +1,17 @@
 # 批量打印发货单
 
+## Status
+
+**PAUSED — 2026-08-21，由 `convert-inventory-manager-to-saas` 的 D12 边界取代。** 本 change 保持未归档，用于保留历史提案、已经完成的实现事实和未完成任务；暂停不表示这些任务已经完成，也不授权继续建设旧流程。
+
+## Pause Boundary
+
+- 不再建设或恢复旧 A4 独立发货单页面、批量浏览器打印页面、甘特入口或把该页面作为独立文档下载/查看的能力；这些入口最终按 SaaS Core task 10.5/10.7 收口。
+- 在新的可信 tenant/warehouse 级服务端分页发货队列完成替代并且所有调用方迁移前，必须保留共享的 `GET /api/rentals/by-ship-date` 查询；当前批量发货页仍依赖该查询，暂停本 change 不授权连带删除它。
+- 顺丰第一联与本地仓库寄回第二联不属于本 change 所称的旧 A4 独立发货单；两联能力由 SaaS Core 的仓库、打印机、持久 print job 和不可变执行快照规则继续保留。
+- 本文件后续原始内容仅作为历史上下文。与多租户、多仓、两联面单、持久任务或聚合 API 冲突时，以 `convert-inventory-manager-to-saas` 的当前决策记录、delta specs 和 tasks 为准。
+- 只有新的、明确批准的 OpenSpec change 才能恢复本暂停范围；不得通过继续勾选本 change 的遗留任务来隐式恢复。
+
 ## Why
 
 当前系统在发货前需要打印发货单，但流程效率低下：

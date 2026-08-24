@@ -3,10 +3,26 @@ import GanttView from '@/views/GanttView.vue'
 import BatchShippingView from '@/views/BatchShippingView.vue'
 import CreateRentalView from '@/views/CreateRentalView.vue'
 import EditRentalView from '@/views/EditRentalView.vue'
+import { createWarehouseSetupGuard } from './warehouseSetupGuard'
 
 const router = createRouter({
   history: createWebHistory('/mobile/'),
   routes: [
+    {
+      path: '/login',
+      name: 'tenant-login',
+      component: () => import('@/views/TenantLoginView.vue')
+    },
+    {
+      path: '/invite',
+      name: 'invitation-acceptance',
+      component: () => import('@/views/InvitationAcceptanceView.vue')
+    },
+    {
+      path: '/tenant/status',
+      name: 'tenant-status',
+      component: () => import('@/views/TenantStatusView.vue')
+    },
     {
       path: '/',
       redirect: '/gantt'
@@ -50,6 +66,26 @@ const router = createRouter({
       path: '/relay',
       name: 'relay',
       component: () => import('@/views/RelayManagementView.vue')
+    },
+    {
+      path: '/setup/warehouse',
+      name: 'warehouse-setup',
+      component: () => import('@/views/WarehouseSetupView.vue')
+    },
+    {
+      path: '/account/security',
+      name: 'account-security',
+      component: () => import('@/views/AccountSecurityView.vue')
+    },
+    {
+      path: '/members',
+      name: 'tenant-members',
+      component: () => import('@/views/TenantMembersView.vue')
+    },
+    {
+      path: '/integrations',
+      name: 'tenant-integrations',
+      component: () => import('@/views/TenantIntegrationsView.vue')
     }
   ],
   scrollBehavior(to, from, savedPosition) {
@@ -59,5 +95,7 @@ const router = createRouter({
     return { top: 0 }
   }
 })
+
+router.beforeEach(createWarehouseSetupGuard())
 
 export default router

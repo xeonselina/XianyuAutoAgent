@@ -104,4 +104,48 @@ describe('useXianyuOrderAlerts', () => {
     expect(axios.post).toHaveBeenCalledTimes(2)
     expect(alerts.snapshot.value.count).toBe(0)
   })
+
+  it('treats refresh as a durable 202 job instead of a provider response', async () => {
+    vi.mocked(axios.post).mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          job_id: 'job-1',
+          snapshot_revision: 9,
+          job_status: 'pending',
+          reused: false,
+        },
+      },
+    })
+    const alerts = useXianyuOrderAlerts()
+
+    await alerts.refresh()
+
+    expect(alerts.snapshot.value.refreshing).toBe(true)
+    expect(alerts.snapshot.value.snapshot_revision).toBe(9)
+    expect(alerts.snapshot.value.sync.current_job_uuid).toBe('job-1')
+    expect(alerts.snapshot.value.sync.sync_status).toBe('syncing')
+    expect(axios.get).not.toHaveBeenCalled()
+  })
+
+  it('polls only the local summary every three minutes while visible', async () => {
+    vi.useFakeTimers()
+    vi.mocked(axios.get).mockResolvedValue(response(makeSnapshot()))
+    const visibility = vi.spyOn(document, 'visibilityState', 'get')
+    visibility.mockReturnValue('hidden')
+    const alerts = useXianyuOrderAlerts()
+    alerts.startPolling()
+
+    await vi.advanceTimersByTimeAsync(180_000)
+    expect(axios.get).not.toHaveBeenCalled()
+
+    visibility.mockReturnValue('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+    await Promise.resolve()
+    expect(axios.get).toHaveBeenCalledTimes(1)
+
+    alerts.stopPolling()
+    visibility.mockRestore()
+    vi.useRealTimers()
+  })
 })

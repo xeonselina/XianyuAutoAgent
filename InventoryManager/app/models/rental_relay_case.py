@@ -53,6 +53,10 @@ class RentalRelayCase(db.Model):
     sf_tracking_summary = db.Column(db.String(500))
     sf_last_checked_at = db.Column(db.DateTime)
 
+    accessory_note = db.Column(db.String(500), nullable=True)
+    accessory_note_updated_by = db.Column(db.String(36), nullable=True)
+    accessory_note_updated_at = db.Column(db.DateTime, nullable=True)
+
     notified_at = db.Column(db.DateTime)
     agreed_at = db.Column(db.DateTime)
     shipped_at = db.Column(db.DateTime)

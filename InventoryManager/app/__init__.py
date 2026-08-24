@@ -38,35 +38,47 @@ def create_app(config_class=Config):
                 template_folder=os.path.join(project_root, 'templates'),
                 static_folder=os.path.join(project_root, 'static'))
     app.config.from_object(config_class)
+
+    if not app.testing:
+        missing_settings = [
+            name
+            for name in ('SQLALCHEMY_DATABASE_URI',)
+            if not app.config.get(name)
+        ]
+        if missing_settings:
+            raise RuntimeError(
+                '缺少必需运行配置: ' + ', '.join(missing_settings)
+            )
     
     # 初始化扩展
     db.init_app(app)
     migrate.init_app(app, db)
+    from inventory_control import init_control_database
+    init_control_database(app)
+    from app.services.saas_composition import (
+        install_configured_saas_core_http_runtimes,
+    )
+    install_configured_saas_core_http_runtimes(app)
     
     # 启用CORS
     CORS(app)
     
     # 注册蓝图
-    from app.routes import web, external_api, vue_app, tracking_api, device_model_api, statistics_api, shipping_batch_api, sf_test_api, sf_tracking_api, inspection, rental_stats_api
+    from app.routes import web, vue_app, tracking_api, device_model_api, statistics_api, shipping_batch_api, sf_tracking_api, inspection, rental_stats_api
     app.register_blueprint(web.bp)
-    app.register_blueprint(external_api.bp, url_prefix='/external-api')
     app.register_blueprint(vue_app.bp)
     app.register_blueprint(tracking_api.bp)
     app.register_blueprint(device_model_api.bp)
     app.register_blueprint(statistics_api.bp)
     app.register_blueprint(shipping_batch_api.bp)
-    app.register_blueprint(sf_test_api.bp)
     app.register_blueprint(sf_tracking_api.bp)
     app.register_blueprint(inspection.inspection_bp)
     app.register_blueprint(rental_stats_api.bp)
-    
-    # 启动定时调度器
-    try:
-        from app.utils.scheduler import init_scheduler
-        init_scheduler(app)
-        app.logger.info('定时调度器已启动')
-    except Exception as e:
-        app.logger.error(f'启动定时调度器失败: {e}')
+
+    # Scheduled work belongs to the independent durable worker.  A Web
+    # process must never start APScheduler: doing so makes every gunicorn
+    # process a competing source of provider side effects and bypasses the
+    # control-plane job lease/outbox fences.
     
     # 配置日志
     if not app.debug and not app.testing:

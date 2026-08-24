@@ -7,7 +7,7 @@
 - 结构化日志统一带 `request_id`, `tenant_id`, `actor_type`, `actor_id`, `route`, `job_id`；PII 和 secret 先脱敏再输出。
 - 监控信号维度采用 allowlist，只允许 environment、component、signal key、severity、region 和低基数 result class；禁止 tenant/user/phone/request/job/device/rental/warehouse、原始 URL、自由文本及 provider request ID 成为指标维度或告警正文。租户级故障只在受鉴权平台页面通过内部技术 ID 下钻，不能把客户标识扩散到腾讯云指标标签。
 - D49 第一层使用腾讯云 CVM/云监控基础指标。生产主机必须安装并运行官方监控 Agent，至少覆盖实例状态、CPU/load、内存、磁盘/分区、网络及 Agent 数据新鲜度；Agent 未安装、停止上报或指标 stale 本身就是告警，不能因曲线为空被解释为正常。磁盘 inode 和 Docker/Web/MySQL/worker 进程状态若不在基础指标中，由下述轻量 host/application evaluator 补充，不为此引入通用采集器。
-- D49 第二层使用腾讯云云拨测从云主机外访问两个专用端点。`GET /health/external` 表达 serving plane：DNS/TLS/Nginx/Web、控制库最小短查询失败返回 503；当外部部署 marker 表明正在执行 D58 host restore 时，还必须以同一最小查询确认 current recovery run 已达到 D59 的 `completed` 条件，在此之前即使平台后台/hold 页可访问也继续返回固定 503，不能把 recovery UI 冒充租户安全读写已经恢复。completed 后其他 tenant 仍可各自 held，端点只返回全局 serving 成功，未完成审核数量改走不含 tenant ID 的 P2 聚合状态。只有来自不同拨测点的实际 DNS/TLS/HTTP/status/body 失败达到 quorum 才形成 P1 并作为整机 DR 内部耗时起点。`GET /health/monitor` 只表达 worker/evaluator heartbeat 和已锁存的自定义消息投递失败，异常时返回 503/P2，不改变 serving 状态或启动整机 DR。拨测任务自身无数据对两个端点都表示监控失明 P2，不等于已证明 serving outage。两个端点都不接收 tenant/query 参数，不经过 CDN/页面缓存，不执行业务写入或 provider 调用，只返回固定最小 body，响应带 `Cache-Control: no-store` 且不返回版本、主机、数据库、队列数、租户或错误详情；它们使用独立的极小连接/信号量预算、严格超时和 Nginx 端点专用限频，不占用租户连接池、不遍历租户库，超载时快速失败而不得启动无界控制库查询。初始按 1 分钟频率和至少两个不同 IDC 拨测点分别配置，连续失败/恢复次数、超时、quorum、端点连接预算与限频作为版本化运维参数在 Phase 0 故障演练后锁定。
+- D49 第二层使用腾讯云云拨测从云主机外访问两个专用端点。`GET /health/external` 表达 serving plane：DNS/TLS/Nginx/Web、控制库最小短查询失败返回 503；当外部部署 marker 表明正在执行 D58 host restore 时，还必须以同一最小查询确认 current recovery run 已达到 D59 的 `completed` 条件，在此之前即使平台后台/hold 页可访问也继续返回固定 503，不能把 recovery UI 冒充租户安全读写已经恢复。completed 后其他 tenant 仍可各自 held，端点只返回全局 serving 成功，未完成审核数量改走不含 tenant ID 的 P2 聚合状态。只有来自不同拨测点的实际 DNS/TLS/HTTP/status/body 失败达到 quorum 才形成 P1 并作为整机 DR 内部耗时起点。`GET /health/monitor` 只表达 worker/evaluator heartbeat 和已锁存的自定义消息投递失败，异常时返回 503/P2，不改变 serving 状态或启动整机 DR。拨测任务自身无数据对两个端点都表示监控失明 P2，不等于已证明 serving outage。两个端点都不接收 tenant/query 参数，不经过 CDN/页面缓存，不执行业务写入或 provider 调用，只返回固定最小 body，响应带 `Cache-Control: no-store` 且不返回版本、主机、数据库、队列数、租户或错误详情；它们使用独立的极小连接/信号量预算、严格超时和 Nginx 端点专用限频，不占用租户连接池、不遍历租户库，超载时快速失败而不得启动无界控制库查询。初始按 1 分钟频率和至少两个不同 IDC 拨测点分别配置；Phase 0 只记录 provisional 频率、拨测点、超时/quorum 和预算计划，端点与云拨测实现后再通过受控非生产故障测试修订为版本化参数并作为普通任务勾选。
 - D49 第三层只维护少量 `platform_operational_signals` 当前状态：MySQL 连通/连接耗尽，Web/worker/evaluator heartbeat，队列最老等待时间与持续失败，最近一次经 checksum/manifest 验证的数据库备份年龄和 dump 时长，以及短信、SF/闲鱼/快麦的系统性认证/限流/错误状态。provider 健康仅聚合真实业务调用，不定时发送验证码、创建顺丰运单或制造其他外部副作用。NAS 每次在本地备份完成 checksum/manifest 验证后立即通过既有 forced-command SSH 身份提交独立、幂等的 `backup-status-ack`；云盘同步完成后再提交独立 `sync-status-ack`。两者分别计算 freshness，任一方不得等待或推断另一方成功；应用/云主机仍不持有云盘账号或凭证。
 - 轻量 evaluator 只在状态变化、需要重复提醒、恢复或显式发布/凭证变更测试时，通过腾讯云 `SendCustomAlarmMsg` 等当前支持的自定义消息接口写入 D38 通知链；使用独立最小权限 CAM 身份和宿主机只读 Docker Secret，不复用主账号长期密钥，不把凭证写入控制库、镜像或环境变量值。稳定 fingerprint、幂等 delivery ledger、有限重试和迟滞防止告警风暴。真实投递尝试失败或超时后必须原子锁存 `delivery_unhealthy`，使 `/health/monitor` 返回 503 并由独立 P2 云拨测链路接管告警；只有后续真实事件或显式测试成功投递才能清除锁存。健康空闲期没有应投递事件时不按“最后一次发送时间”判 stale，也不发送周期性 canary；evaluator heartbeat 只能证明 evaluator 存活，不能证明腾讯云消息投递可用。
 - Core 不建设通用时间序列数据库、Managed Prometheus、Grafana、metrics scraper 或完整 tracing backend；只保留当前健康状态、只追加告警生命周期和结构化日志。Web → MySQL job → worker → provider 继续传播 `request_id/job_id/correlation_id`，用于日志串联而不承诺分布式 tracing 产品。请求率、全量延迟分位、细粒度租户用量与业务大盘留到有明确容量需求后再单独评估。
@@ -20,15 +20,17 @@
 | 应用/worker | MySQL 连接失败/耗尽、worker heartbeat、queue depth/oldest age/持续失败、provider/SMS 聚合错误 | heartbeat stale 或 evaluator 未更新为异常，不能沿用最后一个 ok | MySQL/认证整体不可用 P1，其余 P2 |
 | NAS 状态 | 已校验 backup latest-success/duration、云盘 sync latest-success/safe result | backup ack 超龄按 D29 P1；sync heartbeat 超龄 P2，不能从 dump 成功推断 sync 成功 | P1/P2 |
 
-- `MonitoringPolicy` 必须版本化且拒绝缺失配置，至少包含 probe interval/timeout/quorum、连续失败与恢复次数、missing-data 窗口、健康端点连接预算/限频、CPU/内存/load、磁盘/inode 水位、worker/evaluator heartbeat stale、`delivery_unhealthy` 的失败锁存/清除规则、数据库连接高水位持续窗口、queue depth/oldest age/job failure、provider error/latency 聚合窗口、backup age/duration、cloud-sync age、自定义消息重试与重复提醒间隔。D29 已确认 backup age 超过 90 分钟为 P1、full dump 连续三次超过 20 分钟触发架构切换评估；其余初始数值由 Phase 0 基线和真实故障演练锁定，发布时不得仍为空或使用代码中的隐式默认值。
+- `MonitoringPolicy` 必须版本化且拒绝缺失配置，至少包含 probe interval/timeout/quorum、连续失败与恢复次数、missing-data 窗口、健康端点连接预算/限频、CPU/内存/load、磁盘/inode 水位、worker/evaluator heartbeat stale、`delivery_unhealthy` 的失败锁存/清除规则、数据库连接高水位持续窗口、queue depth/oldest age/job failure、provider error/latency 聚合窗口、backup age/duration、cloud-sync age、自定义消息重试与重复提醒间隔。D29 已确认 backup age 超过 90 分钟为 P1、full dump 连续三次超过 20 分钟触发架构切换评估；Phase 0 只登记 provisional 非空策略和核对计划，其余数值在端点/evaluator 实现后的受控非生产故障测试中修订。勾选项目完成任务时不得仍为空或依赖代码隐式默认值，但不需要独立审批。
 - 腾讯云产品名称、指标和接口可能变化，部署 runbook 每次新环境建立时复核官方的 [CVM 监控指标](https://cloud.tencent.com/document/product/248/6843)、[云拨测 HTTP(S) 任务](https://cloud.tencent.com/document/product/248/87257)、[云拨测告警](https://cloud.tencent.com/document/product/248/87272)和 [SendCustomAlarmMsg API 迁移说明](https://cloud.tencent.com/document/product/248/81039)；如果接口被下线，只能替换为腾讯云当期等价的基础监控/站外探测/自定义消息能力，不能静默删除信号层或借机引入未批准的第三方监控。
 - D38 通知使用腾讯云消息接收人，不自建公开 webhook：维护者的个人微信、手机和邮箱均须完成渠道验证。P1 包含云拨测确认 Core 对外不可用、MySQL 不可用、磁盘/inode 危险、最新成功数据库恢复点超过 90 分钟、数据库身份/跨租户隔离校验失败、根密钥/关键 Secret 导致生产启动失败及生产短信认证整体不可用，全天同时电话 + 短信 + 邮件；P2 包含任务积压或重复失败、数据库连接持续高水位、provider 系统性错误/延迟升高、备份耗时连续接近切换阈值、NAS 报告的云盘同步落后或任一信号 stale 等，使用微信 + 邮件。
-- 同一根因按 fingerprint 收敛并设置重复通知间隔，避免故障风暴；状态恢复必须沿触发时渠道发送恢复通知。首次上线以及接收人、模板或渠道变更后逐渠道发送测试通知并记录送达结果；测试失败是发布/配置变更门禁，但不要求另建固定周期演练任务。
+- 同一根因按 fingerprint 收敛并设置重复通知间隔，避免故障风暴；状态恢复必须沿触发时渠道发送恢复通知。首次上线以及接收人、模板或渠道变更后逐渠道发送测试通知并记录送达结果；测试失败时对应普通任务保持未勾选，修复后重试，不形成独立发布审批或 hard release gate，也不要求另建固定周期演练任务。
 - 计划维护使用有明确开始/结束时间、操作者和原因的告警静默窗口；信号与事件仍记录，窗口超时立即恢复通知。D49 只负责维护者内部告警，不自动创建公开状态页或向全部租户群发事故通知；计划维护仍按已确认规则提前通知，未来若需要客户事故通知须单独决定。
 - 告警正文只允许环境、组件、severity、UTC/上海时间、非敏感资源标识、聚合指标和受鉴权的站内/runbook 链接；不得包含验证码、Secret、完整手机号、客户地址、月结号、邀请 token、租户自由文本或原始 provider 请求/响应。
 - D22 的同机 Docker 拓扑不具备高可用。D10/D29/D59 已确认 Core 只按 best-effort 对外提供服务，不承诺 99.9% 等数值可用性 SLA、严格 RPO 或硬 RTO，也不设置停机或数据损失赔偿；可预见的计划维护提前通知。小时级恢复点与标称 RPO 约 1 小时是能力目标，4 小时只是整机恢复的内部演练参考值；备份间隔、实际 dump 时长与失败重试共同决定实际 RPO，恢复耗时和各阶段仍通过全新主机演练记录、改进。
 - 每份控制库/租户库备份 manifest 记录备份时点、租户数据库映射、所需 `root_key_version` 及其指纹，以及当时已知的 `tombstone_head_sequence/head_hash`，但绝不包含根密钥；根密钥离线副本不得与唯一数据库备份置于同一主机、同一归档或只依赖同一恢复口令。恢复时 manifest head 可以落后于 NAS 最新 ledger，但不能领先于可取得且验证成功的 ledger head。
-- 提供 runbook：租户暂停/恢复、密钥泄露、误删恢复、整机灾难恢复、队列堆积、provider 故障、跨租户安全事件、支付 webhook 重放。
+- 提供 Core runbook：租户暂停/恢复、密钥泄露、误删恢复、整机灾难恢复、队列堆积、provider 故障和跨租户安全事件。支付 webhook 重放属于未来 Commercial SaaS，不是 Core 运行手册或发布门禁。
+
+D64 的项目流程边界：Phase 0 只核对当前可独立取得的云账号/产品 capability、备份目标和 provisional 策略，并记录实现/测试计划；它不要求健康端点、monitor adapter、NAS wrapper、平台根密钥 loader、备份 artifact 或恢复演练结果已经存在。全部运维实现及首次生产规模演练前可执行的必要测试作为普通可勾选任务完成，与全项目实现、默认租户迁移/回滚工具一起直接产生 `project_complete_at=T`，无需签字、receipt、evidence digest、阶段审批或 hard release gate。首次生产规模演练、实际切换、切换后 48 小时观察和 contract cleanup 不在 T 的前置范围；演练安排在不早于 `T+168h` 的可用窗口。影响迁移结果的实现变更在重跑相关测试后更新 T；不存在迁移冻结、冻结例外或解冻流程。该简化不改变本章 D49/D58/D59 的运行时 fail-closed、recovery hold 和 tenant release 安全规则。
 
 ### 16.1 Host disaster recovery (D10/D58/D59 confirmed)
 
@@ -90,7 +92,7 @@ SaaS Core 约 10–14 周；加自动支付的完整商业版约 12–18 周。�
 | 风险 | 影响 | 缓解 |
 |---|---|---|
 | tenant context 或数据库路由错误 | 最高，可能把整个请求送入其他租户库 | 可信 control-plane route + `database_identity` + routing session fail closed + A/B 交错测试 |
-| 横切改造与活跃业务变更冲突 | 迁移链/查询反复冲突 | 先处理未完成 OpenSpec，分模块迁移，短期 schema freeze |
+| 横切改造与活跃业务变更冲突 | 迁移链/查询反复冲突 | 先处理未完成 OpenSpec，分模块迁移；正常开发冲突及时合并并重跑相关迁移/回滚/隔离测试，不使用 schema freeze |
 | 租户数量增长导致连接池膨胀 | MySQL 连接耗尽 | 小连接池 + 有界 LRU engine cache + 空闲 dispose + 容量告警 |
 | 前端预检查失败或预览后库存变化 | 网络错误被当成可用，或并发用户造成设备使用期/逻辑附件单元超卖 | 前端 fail closed；最终写事务固定顺序锁设备/request/link/unit 并复验，普通 `USAGE_PERIOD_CONFLICT`/`ACCESSORY_UNIT_UNAVAILABLE` 返回 409；`ACCESSORY_RELAY_CONFIRMATION_REQUIRED`、D34 接力不足例外与 D33 物流警告允许提交但不得显示已满足 |
 | 甘特警告与接力候选阈值漂移 | 同一订单对在两个页面给出不同风险结论，或再次出现广东/固定天数判断 | 单一 `ScheduleOverlapPolicy`、同一状态集合和黄金边界测试；前端只展示服务端 reason code/`overlap_days`，不得自行计算 |
@@ -111,8 +113,8 @@ SaaS Core 约 10–14 周；加自动支付的完整商业版约 12–18 周。�
 | 主动删除部分完成或旧备份复活租户 | tenant schema 已删除但控制记录/账号残留，或恢复删除前快照后重新开放已删除数据 | D26 持久状态机、全局 deletion/backup/migration lease、先离站确认永久 tombstone 再 drop、执行后负向核对；恢复先应用最新独立 ledger 且缺失时 fail closed，UUID 永不复用 |
 | 平台根密钥泄露 | 攻击者可派生全部租户数据库密码，并解密取得的第三方凭证/兑换码密文，故单根方案的泄露半径较大 | 仓库外只读 Secret、固定 UID/GID、最小挂载服务、磁盘/主机加固；泄露时用新根版本逐租户轮换实际 MySQL 账号并重加密全部外部 Secret，第三方凭证在 provider 侧同步撤销；可能暴露的未兑换码撤销并重新发行 |
 | 根密钥丢失或历史备份缺少对应版本 | 应用无法重新派生租户 DML/平台只读账号密码，也无法解密控制库中的第三方凭证、完整兑换码和平台 TOTP seed | 同一逻辑根密钥至少两份异地离线加密副本、恢复演练和备份 manifest；极端情况下用 provisioner 生成新根并批量重置两类数据库账号，业务表数据仍可恢复，但外部凭证需重新录入、平台 TOTP 需用恢复码或 CLI 重新绑定 |
-| 旧凭证已进入 Git、镜像或日志 | 新加密上线后旧 secret 仍可被利用 | Phase 0 先轮换所有疑似泄露凭证，再移除当前副本并按批准流程清理历史与产物 |
-| 腾讯云企业资质、签名、模板或运营商报备未及时通过 | 生产手机号登录、注册和删除复验全部不可用，直接阻塞 SaaS 切换 | Phase 0 提前申请；把全部审核及真实号码 smoke 设为发布硬门禁；预留运营商报备时间，不以 fake 或固定码绕过 |
+| 旧凭证已进入 Git、镜像或日志 | 新加密上线后旧 secret 仍可被利用；内网、固定寄件地址或本地日志权限只能降低部分可利用性，不能撤销远端历史中的值 | 仍具权威的凭证原则上轮换；D61 用户只确认接受必须有期限，当前 policy v1 以 30×24 小时为保守默认值/单次上限，每次显式复核、可更短且不自动续期，并最迟首次生产规模演练开始即失效；网络/provider 限制、异常监控、扫描、非复用和到期撤销仍执行。其他凭证、触发器命中或漏复核仍立即轮换；随后清理当前副本、历史、日志和产物 |
+| 腾讯云企业资质、签名、模板或运营商报备未及时通过 | 生产手机号登录、注册和删除复验全部不可用 | Phase 0 提前申请并记录状态；审核及真实号码 smoke 是普通准备/测试任务，失败时修复或等待外部状态后重试，不设置 hard release gate，也不以 fake 或固定码绕过运行时 fail-closed |
 | 短信轰炸、供应商限流或腾讯云短信故障 | 产生费用、骚扰用户或使无密码登录不可用 | MySQL 多维限流、用途隔离、错误次数锁定、腾讯云日限额/防盗刷监控/告警联系人；发送失败统一提示并保留审计，Core 不静默切换未批准 provider |
 | 租户最后一名 Admin 无法接收旧手机号 | 无法短信登录、完成旧号换号复验或授权新 Admin，租户可能长期不可访问 | D57 明确接受 Core 无平台恢复/改号/代 OTP 旁路；上线指引要求保持至少两名 active Admin并及时维护号码控制权。有另一 active Admin 时只走普通移除旧成员和新号重邀；最后 Admin 只能先在系统外恢复旧手机号，否则须等待 Core 之后另行决定恢复机制，灾备和 DBA 权限不得伪装成产品恢复 |
 | 人工发送的成员邀请链接被转发或泄露 | 未授权人员尝试占用席位、探测租户或接管邀请 | 高熵单次 token 只存哈希、7 天到期/可撤销/重新生成即失效；接受必须验证链接绑定手机号，摘要最小化且 token 不进日志/Referer/历史 |
@@ -125,7 +127,7 @@ SaaS Core 约 10–14 周；加自动支付的完整商业版约 12–18 周。�
 | 业务凭证加密后排障变难 | 运维效率下降 | 配置验证、掩码状态、密钥轮换工具、强审计的 break-glass 流程 |
 | 共享 MySQL 实例的 noisy neighbor | 一个租户的慢查询或高 IO 影响其他租户 | 技术资源预算、队列背压、保护性限流、慢查询治理和资源监控；这些不是套餐额度，不产生套餐耗尽/升级提示；必要时通过 `instance_key` 把大租户迁往其他实例 |
 | 暂停与在途请求/provider 提交竞态 | 平台已点击暂停，但旧连接、旧 job 或结果未知操作仍写入租户库、下单或打印；恢复时又批量重放 | D52 首事务先进入 deny-all 并递增 access version；可重入 barrier 锁 DML account、排空连接并按持久 submission boundary 分类 operation。失败保持冻结，恢复只从当前时点重排安全任务，副作用/unknown job 人工确认，不能用内存标记或批量 pending 回滚代替 |
-| 订阅状态误判阻断业务 | 客户运营中断 | 明确宽限期、只读策略、人工 override 与审计 |
+| 订阅状态误判阻断业务 | 客户运营中断 | 统一执行 D56 expired gate、兑换码续期和 D53 独立受审计调整；不引入未批准宽限期、通用只读或人工 override |
 | 临时文件隔离或清理失败 | 面单被其他租户访问或磁盘逐渐占满 | 内存优先、租户隔离临时目录、鉴权下载、任务结束清理和磁盘告警 |
 | 逻辑附件单元位置或并发关联错误 | 附件随设备转寄却被当作已回仓、同一单元同时承诺给不同设备，或调仓把旧仓单元错误瞬移 | 单元当前持有事实、request、无状态 rental-unit link、relay case 和只追加 event 为事实；按固定顺序锁 request/link/unit，只有真实验货或受审计异常流程才恢复可用；三单接力、未勾选随行、动态候选消失/撤销同意、丢失和跨仓验货进入测试矩阵，内部 UUID 永不外露 |
 | 第一联与第二联边界混淆 | 把寄回资料错误传给顺丰或打印到错误仓库 | 独立 provider payload 与本地渲染模型；print job 保存第二联仓库/地址/打印机快照 |

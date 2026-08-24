@@ -5,7 +5,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { Rental } from '../types/rental'
-import type { CheckItem, ChecklistItem, InspectionRecord, InspectionListParams, InspectionListResponse } from '../types/inspection'
+import type { CheckItem, ChecklistItem, InspectionRecord, InspectionListParams, InspectionListResponse, InspectionWarehouse, LogicalAccessoryReceipt } from '../types/inspection'
 import {
   getLatestRentalByDeviceId,
   getLatestRentalByDeviceName,
@@ -23,6 +23,9 @@ export const useInspectionStore = defineStore('inspection', () => {
   const checklist = ref<ChecklistItem[]>([])
   const checkItems = ref<CheckItem[]>([])
   const currentInspection = ref<InspectionRecord | null>(null)
+  const warehouses = ref<InspectionWarehouse[]>([])
+  const selectedWarehouseId = ref<number | null>(null)
+  const accessoryReceipts = ref<LogicalAccessoryReceipt[]>([])
   
   // 验货记录列表状态
   const inspectionRecords = ref<InspectionRecord[]>([])
@@ -51,6 +54,9 @@ export const useInspectionStore = defineStore('inspection', () => {
       if (response.success && response.data) {
         currentRental.value = response.data.rental
         checklist.value = response.data.checklist
+        warehouses.value = response.data.warehouses || []
+        selectedWarehouseId.value = response.data.selected_warehouse_id ?? null
+        accessoryReceipts.value = (response.data.accessory_receipts || []).map(item => ({ ...item }))
 
         // 初始化 checkItems（所有项默认已勾选）
         checkItems.value = response.data.checklist.map((item: ChecklistItem) => ({
@@ -83,6 +89,9 @@ export const useInspectionStore = defineStore('inspection', () => {
       if (response.success && response.data) {
         currentRental.value = response.data.rental
         checklist.value = response.data.checklist
+        warehouses.value = response.data.warehouses || []
+        selectedWarehouseId.value = response.data.selected_warehouse_id ?? null
+        accessoryReceipts.value = (response.data.accessory_receipts || []).map(item => ({ ...item }))
 
         // 初始化 checkItems（所有项默认已勾选）
         checkItems.value = response.data.checklist.map((item: ChecklistItem) => ({
@@ -113,25 +122,50 @@ export const useInspectionStore = defineStore('inspection', () => {
       ElMessage.error('未找到租赁记录')
       return false
     }
+    if (warehouses.value.length > 1 && selectedWarehouseId.value === null) {
+      ElMessage.error('请选择实际验货仓')
+      return false
+    }
 
     loading.value = true
     try {
       const response = await createInspection({
         rental_id: currentRental.value.id,
         device_id: currentRental.value.device_id,
+        warehouse_id: selectedWarehouseId.value,
         check_items: checkItems.value.map((item) => ({
           name: item.item_name,
           is_checked: item.is_checked,
           order: item.item_order
+        })),
+        accessory_receipts: accessoryReceipts.value.map(item => ({
+          accessory_type_id: item.accessory_type_id,
+          outcome: item.outcome
         }))
       })
 
       if (response.success && response.data) {
         currentInspection.value = response.data
 
+        const reassignments = response.data.accessory_reassignments || []
+        const affectedRentalIds = Array.from(new Set(
+          reassignments.flatMap(item => item.affected_rental_ids)
+        )).sort((left, right) => left - right)
+        const shortageRentalIds = Array.from(new Set(
+          reassignments.flatMap(item => item.shortage_rental_ids)
+        )).sort((left, right) => left - right)
+
         // 判断验货状态
         const status = response.data.status
-        if (status === 'normal') {
+        if (shortageRentalIds.length > 0) {
+          ElMessage.warning(
+            `验货已保存；未来订单 #${shortageRentalIds.join('、#')} 的附件仍然不足`
+          )
+        } else if (affectedRentalIds.length > 0) {
+          ElMessage.success(
+            `验货完成；已重新关联未来订单 #${affectedRentalIds.join('、#')} 的附件`
+          )
+        } else if (status === 'normal') {
           ElMessage.success('验货完成，状态正常')
         } else {
           ElMessage.warning('验货完成，但存在异常项')
@@ -221,6 +255,9 @@ export const useInspectionStore = defineStore('inspection', () => {
     checklist.value = []
     checkItems.value = []
     currentInspection.value = null
+    warehouses.value = []
+    selectedWarehouseId.value = null
+    accessoryReceipts.value = []
   }
 
   /**
@@ -293,6 +330,9 @@ export const useInspectionStore = defineStore('inspection', () => {
     checklist,
     checkItems,
     currentInspection,
+    warehouses,
+    selectedWarehouseId,
+    accessoryReceipts,
     inspectionRecords,
     pagination,
     filters,

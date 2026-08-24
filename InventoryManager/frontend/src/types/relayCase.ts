@@ -76,6 +76,8 @@ export interface RelayCase {
   successor_lens_combo: string | null
   successor_accessories: RelayAccessory[]
   tracking: RelayTracking
+  accessory_note: string | null
+  accessory_note_updated_at: string | null
   created_at: string | null
   updated_at: string | null
 }
@@ -131,6 +133,8 @@ export interface RelayCaseMutationResponse {
   successor_rental_id: number
   status: RelayCaseStatus
   sf_tracking_number: string | null
+  accessory_note: string | null
+  accessory_note_updated_at: string | null
   tracking: RelayTracking
   notified_at: string | null
   agreed_at: string | null

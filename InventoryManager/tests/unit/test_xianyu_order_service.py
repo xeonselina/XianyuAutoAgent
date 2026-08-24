@@ -16,6 +16,20 @@ def make_service():
     return service
 
 
+def test_legacy_adapter_does_not_discover_process_credentials(monkeypatch):
+    monkeypatch.setenv("XIANYU_APP_KEY", "must-not-be-read")
+    monkeypatch.setenv("XIANYU_APP_SECRET", "must-not-be-read")
+    monkeypatch.setenv("XIANYU_API_DOMAIN", "attacker.invalid")
+    monkeypatch.setenv("XIANYU_SHIP_MOBILE", "13800138000")
+
+    service = XianyuOrderService()
+
+    assert service.app_key is None
+    assert service.app_secret is None
+    assert service.base_url == "https://open.goofish.pro"
+    assert service.ship_mobile is None
+
+
 def test_list_orders_fetches_every_page(monkeypatch):
     service = make_service()
     responses = [

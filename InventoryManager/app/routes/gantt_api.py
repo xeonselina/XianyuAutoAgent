@@ -3,11 +3,29 @@
 重构后的精简版本，只包含路由定义
 """
 
-from flask import Blueprint
+from flask import Blueprint, request
 from app.handlers.gantt_handlers import GanttHandlers
 from app.utils.response import handle_response
 
 bp = Blueprint('gantt_api', __name__)
+
+
+@bp.after_request
+def protect_reorder_responses(response):
+    """Never persist tenant scheduling proofs or realtime range facts."""
+    if (
+        request.path.startswith('/api/gantt/reorder/')
+        or request.path == '/api/gantt/view'
+    ):
+        response.headers['Cache-Control'] = 'private, no-store'
+    return response
+
+
+@bp.route('/api/gantt/view')
+@handle_response
+def gantt_view():
+    """获取一个租户快照内的标准化甘特范围数据。"""
+    return GanttHandlers.handle_get_gantt_view()
 
 
 @bp.route('/api/gantt/data')

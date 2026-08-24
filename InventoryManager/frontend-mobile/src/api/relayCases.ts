@@ -75,7 +75,11 @@ export async function createManualRelayCase(
 export async function updateRelayCase(
   predecessorId: number,
   successorId: number,
-  payload: { status: RelayCaseStatus; sf_tracking_number?: string },
+  payload: {
+    status: RelayCaseStatus
+    sf_tracking_number?: string
+    accessory_note?: string | null
+  },
 ): Promise<RelayCaseMutationResponse> {
   return request(axios.put<ApiResponse<RelayCaseMutationResponse>>(
     `/api/relay-cases/${predecessorId}/${successorId}`,

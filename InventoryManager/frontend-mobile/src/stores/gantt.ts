@@ -41,6 +41,7 @@ export interface Device {
   serial_number: string
   model: string
   model_id?: number
+  warehouse_id?: number | null
   device_model?: DeviceModel
   is_accessory: boolean
   lifecycle_status: 'active' | 'sold' | 'decommissioned' | 'damaged' | 'retired'
@@ -94,9 +95,50 @@ export interface Rental {
   order_amount?: number
   buyer_id?: string
   damage_note?: string | null
+  preferred_warehouse_id?: number | null
+  logistics_days?: number | null
+  logistics_estimate_origin_warehouse_id?: number | null
+  customer_province?: string | null
+  customer_city?: string | null
+  customer_district?: string | null
+  customer_address_detail?: string | null
+  requested_accessory_type_ids?: number[]
+  accessory_requests?: Array<{
+    accessory_type_id: number
+    fulfilled: boolean
+  }>
   // 接力后一单由前一位客户直接寄出，不参与仓库批量发货
   is_relay_shipping?: boolean
   relay_predecessor_rental_id?: number | null
+}
+
+export interface GanttDailyStats {
+  total_device_count: number
+  available_count: number
+  occupied_count: number
+  planned_ship_out_count: number
+  planned_return_count: number
+  ship_out_count: number
+  accessory_ship_out_count: number
+}
+
+export interface GanttModelFacet {
+  model_id: number | null
+  name: string
+  display_name: string
+  device_count: number
+}
+
+export interface RentalEditContext {
+  request_id: string
+  evaluated_at: string
+  rental: Rental
+  devices: Device[]
+  legacy_device_bound_accessories: Device[]
+  warehouses: Array<Record<string, any>>
+  device_models: Array<Record<string, any>>
+  accessory_types: Array<Record<string, any>>
+  form_policy: Record<string, any>
 }
 
 export interface AvailableSlot {
@@ -115,6 +157,14 @@ export const useGanttStore = defineStore('gantt', () => {
   const selectedDate = ref<Date | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
+  const dailyStatsByDate = ref<Record<string, GanttDailyStats>>({})
+  const modelFacets = ref<GanttModelFacet[]>([])
+  const summaries = ref<Record<string, any>>({})
+  const dataRevision = ref('')
+  const evaluatedAt = ref('')
+  const viewDeviceModelId = ref<number | null>(null)
+  const viewLifecycleStatus = ref<string | null>('active')
+  let loadGeneration = 0
 
   // 计算属性
   const dateRange = computed(() => {
@@ -145,29 +195,92 @@ export const useGanttStore = defineStore('gantt', () => {
 
   // 方法
   const loadData = async () => {
+    const generation = ++loadGeneration
     loading.value = true
     error.value = null
     
     try {
-      const response = await axios.get('/api/gantt/data', {
-        params: {
+      const params: Record<string, string | number> = {
           start_date: toDateString(dateRange.value.start),
           end_date: toDateString(dateRange.value.end)
-        }
+      }
+      if (viewDeviceModelId.value != null) {
+        params.device_model_id = viewDeviceModelId.value
+      }
+      if (viewLifecycleStatus.value) {
+        params.lifecycle_status = viewLifecycleStatus.value
+      }
+      const response = await axios.get('/api/gantt/view', {
+        params
       })
       
       if (response.data.success) {
-        devices.value = response.data.data.devices
-        rentals.value = response.data.data.rentals
+        if (generation !== loadGeneration) return
+        const data = response.data.data
+        devices.value = (data.devices || []).map((device: any) => ({
+          ...device,
+          serial_number: device.serial_number || '',
+          is_accessory: false,
+          created_at: device.created_at || '',
+          updated_at: device.updated_at || '',
+          device_model: device.model_id == null ? undefined : {
+            id: device.model_id,
+            name: device.model_name || device.model || '',
+            display_name: device.model_display_name || device.model_name || device.model || '',
+            is_active: true,
+            created_at: '',
+            updated_at: '',
+            accessories: []
+          }
+        }))
+        const deviceById = new Map(
+          devices.value.map(device => [device.id, device])
+        )
+        rentals.value = (data.rentals || []).map((rental: any) => {
+          const device = deviceById.get(rental.device_id)
+          return {
+            ...rental,
+            customer_phone: rental.customer_phone || '',
+            destination: rental.destination || '',
+            includes_handle: Boolean(rental.includes_handle),
+            includes_lens_mount: Boolean(rental.includes_lens_mount),
+            photo_transfer: Boolean(rental.photo_transfer),
+            accessories: rental.accessories || [],
+            device: device ? {
+              id: device.id,
+              name: device.name,
+              serial_number: device.serial_number,
+              model: device.model,
+              model_id: device.model_id,
+              device_model: device.device_model
+            } : undefined
+          }
+        })
+        dailyStatsByDate.value = data.daily_stats_by_date || {}
+        modelFacets.value = data.model_facets || []
+        summaries.value = data.summaries || {}
+        dataRevision.value = data.data_revision || ''
+        evaluatedAt.value = data.evaluated_at || ''
       } else {
         throw new Error(response.data.error || '加载数据失败')
       }
     } catch (err: any) {
+      if (generation !== loadGeneration) return
       error.value = err.message
       console.error('加载数据失败:', err)
     } finally {
-      loading.value = false
+      if (generation === loadGeneration) {
+        loading.value = false
+      }
     }
+  }
+
+  const setViewFilters = (
+    deviceModelId: number | null,
+    lifecycleStatus: string | null
+  ) => {
+    viewDeviceModelId.value = deviceModelId
+    viewLifecycleStatus.value = lifecycleStatus
   }
 
   const navigateWeek = (weeks: number) => {
@@ -238,14 +351,20 @@ export const useGanttStore = defineStore('gantt', () => {
       console.log('后端响应:', response.data)
       
       if (response.data.success) {
-        await loadData() // 重新加载数据
         return response.data
       } else {
-        throw new Error(response.data.error || '创建租赁失败')
+        throw new Error(
+          response.data.message || response.data.error || '创建租赁失败'
+        )
       }
     } catch (err: any) {
       console.error('创建租赁失败:', err)
-      throw new Error(err.response?.data?.error || err.message || '创建租赁失败')
+      throw new Error(
+        err.response?.data?.message
+        || err.response?.data?.error
+        || err.message
+        || '创建租赁失败'
+      )
     }
   }
 
@@ -253,20 +372,19 @@ export const useGanttStore = defineStore('gantt', () => {
     try {
       const response = await axios.put(`/web/rentals/${rentalId}`, updateData)
       if (response.data.success) {
-        await loadData()
         return response.data
       } else {
-        throw new Error(response.data.error || '更新租赁失败')
+        throw new Error(
+          response.data.message || response.data.error || '更新租赁失败'
+        )
       }
     } catch (err: any) {
-      // 保持原始错误对象的结构，以便前端可以访问response属性
-      if (err.response) {
-        // 重新抛出axios错误，保持其结构
-        throw err
-      } else {
-        // 对于其他类型的错误，包装为Error
-        throw new Error(err.message || '更新租赁失败')
-      }
+      throw new Error(
+        err.response?.data?.message
+        || err.response?.data?.error
+        || err.message
+        || '更新租赁失败'
+      )
     }
   }
 
@@ -274,7 +392,6 @@ export const useGanttStore = defineStore('gantt', () => {
     try {
       const response = await axios.delete(`/web/rentals/${rentalId}`)
       if (response.data.success) {
-        await loadData()
         return response.data
       } else {
         throw new Error(response.data.error || '删除租赁失败')
@@ -299,12 +416,28 @@ export const useGanttStore = defineStore('gantt', () => {
     }
   }
 
+  const getRentalEditContext = async (
+    rentalId: number
+  ): Promise<RentalEditContext | null> => {
+    try {
+      const response = await axios.get(
+        `/api/rentals/${rentalId}/edit-context`
+      )
+      if (response.data.success) {
+        return response.data.data
+      }
+      throw new Error(response.data.error || '获取编辑上下文失败')
+    } catch (err) {
+      console.error('获取编辑上下文失败:', err)
+      return null
+    }
+  }
+
   // 发货到闲鱼
   const shipRentalToXianyu = async (rentalId: number) => {
     try {
       const response = await axios.post(`/api/rentals/${rentalId}/ship-to-xianyu`)
       if (response.data.success) {
-        await loadData()
         return response.data
       } else {
         throw new Error(response.data.message || '发货到闲鱼失败')
@@ -355,7 +488,6 @@ export const useGanttStore = defineStore('gantt', () => {
       })
       
       if (response.data.success) {
-        await loadData() // 重新加载数据以显示新设备
         return response.data
       } else {
         throw new Error(response.data.error || '添加设备失败')
@@ -373,6 +505,13 @@ export const useGanttStore = defineStore('gantt', () => {
     selectedDate,
     loading,
     error,
+    dailyStatsByDate,
+    modelFacets,
+    summaries,
+    dataRevision,
+    evaluatedAt,
+    viewDeviceModelId,
+    viewLifecycleStatus,
 
     // 计算属性
     dateRange,
@@ -381,6 +520,7 @@ export const useGanttStore = defineStore('gantt', () => {
 
     // 方法
     getRentalsForDevice,
+    setViewFilters,
     loadData,
     navigateWeek,
     navigateToMonth,
@@ -392,6 +532,7 @@ export const useGanttStore = defineStore('gantt', () => {
     updateRental,
     deleteRental,
     getRentalById,
+    getRentalEditContext,
     shipRentalToXianyu,
     updateDeviceLifecycle,
     addDevice

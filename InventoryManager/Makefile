@@ -18,10 +18,9 @@ IM_IMAGE     := $(REGISTRY)/inventory-manager
 IMAGE_TAG    ?= $(shell date +%Y%m%d-%H%M)
 
 # ── NAS 连接配置 ─────────────────────────────────────────────
-NAS_HOST     := 192.168.50.132
-NAS_USER     := xeon_pan
-NAS_PASS     := ***REMOVED***
-NAS_LOG_DIR  := /volume1/docker/inventory/logs
+NAS_HOST     ?=
+NAS_USER     ?=
+NAS_LOG_DIR  ?=
 
 # 从.env文件加载环境变量（如果存在）
 ifneq (,$(wildcard ./.env))
@@ -53,6 +52,16 @@ install-dev: ## 安装开发环境依赖
 install: ## 安装生产环境依赖
 	@echo "安装生产环境依赖..."
 	pip install -r requirements.txt
+
+.PHONY: test-real-db test-saas-core-relay-matrix test-saas-core-relay-matrix-local
+test-real-db: ## 串行使用 inventory_management_test 运行真实数据库测试
+	$(VENV_PYTHON) -m tests.support.run_existing_test_database
+
+test-saas-core-relay-matrix: ## 运行版本锁定的 SaaS Core 接力完整矩阵
+	$(VENV_PYTHON) -m tests.support.run_saas_core_relay_matrix
+
+test-saas-core-relay-matrix-local: ## 运行不含真实数据库的接力矩阵
+	$(VENV_PYTHON) -m tests.support.run_saas_core_relay_matrix --local-only
 
 .PHONY: clean
 clean: ## 清理Python缓存和临时文件
@@ -97,19 +106,13 @@ env-check: ## 检查环境变量配置
 	@echo "当前 .env 配置:"
 	@echo "=================="
 	@echo "数据库配置:"
-	@echo "  DATABASE_URL: $(DATABASE_URL)"
+	@echo "  DATABASE_URL: $(if $(DATABASE_URL),已配置,未配置)"
 	@echo "应用配置:"
 	@echo "  APP_PORT: $(APP_PORT)"
 	@echo "  APP_HOST: $(APP_HOST)"
-	@echo "  SECRET_KEY: $(if $(SECRET_KEY),已配置,未配置)"
-	@echo "  API_KEY: $(if $(API_KEY),已配置,未配置)"
 	@echo "阿里云配置:"
 	@echo "  ALIYUN_ACCESS_KEY_ID: $(if $(ALIYUN_ACCESS_KEY_ID),已配置,未配置)"
 	@echo "  ALIYUN_ACCESS_KEY_SECRET: $(if $(ALIYUN_ACCESS_KEY_SECRET),已配置,未配置)"
-	@echo "顺丰配置:"
-	@echo "  SF_PARTNER_ID: $(if $(SF_PARTNER_ID),已配置,未配置)"
-	@echo "  SF_CHECKPHONENO: $(if $(SF_CHECKPHONENO),已配置,未配置)"
-	@echo "  SF_CHECKWORD: $(if $(SF_CHECKWORD),已配置,未配置)"
 	@echo "=================="
 
 # =============================================================================
@@ -502,9 +505,10 @@ push-im: ## 推送镜像到 Registry
 .PHONY: pull-nas-im
 pull-nas-im: ## 仅在 NAS 上拉取最新镜像（不重启容器，需指定 IMAGE_TAG）
 	@if [ -z "$(IMAGE_TAG)" ]; then echo "[ERR] 请指定 IMAGE_TAG"; exit 1; fi
+	@if [ -z "$(NAS_HOST)" ] || [ -z "$(NAS_USER)" ]; then echo "[ERR] 请通过安全部署环境设置 NAS_HOST 和 NAS_USER"; exit 1; fi
 	@echo "拉取镜像到 NAS: $(IM_IMAGE):$(IMAGE_TAG) ..."
-	sshpass -p "$(NAS_PASS)" ssh -o StrictHostKeyChecking=no $(NAS_USER)@$(NAS_HOST) \
-		"echo '$(NAS_PASS)' | sudo -S env PATH=/usr/local/bin:/usr/bin:/bin docker pull $(IM_IMAGE):$(IMAGE_TAG)"
+	ssh -o BatchMode=yes -o StrictHostKeyChecking=yes $(NAS_USER)@$(NAS_HOST) \
+		"sudo -n env PATH=/usr/local/bin:/usr/bin:/bin docker pull $(IM_IMAGE):$(IMAGE_TAG)"
 	@echo "NAS 拉取完成"
 
 .PHONY: build-push-all

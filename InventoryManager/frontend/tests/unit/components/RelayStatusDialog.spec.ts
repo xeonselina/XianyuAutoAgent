@@ -57,6 +57,8 @@ const baseCase = {
     summary: null,
     last_checked_at: null,
   },
+  accessory_note: null,
+  accessory_note_updated_at: null,
   created_at: null,
   updated_at: null,
 } satisfies RelayCase
@@ -92,6 +94,8 @@ describe('RelayStatusDialog', () => {
       successor_rental_id: 2,
       status: 'shipped',
       sf_tracking_number: 'SF123',
+      accessory_note: null,
+      accessory_note_updated_at: null,
       tracking: {
         number: 'SF123', status: 'unknown', summary: null, last_checked_at: null,
       },
@@ -131,8 +135,27 @@ describe('RelayStatusDialog', () => {
     expect(updateRelayCase).toHaveBeenCalledWith(1, 2, {
       status: 'shipped',
       sf_tracking_number: 'SF123',
+      accessory_note: null,
     })
     expect(wrapper.emitted('saved')).toHaveLength(1)
+  })
+
+  it('prefills and trims the internal supplemental note', async () => {
+    const wrapper = mountDialog({
+      ...baseCase,
+      accessory_note: '原线下安排',
+    })
+    await wrapper.get('[data-testid="accessory-note"]').setValue(
+      '  改由同事线下补寄手机支架  ',
+    )
+    await wrapper.get('[data-testid="save-relay-status"]').trigger('click')
+    await flushPromises()
+
+    expect(updateRelayCase).toHaveBeenCalledWith(1, 2, {
+      status: 'pending',
+      sf_tracking_number: undefined,
+      accessory_note: '改由同事线下补寄手机支架',
+    })
   })
 
   it('reports successful xianyu synchronization', async () => {
@@ -154,6 +177,8 @@ describe('RelayStatusDialog', () => {
       successor_rental_id: 2,
       status: 'shipped',
       sf_tracking_number: 'SF123',
+      accessory_note: null,
+      accessory_note_updated_at: null,
       tracking: {
         number: 'SF123', status: 'unknown', summary: null, last_checked_at: null,
       },

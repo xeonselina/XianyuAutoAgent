@@ -11,11 +11,42 @@ from .inspection_record import InspectionRecord
 from .inspection_check_item import InspectionCheckItem
 from .rental_relay_binding import RentalRelayBinding
 from .rental_relay_case import RentalRelayCase
-from .xianyu_order_alert import XianyuOrderAlert, XianyuOrderSyncState
+from .xianyu_order_alert import (
+    XianyuConnectionSyncState,
+    XianyuOrderAlert,
+    XianyuOrderSyncState,
+)
+from .database_identity import TenantDatabaseIdentity
+from .warehouse import (
+    DeviceWarehouseMovement,
+    UserWarehousePreference,
+    Warehouse,
+    WarehousePrinter,
+    WarehouseProviderBinding,
+)
+from .accessory_inventory import (
+    AccessoryType,
+    AccessoryUnit,
+    AccessoryUnitEvent,
+    DeviceAccessoryConfig,
+    RentalAccessoryRequest,
+    RentalAccessoryUnitLink,
+)
+from .shipping_execution import (
+    OutboundShipment,
+    ProviderOperationAttempt,
+    WaybillPrintJob,
+)
 
 __all__ = [
     'Device', 'Rental', 'AuditLog', 'DeviceModel', 'RentalStatistics',
     'InspectionRecord', 'InspectionCheckItem', 'RentalRelayBinding',
     'RentalRelayCase',
-    'XianyuOrderAlert', 'XianyuOrderSyncState'
+    'XianyuConnectionSyncState', 'XianyuOrderAlert', 'XianyuOrderSyncState',
+    'TenantDatabaseIdentity',
+    'Warehouse', 'WarehousePrinter', 'UserWarehousePreference',
+    'WarehouseProviderBinding', 'DeviceWarehouseMovement',
+    'AccessoryType', 'DeviceAccessoryConfig', 'AccessoryUnit',
+    'RentalAccessoryRequest', 'RentalAccessoryUnitLink', 'AccessoryUnitEvent',
+    'OutboundShipment', 'ProviderOperationAttempt', 'WaybillPrintJob'
 ]

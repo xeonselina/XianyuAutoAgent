@@ -1,5 +1,17 @@
 # 增强批量发货工作流
 
+## Status
+
+**PAUSED — 2026-08-21，由 `convert-inventory-manager-to-saas` 的 D12 边界取代。** 本 change 保持未归档，以保留旧方案和任务历史；暂停不表示任务完成，也不授权恢复旧扫码工作流。
+
+## Pause Boundary
+
+- 不恢复“扫描发货单 rental-ID 二维码 → 弹出租赁详情 → 再扫描顺丰面单”的流程，包括 `/api/shipping-batch/scan-rental`、`/api/shipping-batch/record-waybill`、扫码枪键盘监听、语音提示和用于识别 rental 的发货单二维码。
+- 保留已经确认的产品能力：批量发货入口、预约发货状态、顺丰自动生成运单号、闲鱼发货同步、顺丰第一联、本地仓库寄回第二联，以及第二联左右并排的两个教程二维码。这些能力分别由保留并随 SaaS 适配的 changes 和 SaaS Core specs/tasks 接管。
+- 旧方案中的 Web 进程 APScheduler、同步第三方副作用、进程级全局顺丰/闲鱼凭证、固定寄件地址、手工运单录入和独立 A4 发货单均不得恢复；它们由 tenant-bound 持久任务、幂等执行账本、warehouse binding 和不可变 shipment/print 快照取代。
+- 本文件及本 change 的 design/specs 后续仅作为历史上下文。与 D33/D34/D39、多租户、多仓、provider job 或两联面单规则冲突时，以 `convert-inventory-manager-to-saas` 的当前决策记录、delta specs 和 tasks 为准。
+- 只有新的、明确批准的 OpenSpec change 才能恢复本暂停范围；不得通过继续勾选遗留任务隐式恢复。
+
 ## Why
 
 当前批量打印发货单功能(batch-print-shipping-orders)只能批量打印,但整个发货流程仍需手动操作:

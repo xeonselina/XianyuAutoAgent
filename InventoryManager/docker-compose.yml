@@ -7,14 +7,14 @@ services:
     container_name: inventory_mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: inventory_db
-      MYSQL_USER: inventory_user
-      MYSQL_PASSWORD: inventory_pass
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-inventory_db}
+      MYSQL_USER: ${MYSQL_USER:-inventory_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set}
       MYSQL_CHARSET: utf8mb4
       MYSQL_COLLATION: utf8mb4_unicode_ci
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -22,7 +22,7 @@ services:
       - inventory_network
     command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "--silent"]
       timeout: 20s
       retries: 10
       interval: 10s
@@ -33,7 +33,7 @@ services:
     container_name: inventory_redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     networks:
@@ -53,11 +53,10 @@ services:
     container_name: inventory_app
     restart: unless-stopped
     ports:
-      - "5001:5001"
+      - "127.0.0.1:5001:5001"
     environment:
       - FLASK_ENV=production
-      - DATABASE_URL=mysql+pymysql://inventory_user:inventory_pass@mysql:3306/inventory_db?charset=utf8mb4
-      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL must be set}
       - SF_PARTNER_ID=${SF_PARTNER_ID}
       - SF_CHECKWORD=${SF_CHECKWORD}
       - SF_TEST_MODE=${SF_TEST_MODE:-true}

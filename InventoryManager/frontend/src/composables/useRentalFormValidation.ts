@@ -29,6 +29,18 @@ export function getCreateRentalRules(): FormRules {
     ],
     destination: [
       // 收件信息改为非必填
+    ],
+    customerProvince: [
+      { required: true, message: '请输入省', trigger: 'blur' }
+    ],
+    customerCity: [
+      { required: true, message: '请输入市', trigger: 'blur' }
+    ],
+    customerDistrict: [
+      { required: true, message: '请输入区县', trigger: 'blur' }
+    ],
+    customerAddressDetail: [
+      { required: true, message: '请输入详细地址', trigger: 'blur' }
     ]
   }
 }

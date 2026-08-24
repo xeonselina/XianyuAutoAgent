@@ -11,7 +11,7 @@ from sqlalchemy import and_, or_
 from app import db
 from app.models.rental import Rental
 from app.models.device import Device
-from app.utils.sf.sf_sdk_wrapper import create_sf_client, batch_query_tracking_info
+from app.utils.sf.sf_sdk_wrapper import batch_query_tracking_info
 import os
 
 logger = logging.getLogger(__name__)
@@ -23,29 +23,10 @@ TASK_LOCK_PATH = '/tmp/inventory_scheduled_shipping_task.lock'
 class RentalTrackingScheduler:
     """租赁记录快递追踪定时任务"""
     
-    def __init__(self):
-        """初始化调度器"""
-        self.sf_client = None
-        self._init_sf_client()
-    
-    def _init_sf_client(self):
-        """初始化顺丰客户端"""
-        try:
-            # 从环境变量或配置文件中读取顺丰API配置
-            partner_id = os.getenv('SF_PARTNER_ID')
-            checkword = os.getenv('SF_CHECKWORD')
-            test_mode = os.getenv('SF_TEST_MODE', 'true').lower() == 'true'
-            
-            if partner_id and checkword:
-                self.sf_client = create_sf_client(partner_id, checkword, test_mode)
-                logger.info("顺丰API客户端初始化成功")
-            else:
-                logger.warning("顺丰API配置缺失，将使用测试配置")
-                self.sf_client = create_sf_client(test_mode=True)
-                
-        except Exception as e:
-            logger.error(f"初始化顺丰API客户端失败: {e}")
-            self.sf_client = None
+    def __init__(self, *, sf_client=None, check_phone_no=None):
+        """Build the legacy scheduler from explicit test dependencies only."""
+        self.sf_client = sf_client
+        self.check_phone_no = check_phone_no
     
     def get_today_rentals_with_shipping(self) -> List[Rental]:
         """
@@ -199,12 +180,9 @@ class RentalTrackingScheduler:
                 batch_numbers = tracking_numbers[i:i + batch_size]
                 logger.info(f"查询第 {i//batch_size + 1} 批，共 {len(batch_numbers)} 个单号")
 
-                # 获取收件人手机号后四位
-                check_phone_no = os.getenv('SF_CHECKPHONENO', '')
-
                 batch_info = batch_query_tracking_info(
                     batch_numbers,
-                    check_phone_no=check_phone_no,
+                    check_phone_no=self.check_phone_no,
                     partner_id=self.sf_client.partner_id,
                     checkword=self.sf_client.checkword
                 )
@@ -283,10 +261,14 @@ def manual_query_tracking(tracking_number: str) -> Dict:
         }
     
     try:
-        logger.info(f"调用SF客户端查询: partner_id={rental_scheduler.sf_client.partner_id}, test_mode={rental_scheduler.sf_client.test_mode}")
-        import os
-        check_phone_no = os.getenv('SF_CHECKPHONENO')
-        tracking_info = rental_scheduler.sf_client.get_delivery_status(tracking_number, check_phone_no)
+        logger.info(
+            "调用SF客户端查询: test_mode=%s",
+            rental_scheduler.sf_client.test_mode,
+        )
+        tracking_info = rental_scheduler.sf_client.get_delivery_status(
+            tracking_number,
+            rental_scheduler.check_phone_no,
+        )
         logger.info(f"SF客户端返回结果: {tracking_info}")
         
         return {

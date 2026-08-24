@@ -12,6 +12,16 @@ from app.routes.ocr_api import bp as ocr_api_bp
 from app.routes.customer_api import bp as customer_api_bp
 from app.routes.xianyu_order_alert_api import bp as xianyu_order_alert_api_bp
 from app.routes.relay_case_api import bp as relay_case_api_bp
+from app.routes.warehouse_api import bp as warehouse_api_bp
+from app.routes.tenant_identity_api import bp as tenant_identity_api_bp
+from app.routes.tenant_integration_api import bp as tenant_integration_api_bp
+from app.routes.tenant_invitation_api import bp as tenant_invitation_api_bp
+from app.routes.tenant_subscription_api import bp as tenant_subscription_api_bp
+from app.routes.platform_identity_api import bp as platform_identity_api_bp
+from app.routes.platform_subscription_adjustment_api import (
+    bp as platform_subscription_adjustment_api_bp,
+)
+from app.routes.platform_redemption_api import bp as platform_redemption_api_bp
 
 # 创建主蓝图
 bp = Blueprint('web', __name__)
@@ -26,6 +36,14 @@ bp.register_blueprint(ocr_api_bp)
 bp.register_blueprint(customer_api_bp)
 bp.register_blueprint(xianyu_order_alert_api_bp)
 bp.register_blueprint(relay_case_api_bp)
+bp.register_blueprint(warehouse_api_bp)
+bp.register_blueprint(tenant_identity_api_bp)
+bp.register_blueprint(tenant_integration_api_bp)
+bp.register_blueprint(tenant_invitation_api_bp)
+bp.register_blueprint(tenant_subscription_api_bp)
+bp.register_blueprint(platform_identity_api_bp)
+bp.register_blueprint(platform_subscription_adjustment_api_bp)
+bp.register_blueprint(platform_redemption_api_bp)
 
 
 @bp.route('/health')

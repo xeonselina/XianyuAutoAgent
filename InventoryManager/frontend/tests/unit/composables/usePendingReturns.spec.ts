@@ -63,10 +63,8 @@ describe('usePendingReturns', () => {
     expect(state.loading.value).toBe(false)
   })
 
-  it('marks one rental returned and reloads the list', async () => {
-    axiosGet
-      .mockResolvedValueOnce(pendingReturnsResponse([pendingReturn]))
-      .mockResolvedValueOnce(pendingReturnsResponse([]))
+  it('marks one rental returned without a second list request', async () => {
+    axiosGet.mockResolvedValueOnce(pendingReturnsResponse([pendingReturn]))
     axiosPut.mockResolvedValueOnce({
       data: {
         success: true,
@@ -84,7 +82,7 @@ describe('usePendingReturns', () => {
       `/api/rentals/${pendingReturn.id}/status`,
       { status: 'returned' },
     )
-    expect(axiosGet).toHaveBeenCalledTimes(2)
+    expect(axiosGet).toHaveBeenCalledTimes(1)
     expect(state.rentals.value).toEqual([])
     expect(state.count.value).toBe(0)
     expect(state.updatingIds.value.has(pendingReturn.id)).toBe(false)
@@ -106,10 +104,8 @@ describe('usePendingReturns', () => {
     expect(state.updatingIds.value.has(pendingReturn.id)).toBe(false)
   })
 
-  it('keeps a successful update when the follow-up reload fails', async () => {
-    axiosGet
-      .mockResolvedValueOnce(pendingReturnsResponse([pendingReturn]))
-      .mockRejectedValueOnce(new Error('刷新失败'))
+  it('keeps a successful update in local drawer state', async () => {
+    axiosGet.mockResolvedValueOnce(pendingReturnsResponse([pendingReturn]))
     axiosPut.mockResolvedValueOnce({
       data: {
         success: true,
@@ -126,21 +122,13 @@ describe('usePendingReturns', () => {
     expect(state.rentals.value).toEqual([])
     expect(state.count.value).toBe(0)
     expect(state.updatingIds.value.has(pendingReturn.id)).toBe(false)
+    expect(axiosGet).toHaveBeenCalledTimes(1)
   })
 
-  it('does not resurrect a returned row when concurrent reloads resolve out of order', async () => {
-    let resolveStaleReload!: (value: ReturnType<typeof pendingReturnsResponse>) => void
-    const staleReload = new Promise<ReturnType<typeof pendingReturnsResponse>>(
-      (resolve) => {
-        resolveStaleReload = resolve
-      },
+  it('removes concurrent successful rows without list fan-out', async () => {
+    axiosGet.mockResolvedValueOnce(
+      pendingReturnsResponse([pendingReturn, secondPendingReturn]),
     )
-    axiosGet
-      .mockResolvedValueOnce(
-        pendingReturnsResponse([pendingReturn, secondPendingReturn]),
-      )
-      .mockReturnValueOnce(staleReload)
-      .mockResolvedValueOnce(pendingReturnsResponse([]))
     axiosPut.mockResolvedValue({
       data: { success: true, data: { status: 'returned' } },
     })
@@ -148,15 +136,10 @@ describe('usePendingReturns', () => {
     await state.load()
 
     const firstUpdate = state.markReturned(pendingReturn.id)
-    await vi.waitFor(() => expect(axiosGet).toHaveBeenCalledTimes(2))
-
     const secondUpdate = state.markReturned(secondPendingReturn.id)
-    await vi.waitFor(() => expect(axiosGet).toHaveBeenCalledTimes(3))
-    await secondUpdate
-
-    resolveStaleReload(pendingReturnsResponse([secondPendingReturn]))
-    await firstUpdate
+    await Promise.all([firstUpdate, secondUpdate])
 
     expect(state.rentals.value).toEqual([])
+    expect(axiosGet).toHaveBeenCalledTimes(1)
   })
 })

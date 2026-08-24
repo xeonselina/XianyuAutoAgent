@@ -11,31 +11,32 @@ from app.models.rental_relay_binding import RentalRelayBinding
 from app.models.rental_relay_case import RentalRelayCase
 from app.services.relay.relay_case_service import RelayCaseService
 from tests.support.test_database import (
-    assert_current_user_has_test_only_grants,
     build_mysql_test_config,
+    clear_guarded_mysql_test_rows,
+    guarded_mysql_test_metadata,
 )
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def app():
     if not os.environ.get("TEST_DATABASE_URL"):
-        return create_app("testing")
-    app = create_app(build_mysql_test_config())
-    with app.app_context():
-        with db.engine.connect() as connection:
-            assert_current_user_has_test_only_grants(
-                connection, db.engine.url.database
-            )
-    return app
+        pytest.fail("TEST_DATABASE_URL is required for database tests")
+    application = create_app(build_mysql_test_config())
+    with application.app_context():
+        with guarded_mysql_test_metadata(db.engine, db.metadata):
+            yield application
+        db.session.remove()
 
 
 @pytest.fixture
 def db_session(app):
     with app.app_context():
-        db.create_all()
-        yield db.session
-        db.session.rollback()
-        db.drop_all()
+        clear_guarded_mysql_test_rows(db.engine, db.metadata)
+        try:
+            yield db.session
+        finally:
+            db.session.rollback()
+            db.session.remove()
 
 
 def add_device(db_session, suffix):
@@ -69,10 +70,20 @@ def add_pair(
 ):
     first_ship_in = first_ship_out + timedelta(days=8)
     second_ship_out = first_ship_in - timedelta(days=overlap_days)
+    logistics_days = 1
+    buffer = timedelta(days=logistics_days + 1)
+    first_start = first_ship_out + timedelta(days=1)
+    first_end = first_ship_out + timedelta(days=4)
+    first_planned_return = first_end + buffer
+    second_start = first_planned_return + buffer - timedelta(days=overlap_days)
+    second_end = second_start + timedelta(days=4)
     first = Rental(
         device_id=device.id,
-        start_date=first_ship_out + timedelta(days=1),
-        end_date=first_ship_out + timedelta(days=4),
+        start_date=first_start,
+        end_date=first_end,
+        logistics_days=logistics_days,
+        planned_ship_out_date=first_start - buffer,
+        planned_return_date=first_planned_return,
         ship_out_time=datetime.combine(first_ship_out, time(19)),
         ship_in_time=datetime.combine(first_ship_in, time(12)),
         customer_name="前单收件人",
@@ -85,8 +96,11 @@ def add_pair(
     )
     second = Rental(
         device_id=device.id,
-        start_date=second_ship_out + timedelta(days=3),
-        end_date=second_ship_out + timedelta(days=7),
+        start_date=second_start,
+        end_date=second_end,
+        logistics_days=logistics_days,
+        planned_ship_out_date=second_start - buffer,
+        planned_return_date=second_end + buffer,
         ship_out_time=datetime.combine(second_ship_out, time(19)),
         ship_in_time=datetime.combine(second_ship_out + timedelta(days=9), time(12)),
         customer_name="后单收件人",
@@ -102,7 +116,17 @@ def add_pair(
     return first, second
 
 
-def test_candidates_require_positive_overlap_days(app, db_session):
+def set_planned_overlap(predecessor, successor, overlap_days):
+    buffer = timedelta(days=successor.logistics_days + 1)
+    successor.start_date = (
+        predecessor.planned_return_date + buffer - timedelta(days=overlap_days)
+    )
+    successor.end_date = successor.start_date + timedelta(days=4)
+    successor.planned_ship_out_date = successor.start_date - buffer
+    successor.planned_return_date = successor.end_date + buffer
+
+
+def test_candidates_require_overlap_strictly_above_one_day(app, db_session):
     zero_day_device = add_device(db_session, "zero")
     one_day_device = add_device(db_session, "one")
     two_day_device = add_device(db_session, "two")
@@ -114,8 +138,7 @@ def test_candidates_require_positive_overlap_days(app, db_session):
     candidates = RelayCaseService.find_candidates()
 
     assert (zero_days[0].id, zero_days[1].id) not in candidates
-    assert (one_day[0].id, one_day[1].id) in candidates
-    assert candidates[(one_day[0].id, one_day[1].id)].overlap_days == 1
+    assert (one_day[0].id, one_day[1].id) not in candidates
     assert (two_days[0].id, two_days[1].id) in candidates
     assert candidates[(two_days[0].id, two_days[1].id)].overlap_days == 2
 
@@ -143,8 +166,11 @@ def test_candidates_only_compare_adjacent_non_cancelled_main_rentals(
     middle.status = "cancelled"
     last = Rental(
         device_id=device.id,
-        start_date=date(2026, 8, 9),
-        end_date=date(2026, 8, 12),
+        start_date=date(2026, 8, 7),
+        end_date=date(2026, 8, 10),
+        logistics_days=1,
+        planned_ship_out_date=date(2026, 8, 5),
+        planned_return_date=date(2026, 8, 12),
         ship_out_time=datetime(2026, 8, 6, 19),
         ship_in_time=datetime(2026, 8, 15, 12),
         customer_name="最后一单",
@@ -155,6 +181,9 @@ def test_candidates_only_compare_adjacent_non_cancelled_main_rentals(
         parent_rental_id=first.id,
         start_date=date(2026, 8, 3),
         end_date=date(2026, 8, 4),
+        logistics_days=1,
+        planned_ship_out_date=date(2026, 8, 1),
+        planned_return_date=date(2026, 8, 6),
         ship_out_time=datetime(2026, 8, 2, 19),
         ship_in_time=datetime(2026, 8, 8, 12),
         customer_name="附件子单",
@@ -169,17 +198,20 @@ def test_candidates_only_compare_adjacent_non_cancelled_main_rentals(
     assert all(child.id not in pair for pair in candidates)
 
 
-def test_candidate_order_keeps_rental_with_missing_ship_in_time(
+def test_missing_planned_fact_suppresses_entire_device_projection(
     app, db_session
 ):
     device = add_device(db_session, "missing-ship-in")
     first, middle = add_pair(db_session, device, overlap_days=2)
-    first.ship_in_time = datetime(2026, 8, 12, 12)
-    middle.ship_in_time = None
+    middle.planned_ship_out_date = None
+    middle.planned_return_date = None
     last = Rental(
         device_id=device.id,
         start_date=date(2026, 8, 12),
         end_date=date(2026, 8, 15),
+        logistics_days=1,
+        planned_ship_out_date=date(2026, 8, 10),
+        planned_return_date=date(2026, 8, 17),
         ship_out_time=datetime(2026, 8, 9, 19),
         ship_in_time=datetime(2026, 8, 18, 12),
         customer_name="最后一单",
@@ -190,9 +222,7 @@ def test_candidate_order_keeps_rental_with_missing_ship_in_time(
 
     candidates = RelayCaseService.find_candidates()
 
-    assert (first.id, middle.id) in candidates
-    assert candidates[(first.id, middle.id)].overlap_days == 5
-    assert (first.id, last.id) not in candidates
+    assert candidates == {}
 
 
 def test_list_item_contains_customer_equipment_and_computed_dates(
@@ -213,10 +243,8 @@ def test_list_item_contains_customer_equipment_and_computed_dates(
     item = payload["items"][0]
     assert item["case_id"] is None
     assert item["status"] == "pending"
-    assert item["planned_ship_date"] == "2026-08-06"
-    assert item["planned_receive_date"] == (
-        second.start_date - timedelta(days=1)
-    ).isoformat()
+    assert item["planned_ship_date"] == first.planned_return_date.isoformat()
+    assert item["planned_receive_date"] == second.planned_ship_out_date.isoformat()
     assert item["overlap_days"] == 2
     assert item["predecessor"] == {
         "id": first.id,
@@ -254,8 +282,8 @@ def test_invalid_pending_is_hidden_but_notified_is_retained_with_warning(
         ),
     ])
     db_session.flush()
-    pending_pair[1].ship_out_time = pending_pair[0].ship_in_time
-    notified_pair[1].ship_out_time = notified_pair[0].ship_in_time
+    set_planned_overlap(pending_pair[0], pending_pair[1], 1)
+    set_planned_overlap(notified_pair[0], notified_pair[1], 1)
     db_session.commit()
 
     payload = RelayCaseService.list_cases(
@@ -269,7 +297,10 @@ def test_invalid_pending_is_hidden_but_notified_is_retained_with_warning(
     assert payload["items"][0]["schedule_changed"] is True
 
 
-@pytest.mark.parametrize("missing_field", ["predecessor_ship_in", "successor_ship_out"])
+@pytest.mark.parametrize(
+    "missing_field",
+    ["predecessor_planned_window", "successor_planned_window"],
+)
 def test_persisted_invalid_case_with_missing_schedule_is_safely_listed(
     app, db_session, missing_field
 ):
@@ -280,10 +311,12 @@ def test_persisted_invalid_case_with_missing_schedule_is_safely_listed(
         successor_rental_id=second.id,
         status="notified",
     ))
-    if missing_field == "predecessor_ship_in":
-        first.ship_in_time = None
+    if missing_field == "predecessor_planned_window":
+        first.planned_ship_out_date = None
+        first.planned_return_date = None
     else:
-        second.ship_out_time = None
+        second.planned_ship_out_date = None
+        second.planned_return_date = None
     db_session.commit()
 
     payload = RelayCaseService.list_cases(
@@ -371,8 +404,8 @@ def test_list_filters_by_planned_ship_date_and_paginates(app, db_session):
 
     payload = RelayCaseService.list_cases(
         statuses=["pending"],
-        ship_date_from=date(2026, 8, 15),
-        ship_date_to=date(2026, 8, 15),
+        ship_date_from=date(2026, 8, 16),
+        ship_date_to=date(2026, 8, 16),
         page=1,
         per_page=1,
     )

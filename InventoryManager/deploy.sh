@@ -124,7 +124,7 @@ init_database() {
     # 等待MySQL启动
     print_info "等待MySQL启动..."
     for i in {1..30}; do
-        if docker-compose exec -T mysql mysqladmin ping -h localhost -u root -prootpassword >/dev/null 2>&1; then
+        if docker-compose exec -T mysql mysqladmin ping -h localhost --silent >/dev/null 2>&1; then
             print_info "MySQL 已启动"
             break
         else

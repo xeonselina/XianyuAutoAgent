@@ -32,30 +32,10 @@ pip install -r requirements.txt
 # 检查环境变量文件
 if [[ ! -f ".env" ]]; then
     echo "创建环境变量文件..."
-    cat > .env << EOF
-# 应用配置
-FLASK_ENV=development
-SECRET_KEY=dev-secret-key-change-in-production
-API_KEY=dev-api-key-change-in-production
-
-# 数据库配置
-DATABASE_URL=mysql+pymysql://root:password@localhost:3306/inventory_management
-
-# 日志配置
-LOG_LEVEL=INFO
-LOG_FILE=logs/inventory_service.log
-
-# 跨域配置
-CORS_ORIGINS=http://localhost:3000,http://localhost:8080
-
-# 业务配置
-DEFAULT_RENTAL_DAYS=7
-MAX_RENTAL_DAYS=30
-MIN_ADVANCE_BOOKING_DAYS=1
-
-# 时区配置
-TIMEZONE=Asia/Shanghai
-EOF
+    cp .env.example .env
+    chmod 600 .env
+    echo "已从 .env.example 创建 .env；请通过安全渠道填写必需配置后重新运行。"
+    exit 1
     echo "环境变量文件已创建，请根据实际情况修改 .env 文件"
 fi
 
@@ -83,7 +63,7 @@ try:
             host=parsed.hostname or 'localhost',
             port=parsed.port or 3306,
             user=parsed.username or 'root',
-            password=parsed.password or 'password',
+            password=parsed.password or '',
             database=parsed.path.lstrip('/') or 'inventory_management'
         )
         conn.close()

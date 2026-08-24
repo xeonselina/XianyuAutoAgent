@@ -10,6 +10,39 @@ import uuid
 class Rental(db.Model):
     """租赁记录模型"""
     __tablename__ = 'rentals'
+    __table_args__ = (
+        db.CheckConstraint(
+            "logistics_days IS NULL OR "
+            "(logistics_days >= 0 AND logistics_days <= 7)",
+            name="ck_rentals_logistics_days_valid",
+        ),
+        db.CheckConstraint(
+            "logistics_estimate_days IS NULL OR "
+            "(logistics_estimate_days >= 0 AND logistics_estimate_days <= 7)",
+            name="ck_rentals_estimate_days_valid",
+        ),
+        db.CheckConstraint(
+            "(planned_ship_out_date IS NULL AND planned_return_date IS NULL) OR "
+            "(planned_ship_out_date IS NOT NULL AND "
+            "planned_return_date IS NOT NULL AND "
+            "planned_ship_out_date < planned_return_date)",
+            name="ck_rentals_planned_window_consistent",
+        ),
+        db.Index(
+            "ix_rentals_device_status_usage_period",
+            "device_id",
+            "status",
+            "start_date",
+            "end_date",
+        ),
+        db.Index(
+            "ix_rentals_device_status_planned_window",
+            "device_id",
+            "status",
+            "planned_ship_out_date",
+            "planned_return_date",
+        ),
+    )
     
     # 主键
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -27,6 +60,11 @@ class Rental(db.Model):
     customer_name = db.Column(db.String(100), nullable=False, comment='客户姓名')
     customer_phone = db.Column(db.String(20), comment='客户电话')
     destination = db.Column(db.String(100), comment='目的地')
+    customer_note = db.Column(db.Text, nullable=True, comment='客户可见备注')
+    customer_province = db.Column(db.String(64), nullable=True)
+    customer_city = db.Column(db.String(64), nullable=True)
+    customer_district = db.Column(db.String(64), nullable=True)
+    customer_address_detail = db.Column(db.String(255), nullable=True)
 
     # 订单信息
     xianyu_order_no = db.Column(db.String(50), nullable=True, comment='闲鱼订单号')
@@ -45,6 +83,39 @@ class Rental(db.Model):
     ship_in_tracking_no = db.Column(db.String(50), comment='寄回快递单号')
     scheduled_ship_time = db.Column(db.DateTime, comment='预约发货时间')
     express_type_id = db.Column(db.Integer, default=2, comment='顺丰快递类型ID (1=特快,2=标快,263=半日达)')
+    preferred_warehouse_id = db.Column(
+        db.Integer,
+        db.ForeignKey(
+            'warehouses.id',
+            name='fk_rentals_preferred_warehouse_id_warehouses',
+            ondelete='RESTRICT',
+        ),
+        nullable=True,
+        comment='预约时用于排序的偏好仓库，不覆盖设备实际仓库',
+    )
+    logistics_days = db.Column(db.SmallInteger, nullable=True)
+    planned_ship_out_date = db.Column(db.Date, nullable=True)
+    planned_return_date = db.Column(db.Date, nullable=True)
+    actual_shipped_at = db.Column(db.DateTime, nullable=True)
+    actual_returned_at = db.Column(db.DateTime, nullable=True)
+    logistics_estimate_origin_warehouse_id = db.Column(
+        db.Integer,
+        db.ForeignKey(
+            'warehouses.id',
+            name=(
+                'fk_rentals_estimate_origin_warehouse_id_warehouses'
+            ),
+            ondelete='RESTRICT',
+        ),
+        nullable=True,
+    )
+    logistics_estimate_provider = db.Column(db.String(32), nullable=True)
+    logistics_estimate_provider_version = db.Column(db.String(64), nullable=True)
+    logistics_estimate_rule_version = db.Column(db.String(64), nullable=True)
+    logistics_estimate_days = db.Column(db.SmallInteger, nullable=True)
+    logistics_estimate_evaluated_at = db.Column(db.DateTime, nullable=True)
+    logistics_estimate_address_digest = db.Column(db.String(64), nullable=True)
+    logistics_estimate_address_summary = db.Column(db.String(255), nullable=True)
     
     # 状态信息
     status = db.Column(
@@ -79,6 +150,14 @@ class Rental(db.Model):
     audit_logs = db.relationship('AuditLog', backref='rental', lazy='dynamic')
     # 子租赁记录（附件租赁）
     child_rentals = db.relationship('Rental', backref=db.backref('parent_rental', remote_side='Rental.id'), lazy='dynamic')
+    preferred_warehouse = db.relationship(
+        'Warehouse',
+        foreign_keys=[preferred_warehouse_id],
+    )
+    logistics_estimate_origin_warehouse = db.relationship(
+        'Warehouse',
+        foreign_keys=[logistics_estimate_origin_warehouse_id],
+    )
     
     def __repr__(self):
         return f'<Rental {self.id}: {self.device_id} ({self.start_date} - {self.end_date})>'
@@ -135,6 +214,11 @@ class Rental(db.Model):
             'customer_name': self.customer_name,
             'customer_phone': self.customer_phone,
             'destination': self.destination,
+            'customer_note': self.customer_note,
+            'customer_province': self.customer_province,
+            'customer_city': self.customer_city,
+            'customer_district': self.customer_district,
+            'customer_address_detail': self.customer_address_detail,
             'xianyu_order_no': self.xianyu_order_no,
             'order_amount': float(self.order_amount) if self.order_amount else None,
             'buyer_id': self.buyer_id,
@@ -143,6 +227,24 @@ class Rental(db.Model):
             'ship_in_tracking_no': self.ship_in_tracking_no,
             'scheduled_ship_time': self.scheduled_ship_time.isoformat() if self.scheduled_ship_time else None,
             'express_type_id': self.express_type_id,
+            'preferred_warehouse_id': self.preferred_warehouse_id,
+            'logistics_days': self.logistics_days,
+            'planned_ship_out_date': (
+                self.planned_ship_out_date.isoformat()
+                if self.planned_ship_out_date else None
+            ),
+            'planned_return_date': (
+                self.planned_return_date.isoformat()
+                if self.planned_return_date else None
+            ),
+            'actual_shipped_at': (
+                self.actual_shipped_at.isoformat()
+                if self.actual_shipped_at else None
+            ),
+            'actual_returned_at': (
+                self.actual_returned_at.isoformat()
+                if self.actual_returned_at else None
+            ),
             'status': self.status,
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat(),

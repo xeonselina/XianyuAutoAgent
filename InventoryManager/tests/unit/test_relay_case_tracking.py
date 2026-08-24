@@ -10,31 +10,32 @@ from app.models.rental import Rental
 from app.services.relay.relay_case_service import RelayCaseService
 from app.services.shipping.sf_tracking_service import SFTrackingService
 from tests.support.test_database import (
-    assert_current_user_has_test_only_grants,
     build_mysql_test_config,
+    clear_guarded_mysql_test_rows,
+    guarded_mysql_test_metadata,
 )
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def app():
     if not os.environ.get("TEST_DATABASE_URL"):
-        return create_app("testing")
-    app = create_app(build_mysql_test_config())
-    with app.app_context():
-        with db.engine.connect() as connection:
-            assert_current_user_has_test_only_grants(
-                connection, db.engine.url.database
-            )
-    return app
+        pytest.fail("TEST_DATABASE_URL is required for database tests")
+    application = create_app(build_mysql_test_config())
+    with application.app_context():
+        with guarded_mysql_test_metadata(db.engine, db.metadata):
+            yield application
+        db.session.remove()
 
 
 @pytest.fixture
 def db_session(app):
     with app.app_context():
-        db.create_all()
-        yield db.session
-        db.session.rollback()
-        db.drop_all()
+        clear_guarded_mysql_test_rows(db.engine, db.metadata)
+        try:
+            yield db.session
+        finally:
+            db.session.rollback()
+            db.session.remove()
 
 
 def seed_shipped_case(db_session, phone="13800138000"):
@@ -58,6 +59,9 @@ def seed_shipped_case(db_session, phone="13800138000"):
         device_id=device.id,
         start_date=date(2026, 8, 2),
         end_date=date(2026, 8, 5),
+        logistics_days=1,
+        planned_ship_out_date=date(2026, 7, 31),
+        planned_return_date=date(2026, 8, 7),
         ship_out_time=datetime(2026, 8, 1, 19),
         ship_in_time=datetime(2026, 8, 9, 12),
         customer_name="前单",
@@ -69,6 +73,9 @@ def seed_shipped_case(db_session, phone="13800138000"):
         device_id=device.id,
         start_date=date(2026, 8, 10),
         end_date=date(2026, 8, 14),
+        logistics_days=4,
+        planned_ship_out_date=date(2026, 8, 5),
+        planned_return_date=date(2026, 8, 19),
         ship_out_time=datetime(2026, 8, 7, 19),
         ship_in_time=datetime(2026, 8, 16, 12),
         customer_name="后单",

@@ -128,11 +128,15 @@
             <el-select
               v-model="row.express_type_id"
               size="small"
+              :disabled="isExpressTypeLocked(row)"
               @change="updateExpressType(row.id, row.express_type_id)"
             >
-              <el-option :value="1" label="特快" />
-              <el-option :value="2" label="标快" />
-              <el-option :value="263" label="半日达" />
+              <el-option
+                v-for="option in EXPRESS_TYPE_OPTIONS"
+                :key="option.value"
+                :value="option.value"
+                :label="option.label"
+              />
             </el-select>
           </template>
         </el-table-column>
@@ -255,6 +259,11 @@ const printing = ref(false)
 const printProgress = ref(0)
 const printResults = ref<any>(null)
 const RELAY_SELECTION_REASON = '接力订单由前一位客户直接寄出，无需在批量发货中处理'
+const EXPRESS_TYPE_OPTIONS = [
+  { value: 1, label: '特快' },
+  { value: 2, label: '标快' },
+  { value: 263, label: '半日达' },
+]
 
 // Computed
 // 统计预约发货状态且有运单号和预约时间的订单（用于打印面单）
@@ -277,6 +286,12 @@ const isSelectableRow = (row: any) => {
     row.status !== 'scheduled_for_shipping' &&
     !row.is_relay_shipping
   )
+}
+
+const isExpressTypeLocked = (row: any) => {
+  return Boolean(row.ship_out_tracking_no) ||
+    row.status === 'scheduled_for_shipping' ||
+    row.status === 'shipped'
 }
 
 const handleCellMouseEnter = (row: any, column: any, cell: HTMLElement) => {
@@ -308,10 +323,16 @@ const previewOrders = async () => {
     })
 
     if (response.data.success) {
-      rentals.value = response.data.data.rentals.map((r: any) => ({
-        ...r,
-        express_type_id: r.express_type_id || 2  // 默认为标快
-      }))
+      rentals.value = response.data.data.rentals.map((r: any) => {
+        const expressTypeId = [1, 2, 263].includes(r.express_type_id)
+          ? r.express_type_id
+          : 2
+        return {
+          ...r,
+          express_type_id: expressTypeId,
+          persisted_express_type_id: expressTypeId
+        }
+      })
       if (rentals.value.length === 0) {
         ElMessage.info('该日期范围内未找到发货单')
       } else {
@@ -381,6 +402,15 @@ const formatDateTime = (dateStr: string) => {
 }
 
 const updateExpressType = async (rentalId: number, expressTypeId: number) => {
+  const rental = rentals.value.find(r => r.id === rentalId)
+  const previousExpressTypeId = rental?.persisted_express_type_id ?? 2
+
+  const rollback = () => {
+    if (rental) {
+      rental.express_type_id = previousExpressTypeId
+    }
+  }
+
   try {
     const response = await axios.patch('/api/shipping-batch/express-type', {
       rental_id: rentalId,
@@ -388,11 +418,16 @@ const updateExpressType = async (rentalId: number, expressTypeId: number) => {
     })
 
     if (response.data.success) {
+      if (rental) {
+        rental.persisted_express_type_id = expressTypeId
+      }
       ElMessage.success('快递类型已更新')
     } else {
+      rollback()
       ElMessage.error(response.data.message || '更新快递类型失败')
     }
   } catch (error: any) {
+    rollback()
     console.error('更新快递类型失败:', error)
     ElMessage.error('更新快递类型失败')
   }

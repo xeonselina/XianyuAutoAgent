@@ -9,6 +9,13 @@ from app.utils.response import handle_response
 bp = Blueprint("relay_case_api", __name__)
 
 
+@bp.after_request
+def protect_relay_responses(response):
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
+    return response
+
+
 @bp.route("/api/relay-cases", methods=["GET"])
 @handle_response
 def list_relay_cases():

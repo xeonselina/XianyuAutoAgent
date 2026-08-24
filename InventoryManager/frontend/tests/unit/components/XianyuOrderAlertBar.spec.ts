@@ -85,6 +85,15 @@ describe('XianyuOrderAlertBar', () => {
     expect(mountBar(failed).text()).toContain('请求超时')
   })
 
+  it('keeps stale local data visible without calling the provider', () => {
+    const stale = makeSnapshot()
+    stale.alerts = []
+    stale.count = 0
+    stale.stale = true
+
+    expect(mountBar(stale).text()).toContain('数据已超过两个同步周期')
+  })
+
   it('requires a reason and confirmation before emitting permanent ignore', async () => {
     vi.spyOn(ElMessageBox, 'prompt').mockResolvedValue({
       value: '非租赁商品',

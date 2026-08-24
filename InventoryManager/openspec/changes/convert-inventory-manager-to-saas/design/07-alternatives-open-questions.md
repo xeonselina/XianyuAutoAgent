@@ -1,4 +1,4 @@
-# 备选方案与待确认事项
+# 备选方案与剩余决策
 
 > 返回：[总体设计索引](../design.md)
 
@@ -30,7 +30,7 @@ D08 已确认外部 Secret 使用同一平台根密钥派生用途/记录/修订
 
 ### Managed MySQL for Core
 
-托管 MySQL 能降低应用主机与数据库同时损坏的概率，并提供成熟备份/时间点恢复，但项目负责人决定 Core 阶段暂时继续使用同一云主机上的 Docker MySQL，以控制当前成本和复杂度。该选择是阶段性的，不否定未来迁移；D22 的异机备份、恢复演练和非公网访问属于补偿性上线门禁。
+托管 MySQL 能降低应用主机与数据库同时损坏的概率，并提供成熟备份/时间点恢复，但项目负责人决定 Core 阶段暂时继续使用同一云主机上的 Docker MySQL，以控制当前成本和复杂度。该选择是阶段性的，不否定未来迁移；D22 的异机备份、恢复演练和非公网访问保留为普通补偿控制/测试任务，失败就修复并重跑，不另设审批门。
 
 ### Immediate microservices rewrite
 
@@ -40,9 +40,16 @@ D08 已确认外部 Secret 使用同一平台根密钥派生用途/记录/修订
 
 实现直观但扩大 XSS 后 token 被盗风险，且逐设备撤销更复杂。浏览器已按 D45 选择 MySQL server-side session：HttpOnly Cookie 只含不透明随机 token，每次请求核对 session、`auth_version`、membership 和 tenant 状态。D55 已进一步确认 Core 不提供 tenant API key；未来机器调用必须另行设计，不能复用浏览器 token 或第三方 integration/provider credential。
 
-## 20. Open Questions Requiring Approval
+### Unbounded or user-selected fixed 30-day legacy credential acceptance
 
-具体决策 D01–D59 已逐项确认；当前只剩整体 Approval Gate，以及 Core 之后的在线支付方向：
+D61 否决无期限接受。项目负责人确认的是接受必须“有期限”，并未逐字选择固定 30 天；当前运维 policy v1 仅把 30×24 小时作为保守默认值和单次上限，每次必须显式复核、可以更短且不自动续期，首次生产规模演练开始是不可越过的终点。不得把这个运维参数反写成用户原话或永久产品期限。
 
-1. 整体 Approval Gate：是否批准当前完整 SaaS Core 设计进入实现与 delta spec 拆分。
-2. Core 之后是否需要在线支付；若需要，收款主体与目标地区决定 Stripe、微信/支付宝或合同转账 provider。
+### Migration code/schema freeze and approval gates
+
+D63 否决 D12/D62 曾引入的代码、schema、核心模块冻结、冻结例外、解冻及持续到切换后 48 小时的流程，普通开发可以继续。D64 进一步否决阶段审批门、候选签字/receipt/evidence digest、hard release gate 和冻结例外审批链；必要测试、迁移核对和 OpenSpec 校验只是普通可勾选任务，失败即修复并重跑。保留的简单顺序只有：全部项目实现、默认租户迁移/回滚工具和必要测试完成时直接记录 `project_complete_at=T`，首次生产规模演练安排在不早于 `T+168h` 的可用窗口；会影响迁移结果的后续实现变更在相关测试重跑后更新 T 并重新计时。
+
+## 20. Remaining Decisions After Core Approval
+
+具体决策 D01–D67 与 SaaS Core 总体方向均已确认；D64 已取消迁移项目的阶段 Approval Gate，D65–D67 已简化人工 DBA 和 SQL-backed 测试目标。Core 内已无待确认的产品决策；当前只保留 Core 之后的方向：
+
+1. Core 之后是否需要在线支付；若需要，收款主体与目标地区决定 Stripe、微信/支付宝或合同转账 provider，并另立 Commercial SaaS 变更。

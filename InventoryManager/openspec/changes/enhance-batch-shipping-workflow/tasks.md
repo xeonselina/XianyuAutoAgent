@@ -1,5 +1,16 @@
 # Tasks
 
+## Status
+
+**PAUSED — 2026-08-21。** 不再执行本清单中的旧扫码发货方案；保持全部现有勾选状态，不得把暂停任务标记为完成。
+
+## Pause Boundary
+
+- 不创建或恢复 rental-ID 二维码、扫码监听/弹窗/语音、`scan-rental` 或 `record-waybill` 端点，也不恢复手工面单号录入状态机。
+- 批量发货、预约状态、顺丰自动取号、闲鱼同步、第一联、本地第二联和两个教程二维码继续由保留 changes 与 SaaS Core 实施；暂停本 change 不表示删除这些能力。
+- Web 内 scheduler、同步 provider 调用、全局环境凭证和固定仓库假设已被 tenant-bound 持久任务、执行账本、warehouse binding 与不可变快照取代。
+- 若未来确需恢复旧扫码范围，必须先批准新的 OpenSpec change；不得直接恢复执行下方任务。
+
 ## 1. Database Migration
 
 - [ ] **1.1 Create migration script**

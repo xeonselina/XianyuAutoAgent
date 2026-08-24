@@ -245,6 +245,12 @@ describe('Gantt Store', () => {
 
       await store.loadData()
       
+      expect(axios.get).toHaveBeenCalledWith(
+        '/api/gantt/view',
+        {
+          params: expect.objectContaining({ lifecycle_status: 'active' })
+        }
+      )
       expect(store.rentals).toHaveLength(1)
       expect(store.rentals[0].customer_name).toBe('客户A')
     })
@@ -276,6 +282,7 @@ describe('Gantt Store', () => {
       const result = await store.updateRental(1, rentalUpdate)
       
       expect(axios.put).toHaveBeenCalledWith('/web/rentals/1', rentalUpdate)
+      expect(axios.get).not.toHaveBeenCalled()
       expect(result.success).toBe(true)
     })
 
@@ -289,6 +296,7 @@ describe('Gantt Store', () => {
       const result = await store.deleteRental(1)
       
       expect(axios.delete).toHaveBeenCalledWith('/web/rentals/1')
+      expect(axios.get).not.toHaveBeenCalled()
       expect(result.success).toBe(true)
     })
 
@@ -318,6 +326,32 @@ describe('Gantt Store', () => {
       
       expect(axios.get).toHaveBeenCalledWith('/api/rentals/1')
       expect(rental).toEqual(mockRental)
+    })
+
+    it('should load the edit form with one aggregate context request', async () => {
+      const store = useGanttStore()
+      const context = {
+        request_id: 'edit-context:test',
+        evaluated_at: '2026-08-22T00:00:00Z',
+        rental: { id: 1 },
+        devices: [],
+        legacy_device_bound_accessories: [],
+        warehouses: [],
+        device_models: [],
+        accessory_types: [],
+        form_policy: {}
+      }
+      vi.mocked(axios.get).mockResolvedValueOnce({
+        data: { success: true, data: context }
+      })
+
+      const result = await store.getRentalEditContext(1)
+
+      expect(axios.get).toHaveBeenCalledTimes(1)
+      expect(axios.get).toHaveBeenCalledWith(
+        '/api/rentals/1/edit-context'
+      )
+      expect(result).toEqual(context)
     })
 
     it('should return null when rental not found', async () => {

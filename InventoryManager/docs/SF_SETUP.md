@@ -42,53 +42,9 @@ SF_SENDER_ADDRESS=***REMOVED_ADDRESS***
 
 ## 3. 测试配置
 
-### 3.1 查看配置状态
-
-```bash
-curl http://localhost:5000/api/sf-test/status | jq
-```
-
-**预期响应：**
-```json
-{
-  "success": true,
-  "data": {
-    "test_mode": true,
-    "use_oauth": true,
-    "auth_method": "OAuth2.0",
-    "api_url": "https://sfapi-sbox.sf-express.com/open/api",
-    "partner_id_configured": true,
-    "checkword_configured": true,
-    "sender_info": {
-      "name": "张女士",
-      "phone": "***REMOVED***",
-      "address": "***REMOVED_ADDRESS***"
-    }
-  }
-}
-```
-
-### 3.2 测试模拟下单
-
-```bash
-curl -X POST http://localhost:5000/api/sf-test/mock-order \
-  -H "Content-Type: application/json" \
-  -d '{
-    "order_id": "TEST_ORDER_001",
-    "waybill_no": "SF1234567890",
-    "consignee_info": {
-      "name": "测试收件人",
-      "mobile": "13800138000",
-      "address": "广东省深圳市福田区测试地址123号"
-    },
-    "cargo_details": [
-      {
-        "name": "测试商品",
-        "count": 1
-      }
-    ]
-  }' | jq
-```
+旧 `/api/sf-test/*` 直连端点已不再由应用工厂注册，测试、开发、调试、Docker
+和生产服务均不能启用。使用 fake/provider adapter 运行
+自动化；真实业务发货必须经 SaaS Core shipment/attempt ledger 和后台任务执行。
 
 ## 4. 常见错误及解决方案
 

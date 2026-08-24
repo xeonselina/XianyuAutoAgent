@@ -2,10 +2,8 @@
 顺丰速运 API 服务 - 速运下单接口
 """
 
-import os
 import re
 import logging
-import tempfile
 import requests
 import base64
 import time
@@ -18,18 +16,27 @@ logger = logging.getLogger(__name__)
 class SFExpressService:
     """顺丰速运服务封装"""
 
-    def __init__(self):
-        """初始化顺丰速运服务"""
-        # 从环境变量读取配置
-        self.partner_id = os.getenv('SF_PARTNER_ID') 
-        self.checkword = os.getenv('SF_CHECKWORD')
-        self.monthly_card = os.getenv('SF_MONTHLY_CARD')
-        self.test_mode = os.getenv('SF_TEST_MODE', 'true') == 'true'
-
-        # 寄件方信息
-        self.sender_name = os.getenv('SF_SENDER_NAME', '张女士')
-        self.sender_phone = os.getenv('SF_SENDER_PHONE', '***REMOVED***')
-        self.sender_address = os.getenv('SF_SENDER_ADDRESS', '***REMOVED_ADDRESS***')
+    def __init__(
+        self,
+        *,
+        partner_id=None,
+        checkword=None,
+        monthly_card=None,
+        test_mode=True,
+        sender_name=None,
+        sender_phone=None,
+        sender_address=None,
+        waybill_template_code=None,
+    ):
+        """Build the legacy test adapter from explicit values only."""
+        self.partner_id = partner_id
+        self.checkword = checkword
+        self.monthly_card = monthly_card
+        self.test_mode = test_mode
+        self.sender_name = sender_name
+        self.sender_phone = sender_phone
+        self.sender_address = sender_address
+        self.waybill_template_code = waybill_template_code
 
         if not self.partner_id or not self.checkword:
             logger.warning('顺丰API凭证未配置 (SF_PARTNER_ID/SF_APP_KEY, SF_CHECKWORD/SF_APP_SECRET)')
@@ -68,8 +75,32 @@ class SFExpressService:
                     'message': '缺少预约发货时间'
                 }
 
-            # 获取快递类型，默认为2(标快)
-            express_type_id = rental.express_type_id if rental.express_type_id else 2
+            if not all((self.sender_name, self.sender_phone, self.sender_address)):
+                logger.error("顺丰寄件方配置不完整")
+                return {
+                    'success': False,
+                    'message': '顺丰寄件方配置不完整'
+                }
+
+            # Only a missing value receives the application default. Unknown
+            # legacy values must not be sent to SF as a different product.
+            express_type_id = (
+                2 if rental.express_type_id is None else rental.express_type_id
+            )
+            if (
+                not isinstance(express_type_id, int)
+                or isinstance(express_type_id, bool)
+                or express_type_id not in (1, 2, 263)
+            ):
+                logger.error(
+                    'Rental %s 快递类型无效: %r',
+                    rental.id,
+                    express_type_id,
+                )
+                return {
+                    'success': False,
+                    'message': '快递类型无效，请重新选择后再下单'
+                }
             # rental.destination 的数据类似:
             # 灰灰 15976863836 广东省深圳市福田区福田街道平安金融中心 B2
             # 或者:
@@ -131,7 +162,6 @@ class SFExpressService:
             express_type_name = express_type_names.get(express_type_id, '未知')
 
             logger.info(f"顺丰下单: Rental {rental.id}, 快递类型: {express_type_id}({express_type_name}), 预约时间: {send_start_tm}")
-            logger.info(f"订单数据: {order_data}")
 
             # 调用顺丰SDK下单
             result = self.create_order(order_data)
@@ -188,8 +218,7 @@ class SFExpressService:
             Exception: 下载失败时抛出异常
         """
         try:
-            logger.info(f"开始下载面单PDF: {waybill_no}")
-            logger.info(f"PDF URL: {pdf_url}")
+            logger.info("开始下载面单PDF")
 
             # 设置请求头
             headers = {
@@ -202,28 +231,7 @@ class SFExpressService:
             response.raise_for_status()
 
             pdf_data = response.content
-            logger.info(f"下载面单PDF成功: {waybill_no}, 大小: {len(pdf_data)} 字节")
-
-            # 保存到临时目录用于调试
-            temp_dir = tempfile.gettempdir()
-            temp_file_path = os.path.join(temp_dir, f"sf_waybill_{waybill_no}.pdf")
-
-            logger.info(f"准备保存PDF到: {temp_dir}")
-            logger.info(f"完整路径: {temp_file_path}")
-
-            try:
-                with open(temp_file_path, 'wb') as f:
-                    bytes_written = f.write(pdf_data)
-                logger.info(f"写入了 {bytes_written} 字节到文件")
-
-                # 验证文件是否存在
-                if os.path.exists(temp_file_path):
-                    file_size = os.path.getsize(temp_file_path)
-                    logger.info(f"文件验证成功: {temp_file_path}, 大小: {file_size} 字节")
-                else:
-                    logger.error(f"文件写入后不存在: {temp_file_path}")
-            except Exception as write_error:
-                logger.error(f"写入文件失败: {write_error}", exc_info=True)
+            logger.info("下载面单PDF成功，大小=%s字节", len(pdf_data))
 
             return pdf_data
 
@@ -231,7 +239,7 @@ class SFExpressService:
             logger.error(f"下载面单PDF失败: {waybill_no}, {e}")
             raise Exception(f"下载面单PDF失败: {str(e)}") from e
         except Exception as e:
-            logger.error(f"保存面单PDF到临时文件失败: {waybill_no}, {e}")
+            logger.error("处理面单PDF失败: %s", type(e).__name__)
             raise
 
     def get_waybill_pdf(self, rental) -> Dict:
@@ -260,12 +268,11 @@ class SFExpressService:
                     'success': False,
                     'message': '缺少运单号'
                 }
-            logger.info(f"Rental {rental.id}: 运单号 = {rental.ship_out_tracking_no}")
 
             # 检查收件人信息
             logger.info(f"Rental {rental.id}: 检查收件人信息")
             if not rental.customer_name or not rental.customer_phone or not rental.destination:
-                logger.error(f"Rental {rental.id} 缺少收件人信息: customer_name={rental.customer_name}, phone={rental.customer_phone}, destination={rental.destination}")
+                logger.error(f"Rental {rental.id} 缺少收件人信息")
                 return {
                     'success': False,
                     'message': '缺少收件人信息'
@@ -311,6 +318,13 @@ class SFExpressService:
             if rental.ship_in_time:
                 remark+=f"寄还时间：{rental.ship_in_time.strftime('%Y-%m-%d')} 16:00前"
 
+            if not self.waybill_template_code:
+                logger.error("顺丰面单模板未配置")
+                return {
+                    'success': False,
+                    'message': '顺丰面单模板未配置'
+                }
+
             # 构建面单打印请求数据
             waybill_data = {
                 'language': 'zh-CN',
@@ -321,20 +335,17 @@ class SFExpressService:
                         'remark': remark
                     }
                 ],
-                'templateCode': 'fm_76130_standard_Y45WBDEO',  # 标准模板
+                'templateCode': self.waybill_template_code,
                 'version': '2.0',
                 'fileType': 'pdf',  # 返回PDF格式
                 'sync': 1  # 同步返回
             }
 
             logger.info(f"Rental {rental.id}: 调用顺丰API获取面单PDF")
-            logger.info(f"Rental {rental.id}: 运单号 {rental.ship_out_tracking_no}")
-            logger.info(f"Rental {rental.id}: 面单请求数据: {waybill_data}")
 
             # 调用顺丰SDK
             logger.info(f"Rental {rental.id}: 开始调用顺丰SDK")
             result = self.client._call_sf_express_service('COM_RECE_CLOUD_PRINT_WAYBILLS', waybill_data)
-            logger.info(f"Rental {rental.id}: 顺丰API原始响应: {result}")
 
             # 检查API调用结果
             logger.info(f"Rental {rental.id}: 检查API响应码")
@@ -355,7 +366,6 @@ class SFExpressService:
             if isinstance(api_result_data, str):
                 logger.info(f"Rental {rental.id}: apiResultData是字符串，进行JSON解析")
                 api_result_data = json.loads(api_result_data)
-            logger.info(f"Rental {rental.id}: 解析后的apiResultData: {api_result_data}")
 
             if not api_result_data.get('success', False):
                 error_msg = api_result_data.get('errorMsg', '未知错误')
@@ -369,7 +379,6 @@ class SFExpressService:
             # 获取面单文件信息
             logger.info(f"Rental {rental.id}: 获取面单文件信息")
             obj = api_result_data.get('obj', {})
-            logger.info(f"Rental {rental.id}: obj = {obj}")
             files = obj.get('files', [])
             logger.info(f"Rental {rental.id}: files数量 = {len(files)}")
 
@@ -382,8 +391,6 @@ class SFExpressService:
 
             pdf_url = files[0]['url']
             pdf_token = files[0]['token']
-            logger.info(f"Rental {rental.id}: PDF URL = {pdf_url}")
-            logger.info(f"Rental {rental.id}: PDF Token = {pdf_token}")
 
             # 下载 pdf 文件
             logger.info(f"Rental {rental.id}: 开始下载PDF文件")

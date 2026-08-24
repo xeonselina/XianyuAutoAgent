@@ -11,7 +11,9 @@ config = context.config
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
-fileConfig(config.config_file_name)
+# Alembic may execute in-process during tests and fleet tooling.  Reconfiguring
+# its own handlers must not disable the application's already-created loggers.
+fileConfig(config.config_file_name, disable_existing_loggers=False)
 logger = logging.getLogger('alembic.env')
 
 
@@ -36,8 +38,17 @@ def get_engine_url():
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
-config.set_main_option('sqlalchemy.url', get_engine_url())
-target_db = current_app.extensions['migrate'].db
+provided_connection = config.attributes.get("connection")
+provided_metadata = config.attributes.get("target_metadata")
+
+# Fleet/default-migration tooling binds an already-open, independently
+# validated connection.  It must not need a Flask application context and it
+# must not turn that Connection back into a URL containing credentials.
+if provided_connection is None:
+    config.set_main_option('sqlalchemy.url', get_engine_url())
+    target_db = current_app.extensions['migrate'].db
+else:
+    target_db = None
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -46,6 +57,10 @@ target_db = current_app.extensions['migrate'].db
 
 
 def get_metadata():
+    if provided_connection is not None:
+        if provided_metadata is None:
+            raise RuntimeError("target metadata is required with a connection")
+        return provided_metadata
     if hasattr(target_db, 'metadatas'):
         return target_db.metadatas[None]
     return target_db.metadata
@@ -89,6 +104,17 @@ def run_migrations_online():
             if script.upgrade_ops.is_empty():
                 directives[:] = []
                 logger.info('No changes in schema detected.')
+
+    if provided_connection is not None:
+        context.configure(
+            connection=provided_connection,
+            target_metadata=get_metadata(),
+            compare_type=True,
+            process_revision_directives=process_revision_directives,
+        )
+        with context.begin_transaction():
+            context.run_migrations()
+        return
 
     conf_args = current_app.extensions['migrate'].configure_args
     if conf_args.get("process_revision_directives") is None:

@@ -4,7 +4,6 @@
 """
 import hashlib
 import logging
-import os
 import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
@@ -26,22 +25,27 @@ class KuaimaiPrintService:
         'getPrintJobStatus': '/api/cloud/print/result',
     }
 
-    def __init__(self):
-        """初始化快麦云打印服务"""
-        self.app_id = os.getenv('KUAIMAI_APP_ID', '')
-        self.app_secret = os.getenv('KUAIMAI_APP_SECRET', '')
-        self.default_printer_sn = os.getenv('KUAIMAI_PRINTER_SN', '')
-
-        logger.info(f"KUAIMAI_APP_ID: {self.app_id}")
-        logger.info(f"KUAIMAI_APP_SECRET: {self.app_secret}")
-        logger.info(f"KUAIMAI_PRINTER_SN: {self.default_printer_sn}")
+    def __init__(
+        self,
+        *,
+        app_id: str = "",
+        app_secret: str = "",
+        default_printer_sn: str = "",
+    ):
+        """Build the legacy test adapter from explicit values only."""
+        self.app_id = app_id
+        self.app_secret = app_secret
+        self.default_printer_sn = default_printer_sn
 
         # 验证配置
         if not self.app_id or not self.app_secret:
             logger.warning("快麦云打印服务未配置：缺少 KUAIMAI_APP_ID 或 KUAIMAI_APP_SECRET")
             self.configured = False
         else:
-            logger.info(f"快麦云打印服务初始化完成，AppID: {self.app_id}")
+            logger.info(
+                "快麦云打印服务初始化完成，默认打印机配置=%s",
+                bool(self.default_printer_sn),
+            )
             self.configured = True
 
     def _generate_sign(self, params: Dict) -> str:
@@ -66,7 +70,6 @@ class KuaimaiPrintService:
 
         # 计算MD5
         md5_hash = hashlib.md5(sign_str.encode('utf-8')).hexdigest()
-        logger.debug(f"生成签名: {md5_hash}")
         return md5_hash
 
     def _make_request(
@@ -109,7 +112,7 @@ class KuaimaiPrintService:
         url = f"{self.BASE_URL}{endpoint}"
 
         logger.info(f"调用快麦API: {method} -> {url}")
-        logger.debug(f"请求参数: {params}")
+        logger.debug("快麦请求字段: %s", sorted(params.keys()))
 
         try:
             # 直接发送params作为请求体，不嵌套在data字段中
@@ -122,7 +125,11 @@ class KuaimaiPrintService:
             response.raise_for_status()
 
             result = response.json()
-            logger.debug(f"API响应: {result}")
+            logger.debug(
+                "快麦API响应摘要: status=%s code=%s",
+                result.get('status'),
+                result.get('code'),
+            )
 
             # 检查业务错误
             # 文档显示成功时 status=true，失败时 status=false
@@ -180,7 +187,12 @@ class KuaimaiPrintService:
                 'error': error_msg
             }
 
-        logger.info(f"发起打印任务，打印机SN: {sn}, 份数: {copies}, 尺寸: {width}x{height}mm")
+        logger.info(
+            "发起打印任务，份数=%s，尺寸=%sx%smm",
+            copies,
+            width,
+            height,
+        )
 
         try:
             # 构建XML字符串，将base64图像嵌入到<img>标签中

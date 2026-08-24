@@ -43,6 +43,8 @@ coverage.xml
 
 # Environments
 .env
+.env.docker
+env.production
 .venv
 env/
 venv/
@@ -73,6 +75,10 @@ logs/
 # Database
 *.db
 *.sqlite3
+scripts/exported_data.sql
+*.sql.gz
+*.dump
+*.bak
 
 # Temporary files
 tmp/

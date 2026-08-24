@@ -16,31 +16,32 @@ from app.services.relay.relay_case_service import (
 )
 from app.services import xianyu_order_service
 from tests.support.test_database import (
-    assert_current_user_has_test_only_grants,
     build_mysql_test_config,
+    clear_guarded_mysql_test_rows,
+    guarded_mysql_test_metadata,
 )
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def app():
     if not os.environ.get("TEST_DATABASE_URL"):
-        return create_app("testing")
-    app = create_app(build_mysql_test_config())
-    with app.app_context():
-        with db.engine.connect() as connection:
-            assert_current_user_has_test_only_grants(
-                connection, db.engine.url.database
-            )
-    return app
+        pytest.fail("TEST_DATABASE_URL is required for database tests")
+    application = create_app(build_mysql_test_config())
+    with application.app_context():
+        with guarded_mysql_test_metadata(db.engine, db.metadata):
+            yield application
+        db.session.remove()
 
 
 @pytest.fixture
 def db_session(app):
     with app.app_context():
-        db.create_all()
-        yield db.session
-        db.session.rollback()
-        db.drop_all()
+        clear_guarded_mysql_test_rows(db.engine, db.metadata)
+        try:
+            yield db.session
+        finally:
+            db.session.rollback()
+            db.session.remove()
 
 
 def seed_pair(db_session, overlap_days=2):
@@ -63,10 +64,20 @@ def seed_pair(db_session, overlap_days=2):
     first_ship_out = date(2026, 8, 1)
     first_ship_in = date(2026, 8, 9)
     second_ship_out = first_ship_in - timedelta(days=overlap_days)
+    logistics_days = 1
+    buffer = timedelta(days=logistics_days + 1)
+    first_start = date(2026, 8, 2)
+    first_end = date(2026, 8, 5)
+    first_planned_return = first_end + buffer
+    second_start = first_planned_return + buffer - timedelta(days=overlap_days)
+    second_end = second_start + timedelta(days=4)
     first = Rental(
         device_id=device.id,
-        start_date=date(2026, 8, 2),
-        end_date=date(2026, 8, 5),
+        start_date=first_start,
+        end_date=first_end,
+        logistics_days=logistics_days,
+        planned_ship_out_date=first_start - buffer,
+        planned_return_date=first_planned_return,
         ship_out_time=datetime.combine(first_ship_out, time(19)),
         ship_in_time=datetime.combine(first_ship_in, time(12)),
         customer_name="前单",
@@ -76,8 +87,11 @@ def seed_pair(db_session, overlap_days=2):
     )
     second = Rental(
         device_id=device.id,
-        start_date=second_ship_out + timedelta(days=3),
-        end_date=second_ship_out + timedelta(days=7),
+        start_date=second_start,
+        end_date=second_end,
+        logistics_days=logistics_days,
+        planned_ship_out_date=second_start - buffer,
+        planned_return_date=second_end + buffer,
         ship_out_time=datetime.combine(second_ship_out, time(19)),
         ship_in_time=datetime.combine(second_ship_out + timedelta(days=9), time(12)),
         customer_name="后单",
@@ -88,6 +102,16 @@ def seed_pair(db_session, overlap_days=2):
     db_session.add_all([first, second])
     db_session.commit()
     return first, second
+
+
+def set_planned_overlap(predecessor, successor, overlap_days):
+    buffer = timedelta(days=successor.logistics_days + 1)
+    successor.start_date = (
+        predecessor.planned_return_date + buffer - timedelta(days=overlap_days)
+    )
+    successor.end_date = successor.start_date + timedelta(days=4)
+    successor.planned_ship_out_date = successor.start_date - buffer
+    successor.planned_return_date = successor.end_date + buffer
 
 
 def test_agreed_creates_binding_audit_and_reached_milestones(app, db_session):
@@ -376,7 +400,7 @@ def test_schedule_changed_case_cannot_newly_agree(app, db_session):
         status="notified",
     )
     db_session.add(relay_case)
-    second.ship_out_time = first.ship_in_time
+    set_planned_overlap(first, second, 1)
     db_session.commit()
 
     with pytest.raises(ValueError, match="档期已变化"):
@@ -392,7 +416,7 @@ def test_existing_agreed_case_can_ship_after_schedule_changes(app, db_session):
     relay_case = RelayCaseService.update_case(
         first.id, second.id, "agreed"
     ).relay_case
-    second.ship_out_time = first.ship_in_time
+    set_planned_overlap(first, second, 1)
     db_session.commit()
 
     updated = RelayCaseService.update_case(
@@ -415,6 +439,9 @@ def test_conflicting_binding_rejects_agreed_and_keeps_case_unchanged(
         device_id=first.device_id,
         start_date=date(2026, 8, 20),
         end_date=date(2026, 8, 23),
+        logistics_days=1,
+        planned_ship_out_date=date(2026, 8, 18),
+        planned_return_date=date(2026, 8, 25),
         ship_out_time=datetime(2026, 8, 18, 19),
         ship_in_time=datetime(2026, 8, 25, 12),
         customer_name="冲突后单",

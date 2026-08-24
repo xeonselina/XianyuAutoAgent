@@ -17,6 +17,8 @@ env/
 ENV/
 .venv/
 .env
+.env.*
+env.production
 
 # IDE文件
 .vscode/
@@ -33,6 +35,18 @@ Thumbs.db
 *.log
 logs/*
 !logs/.gitkeep
+
+# Secrets, exports, backups, and internal exploration notes must never enter an
+# image build context. Runtime configuration is injected by the deploy system.
+PROJECT_EXPLORATION.md
+scripts/exported_data.sql
+simple_backup.sh
+backups/
+*.sql.gz
+*.dump
+*.bak
+*.pem
+*.key
 
 # 临时文件
 tmp/

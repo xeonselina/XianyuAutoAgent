@@ -8,11 +8,13 @@ from flask import request, current_app
 from app import db
 from app.models.rental import Rental
 from app.models.rental_relay_binding import RentalRelayBinding
+from app.services.rental.rental_service import RentalService
 from app.utils.response import (
     ApiResponse,
     success,
     bad_request,
     not_found,
+    error,
     server_error
 )
 from app.services.shipping.waybill_print_service import get_waybill_print_service
@@ -63,6 +65,20 @@ class ShippingBatchHandlers:
             results = []
 
             for rental in rentals:
+                if rental.parent_rental_id is not None:
+                    reason = '附件租赁必须通过主租赁更新'
+                    results.append({
+                        'success': False,
+                        'rental_id': rental.id,
+                        'message': reason,
+                        'waybill_no': None,
+                    })
+                    failed_rentals.append({
+                        'id': rental.id,
+                        'reason': reason,
+                        'waybill_no': None,
+                    })
+                    continue
                 if rental.id in relay_successor_ids:
                     reason = '接力订单由前一位客户直接寄出，不能批量预约发货'
                     current_app.logger.info(
@@ -141,10 +157,19 @@ class ShippingBatchHandlers:
 
                     current_app.logger.info(f"Rental {rental.id} 顺丰下单成功，运单号: {waybill_no}")
 
-                    # 保存运单号和预约时间
-                    rental.ship_out_tracking_no = waybill_no
-                    rental.scheduled_ship_time = scheduled_time
-                    rental.status = 'scheduled_for_shipping'
+                    # Provider calls stay outside the row-lock section.  Stage
+                    # the successful local final write in this batch's
+                    # existing transaction and commit all staged rows below.
+                    with db.session.begin_nested():
+                        rental = RentalService.update_rental_with_accessories(
+                            rental.id,
+                            {
+                                'ship_out_tracking_no': waybill_no,
+                                'scheduled_ship_time': scheduled_time,
+                                'status': 'scheduled_for_shipping',
+                            },
+                            commit=False,
+                        )
 
                     success_count += 1
                     result_item = {
@@ -242,14 +267,28 @@ class ShippingBatchHandlers:
             if not rental_id or express_type_id is None:
                 return bad_request('缺少必要参数: rental_id 和 express_type_id')
 
-            # 验证快递类型ID
-            if express_type_id not in [1, 2, 263]:
+            # JSON boolean values compare equal to integers in Python; reject
+            # them explicitly so only the documented SF product IDs are stored.
+            if (
+                not isinstance(express_type_id, int)
+                or isinstance(express_type_id, bool)
+                or express_type_id not in (1, 2, 263)
+            ):
                 return bad_request('快递类型无效')
 
             # 查询租赁记录
-            rental = Rental.query.get(rental_id)
+            rental = db.session.get(Rental, rental_id)
             if not rental:
                 return not_found('租赁记录不存在')
+
+            # The selected product is part of the carrier order contract. Once
+            # a waybill exists, changing only the local field would make the UI
+            # disagree with the immutable provider order.
+            if (
+                rental.ship_out_tracking_no
+                or rental.status in ('scheduled_for_shipping', 'shipped')
+            ):
+                return error('运单已创建，快递类型不可修改', status_code=409)
 
             # 更新快递类型
             rental.express_type_id = express_type_id
@@ -343,6 +382,8 @@ class ShippingBatchHandlers:
             rental = Rental.query.get(rental_id)
             if not rental:
                 return not_found('租赁记录不存在')
+            if rental.parent_rental_id is not None:
+                return bad_request('附件租赁必须通过主租赁更新')
 
             # 验证必要字段
             if not rental.xianyu_order_no:
@@ -368,12 +409,10 @@ class ShippingBatchHandlers:
                 current_app.logger.error(f"Rental {rental_id} 闲鱼发货失败: {error_msg}")
                 return bad_request(f'闲鱼发货失败: {error_msg}')
 
-            # 更新租赁状态
-            rental.status = 'shipped'
-            if not rental.ship_out_time:
-                rental.ship_out_time = datetime.utcnow()
-
-            db.session.commit()
+            RentalService.update_rental_with_accessories(
+                rental.id,
+                {'status': 'shipped'},
+            )
             current_app.logger.info(f"Rental {rental_id} 发货到闲鱼成功")
 
             return success(

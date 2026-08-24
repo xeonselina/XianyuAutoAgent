@@ -71,17 +71,21 @@ class SFExpressSDK:
             msgDigest = base64.b64encode(md5Str).decode('utf-8')
             data = {"partnerID": self.partner_id,"requestID": request_id,"serviceCode": service_code,"timestamp": timestamp,"msgDigest": msgDigest,"msgData": msg_data_str}
             # 发送post请求
-            logger.info(f"调用顺丰API : {service_code} with ")
-            logger.info("msg_data_str: " + msg_data_str)
-            logger.info("msgDigest: " + msgDigest)
-            logger.info(f"请求数据: {data}")
-            logger.info(f"req_url: {self.req_url}")
+            logger.info(
+                "调用顺丰API: service=%s request_id=%s",
+                service_code,
+                request_id,
+            )
             response = requests.post(self.req_url, data=data)
             logger.info(f"HTTP状态码: {response.status_code}")
-            logger.info(f"响应内容: {response.text}")
 
             response.raise_for_status()
             result = response.json()
+            logger.info(
+                "顺丰API响应摘要: service=%s code=%s",
+                service_code,
+                result.get('apiResultCode'),
+            )
 
             return result
 
@@ -155,14 +159,14 @@ class SFExpressSDK:
                 waybill_no = waybill_no_info_list[0].get('waybillNo')
 
             if not waybill_no:
-                logger.error(f"顺丰API未返回运单号, apiResultData: {api_result_data_str}")
+                logger.error("顺丰API未返回运单号")
                 return {
                     'success': False,
                     'message': '顺丰API未返回运单号',
                     'code': response.get('apiResultCode')
                 }
 
-            logger.info(f"顺丰下单成功，运单号: {waybill_no}")
+            logger.info("顺丰下单成功")
             return {
                 'success': True,
                 'message': '下单成功',
@@ -171,14 +175,14 @@ class SFExpressSDK:
             }
 
         except json.JSONDecodeError as e:
-            logger.error(f"解析apiResultData失败: {e}, 原始数据: {response.get('apiResultData')}")
+            logger.error("解析apiResultData失败: %s", e)
             return {
                 'success': False,
                 'message': '顺丰API响应格式异常',
                 'code': response.get('apiResultCode')
             }
         except (KeyError, TypeError) as e:
-            logger.error(f"提取运单号失败: {e}, apiResultData: {response.get('apiResultData')}")
+            logger.error("提取运单号失败: %s", e)
             return {
                 'success': False,
                 'message': f'解析运单号失败: {str(e)}',
@@ -310,7 +314,10 @@ class SFExpressSDK:
         """
         result = {}
 
-        logger.info(f"开始解析路由响应: {response}")
+        logger.info(
+            "开始解析路由响应: code=%s",
+            response.get("apiResultCode"),
+        )
 
         if response.get("apiResultCode") != "A1000":
             logger.error(f"API调用失败: {response.get('apiErrorMsg', '未知错误')}")
@@ -321,7 +328,10 @@ class SFExpressSDK:
             api_result_data_str = response.get("apiResultData", "{}")
             api_result_data = json.loads(api_result_data_str) if isinstance(api_result_data_str, str) else api_result_data_str
 
-            logger.info(f"解析后的 apiResultData: {api_result_data}")
+            logger.info(
+                "解析顺丰路由响应: success=%s",
+                api_result_data.get("success", False),
+            )
 
             if not api_result_data.get("success", False):
                 logger.error(f"查询失败: {api_result_data.get('errorMsg', '未知错误')}")

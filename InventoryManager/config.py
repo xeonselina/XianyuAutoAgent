@@ -12,21 +12,36 @@ def _get_database_uri():
     is_docker = os.path.exists('/.dockerenv')
 
     if is_docker:
-        # 在Docker容器中，使用DATABASE_URL (host.docker.internal)
-        return os.environ.get('DATABASE_URL') or \
-            'mysql+pymysql://root:password@host.docker.internal/inventory_management'
+        # 容器环境必须显式注入连接串，禁止内置数据库口令。
+        return os.environ.get('DATABASE_URL')
     else:
         # 在本地环境中，优先使用DATABASE_URL_HOST (localhost)
         return os.environ.get('DATABASE_URL_HOST') or \
             os.environ.get('DATABASE_URL') or \
-            'mysql+pymysql://root:password@localhost/inventory_management'
+            'sqlite:///inventory_management.db'
 
 
 class Config:
     """基础配置类"""
 
-    # 基础配置
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
+    # These three legacy reads still use the process-global single-tenant
+    # Flask-SQLAlchemy session.  Keep them unavailable in every runtime unless
+    # an isolated test configuration opts in explicitly; production must not
+    # infer tenant authority from that global session.
+    ENABLE_LEGACY_SINGLE_TENANT_GANTT_READS = False
+
+    # Rental handlers still use the legacy process-global database bind.  No
+    # non-test configuration may reach them while tenant routing is migrated.
+    ENABLE_LEGACY_SINGLE_TENANT_RENTAL_API = False
+
+    # Inspection handlers also use the process-global database bind.  Only
+    # isolated compatibility tests may opt into them while the SaaS runtime
+    # owns every production inspection request.
+    ENABLE_LEGACY_SINGLE_TENANT_INSPECTION_API = False
+    ENABLE_LEGACY_SINGLE_TENANT_RELAY_API = False
+    ENABLE_LEGACY_SINGLE_TENANT_XIANYU_ALERT_API = False
+    ENABLE_LEGACY_SINGLE_TENANT_SHIPPING_BATCH_API = False
+    ENABLE_LEGACY_SINGLE_TENANT_TRACKING_API = False
 
     # 数据库配置
     SQLALCHEMY_DATABASE_URI = _get_database_uri()
@@ -35,6 +50,16 @@ class Config:
         'pool_size': 10,
         'pool_recycle': 3600,
         'pool_pre_ping': True
+    }
+
+    # SaaS control plane.  It remains independent from Flask-SQLAlchemy and is
+    # initialized only when an explicit URL is present.
+    CONTROL_DATABASE_URL = os.environ.get('CONTROL_DATABASE_URL')
+    CONTROL_DATABASE_ENGINE_OPTIONS = {
+        'pool_size': 5,
+        'max_overflow': 5,
+        'pool_recycle': 3600,
+        'pool_pre_ping': True,
     }
     
     # 应用配置
@@ -91,13 +116,26 @@ class TestingConfig(Config):
     TESTING = True
     SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
     SQLALCHEMY_ENGINE_OPTIONS = {}
+    CONTROL_DATABASE_URL = None
+    CONTROL_DATABASE_ENGINE_OPTIONS = {}
     WTF_CSRF_ENABLED = False
+    # Isolated legacy Gantt transaction regressions use an ephemeral key with
+    # a test-only name.  Core has no generic Flask SECRET_KEY authority.
+    LEGACY_GANTT_TEST_SIGNING_KEY = os.urandom(32)
+    ENABLE_LEGACY_SINGLE_TENANT_GANTT_READS = True
+    ENABLE_LEGACY_SINGLE_TENANT_RENTAL_API = True
+    ENABLE_LEGACY_SINGLE_TENANT_INSPECTION_API = True
+    ENABLE_LEGACY_SINGLE_TENANT_RELAY_API = True
+    ENABLE_LEGACY_SINGLE_TENANT_XIANYU_ALERT_API = True
+    ENABLE_LEGACY_SINGLE_TENANT_SHIPPING_BATCH_API = True
+    ENABLE_LEGACY_SINGLE_TENANT_TRACKING_API = True
 
 
 class ProductionConfig(Config):
     """生产环境配置"""
     DEBUG = False
     SQLALCHEMY_ECHO = False
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
     
     # 生产环境安全设置
     SESSION_COOKIE_SECURE = True
@@ -110,11 +148,10 @@ class ProductionConfig(Config):
 class DockerConfig(Config):
     """Docker环境配置"""
     # Docker环境下的数据库连接
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
-        'mysql+pymysql://inventory_user:inventory_pass@mysql:3306/inventory_management'
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
     
     # Docker环境下的Redis连接（如果使用）
-    REDIS_URL = os.environ.get('REDIS_URL') or 'redis://redis:6379/0'
+    REDIS_URL = os.environ.get('REDIS_URL')
 
 
 # 配置映射

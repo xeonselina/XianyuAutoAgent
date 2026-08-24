@@ -63,6 +63,7 @@ export async function updateRelayCase(
   payload: {
     status: RelayCaseStatus
     sf_tracking_number?: string
+    accessory_note?: string | null
   },
 ): Promise<RelayCaseMutationResponse> {
   return request(axios.put<ApiResponse<RelayCaseMutationResponse>>(

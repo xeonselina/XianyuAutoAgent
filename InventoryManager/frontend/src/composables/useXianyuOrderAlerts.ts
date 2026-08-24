@@ -21,6 +21,7 @@ export function useXianyuOrderAlerts() {
   const snapshot = ref<XianyuOrderAlertSnapshot>(emptySnapshot())
   const loading = ref(false)
   let pollingTimer: ReturnType<typeof setInterval> | undefined
+  let visibilityListenerInstalled = false
   let latestReadId = 0
   let mutationVersion = 0
   let mutationCount = 0
@@ -78,9 +79,30 @@ export function useXianyuOrderAlerts() {
   const refresh = async () => {
     try {
       await enqueueMutation(async () => {
-        applyResponse(
-          await axios.post('/api/xianyu-order-alerts/refresh'),
-        )
+        const response = await axios.post('/api/xianyu-order-alerts/refresh')
+        const data = response?.data?.data
+        if (
+          response?.data?.success
+          && data
+          && typeof data.job_id === 'string'
+          && Number.isInteger(data.snapshot_revision)
+        ) {
+          snapshot.value = {
+            ...snapshot.value,
+            refreshing: true,
+            snapshot_revision: data.snapshot_revision,
+            sync_status: 'syncing',
+            sync: {
+              ...snapshot.value.sync,
+              snapshot_revision: data.snapshot_revision,
+              sync_status: 'syncing',
+              current_job_uuid: data.job_id,
+            },
+          }
+          return
+        }
+        // Test-only legacy compatibility returns a complete snapshot.
+        applyResponse(response)
       })
     } catch (error: any) {
       console.error('刷新闲鱼漏录订单告警失败:', error)
@@ -108,17 +130,32 @@ export function useXianyuOrderAlerts() {
     }
   }
 
-  const startPolling = (intervalMs = 60_000) => {
-    if (pollingTimer) return
-    pollingTimer = setInterval(() => {
+  const readWhenVisible = () => {
+    if (
+      typeof document === 'undefined'
+      || document.visibilityState === 'visible'
+    ) {
       void load()
-    }, intervalMs)
+    }
+  }
+
+  const startPolling = (intervalMs = 180_000) => {
+    if (pollingTimer) return
+    pollingTimer = setInterval(readWhenVisible, intervalMs)
+    if (typeof document !== 'undefined' && !visibilityListenerInstalled) {
+      document.addEventListener('visibilitychange', readWhenVisible)
+      visibilityListenerInstalled = true
+    }
   }
 
   const stopPolling = () => {
     if (!pollingTimer) return
     clearInterval(pollingTimer)
     pollingTimer = undefined
+    if (typeof document !== 'undefined' && visibilityListenerInstalled) {
+      document.removeEventListener('visibilitychange', readWhenVisible)
+      visibilityListenerInstalled = false
+    }
   }
 
   onUnmounted(stopPolling)

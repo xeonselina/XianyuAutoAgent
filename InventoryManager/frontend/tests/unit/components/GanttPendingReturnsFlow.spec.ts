@@ -80,11 +80,14 @@ const alertSnapshot = {
   },
 }
 
-const mountGantt = async (devices: Device[] = []) => {
+const mountGantt = async (devices: Device[] = [], pendingCount = 0) => {
   const pinia = createPinia()
   setActivePinia(pinia)
   const store = useGanttStore()
   store.devices = devices
+  store.summaries = {
+    pending_returns: { count: pendingCount, revision: `test:${pendingCount}` },
+  }
   const loadData = vi.spyOn(store, 'loadData').mockResolvedValue(undefined)
   const wrapper = shallowMount(GanttChart, {
     global: {
@@ -225,11 +228,11 @@ describe('GanttChart pending-returns flow', () => {
     expect(disconnectGanttBody).toHaveBeenCalledTimes(1)
   })
 
-  it('loads the total and refreshes the list when opening the drawer', async () => {
-    const { wrapper } = await mountGantt()
+  it('uses the range summary and loads the list only when opening the drawer', async () => {
+    const { wrapper } = await mountGantt([], 1)
 
     expect(wrapper.get('.pending-returns-badge').attributes('data-value')).toBe('1')
-    expect(axiosGet).toHaveBeenCalledWith('/api/rentals/pending-returns')
+    expect(axiosGet).not.toHaveBeenCalledWith('/api/rentals/pending-returns')
     expect(wrapper.get('[data-testid="pending-returns-button"]').text()).toContain(
       '待归还',
     )
@@ -240,7 +243,7 @@ describe('GanttChart pending-returns flow', () => {
     const pendingCalls = axiosGet.mock.calls.filter(
       ([url]) => url === '/api/rentals/pending-returns',
     )
-    expect(pendingCalls).toHaveLength(2)
+    expect(pendingCalls).toHaveLength(1)
     expect(
       wrapper.findComponent(PendingReturnsDrawer).props('modelValue'),
     ).toBe(true)

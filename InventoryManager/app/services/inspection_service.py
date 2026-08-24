@@ -9,6 +9,7 @@ from app.models.rental import Rental
 from app.models.device import Device
 from app.models.inspection_record import InspectionRecord
 from app.models.inspection_check_item import InspectionCheckItem
+from app.models.warehouse import DeviceWarehouseMovement, Warehouse
 from app.services.checklist_generator import ChecklistGenerator
 
 
@@ -94,6 +95,126 @@ class InspectionService:
         db.session.commit()
         
         return inspection_record
+
+    @staticmethod
+    def create_inspection_record_in_warehouse(
+        *,
+        rental_id: int,
+        device_id: int,
+        check_items: List[Dict[str, any]],
+        inspector_user_uuid: str,
+        warehouse_id: Optional[int] = None,
+    ) -> InspectionRecord:
+        """Create the first SaaS inspection and move the device atomically.
+
+        This explicit entry point is ready for the authenticated tenant route.
+        The legacy endpoint remains unchanged until its request contract gains
+        trusted user context and warehouse selection.
+        """
+
+        if (
+            not isinstance(inspector_user_uuid, str)
+            or not inspector_user_uuid.strip()
+        ):
+            raise ValueError("inspector_user_uuid is required")
+        if not isinstance(check_items, list) or not check_items:
+            raise ValueError("check_items must be a non-empty list")
+
+        try:
+            device = (
+                Device.query.filter(Device.id == device_id)
+                .with_for_update()
+                .one_or_none()
+            )
+            if device is None:
+                raise ValueError(f"Device {device_id} not found")
+            rental = (
+                Rental.query.filter(Rental.id == rental_id)
+                .with_for_update()
+                .one_or_none()
+            )
+            if rental is None:
+                raise ValueError(f"Rental {rental_id} not found")
+            if rental.device_id != device.id:
+                raise ValueError("rental and device do not match")
+
+            ready_warehouses = (
+                Warehouse.query.filter(
+                    Warehouse.status == "active",
+                    Warehouse.setup_state == "ready",
+                )
+                .order_by(Warehouse.is_default.desc(), Warehouse.id.asc())
+                .with_for_update()
+                .all()
+            )
+            if not ready_warehouses:
+                raise ValueError("no active ready warehouse is available")
+            if warehouse_id is None:
+                if len(ready_warehouses) != 1:
+                    raise ValueError("warehouse_id is required for multi-warehouse")
+                target_warehouse = ready_warehouses[0]
+            else:
+                target_warehouse = next(
+                    (
+                        warehouse
+                        for warehouse in ready_warehouses
+                        if warehouse.id == warehouse_id
+                    ),
+                    None,
+                )
+                if target_warehouse is None:
+                    raise ValueError("warehouse must be active and ready")
+
+            status = (
+                "normal"
+                if all(item.get("is_checked", False) for item in check_items)
+                else "abnormal"
+            )
+            now = datetime.now()
+            inspection_record = InspectionRecord(
+                rental_id=rental.id,
+                device_id=device.id,
+                status=status,
+                inspector_user_uuid=inspector_user_uuid.strip(),
+                warehouse_id=target_warehouse.id,
+                created_at=now,
+                updated_at=now,
+            )
+            db.session.add(inspection_record)
+            db.session.flush()
+
+            for item_data in check_items:
+                if not isinstance(item_data, dict) or not item_data.get("name"):
+                    raise ValueError("each check item requires a name")
+                db.session.add(
+                    InspectionCheckItem(
+                        inspection_record_id=inspection_record.id,
+                        item_name=item_data["name"],
+                        is_checked=item_data.get("is_checked", False),
+                        item_order=item_data.get("order", 0),
+                    )
+                )
+
+            from_warehouse_id = device.warehouse_id
+            if from_warehouse_id != target_warehouse.id:
+                device.warehouse_id = target_warehouse.id
+                db.session.add(
+                    DeviceWarehouseMovement(
+                        device_id=device.id,
+                        from_warehouse_id=from_warehouse_id,
+                        to_warehouse_id=target_warehouse.id,
+                        source="inspection",
+                        actor_user_id=inspector_user_uuid.strip(),
+                        related_resource_type="inspection_record",
+                        related_resource_id=str(inspection_record.id),
+                    )
+                )
+
+            db.session.commit()
+            return inspection_record
+        except Exception:
+            db.session.rollback()
+            raise
     
     @staticmethod
     def get_inspection_record(inspection_id: int) -> Optional[InspectionRecord]:

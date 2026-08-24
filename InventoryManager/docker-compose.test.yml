@@ -7,7 +7,7 @@ services:
       MYSQL_USER: inventory_test
       MYSQL_PASSWORD: inventory_test_password
     ports:
-      - "3307:3306"
+      - "127.0.0.1:3307:3306"
     tmpfs:
       - /var/lib/mysql
     healthcheck:
@@ -17,7 +17,7 @@ services:
         - ping
         - -h
         - localhost
-        - -ptest_root_password
+        - --silent
       interval: 2s
       timeout: 2s
       retries: 30

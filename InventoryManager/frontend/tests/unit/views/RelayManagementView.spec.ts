@@ -65,6 +65,8 @@ const relayCase: RelayCase = {
     summary: '运送中 · 2026-08-05 10:00:00',
     last_checked_at: '2026-08-05T10:01:00',
   },
+  accessory_note: null,
+  accessory_note_updated_at: null,
   created_at: '2026-08-01T10:00:00',
   updated_at: '2026-08-05T10:01:00',
 }

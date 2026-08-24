@@ -63,11 +63,6 @@ export const usePendingReturns = () => {
 
       returnedIds.add(rentalId)
       rentals.value = rentals.value.filter((rental) => rental.id !== rentalId)
-      try {
-        await load()
-      } catch {
-        // 状态已成功更新时保留本地移除结果，避免误报更新失败。
-      }
     } finally {
       const nextUpdatingIds = new Set(updatingIds.value)
       nextUpdatingIds.delete(rentalId)

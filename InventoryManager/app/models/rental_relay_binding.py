@@ -1,6 +1,6 @@
 """主 rental 之间的永久接力关系。"""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app import db
 
@@ -62,9 +62,30 @@ class RentalRelayBinding(db.Model):
             raise ValueError("接力 rental 缺少设备")
         if predecessor.device.model_id != successor.device.model_id:
             raise ValueError("接力 rental 必须属于同一型号")
-        if not predecessor.ship_out_time or not successor.ship_out_time:
-            raise ValueError("接力 rental 缺少寄出时间")
-        if predecessor.ship_out_time >= successor.ship_out_time:
+
+        planned_ship_dates = []
+        for rental in (predecessor, successor):
+            logistics_days = rental.logistics_days
+            if (
+                not isinstance(logistics_days, int)
+                or isinstance(logistics_days, bool)
+                or not 0 <= logistics_days <= 7
+            ):
+                raise ValueError("接力 rental 缺少有效物流天数")
+            if (
+                rental.planned_ship_out_date is None
+                or rental.planned_return_date is None
+            ):
+                raise ValueError("接力 rental 缺少计划物流事实")
+            buffer = timedelta(days=logistics_days + 1)
+            if (
+                rental.planned_ship_out_date != rental.start_date - buffer
+                or rental.planned_return_date != rental.end_date + buffer
+            ):
+                raise ValueError("接力 rental 计划物流事实已漂移")
+            planned_ship_dates.append(rental.planned_ship_out_date)
+
+        if planned_ship_dates[0] >= planned_ship_dates[1]:
             raise ValueError("接力顺序不正确")
 
     def to_dict(self):

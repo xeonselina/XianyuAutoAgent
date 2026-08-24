@@ -55,13 +55,7 @@ def test_sf_order(rental_id):
             'data': result.get('data'),
             'test_mode': sf_service.client.test_mode,
             'auth_method': 'OAuth2.0' if sf_service.client.use_oauth else 'msgDigest',
-            'rental_info': {
-                'id': rental.id,
-                'customer_name': rental.customer_name,
-                'customer_phone': rental.customer_phone,
-                'destination': rental.destination,
-                'tracking_no': rental.ship_out_tracking_no
-            }
+            'rental_id': rental.id
         }), 200 if result.get('success') else 400
 
     except Exception as e:
@@ -89,11 +83,11 @@ def test_sf_status():
                 'api_url': sf_service.client.req_url,
                 'partner_id_configured': bool(sf_service.client.partner_id),
                 'checkword_configured': bool(sf_service.client.checkword),
-                'sender_info': {
-                    'name': sf_service.sender_name,
-                    'phone': sf_service.sender_phone,
-                    'address': sf_service.sender_address
-                }
+                'sender_configured': all((
+                    sf_service.sender_name,
+                    sf_service.sender_phone,
+                    sf_service.sender_address,
+                ))
             }
         }), 200
 
@@ -145,8 +139,8 @@ def test_mock_order():
             'waybillNo': data.get('waybill_no', 'SF1234567890')
         }
 
-        logger.info(f"测试模拟顺丰下单, 测试模式: {sf_service.client.test_mode}")
-        logger.debug(f"订单数据: {order_data}")
+        logger.info("测试模拟顺丰下单, 测试模式: %s", sf_service.client.test_mode)
+        logger.debug("模拟订单字段: %s", sorted(order_data.keys()))
 
         # 调用顺丰SDK下单
         result = sf_service.create_order(order_data)
@@ -156,8 +150,7 @@ def test_mock_order():
             'message': result.get('message'),
             'data': result.get('data'),
             'test_mode': sf_service.client.test_mode,
-            'auth_method': 'OAuth2.0' if sf_service.client.use_oauth else 'msgDigest',
-            'request_data': order_data
+            'auth_method': 'OAuth2.0' if sf_service.client.use_oauth else 'msgDigest'
         }), 200 if result.get('success') else 400
 
     except Exception as e:

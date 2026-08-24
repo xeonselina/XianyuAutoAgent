@@ -1,6 +1,6 @@
 """甘特图档期重排数据库编排服务。"""
 
-from datetime import date, datetime, time
+from datetime import date
 from dataclasses import replace
 import hashlib
 import json
@@ -8,6 +8,7 @@ import uuid
 
 from flask import current_app
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from sqlalchemy.orm import Session as OrmSession
 
 from app import db
 from app.models.device import Device
@@ -16,6 +17,18 @@ from app.models.rental import Rental
 from app.models.rental_relay_binding import RentalRelayBinding
 from app.services.gantt.reorder_solver import GanttReorderSolver
 from app.services.gantt.reorder_types import ScheduleBlock
+from app.services.scheduling import (
+    ACTIVE_RENTAL_STATUSES,
+    RentalSchedule,
+    ScheduleOverlapPolicy,
+)
+from inventory_control.proofs import (
+    GanttPreviewContent,
+    GanttPreviewFenceReleaseUncertain,
+    GanttPreviewProofAdapter,
+    GanttPreviewProofError,
+)
+from inventory_control.tenant_http import AuthContext
 
 
 class StalePreviewError(ValueError):
@@ -28,6 +41,7 @@ class GanttReorderService:
     TOKEN_SALT = "gantt-schedule-reorder-v1"
     TOKEN_MAX_AGE_SECONDS = 600
     SOLVER_VERSION = "cp-sat-v1"
+    _schedule_overlap_policy = ScheduleOverlapPolicy()
 
     @staticmethod
     def _customer(rental):
@@ -36,8 +50,18 @@ class GanttReorderService:
             "customer_name": rental.customer_name,
             "customer_phone": rental.customer_phone,
             "destination": rental.destination,
-            "ship_out_time": rental.ship_out_time.isoformat(),
-            "ship_in_time": rental.ship_in_time.isoformat(),
+            "ship_out_time": (
+                rental.ship_out_time.isoformat()
+                if rental.ship_out_time
+                else None
+            ),
+            "ship_in_time": (
+                rental.ship_in_time.isoformat()
+                if rental.ship_in_time
+                else None
+            ),
+            "planned_ship_out_date": rental.planned_ship_out_date.isoformat(),
+            "planned_return_date": rental.planned_return_date.isoformat(),
         }
 
     @staticmethod
@@ -45,29 +69,26 @@ class GanttReorderService:
         return (
             rental.parent_rental_id is None
             and rental.status == "not_shipped"
-            and rental.ship_out_time is not None
-            and rental.ship_out_time.date() >= today
+            and rental.planned_ship_out_date is not None
+            and rental.planned_ship_out_date >= today
             and rental.device is not None
             and rental.device.model_id is not None
         )
 
     @classmethod
-    def analyze(cls, today=None):
+    def analyze(cls, today=None, *, tenant_session=None):
         today = today or date.today()
-        day_start = datetime.combine(today, time.min)
+        session = tenant_session or db.session
         bindings = {
             (item.predecessor_rental_id, item.successor_rental_id): item
-            for item in RentalRelayBinding.query.all()
+            for item in session.query(RentalRelayBinding).all()
         }
-        rentals = Rental.query.filter(
+        rentals = session.query(Rental).filter(
             Rental.parent_rental_id.is_(None),
-            Rental.status != "cancelled",
-            Rental.ship_out_time.isnot(None),
-            Rental.ship_in_time.isnot(None),
-            Rental.ship_in_time >= day_start,
+            Rental.status.in_(tuple(sorted(ACTIVE_RENTAL_STATUSES))),
         ).order_by(
             Rental.device_id,
-            Rental.ship_out_time,
+            Rental.start_date,
             Rental.id,
         ).all()
 
@@ -77,22 +98,38 @@ class GanttReorderService:
 
         overlaps = []
         for device_rentals in by_device.values():
-            for predecessor, successor in zip(
-                device_rentals, device_rentals[1:]
-            ):
-                overlap_days = (
-                    predecessor.ship_in_time.date()
-                    - successor.ship_out_time.date()
-                ).days
-                if overlap_days <= 0:
+            rental_by_id = {rental.id: rental for rental in device_rentals}
+            evaluation = cls._schedule_overlap_policy.evaluate(
+                tuple(
+                    RentalSchedule(
+                        rental_id=rental.id,
+                        device_id=rental.device_id,
+                        start_date=rental.start_date,
+                        end_date=rental.end_date,
+                        logistics_days=rental.logistics_days,
+                        status=rental.status,
+                        planned_ship_out_date=rental.planned_ship_out_date,
+                        planned_return_date=rental.planned_return_date,
+                    )
+                    for rental in device_rentals
+                ),
+                tenant_timezone=current_app.config.get(
+                    "TIMEZONE", "Asia/Shanghai"
+                ),
+                require_planned_facts=True,
+            )
+            for warning in evaluation.warnings:
+                predecessor = rental_by_id[warning.predecessor_rental_id]
+                successor = rental_by_id[warning.successor_rental_id]
+                if predecessor.planned_return_date < today:
                     continue
-
-                binding = bindings.get((predecessor.id, successor.id))
+                pair = (predecessor.id, successor.id)
+                binding = bindings.get(pair)
                 overlaps.append({
                     "pair_key": f"{predecessor.id}:{successor.id}",
                     "status": "bound" if binding else "needs_confirmation",
                     "binding_id": binding.id if binding else None,
-                    "overlap_days": overlap_days,
+                    "overlap_days": warning.overlap_days,
                     "can_separate": (
                         cls._is_movable(predecessor, today)
                         or cls._is_movable(successor, today)
@@ -139,8 +176,13 @@ class GanttReorderService:
         )
 
     @classmethod
-    def _validate_overlap_decisions(cls, decisions, today):
-        analysis = cls.analyze(today=today)
+    def _validate_overlap_decisions(
+        cls, decisions, today, *, tenant_session=None
+    ):
+        analysis = cls.analyze(
+            today=today,
+            tenant_session=tenant_session,
+        )
         overlap_by_pair = {
             (
                 item["predecessor"]["id"],
@@ -178,69 +220,165 @@ class GanttReorderService:
 
     @staticmethod
     def _query_with_optional_lock(query, lock):
-        return query.with_for_update() if lock else query
+        if not lock:
+            return query
+        # A locking SELECT does not refresh objects that are already present in
+        # SQLAlchemy's identity map.  Execution must hash the rows returned by
+        # the current locking read, not values cached by an earlier preview or
+        # another query in the same scoped Session.
+        return query.populate_existing().with_for_update()
 
     @classmethod
-    def _load_reorder_graph(cls, today, lock=False):
-        day_start = datetime.combine(today, time.min)
-        main_query = Rental.query.filter(
-            Rental.parent_rental_id.is_(None),
-            Rental.status != "cancelled",
-            db.or_(
-                Rental.ship_in_time >= day_start,
-                db.and_(
-                    Rental.status == "not_shipped",
-                    db.or_(
-                        Rental.ship_out_time.is_(None),
-                        Rental.ship_in_time.is_(None),
-                        Rental.ship_out_time >= day_start,
-                    ),
-                ),
-            ),
-        ).order_by(Rental.id)
-        main_rentals = cls._query_with_optional_lock(
-            main_query, lock
-        ).all()
-        main_ids = [rental.id for rental in main_rentals]
-
-        child_rentals = []
-        bindings = []
-        if main_ids:
-            child_query = Rental.query.filter(
-                Rental.parent_rental_id.in_(main_ids)
-            ).order_by(Rental.id)
-            child_rentals = cls._query_with_optional_lock(
-                child_query, lock
-            ).all()
-            binding_query = RentalRelayBinding.query.filter(
+    def _load_reorder_graph(
+        cls, today, lock=False, *, tenant_session=None
+    ):
+        session = tenant_session or db.session
+        def main_query():
+            return session.query(Rental).filter(
+                Rental.parent_rental_id.is_(None),
+                Rental.status.in_(tuple(sorted(ACTIVE_RENTAL_STATUSES))),
                 db.or_(
-                    RentalRelayBinding.predecessor_rental_id.in_(main_ids),
-                    RentalRelayBinding.successor_rental_id.in_(main_ids),
+                    Rental.planned_ship_out_date.is_(None),
+                    Rental.planned_return_date.is_(None),
+                    Rental.planned_return_date >= today,
+                ),
+            ).order_by(Rental.id)
+
+        def child_query(main_ids):
+            return session.query(Rental).filter(
+                Rental.parent_rental_id.in_(main_ids or {-1})
+            ).order_by(Rental.id)
+
+        def binding_query(main_ids):
+            return session.query(RentalRelayBinding).filter(
+                db.or_(
+                    RentalRelayBinding.predecessor_rental_id.in_(
+                        main_ids or {-1}
+                    ),
+                    RentalRelayBinding.successor_rental_id.in_(
+                        main_ids or {-1}
+                    ),
                 )
             ).order_by(RentalRelayBinding.id)
-            bindings = cls._query_with_optional_lock(
-                binding_query, lock
-            ).all()
 
-        model_ids = {
-            rental.device.model_id
-            for rental in main_rentals
-            if rental.device and rental.device.model_id is not None
-        }
+        # A read-only projection discovers the complete Device lock set.  It
+        # acquires no row locks and therefore cannot invert the shared
+        # Device -> Rental mutation order.
+        projected_mains = main_query().all()
+        projected_main_ids = [rental.id for rental in projected_mains]
+        projected_children = child_query(projected_main_ids).all()
+        projected_bindings = binding_query(projected_main_ids).all()
         referenced_device_ids = {
-            rental.device_id for rental in main_rentals + child_rentals
+            rental.device_id
+            for rental in projected_mains + projected_children
         }
-        device_query = Device.query.filter(
-            db.or_(
-                Device.id.in_(referenced_device_ids or {-1}),
-                db.and_(
-                    Device.model_id.in_(model_ids or {-1}),
-                    Device.is_accessory.is_(False),
-                    Device.lifecycle_status == "active",
-                ),
+        projected_models = dict(
+            session.query(Device.id, Device.model_id).filter(
+                Device.id.in_(
+                    {rental.device_id for rental in projected_mains} or {-1}
+                )
+            ).all()
+        )
+        if set(projected_models) != {
+            rental.device_id for rental in projected_mains
+        }:
+            raise StalePreviewError("设备状态已变化，请重新预览")
+        model_ids = {
+            model_id
+            for model_id in projected_models.values()
+            if model_id is not None
+        }
+
+        def device_query():
+            return session.query(Device).filter(
+                db.or_(
+                    Device.id.in_(referenced_device_ids or {-1}),
+                    db.and_(
+                        Device.model_id.in_(model_ids or {-1}),
+                        Device.is_accessory.is_(False),
+                        Device.lifecycle_status == "active",
+                    ),
+                )
+            ).order_by(Device.id)
+
+        projected_devices = device_query().all()
+        if not lock:
+            return (
+                projected_mains + projected_children,
+                projected_devices,
+                projected_bindings,
             )
-        ).order_by(Device.id)
-        devices = cls._query_with_optional_lock(device_query, lock).all()
+
+        main_projection = tuple(
+            (rental.id, rental.device_id) for rental in projected_mains
+        )
+        child_projection = tuple(
+            (rental.id, rental.parent_rental_id, rental.device_id)
+            for rental in projected_children
+        )
+        binding_projection = tuple(
+            (
+                binding.id,
+                binding.predecessor_rental_id,
+                binding.successor_rental_id,
+            )
+            for binding in projected_bindings
+        )
+        device_projection = tuple(
+            (
+                device.id,
+                device.model_id,
+                device.is_accessory,
+                device.lifecycle_status,
+            )
+            for device in projected_devices
+        )
+
+        # Authoritative mutation order: lock the complete, stably ordered
+        # Device candidate set first, then main Rentals, children and bindings.
+        devices = cls._query_with_optional_lock(device_query(), True).all()
+        if tuple(
+            (
+                device.id,
+                device.model_id,
+                device.is_accessory,
+                device.lifecycle_status,
+            )
+            for device in devices
+        ) != device_projection:
+            raise StalePreviewError("设备候选集合已变化，请重新预览")
+
+        main_rentals = cls._query_with_optional_lock(main_query(), True).all()
+        if tuple(
+            (rental.id, rental.device_id) for rental in main_rentals
+        ) != main_projection:
+            raise StalePreviewError("档期集合已变化，请重新预览")
+
+        main_ids = [rental.id for rental in main_rentals]
+        child_rentals = cls._query_with_optional_lock(
+            child_query(main_ids), True
+        ).all()
+        if tuple(
+            (rental.id, rental.parent_rental_id, rental.device_id)
+            for rental in child_rentals
+        ) != child_projection:
+            raise StalePreviewError("附件档期集合已变化，请重新预览")
+
+        bindings = cls._query_with_optional_lock(
+            binding_query(main_ids), True
+        ).all()
+        if tuple(
+            (
+                binding.id,
+                binding.predecessor_rental_id,
+                binding.successor_rental_id,
+            )
+            for binding in bindings
+        ) != binding_projection:
+            raise StalePreviewError("接力绑定集合已变化，请重新预览")
+
+        for rental in main_rentals + child_rentals:
+            session.expire(rental, ["device"])
         return main_rentals + child_rentals, devices, bindings
 
     @staticmethod
@@ -258,6 +396,13 @@ class GanttReorderService:
                 "parent_rental_id": rental.parent_rental_id,
                 "start_date": cls._iso(rental.start_date),
                 "end_date": cls._iso(rental.end_date),
+                "logistics_days": rental.logistics_days,
+                "planned_ship_out_date": cls._iso(
+                    rental.planned_ship_out_date
+                ),
+                "planned_return_date": cls._iso(
+                    rental.planned_return_date
+                ),
                 "ship_out_time": cls._iso(rental.ship_out_time),
                 "ship_in_time": cls._iso(rental.ship_in_time),
                 "status": rental.status,
@@ -305,8 +450,22 @@ class GanttReorderService:
 
     @classmethod
     def _serializer(cls):
+        if (
+            current_app.testing is not True
+            or current_app.config.get(
+                "ENABLE_LEGACY_SINGLE_TENANT_GANTT_READS"
+            )
+            is not True
+        ):
+            raise RuntimeError("legacy Gantt signer is unavailable")
+        signing_key = current_app.config.get(
+            "LEGACY_GANTT_TEST_SIGNING_KEY"
+        )
+        if not isinstance(signing_key, bytes) or len(signing_key) < 32:
+            raise RuntimeError("legacy Gantt test signer is unavailable")
         return URLSafeTimedSerializer(
-            current_app.config["SECRET_KEY"], salt=cls.TOKEN_SALT
+            signing_key,
+            salt=cls.TOKEN_SALT,
         )
 
     @classmethod
@@ -367,6 +526,25 @@ class GanttReorderService:
             for rental in rentals
             if rental.parent_rental_id is None
         }
+        cls._schedule_overlap_policy.evaluate(
+            tuple(
+                RentalSchedule(
+                    rental_id=rental.id,
+                    device_id=rental.device_id,
+                    start_date=rental.start_date,
+                    end_date=rental.end_date,
+                    logistics_days=rental.logistics_days,
+                    status=rental.status,
+                    planned_ship_out_date=rental.planned_ship_out_date,
+                    planned_return_date=rental.planned_return_date,
+                )
+                for rental in main_rentals.values()
+            ),
+            tenant_timezone=current_app.config.get(
+                "TIMEZONE", "Asia/Shanghai"
+            ),
+            require_planned_facts=True,
+        )
         effective_edges = {
             (
                 binding.predecessor_rental_id,
@@ -406,8 +584,8 @@ class GanttReorderService:
         for component_ids in components:
             component = [main_rentals[item_id] for item_id in component_ids]
             if any(
-                rental.ship_out_time is None
-                or rental.ship_in_time is None
+                rental.planned_ship_out_date is None
+                or rental.planned_return_date is None
                 or rental.device is None
                 or rental.device.model_id is None
                 for rental in component
@@ -416,7 +594,7 @@ class GanttReorderService:
                     if cls._is_movable(rental, today) or rental.status == "not_shipped":
                         skipped.append({
                             "rental_id": rental.id,
-                            "reason": "缺少物流时间或设备型号",
+                            "reason": "缺少计划物流事实或设备型号",
                         })
                 continue
 
@@ -444,7 +622,7 @@ class GanttReorderService:
 
             ordered = sorted(
                 component,
-                key=lambda item: (item.ship_out_time, item.id),
+                key=lambda item: (item.planned_ship_out_date, item.id),
             )
             block = ScheduleBlock(
                 key="relay:" + ":".join(
@@ -453,11 +631,11 @@ class GanttReorderService:
                 rental_ids=tuple(rental.id for rental in ordered),
                 model_id=model_id,
                 start_day=min(
-                    rental.ship_out_time.date().toordinal()
+                    rental.planned_ship_out_date.toordinal()
                     for rental in component
                 ),
                 end_day=max(
-                    rental.ship_in_time.date().toordinal()
+                    rental.planned_return_date.toordinal()
                     for rental in component
                 ),
                 current_device_id=current_device_id,
@@ -531,8 +709,14 @@ class GanttReorderService:
                 "customer_name": rental.customer_name,
                 "customer_phone": rental.customer_phone,
                 "destination": rental.destination,
-                "ship_out_time": rental.ship_out_time.isoformat(),
-                "ship_in_time": rental.ship_in_time.isoformat(),
+                "ship_out_time": cls._iso(rental.ship_out_time),
+                "ship_in_time": cls._iso(rental.ship_in_time),
+                "planned_ship_out_date": cls._iso(
+                    rental.planned_ship_out_date
+                ),
+                "planned_return_date": cls._iso(
+                    rental.planned_return_date
+                ),
                 "from_device_id": rental.device_id,
                 "from_device_name": rental.device.name,
                 "to_device_id": target,
@@ -541,12 +725,20 @@ class GanttReorderService:
         return sorted(changes, key=lambda item: item["rental_id"])
 
     @classmethod
-    def preview(cls, decisions, today=None):
+    def _prepare_preview(
+        cls, decisions, today, *, tenant_session=None
+    ):
         today = today or date.today()
         normalized = cls._validate_decisions(decisions)
-        analysis = cls._validate_overlap_decisions(normalized, today)
+        analysis = cls._validate_overlap_decisions(
+            normalized,
+            today,
+            tenant_session=tenant_session,
+        )
         rentals, devices, bindings = cls._load_reorder_graph(
-            today=today, lock=False
+            today=today,
+            lock=False,
+            tenant_session=tenant_session,
         )
         snapshot = cls._snapshot(
             rentals, devices, bindings, normalized, today
@@ -570,19 +762,78 @@ class GanttReorderService:
             )
 
         changes = cls._changes(rentals, devices, assignments, today)
-        token = cls._sign_preview(
-            cls._hash_snapshot(snapshot),
-            normalized,
-            assignments,
-            today,
-        )
         return {
-            "token": token,
             "models": model_results,
             "changes": changes,
             "skipped": skipped,
             "overlaps": analysis["overlaps"],
-        }
+        }, cls._hash_snapshot(snapshot), normalized, assignments, today
+
+    @classmethod
+    def preview(cls, decisions, today=None, *, tenant_session=None):
+        """Legacy single-tenant preview retained during migration only."""
+
+        result, snapshot_hash, normalized, assignments, today = (
+            cls._prepare_preview(
+                decisions,
+                today,
+                tenant_session=tenant_session,
+            )
+        )
+        token = cls._sign_preview(
+            snapshot_hash,
+            normalized,
+            assignments,
+            today,
+        )
+        return {"token": token, **result}
+
+    @classmethod
+    def preview_saas(
+        cls,
+        decisions,
+        *,
+        auth_context: AuthContext,
+        proof_adapter: GanttPreviewProofAdapter,
+        tenant_session,
+    ):
+        """Issue a tenant-bound proof without consulting ``SECRET_KEY``.
+
+        The caller must inject the adapter that performs the current control-
+        plane authority read. There is no legacy serializer or identity
+        fallback on this path.
+        """
+
+        if not isinstance(proof_adapter, GanttPreviewProofAdapter):
+            raise TypeError("proof_adapter must be a GanttPreviewProofAdapter")
+        # Derive the business date from the current control-database clock and
+        # tenant timezone before touching tenant data. ``issue`` performs a
+        # second current read after the preview calculation so authority drift
+        # during the read cannot produce a usable proof.
+        today = proof_adapter.current_business_date(
+            auth_context=auth_context
+        )
+        if not isinstance(tenant_session, OrmSession):
+            raise TypeError("tenant_session must be a SQLAlchemy Session")
+        result, snapshot_hash, normalized, assignments, today = (
+            cls._prepare_preview(
+                decisions,
+                today,
+                tenant_session=tenant_session,
+            )
+        )
+        content = GanttPreviewContent.from_values(
+            snapshot_hash=snapshot_hash,
+            decisions=normalized,
+            assignments=assignments,
+            preview_date=today,
+            solver_version=cls.SOLVER_VERSION,
+        )
+        token = proof_adapter.issue(
+            auth_context=auth_context,
+            content=content,
+        )
+        return {"token": token, **result}
 
     @classmethod
     def _validate_pinned_assignments(cls, models, assignments):
@@ -684,7 +935,10 @@ class GanttReorderService:
         }
 
     @staticmethod
-    def _apply_relay_decisions(decisions, rentals, bindings):
+    def _apply_relay_decisions(
+        decisions, rentals, bindings, *, tenant_session=None
+    ):
+        session = tenant_session or db.session
         main_by_id = {
             rental.id: rental
             for rental in rentals
@@ -710,7 +964,7 @@ class GanttReorderService:
                 RentalRelayBinding.validate_pair(
                     predecessor, successor
                 )
-                db.session.add(RentalRelayBinding(
+                session.add(RentalRelayBinding(
                     predecessor_rental_id=pair[0],
                     successor_rental_id=pair[1],
                 ))
@@ -720,7 +974,7 @@ class GanttReorderService:
                     "successor_rental_id": pair[1],
                 })
             elif decision["action"] == "separate" and existing:
-                db.session.delete(existing)
+                session.delete(existing)
                 changes.append({
                     "action": "deleted",
                     "predecessor_rental_id": pair[0],
@@ -759,10 +1013,13 @@ class GanttReorderService:
             rental.device_id = target_device_id
 
     @staticmethod
-    def _write_audit_rows(device_changes, relay_changes):
+    def _write_audit_rows(
+        device_changes, relay_changes, *, tenant_session=None
+    ):
+        session = tenant_session or db.session
         operation_id = str(uuid.uuid4())
         for change in device_changes:
-            db.session.add(AuditLog(
+            session.add(AuditLog(
                 rental_id=change["rental_id"],
                 device_id=change["to_device_id"],
                 action="gantt_schedule_reordered",
@@ -772,7 +1029,7 @@ class GanttReorderService:
                 details={"operation_id": operation_id, **change},
             ))
         if relay_changes:
-            db.session.add(AuditLog(
+            session.add(AuditLog(
                 action="gantt_relay_bindings_changed",
                 resource_type="rental_relay_binding",
                 resource_id=operation_id,
@@ -811,6 +1068,8 @@ class GanttReorderService:
 
     @classmethod
     def execute(cls, token):
+        """Execute a legacy single-tenant preview during migration only."""
+
         payload = cls._load_preview(token)
         if payload.get("solver_version") != cls.SOLVER_VERSION:
             raise StalePreviewError("求解器版本已变化，请重新预览")
@@ -818,20 +1077,94 @@ class GanttReorderService:
         if preview_today != date.today():
             raise StalePreviewError("预览日期已变化，请重新预览")
 
+        return cls._execute_verified_preview(
+            snapshot_hash=payload["snapshot_hash"],
+            decisions=payload["decisions"],
+            assignments=payload["assignments"],
+            preview_today=preview_today,
+        )
+
+    @classmethod
+    def execute_saas(
+        cls,
+        token,
+        *,
+        auth_context: AuthContext,
+        proof_adapter: GanttPreviewProofAdapter,
+        tenant_session,
+    ):
+        """Verify current SaaS authority, then execute the exact proof content."""
+
+        if not isinstance(proof_adapter, GanttPreviewProofAdapter):
+            raise TypeError("proof_adapter must be a GanttPreviewProofAdapter")
+        if not isinstance(tenant_session, OrmSession):
+            raise TypeError("tenant_session must be a SQLAlchemy Session")
+        no_tenant_commit = object()
+        result = no_tenant_commit
         try:
-            decisions = cls._validate_decisions(payload["decisions"])
+            with proof_adapter.verify_for_execution(
+                auth_context=auth_context,
+                token=token,
+            ) as verified:
+                content = verified.content
+                if content.solver_version != cls.SOLVER_VERSION:
+                    raise StalePreviewError(
+                        "求解器版本已变化，请重新预览"
+                    )
+                # ``verify_for_execution`` already compares the proof date to
+                # current database time in the tenant timezone. Keep its
+                # control-plane locks until the tenant commit below completes.
+                result = cls._execute_verified_preview(
+                    snapshot_hash=content.snapshot_hash,
+                    decisions=content.decisions_json(),
+                    assignments=content.assignments_dict(),
+                    preview_today=content.preview_date,
+                    tenant_session=tenant_session,
+                )
+        except GanttPreviewFenceReleaseUncertain:
+            if result is not no_tenant_commit:
+                return {
+                    **result,
+                    "authority_fence_outcome": (
+                        "release_unknown_after_tenant_commit"
+                    ),
+                }
+            raise
+        except GanttPreviewProofError as exc:
+            raise StalePreviewError(
+                "预览令牌无效或已过期，请重新预览"
+            ) from exc
+        return result
+
+    @classmethod
+    def _execute_verified_preview(
+        cls,
+        *,
+        snapshot_hash,
+        decisions,
+        assignments,
+        preview_today,
+        tenant_session=None,
+    ):
+        """Apply one already authenticated preview inside the tenant DB."""
+
+        session = tenant_session or db.session
+        try:
+            decisions = cls._validate_decisions(decisions)
             rentals, devices, bindings = cls._load_reorder_graph(
-                today=preview_today, lock=True
+                today=preview_today,
+                lock=True,
+                tenant_session=session,
             )
             snapshot = cls._snapshot(
                 rentals, devices, bindings, decisions, preview_today
             )
-            if cls._hash_snapshot(snapshot) != payload["snapshot_hash"]:
+            if cls._hash_snapshot(snapshot) != snapshot_hash:
                 raise StalePreviewError("档期或设备状态已变化，请重新预览")
 
             assignments = {
                 int(key): int(value)
-                for key, value in payload["assignments"].items()
+                for key, value in assignments.items()
             }
             models, _ = cls._build_blocks(
                 rentals,
@@ -846,21 +1179,28 @@ class GanttReorderService:
                 rentals, devices, assignments, preview_today
             )
             relay_changes = cls._apply_relay_decisions(
-                decisions, rentals, bindings
+                decisions,
+                rentals,
+                bindings,
+                tenant_session=session,
             )
             cls._apply_device_assignments(
                 rentals, devices, assignments, preview_today
             )
-            cls._write_audit_rows(device_changes, relay_changes)
-            db.session.flush()
+            cls._write_audit_rows(
+                device_changes,
+                relay_changes,
+                tenant_session=session,
+            )
+            session.flush()
             cls._assert_integrity(
                 before, rentals, assignments, preview_today
             )
-            db.session.commit()
+            session.commit()
             return {
                 "changes": device_changes,
                 "relay_changes": relay_changes,
             }
         except Exception:
-            db.session.rollback()
+            session.rollback()
             raise

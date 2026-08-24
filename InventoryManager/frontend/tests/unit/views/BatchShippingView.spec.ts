@@ -1,4 +1,10 @@
-import ElementPlus, { ElTag, ElTooltip } from 'element-plus'
+import axios from 'axios'
+import ElementPlus, {
+  ElMessage,
+  ElSelect,
+  ElTag,
+  ElTooltip,
+} from 'element-plus'
 import { mount } from '@vue/test-utils'
 import {
   computed,
@@ -10,7 +16,7 @@ import {
   type InjectionKey,
   type Ref,
 } from 'vue'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import BatchShippingView from '@/views/BatchShippingView.vue'
 
@@ -35,9 +41,10 @@ type RentalRow = PreviousRentalState & {
     name: string
     device_model: { name: string }
   }
-  ship_out_tracking_no: null
-  scheduled_ship_time: null
+  ship_out_tracking_no: string | null
+  scheduled_ship_time: string | null
   express_type_id: number
+  persisted_express_type_id?: number
   is_relay_shipping: boolean
   relay_predecessor_rental_id: number | null
 }
@@ -137,6 +144,10 @@ const mountWithRental = async (
   return wrapper
 }
 
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
 
 describe('BatchShippingView device status', () => {
   it('shows a returned previous rental as purple return-in-transit', async () => {
@@ -233,5 +244,113 @@ describe('BatchShippingView device status', () => {
     expect(selectionCell.title).toContain('接力订单')
     setup.handleCellMouseLeave(relayRow, { type: 'selection' }, selectionCell)
     expect(selectionCell.hasAttribute('title')).toBe(false)
+  })
+})
+
+describe('BatchShippingView express type', () => {
+  it('renders the supported 1/2/263 products', async () => {
+    const wrapper = await mountWithRental({
+      has_previous_rental: false,
+      previous_rental_status: null,
+      previous_rental_completed: null,
+    })
+
+    const setup = wrapper.vm.$.setupState as {
+      EXPRESS_TYPE_OPTIONS: Array<{ value: number; label: string }>
+    }
+
+    expect(setup.EXPRESS_TYPE_OPTIONS).toEqual([
+      { value: 1, label: '特快' },
+      { value: 2, label: '标快' },
+      { value: 263, label: '半日达' },
+    ])
+  })
+
+  it.each([
+    { status: 'not_shipped', tracking: 'SF-LOCKED' },
+    { status: 'scheduled_for_shipping', tracking: null },
+    { status: 'shipped', tracking: null },
+  ])('disables selection after waybill creation: $status', async ({
+    status,
+    tracking,
+  }) => {
+    const wrapper = await mountWithRental({
+      has_previous_rental: false,
+      previous_rental_status: null,
+      previous_rental_completed: null,
+    }, {
+      status,
+      ship_out_tracking_no: tracking,
+    })
+
+    const select = wrapper
+      .get('[data-column="快递类型"]')
+      .findComponent(ElSelect)
+    expect(select.props('disabled')).toBe(true)
+  })
+
+  it('keeps selection enabled before waybill creation', async () => {
+    const wrapper = await mountWithRental({
+      has_previous_rental: false,
+      previous_rental_status: null,
+      previous_rental_completed: null,
+    })
+
+    const select = wrapper
+      .get('[data-column="快递类型"]')
+      .findComponent(ElSelect)
+    expect(select.props('disabled')).toBe(false)
+  })
+
+  it('persists a successful selection', async () => {
+    vi.spyOn(axios, 'patch').mockResolvedValue({
+      data: { success: true },
+    })
+    vi.spyOn(ElMessage, 'success').mockImplementation(() => undefined as never)
+    const wrapper = await mountWithRental({
+      has_previous_rental: false,
+      previous_rental_status: null,
+      previous_rental_completed: null,
+    }, {
+      express_type_id: 263,
+      persisted_express_type_id: 2,
+    })
+    const setup = wrapper.vm.$.setupState as {
+      rentals: RentalRow[]
+      updateExpressType: (rentalId: number, expressTypeId: number) => Promise<void>
+    }
+
+    await setup.updateExpressType(baseRental.id, 263)
+
+    expect(axios.patch).toHaveBeenCalledWith(
+      '/api/shipping-batch/express-type',
+      { rental_id: baseRental.id, express_type_id: 263 },
+    )
+    expect(setup.rentals[0].express_type_id).toBe(263)
+    expect(setup.rentals[0].persisted_express_type_id).toBe(263)
+  })
+
+  it('rolls back the displayed selection when persistence fails', async () => {
+    vi.spyOn(axios, 'patch').mockRejectedValue(new Error('network failure'))
+    vi.spyOn(ElMessage, 'error').mockImplementation(() => undefined as never)
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const wrapper = await mountWithRental({
+      has_previous_rental: false,
+      previous_rental_status: null,
+      previous_rental_completed: null,
+    }, {
+      express_type_id: 263,
+      persisted_express_type_id: 2,
+    })
+    const setup = wrapper.vm.$.setupState as {
+      rentals: RentalRow[]
+      updateExpressType: (rentalId: number, expressTypeId: number) => Promise<void>
+    }
+
+    await setup.updateExpressType(baseRental.id, 263)
+
+    expect(setup.rentals[0].express_type_id).toBe(2)
+    expect(setup.rentals[0].persisted_express_type_id).toBe(2)
+    expect(ElMessage.error).toHaveBeenCalledWith('更新快递类型失败')
   })
 })

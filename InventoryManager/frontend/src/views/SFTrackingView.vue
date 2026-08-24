@@ -3,19 +3,7 @@
     <div class="header">
       <h2><i class="bi bi-truck"></i> 顺丰物流追踪</h2>
       <div class="date-filter">
-        <button @click="setDateRange('recent4')" :class="{ active: dateRangeType === 'recent4' }">
-          最近8天
-        </button>
-        <button @click="setDateRange('recent7')" :class="{ active: dateRangeType === 'recent7' }">
-          最近7天
-        </button>
-        <button @click="setDateRange('recent30')" :class="{ active: dateRangeType === 'recent30' }">
-          最近30天
-        </button>
-        <button @click="setDateRange('all')" :class="{ active: dateRangeType === 'all' }">
-          全部
-        </button>
-        <button @click="batchRefresh" class="refresh-btn" :disabled="loading || rentals.length === 0">
+        <button @click="batchRefresh" class="refresh-btn" :disabled="loading || shipments.length === 0">
           <i class="bi bi-arrow-repeat"></i> 批量刷新
         </button>
       </div>
@@ -28,7 +16,7 @@
       <p>加载中...</p>
     </div>
 
-    <div v-else-if="rentals.length === 0" class="empty-state">
+    <div v-else-if="shipments.length === 0" class="empty-state">
       <i class="bi bi-inbox"></i>
       <p>暂无发货订单</p>
     </div>
@@ -38,42 +26,38 @@
         <thead>
           <tr>
             <th>租赁ID</th>
-            <th>客户姓名</th>
-            <th>客户电话</th>
-            <th>目的地</th>
-            <th>设备</th>
+            <th>发货仓</th>
             <th>运单号</th>
             <th>发货时间</th>
+            <th>运单状态</th>
             <th>物流状态</th>
             <th>操作</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="rental in paginatedRentals" :key="rental.rental_id">
-            <td>{{ rental.rental_id }}</td>
-            <td>{{ rental.customer_name }}</td>
-            <td>{{ rental.customer_phone }}</td>
-            <td>{{ rental.destination }}</td>
-            <td>{{ rental.device_name || '-' }}</td>
+          <tr v-for="shipment in shipments" :key="shipment.shipment_id">
+            <td>{{ shipment.rental_id }}</td>
+            <td><code>{{ shipment.origin_warehouse_uuid }}</code></td>
             <td>
-              <code>{{ rental.ship_out_tracking_no }}</code>
+              <code>{{ shipment.waybill_no }}</code>
             </td>
-            <td>{{ formatDate(rental.ship_out_time) }}</td>
+            <td>{{ formatDate(shipment.submitted_at) }}</td>
+            <td>{{ shipment.shipment_status }}</td>
             <td>
               <span
                 class="status-badge"
-                :class="getStatusClass(trackingStatus[rental.ship_out_tracking_no])"
+                :class="getStatusClass(trackingStatus[shipment.shipment_id])"
               >
-                {{ getStatusText(trackingStatus[rental.ship_out_tracking_no]) }}
+                {{ getStatusText(trackingStatus[shipment.shipment_id]) }}
               </span>
             </td>
             <td>
               <button
                 class="btn btn-sm btn-primary"
-                @click="viewTracking(rental.ship_out_tracking_no)"
-                :disabled="loadingTracking[rental.ship_out_tracking_no]"
+                @click="viewTracking(shipment)"
+                :disabled="loadingTracking[shipment.shipment_id]"
               >
-                <span v-if="loadingTracking[rental.ship_out_tracking_no]" class="spinner-border spinner-border-sm"></span>
+                <span v-if="loadingTracking[shipment.shipment_id]" class="spinner-border spinner-border-sm"></span>
                 <span v-else>查看轨迹</span>
               </button>
             </td>
@@ -81,10 +65,10 @@
         </tbody>
       </table>
 
-      <div class="pagination" v-if="totalPages > 1">
-        <button @click="currentPage--" :disabled="currentPage === 1">上一页</button>
-        <span>第 {{ currentPage }} / {{ totalPages }} 页</span>
-        <button @click="currentPage++" :disabled="currentPage === totalPages">下一页</button>
+      <div class="pagination" v-if="pageNumber > 1 || nextCursor">
+        <button @click="previousPage" :disabled="pageNumber === 1 || loading">上一页</button>
+        <span>第 {{ pageNumber }} 页</span>
+        <button @click="nextPage" :disabled="!nextCursor || loading">下一页</button>
       </div>
     </div>
 
@@ -102,7 +86,7 @@
               <p><strong>当前状态:</strong>
                 <span
                   class="status-badge"
-                  :class="getStatusClass(currentTracking.status)"
+                  :class="getStatusClass(currentTracking.status_code)"
                 >
                   {{ getStatusText(currentTracking) }}
                 </span>
@@ -110,22 +94,19 @@
               <p v-if="currentTracking.last_update">
                 <strong>最后更新:</strong> {{ currentTracking.last_update }}
               </p>
-              <p v-if="currentTracking.delivered_time">
-                <strong>签收时间:</strong> {{ currentTracking.delivered_time }}
-              </p>
             </div>
 
-            <div v-if="currentTracking.routes && currentTracking.routes.length > 0" class="timeline">
+            <div v-if="currentTracking.events.length > 0" class="timeline">
               <div
-                v-for="(route, index) in currentTracking.routes"
+                v-for="(event, index) in currentTracking.events"
                 :key="index"
                 class="timeline-item"
               >
                 <div class="timeline-marker"></div>
                 <div class="timeline-content">
-                  <div class="timeline-time">{{ route.accept_time }}</div>
-                  <div class="timeline-location">{{ route.accept_address }}</div>
-                  <div class="timeline-remark">{{ route.remark }}</div>
+                  <div class="timeline-time">{{ formatDate(event.occurred_at) }}</div>
+                  <div class="timeline-location">{{ getStatusText(event.status_code) }}</div>
+                  <div class="timeline-remark">{{ event.summary }}</div>
                 </div>
               </div>
             </div>
@@ -147,108 +128,74 @@
 <script lang="ts">
 import axios from 'axios'
 
-interface Rental {
+interface ShipmentSummary {
+  shipment_id: string
   rental_id: number
-  customer_name: string
-  customer_phone: string
-  destination: string
-  device_name: string | null
-  ship_out_tracking_no: string
-  ship_out_time: string
-  status: string
+  waybill_no: string
+  shipment_status: string
+  origin_warehouse_uuid: string
+  submitted_at: string
 }
 
-interface TrackingRoute {
-  accept_time: string
-  accept_address: string
-  remark: string
-  op_code?: string
+interface TrackingEvent {
+  occurred_at: string
+  status_code: string
+  summary: string
 }
 
 interface TrackingInfo {
-  tracking_number: string
-  status: string
-  status_text?: string
-  routes: TrackingRoute[]
+  shipment_id: string
+  waybill_no: string
+  found: boolean
+  status_code: string
+  events: TrackingEvent[]
   last_update: string | null
-  delivered_time: string | null
 }
 
 export default {
   name: 'SFTrackingView',
   data(): {
-    rentals: Rental[]
+    shipments: ShipmentSummary[]
     loading: boolean
     trackingStatus: Record<string, TrackingInfo>
     loadingTracking: Record<string, boolean>
     showTrackingModal: boolean
     currentTracking: TrackingInfo | null
     currentTrackingNumber: string
-    dateRangeType: string
-    currentPage: number
     pageSize: number
+    nextCursor: string | null
+    cursorHistory: Array<string | null>
   } {
     return {
-      rentals: [],
+      shipments: [],
       loading: false,
       trackingStatus: {},
       loadingTracking: {},
       showTrackingModal: false,
       currentTracking: null,
       currentTrackingNumber: '',
-      dateRangeType: 'recent4',
-      currentPage: 1,
-      pageSize: 20
+      pageSize: 20,
+      nextCursor: null,
+      cursorHistory: [null]
     }
   },
   computed: {
-    paginatedRentals() {
-      const start = (this.currentPage - 1) * this.pageSize
-      const end = start + this.pageSize
-      return this.rentals.slice(start, end)
-    },
-    totalPages() {
-      return Math.ceil(this.rentals.length / this.pageSize)
+    pageNumber() {
+      return this.cursorHistory.length
     }
   },
   mounted() {
     this.loadRentals()
   },
   methods: {
-    async loadRentals() {
+    async loadRentals(cursor: string | null = null) {
       this.loading = true
       try {
-        const params: Record<string, string> = {}
-
-        // 根据日期范围类型设置参数
-        if (this.dateRangeType === 'recent4') {
-          // 默认: 过去4天 + 未来4天 (API默认行为)
-          // 不需要传参数
-        } else if (this.dateRangeType === 'recent7') {
-          const endDate = new Date()
-          const startDate = new Date()
-          startDate.setDate(startDate.getDate() - 7)
-          params.start_date = startDate.toISOString()
-          params.end_date = endDate.toISOString()
-        } else if (this.dateRangeType === 'recent30') {
-          const endDate = new Date()
-          const startDate = new Date()
-          startDate.setDate(startDate.getDate() - 30)
-          params.start_date = startDate.toISOString()
-          params.end_date = endDate.toISOString()
-        } else if (this.dateRangeType === 'all') {
-          // 全部: 使用很大的日期范围
-          const endDate = new Date()
-          endDate.setFullYear(endDate.getFullYear() + 1)
-          const startDate = new Date()
-          startDate.setFullYear(startDate.getFullYear() - 2)
-          params.start_date = startDate.toISOString()
-          params.end_date = endDate.toISOString()
-        }
-
+        const params: Record<string, string | number> = { page_size: this.pageSize }
+        if (cursor) params.after_cursor = cursor
         const response = await axios.get('/api/sf-tracking/list', { params })
-        this.rentals = response.data.data || []
-        this.currentPage = 1
+        this.shipments = response.data.data?.items || []
+        this.nextCursor = response.data.data?.next_cursor || null
       } catch (error: any) {
         console.error('加载租赁列表失败:', error)
         alert('加载列表失败: ' + (error.response?.data?.message || error.message))
@@ -256,21 +203,21 @@ export default {
         this.loading = false
       }
     },
-    async viewTracking(trackingNumber: string) {
-      this.currentTrackingNumber = trackingNumber
+    async viewTracking(shipment: ShipmentSummary) {
+      this.currentTrackingNumber = shipment.waybill_no
       this.showTrackingModal = true
       this.currentTracking = null
-      this.loadingTracking[trackingNumber] = true
+      this.loadingTracking[shipment.shipment_id] = true
 
       try {
         const response = await axios.post('/api/sf-tracking/query', {
-          tracking_number: trackingNumber
+          shipment_id: shipment.shipment_id
         })
 
         if (response.data.success) {
           this.currentTracking = response.data.data
           // 更新状态缓存 - 保存完整对象
-          this.trackingStatus[trackingNumber] = response.data.data
+          this.trackingStatus[shipment.shipment_id] = response.data.data
         } else {
           alert('查询失败: ' + response.data.message)
           this.closeModal()
@@ -280,31 +227,27 @@ export default {
         alert('查询失败: ' + (error.response?.data?.message || error.message))
         this.closeModal()
       } finally {
-        this.loadingTracking[trackingNumber] = false
+        this.loadingTracking[shipment.shipment_id] = false
       }
     },
     async batchRefresh() {
-      if (this.rentals.length === 0) return
+      if (this.shipments.length === 0) return
 
-      const trackingNumbers = this.rentals.map(r => r.ship_out_tracking_no)
+      const shipmentIds = this.shipments.map(item => item.shipment_id)
       this.loading = true
 
       try {
         const response = await axios.post('/api/sf-tracking/batch-query', {
-          tracking_numbers: trackingNumbers
+          shipment_ids: shipmentIds
         })
 
         if (response.data.success) {
-          // 更新所有运单的状态 - 保存完整对象
-          const data = response.data.data
-          for (const trackingNumber in data) {
-            this.trackingStatus[trackingNumber] = data[trackingNumber]
+          const items: TrackingInfo[] = response.data.data?.items || []
+          for (const item of items) {
+            this.trackingStatus[item.shipment_id] = item
           }
-
-          // 显示统计信息
-          const successCount = response.data.success_count
-          const total = response.data.total
-          alert(`批量刷新完成: 成功 ${successCount}/${total}`)
+          const foundCount = items.filter(item => item.found).length
+          alert(`批量刷新完成: 找到 ${foundCount}/${items.length}`)
         } else {
           alert('批量刷新失败: ' + response.data.message)
         }
@@ -315,9 +258,18 @@ export default {
         this.loading = false
       }
     },
-    setDateRange(type: string) {
-      this.dateRangeType = type
-      this.loadRentals()
+    async nextPage() {
+      if (!this.nextCursor) return
+      const cursor = this.nextCursor
+      this.cursorHistory.push(cursor)
+      await this.loadRentals(cursor)
+    },
+    async previousPage() {
+      if (this.cursorHistory.length <= 1) return
+      this.cursorHistory.pop()
+      await this.loadRentals(
+        this.cursorHistory[this.cursorHistory.length - 1] ?? null
+      )
     },
     closeModal() {
       this.showTrackingModal = false
@@ -336,9 +288,8 @@ export default {
       })
     },
     getStatusText(status: string | TrackingInfo | undefined) {
-      // 如果传入的是对象,优先使用 status_text
       if (typeof status === 'object' && status !== null) {
-        return (status as TrackingInfo).status_text || '未查询'
+        status = (status as TrackingInfo).status_code
       }
 
       const statusMap = {
@@ -355,10 +306,9 @@ export default {
       return statusMap[status as keyof typeof statusMap] || '未查询'
     },
     getStatusClass(status: string | TrackingInfo | undefined) {
-      // 如果传入的是对象,提取 status 字段
       let statusStr = status
       if (typeof status === 'object' && status !== null) {
-        statusStr = (status as TrackingInfo).status
+        statusStr = (status as TrackingInfo).status_code
       }
 
       const classMap = {

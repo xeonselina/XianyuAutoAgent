@@ -73,78 +73,10 @@ sdk = SFExpressSDK(
 
 ## 测试 API 端点
 
-### 1. 查看配置状态
-
-```bash
-GET /api/sf-test/status
-```
-
-**响应示例：**
-```json
-{
-  "success": true,
-  "data": {
-    "test_mode": true,
-    "use_oauth": true,
-    "auth_method": "OAuth2.0",
-    "api_url": "https://sfapi-sbox.sf-express.com/open/api",
-    "partner_id_configured": true,
-    "checkword_configured": true,
-    "sender_info": {
-      "name": "张女士",
-      "phone": "***REMOVED***",
-      "address": "***REMOVED_ADDRESS***"
-    }
-  }
-}
-```
-
-### 2. 使用租赁记录测试下单
-
-```bash
-POST /api/sf-test/order/<rental_id>
-```
-
-**响应示例：**
-```json
-{
-  "success": true,
-  "message": "下单成功",
-  "data": {...},
-  "test_mode": true,
-  "auth_method": "OAuth2.0",
-  "rental_info": {
-    "id": 123,
-    "customer_name": "测试客户",
-    "customer_phone": "13800138000",
-    "destination": "广东省深圳市福田区测试地址",
-    "tracking_no": "SF1234567890"
-  }
-}
-```
-
-### 3. 使用模拟数据测试下单
-
-```bash
-POST /api/sf-test/mock-order
-Content-Type: application/json
-
-{
-  "order_id": "TEST_ORDER_001",
-  "waybill_no": "SF1234567890",
-  "consignee_info": {
-    "name": "测试收件人",
-    "mobile": "13800138000",
-    "address": "广东省深圳市福田区测试地址"
-  },
-  "cargo_details": [
-    {
-      "name": "测试商品",
-      "count": 1
-    }
-  ]
-}
-```
+`/api/sf-test/*` 已不再由应用工厂注册，测试进程也不能通过配置开启。
+开发、调试、Docker 和生产进程同样不能重新开启这些直连路由；
+顺丰沙箱验证应通过注入 fake/provider adapter 的测试执行，生产业务请求只能走
+SaaS Core shipment/attempt ledger 和后台任务边界。
 
 ## 常见问题
 

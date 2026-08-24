@@ -20,12 +20,29 @@ class InspectionRecord(db.Model):
         comment='验货状态: normal=验机正常, abnormal=验机异常'
     )
     inspector_user_id = db.Column(db.Integer, nullable=True, comment='验货人员ID（预留）')
+    inspector_user_uuid = db.Column(
+        db.String(36),
+        nullable=True,
+        comment='SaaS 租户用户 UUID',
+    )
+    warehouse_id = db.Column(
+        db.Integer,
+        db.ForeignKey(
+            'warehouses.id',
+            name='fk_inspection_record_warehouse_id_warehouses',
+            ondelete='RESTRICT',
+        ),
+        nullable=True,
+        index=True,
+        comment='首次验货确认的实际入库仓库',
+    )
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.now, index=True)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
 
     # 关系
     rental = db.relationship('Rental', backref=db.backref('inspection_records', lazy='dynamic'))
     device = db.relationship('Device', backref=db.backref('inspection_records', lazy='dynamic'))
+    warehouse = db.relationship('Warehouse')
     check_items = db.relationship(
         'InspectionCheckItem',
         backref='inspection_record',
@@ -44,6 +61,8 @@ class InspectionRecord(db.Model):
             'device_id': self.device_id,
             'status': self.status,
             'inspector_user_id': self.inspector_user_id,
+            'inspector_user_uuid': self.inspector_user_uuid,
+            'warehouse_id': self.warehouse_id,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'rental': self.rental.to_dict() if self.rental else None,

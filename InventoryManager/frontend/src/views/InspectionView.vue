@@ -16,6 +16,51 @@
         v-if="inspectionStore.currentRental"
         :rental="inspectionStore.currentRental"
       />
+
+      <el-card
+        v-if="!isEditMode && inspectionStore.currentRental"
+        class="receipt-card"
+        shadow="never"
+      >
+        <template #header>
+          <span>实际入库与附件验收</span>
+        </template>
+
+        <el-form label-position="top">
+          <el-form-item label="实际验货仓" required>
+            <el-select
+              v-model="inspectionStore.selectedWarehouseId"
+              placeholder="请选择实际验货仓"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="warehouse in inspectionStore.warehouses"
+                :key="warehouse.id"
+                :label="`${warehouse.name}${warehouse.is_default ? '（默认）' : ''}`"
+                :value="warehouse.id"
+              />
+            </el-select>
+          </el-form-item>
+
+          <div
+            v-for="receipt in inspectionStore.accessoryReceipts"
+            :key="receipt.accessory_type_id"
+            class="receipt-row"
+          >
+            <div class="receipt-name">
+              {{ receipt.display_name }}
+              <el-tag v-if="receipt.travels_with_device" size="small" type="info">
+                随设备带来
+              </el-tag>
+            </div>
+            <el-radio-group v-model="receipt.outcome">
+              <el-radio-button value="received_normal">正常收到</el-radio-button>
+              <el-radio-button value="received_damaged">收到但损坏</el-radio-button>
+              <el-radio-button value="missing">未收到</el-radio-button>
+            </el-radio-group>
+          </div>
+        </el-form>
+      </el-card>
       
       <!-- 验货清单 -->
       <ChecklistForm 
@@ -173,6 +218,22 @@ onMounted(async () => {
   margin-bottom: 24px;
   text-align: center;
   color: #303133;
+}
+
+.receipt-card {
+  margin-bottom: 20px;
+}
+
+.receipt-row + .receipt-row {
+  margin-top: 18px;
+}
+
+.receipt-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-weight: 600;
 }
 
 /* iPad 优化 */

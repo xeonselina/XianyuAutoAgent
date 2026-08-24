@@ -1,10 +1,13 @@
 """接力候选识别和列表合并。"""
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
 import re
+from uuid import uuid4
 
 from flask import current_app
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app import db
 from app.models.audit_log import AuditLog
@@ -12,6 +15,15 @@ from app.models.device import Device
 from app.models.rental import Rental
 from app.models.rental_relay_binding import RentalRelayBinding
 from app.models.rental_relay_case import RentalRelayCase
+from app.services.accessory_relay_chain_service import (
+    AccessoryRelayChainService,
+)
+from app.services.scheduling import (
+    ACTIVE_RENTAL_STATUSES,
+    RentalSchedule,
+    ScheduleOverlapPolicy,
+    ScheduleValidationError,
+)
 from app.services.shipping.sf_tracking_service import SFTrackingService
 
 
@@ -53,22 +65,41 @@ class RelayCandidate:
 class RelayCaseUpdateOutcome:
     relay_case: RentalRelayCase
     xianyu_sync: dict
+    accessory_chain: dict = field(default_factory=dict)
 
 
 class RelayCaseService:
     """组合实时候选与已经持久化的运营记录。"""
 
+    _schedule_overlap_policy = ScheduleOverlapPolicy()
+
     @staticmethod
-    def find_candidates():
-        rentals = Rental.query.filter(
-            Rental.parent_rental_id.is_(None),
-            Rental.status != "cancelled",
-            Rental.ship_out_time.isnot(None),
-        ).order_by(
-            Rental.device_id,
-            Rental.ship_out_time,
-            Rental.id,
-        ).all()
+    def find_candidates(
+        *,
+        tenant_session: Session | None = None,
+        tenant_timezone: str | None = None,
+    ):
+        session = tenant_session or db.session()
+        if not isinstance(session, Session):
+            raise TypeError("tenant_session must be a SQLAlchemy Session")
+        rentals = tuple(
+            session.execute(
+                select(Rental)
+                .where(
+                    Rental.parent_rental_id.is_(None),
+                    Rental.status.in_(
+                        tuple(sorted(ACTIVE_RENTAL_STATUSES))
+                    ),
+                )
+                .order_by(
+                    Rental.device_id,
+                    Rental.start_date,
+                    Rental.id,
+                )
+            )
+            .scalars()
+            .all()
+        )
 
         by_device = {}
         for rental in rentals:
@@ -76,26 +107,43 @@ class RelayCaseService:
 
         candidates = {}
         for device_rentals in by_device.values():
-            for predecessor, successor in zip(
-                device_rentals, device_rentals[1:]
-            ):
-                if predecessor.status == "completed":
-                    continue
-                if (
-                    predecessor.ship_in_time is None
-                    or successor.ship_out_time is None
-                ):
-                    continue
-                overlap_days = (
-                    predecessor.ship_in_time.date()
-                    - successor.ship_out_time.date()
-                ).days
-                if overlap_days <= 0:
-                    continue
+            rental_by_id = {rental.id: rental for rental in device_rentals}
+            try:
+                evaluation = RelayCaseService._schedule_overlap_policy.evaluate(
+                    tuple(
+                        RentalSchedule(
+                            rental_id=rental.id,
+                            device_id=rental.device_id,
+                            start_date=rental.start_date,
+                            end_date=rental.end_date,
+                            logistics_days=rental.logistics_days,
+                            status=rental.status,
+                            planned_ship_out_date=(
+                                rental.planned_ship_out_date
+                            ),
+                            planned_return_date=rental.planned_return_date,
+                        )
+                        for rental in device_rentals
+                    ),
+                    tenant_timezone=(
+                        tenant_timezone
+                        or current_app.config.get(
+                            "TIMEZONE", "Asia/Shanghai"
+                        )
+                    ),
+                    require_planned_facts=True,
+                )
+            except ScheduleValidationError:
+                # Suppress the complete device projection so an invalid row
+                # cannot be skipped to create a false adjacent pair.
+                continue
+            for warning in evaluation.relay_candidates:
+                predecessor = rental_by_id[warning.predecessor_rental_id]
+                successor = rental_by_id[warning.successor_rental_id]
                 candidate = RelayCandidate(
                     predecessor=predecessor,
                     successor=successor,
-                    overlap_days=overlap_days,
+                    overlap_days=warning.overlap_days,
                 )
                 candidates[candidate.pair] = candidate
         return candidates
@@ -149,14 +197,6 @@ class RelayCaseService:
         )
         if candidate:
             overlap_days = candidate.overlap_days
-        elif predecessor.ship_in_time and successor.ship_out_time:
-            overlap_days = max(
-                0,
-                (
-                    predecessor.ship_in_time.date()
-                    - successor.ship_out_time.date()
-                ).days,
-            )
         else:
             overlap_days = 0
         status = case.status if case else ("agreed" if binding else "pending")
@@ -169,11 +209,13 @@ class RelayCaseService:
             "schedule_changed": candidate is None and source != "manual",
             "overlap_days": overlap_days,
             "planned_ship_date": (
-                predecessor.end_date + timedelta(days=1)
-            ).isoformat(),
+                predecessor.planned_return_date.isoformat()
+                if predecessor.planned_return_date else None
+            ),
             "planned_receive_date": (
-                successor.start_date - timedelta(days=1)
-            ).isoformat(),
+                successor.planned_ship_out_date.isoformat()
+                if successor.planned_ship_out_date else None
+            ),
             "predecessor": cls._customer(predecessor),
             "successor": cls._customer(successor),
             "device": cls._device(predecessor),
@@ -182,6 +224,11 @@ class RelayCaseService:
             "successor_lens_combo": successor.lens_combo,
             "successor_accessories": successor.get_all_accessories_for_display(),
             "tracking": cls._tracking(case),
+            "accessory_note": case.accessory_note if case else None,
+            "accessory_note_updated_at": (
+                case.accessory_note_updated_at.isoformat()
+                if case and case.accessory_note_updated_at else None
+            ),
             "created_at": (
                 case.created_at.isoformat() if case and case.created_at else None
             ),
@@ -199,7 +246,12 @@ class RelayCaseService:
         page=1,
         per_page=50,
         today=None,
+        tenant_session: Session | None = None,
+        tenant_timezone: str | None = None,
     ):
+        session = tenant_session or db.session()
+        if not isinstance(session, Session):
+            raise TypeError("tenant_session must be a SQLAlchemy Session")
         today = today or date.today()
         statuses = list(statuses or OPEN_STATUSES)
         invalid_statuses = set(statuses) - set(ALL_STATUSES)
@@ -214,20 +266,27 @@ class RelayCaseService:
         if page < 1 or per_page < 1:
             raise ValueError("分页参数必须为正整数")
 
-        candidates = cls.find_candidates()
+        candidates = cls.find_candidates(
+            tenant_session=session,
+            tenant_timezone=tenant_timezone,
+        )
         cases = {
             (case.predecessor_rental_id, case.successor_rental_id): case
-            for case in RentalRelayCase.query.all()
+            for case in session.execute(select(RentalRelayCase)).scalars().all()
         }
         bindings = {
             (binding.predecessor_rental_id, binding.successor_rental_id): binding
-            for binding in RentalRelayBinding.query.all()
+            for binding in session.execute(
+                select(RentalRelayBinding)
+            ).scalars().all()
         }
         manual_case_ids = {
             int(resource_id)
-            for (resource_id,) in db.session.query(AuditLog.resource_id).filter(
-                AuditLog.action == "relay_case_manually_created",
-                AuditLog.resource_id.isnot(None),
+            for (resource_id,) in session.execute(
+                select(AuditLog.resource_id).where(
+                    AuditLog.action == "relay_case_manually_created",
+                    AuditLog.resource_id.is_not(None),
+                )
             ).all()
             if resource_id.isdigit()
         }
@@ -254,14 +313,22 @@ class RelayCaseService:
             if status not in statuses:
                 continue
             item = cls._item(pair, candidate, case, binding, source=source)
-            planned_ship_date = date.fromisoformat(item["planned_ship_date"])
-            if not ship_date_from <= planned_ship_date <= ship_date_to:
+            planned_ship_date = (
+                None
+                if item["planned_ship_date"] is None
+                else date.fromisoformat(item["planned_ship_date"])
+            )
+            if (
+                planned_ship_date is not None
+                and not ship_date_from <= planned_ship_date <= ship_date_to
+            ):
                 continue
             items.append(item)
 
         items.sort(
             key=lambda item: (
-                item["planned_ship_date"],
+                item["planned_ship_date"] is None,
+                item["planned_ship_date"] or "",
                 item["predecessor"]["id"],
                 item["successor"]["id"],
             )
@@ -307,22 +374,36 @@ class RelayCaseService:
         }
 
     @classmethod
-    def _manual_pairs(cls):
-        rentals = Rental.query.join(
-            Device, Device.id == Rental.device_id
-        ).filter(
-            Rental.parent_rental_id.is_(None),
-            Rental.ship_out_time.isnot(None),
-            Rental.status.in_(
-                MANUAL_CURRENT_STATUSES + MANUAL_NEXT_STATUSES
-            ),
-            Device.lifecycle_status == "active",
-            Device.is_accessory.is_(False),
-        ).order_by(
-            Rental.device_id,
-            Rental.ship_out_time,
-            Rental.id,
-        ).all()
+    def _manual_pairs(
+        cls,
+        *,
+        tenant_session: Session | None = None,
+    ):
+        session = tenant_session or db.session()
+        if not isinstance(session, Session):
+            raise TypeError("tenant_session must be a SQLAlchemy Session")
+        rentals = tuple(
+            session.execute(
+                select(Rental)
+                .join(Device, Device.id == Rental.device_id)
+                .where(
+                    Rental.parent_rental_id.is_(None),
+                    Rental.ship_out_time.is_not(None),
+                    Rental.status.in_(
+                        MANUAL_CURRENT_STATUSES + MANUAL_NEXT_STATUSES
+                    ),
+                    Device.lifecycle_status == "active",
+                    Device.is_accessory.is_(False),
+                )
+                .order_by(
+                    Rental.device_id,
+                    Rental.ship_out_time,
+                    Rental.id,
+                )
+            )
+            .scalars()
+            .all()
+        )
 
         by_device = {}
         for rental in rentals:
@@ -350,9 +431,18 @@ class RelayCaseService:
         return pairs
 
     @classmethod
-    def list_manual_options(cls):
-        pairs = cls._manual_pairs()
-        bindings = RentalRelayBinding.query.all()
+    def list_manual_options(
+        cls,
+        *,
+        tenant_session: Session | None = None,
+    ):
+        session = tenant_session or db.session()
+        if not isinstance(session, Session):
+            raise TypeError("tenant_session must be a SQLAlchemy Session")
+        pairs = cls._manual_pairs(tenant_session=session)
+        bindings = tuple(
+            session.execute(select(RentalRelayBinding)).scalars().all()
+        )
         exact_pairs = {
             (binding.predecessor_rental_id, binding.successor_rental_id)
             for binding in bindings
@@ -403,7 +493,14 @@ class RelayCaseService:
             raise ValueError("该设备没有可接力的当前 rental 和下一笔 rental")
         predecessor, successor = pair
 
+        savepoint = None
         try:
+            # Authentication and other request setup may already have opened
+            # Flask-SQLAlchemy's outer AUTOBEGIN transaction.  The explicit
+            # savepoint is the caller-owned atomic boundary required by the
+            # accessory-chain service; the outer transaction is committed
+            # only after every relay/accessory/audit fact succeeds.
+            savepoint = db.session.begin_nested()
             rentals = Rental.query.filter(
                 Rental.id.in_([predecessor.id, successor.id])
             ).with_for_update().all()
@@ -439,6 +536,15 @@ class RelayCaseService:
             cls._update_milestones(relay_case, "agreed", now)
             db.session.add(relay_case)
             db.session.flush()
+            AccessoryRelayChainService(db.session()).recompute_from_case(
+                relay_case_id=relay_case.id,
+                actor_type="system",
+                actor_id=None,
+                operation_key=(
+                    "manual-relay:"
+                    f"{relay_case.id}:{now.isoformat(timespec='microseconds')}"
+                ),
+            )
             db.session.add(AuditLog(
                 device_id=device_id,
                 rental_id=predecessor.id,
@@ -455,6 +561,8 @@ class RelayCaseService:
             db.session.commit()
             return relay_case
         except Exception:
+            if savepoint is not None and savepoint.is_active:
+                savepoint.rollback()
             db.session.rollback()
             raise
 
@@ -588,14 +696,29 @@ class RelayCaseService:
         status,
         sf_tracking_number=None,
         now=None,
+        operation_key=None,
     ):
         if status not in STATUS_ORDER:
             raise ValueError("无效的接力状态")
         if predecessor_id == successor_id:
             raise ValueError("接力前后 rental 不能相同")
+        if operation_key is not None and (
+            not isinstance(operation_key, str)
+            or not operation_key.strip()
+            or len(operation_key.strip()) > 48
+        ):
+            raise ValueError("operation_key 无效")
 
         now = now or datetime.utcnow()
+        operation_key = (
+            operation_key.strip()
+            if operation_key is not None
+            else uuid4().hex
+        )
+        savepoint = None
+        accessory_chain = {}
         try:
+            savepoint = db.session.begin_nested()
             rentals = Rental.query.filter(
                 Rental.id.in_([predecessor_id, successor_id])
             ).with_for_update().all()
@@ -643,6 +766,54 @@ class RelayCaseService:
             elif STATUS_ORDER[old_status] >= STATUS_ORDER["agreed"]:
                 cls._delete_exact_binding(predecessor_id, successor_id)
 
+            chain_service = AccessoryRelayChainService(db.session())
+            needs_recompute = (
+                status == "agreed"
+                or (
+                    STATUS_ORDER[old_status] >= STATUS_ORDER["agreed"]
+                    and STATUS_ORDER[status] < STATUS_ORDER["agreed"]
+                )
+                or (
+                    STATUS_ORDER[old_status] < STATUS_ORDER["agreed"]
+                    and status == "completed"
+                )
+            )
+            if entering_shipped:
+                # The edge remains agreed while the complete downstream plan
+                # and exact holder handoff are verified.  Only then is the
+                # persisted status advanced to shipped in this transaction.
+                relay_case.status = "agreed"
+                db.session.add(relay_case)
+                db.session.flush()
+                plan_result = chain_service.recompute_from_case(
+                    relay_case_id=relay_case.id,
+                    actor_type="tenant_user",
+                    actor_id=None,
+                    operation_key=operation_key,
+                )
+                handoff_result = chain_service.handoff_case(
+                    relay_case_id=relay_case.id,
+                    actor_type="tenant_user",
+                    actor_id=None,
+                    operation_key=operation_key,
+                )
+                accessory_chain = {
+                    **asdict(plan_result),
+                    **asdict(handoff_result),
+                }
+            elif needs_recompute:
+                relay_case.status = status
+                db.session.add(relay_case)
+                db.session.flush()
+                accessory_chain = asdict(
+                    chain_service.recompute_from_case(
+                        relay_case_id=relay_case.id,
+                        actor_type="tenant_user",
+                        actor_id=None,
+                        operation_key=operation_key,
+                    )
+                )
+
             if STATUS_ORDER[status] >= STATUS_ORDER["shipped"]:
                 tracking_number = (
                     sf_tracking_number
@@ -665,6 +836,8 @@ class RelayCaseService:
             cls._add_audit(relay_case, old_status, status)
             db.session.commit()
         except Exception:
+            if savepoint is not None and savepoint.is_active:
+                savepoint.rollback()
             db.session.rollback()
             raise
 
@@ -678,6 +851,7 @@ class RelayCaseService:
         return RelayCaseUpdateOutcome(
             relay_case=relay_case,
             xianyu_sync=xianyu_sync,
+            accessory_chain=accessory_chain,
         )
 
     @classmethod

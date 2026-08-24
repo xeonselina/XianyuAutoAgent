@@ -9,6 +9,40 @@ import BookingDialog from '@/components/BookingDialog.vue'
 import EditRentalDialogNew from '@/components/rental/EditRentalDialogNew.vue'
 import { useGanttStore, type Rental } from '@/stores/gantt'
 
+const bookingTestState = vi.hoisted(() => ({
+  bootstrap: {
+    value: {
+      request_id: 'bootstrap-test',
+      evaluated_at: '2026-08-22T00:00:00Z',
+      warehouses: [{
+        id: 3,
+        name: '测试仓',
+        is_default: true,
+        province: '广东省',
+        city: '深圳市',
+        district: '南山区',
+        address_summary: '广东省深圳市南山区',
+      }],
+      recent_warehouse_id: null,
+      default_warehouse_id: 3,
+      device_models: [],
+      accessory_types: [],
+      form_policy: {},
+    } as any,
+  },
+  availability: { value: null as any },
+  bootstrapLoading: { value: false },
+  availabilityLoading: { value: false },
+  availabilityFailed: { value: false },
+  loadBootstrap: vi.fn(),
+  evaluateAvailability: vi.fn(),
+  resetAvailability: vi.fn(),
+}))
+
+vi.mock('@/composables/useRentalBooking', () => ({
+  useRentalBooking: () => bookingTestState,
+}))
+
 vi.mock('vue-router', () => ({
   useRouter: () => ({
     resolve: vi.fn(() => ({ href: '/' })),
@@ -90,6 +124,7 @@ const globalStubs = {
   ElForm: FormStub,
   ElButton: ButtonStub,
   ElFormItem: { template: '<div><slot /></div>' },
+  ElAlert: true,
   ElDivider: { template: '<div><slot /></div>' },
   ElInputNumber: true,
   ElInput: true,
@@ -120,7 +155,59 @@ const rental77: Rental = {
   includes_lens_mount: false,
   photo_transfer: false,
   accessories: [],
+  customer_province: '广东省',
+  customer_city: '深圳市',
+  customer_district: '南山区',
+  customer_address_detail: '测试路1号',
+  preferred_warehouse_id: 3,
+  logistics_days: 1,
+  logistics_estimate_origin_warehouse_id: 3,
+  requested_accessory_type_ids: [],
+  device: {
+    id: 9,
+    name: '测试设备',
+    serial_number: 'TEST-9',
+    model: 'x200u',
+    model_id: 1,
+  },
 }
+
+const editAvailability = () => ({
+  request_id: 'edit-availability-test',
+  evaluated_at: '2026-08-22T00:00:00Z',
+  preferred_warehouse_id: 3,
+  requested_accessory_type_ids: [],
+  estimate_by_warehouse: {
+    '3': {
+      warehouse_id: 3,
+      status: 'manual_confirmed',
+      safe_failure_reason: null,
+      logistics_days: 1,
+      manual_confirmation_required: false,
+      confirmation_context: 'b'.repeat(64),
+    },
+  },
+  candidates: [{
+    device: {
+      id: 9,
+      name: '测试设备',
+      serial_number: 'TEST-9',
+      model: 'x200u',
+      model_id: 1,
+      warehouse_id: 3,
+    },
+    warehouse: bookingTestState.bootstrap.value.warehouses[0],
+    available: true,
+    hard_conflicts: [],
+    warnings: [],
+    relay_candidate: false,
+    logistics_days: 1,
+    planned_ship_out_date: '2026-07-18',
+    planned_return_date: '2026-07-24',
+    submission_ready: true,
+    accessories: [],
+  }],
+})
 
 const findButton = (wrapper: VueWrapper, label: string) => {
   const button = wrapper.findAll('button').find(candidate => candidate.text() === label)
@@ -148,6 +235,44 @@ const deferred = <T>() => {
 }
 
 const mountBookingDialog = (initialXianyuOrderNo?: string) => {
+  bookingTestState.loadBootstrap.mockResolvedValue(
+    bookingTestState.bootstrap.value,
+  )
+  bookingTestState.availability.value = {
+    request_id: 'availability-test',
+    evaluated_at: '2026-08-22T00:00:00Z',
+    preferred_warehouse_id: 3,
+    requested_accessory_type_ids: [],
+    estimate_by_warehouse: {
+      '3': {
+        warehouse_id: 3,
+        status: 'manual_confirmed',
+        safe_failure_reason: null,
+        logistics_days: 1,
+        manual_confirmation_required: false,
+        confirmation_context: 'a'.repeat(64),
+      },
+    },
+    candidates: [{
+      device: {
+        id: 9,
+        name: '测试设备',
+        model: 'x200u',
+        model_id: 1,
+        warehouse_id: 3,
+      },
+      warehouse: bookingTestState.bootstrap.value.warehouses[0],
+      available: true,
+      hard_conflicts: [],
+      warnings: [],
+      relay_candidate: false,
+      logistics_days: 1,
+      planned_ship_out_date: '2026-07-18',
+      planned_return_date: '2026-07-24',
+      submission_ready: true,
+      accessories: [],
+    }],
+  }
   const pinia = createPinia()
   setActivePinia(pinia)
   const store = useGanttStore()
@@ -167,8 +292,14 @@ const mountBookingDialog = (initialXianyuOrderNo?: string) => {
     form.startDate = new Date('2026-07-20T00:00:00')
     form.endDate = new Date('2026-07-22T00:00:00')
     form.selectedDeviceId = 9
+    form.selectedModelId = 1
+    form.preferredWarehouseId = 3
     form.customerName = '测试客户'
     form.destination = '测试地址'
+    form.customerProvince = '广东省'
+    form.customerCity = '深圳市'
+    form.customerDistrict = '南山区'
+    form.customerAddressDetail = '测试地址'
   }
 
   return { store, wrapper }
@@ -178,7 +309,33 @@ const mountEditDialog = async () => {
   const pinia = createPinia()
   setActivePinia(pinia)
   const store = useGanttStore()
-  vi.spyOn(store, 'getRentalById').mockResolvedValue({ ...rental77 })
+  const availability = editAvailability()
+  bookingTestState.availability.value = availability as any
+  bookingTestState.availabilityFailed.value = false
+  bookingTestState.availabilityLoading.value = false
+  bookingTestState.evaluateAvailability.mockResolvedValue(availability)
+  vi.spyOn(store, 'getRentalEditContext').mockResolvedValue({
+    request_id: 'test-edit-context',
+    evaluated_at: '2026-08-22T00:00:00Z',
+    rental: { ...rental77 },
+    devices: [{
+      id: 9,
+      name: '测试设备',
+      serial_number: 'TEST-9',
+      model: 'x200u',
+      model_id: 1,
+      warehouse_id: 3,
+      is_accessory: false,
+      lifecycle_status: 'active',
+      created_at: '2026-08-01T00:00:00',
+      updated_at: '2026-08-01T00:00:00',
+    }],
+    legacy_device_bound_accessories: [],
+    warehouses: bookingTestState.bootstrap.value.warehouses,
+    device_models: [{ id: 1, name: 'x200u', display_name: 'X200U' }],
+    accessory_types: [],
+    form_policy: {},
+  })
   const wrapper = shallowMount(EditRentalDialogNew, {
     props: { modelValue: true, rental: { ...rental77 } },
     global: {
@@ -254,6 +411,25 @@ describe('rental save success events', () => {
 
     await clickButton(wrapper, '保存')
 
+    expect(store.updateRental).toHaveBeenCalledWith(
+      77,
+      expect.objectContaining({
+        device_id: 9,
+        expected_origin_warehouse_id: 3,
+        model_id: 1,
+        exclude_rental_id: 77,
+        requested_accessory_type_ids: [],
+        destination: {
+          province: '广东省',
+          city: '深圳市',
+          district: '南山区',
+          address_detail: '测试路1号',
+        },
+      }),
+    )
+    const submittedPayload = vi.mocked(store.updateRental).mock.calls[0][1]
+    expect(submittedPayload).not.toHaveProperty('accessories')
+    expect(submittedPayload).not.toHaveProperty('status')
     expect(wrapper.emitted('success')).toBeUndefined()
     await emitDialogClosed(wrapper)
     expect(wrapper.emitted('success')).toEqual([[77]])

@@ -23,6 +23,10 @@ rental_api_bp = _load_rental_api_blueprint()
 @pytest.fixture
 def client():
     app = Flask(__name__)
+    app.config.update(
+        TESTING=True,
+        ENABLE_LEGACY_SINGLE_TENANT_RENTAL_API=True,
+    )
     app.register_blueprint(rental_api_bp)
     return app.test_client()
 

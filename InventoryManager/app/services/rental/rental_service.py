@@ -5,15 +5,217 @@
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 from flask import current_app
+from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 from app import db
 from app.models.rental import Rental
 from app.models.device import Device
+from app.services.scheduling import (
+    ACTIVE_RENTAL_STATUSES,
+    USAGE_PERIOD_CONFLICT,
+    VALID_RENTAL_STATUSES,
+    RentalSchedule,
+    ScheduleOverlapPolicy,
+)
 from app.utils.date_utils import parse_date_strings, validate_date_range
+
+
+class RentalUsagePeriodConflictError(ValueError):
+    """Stable final-write rejection for an inclusive customer-use conflict."""
+
+    code = USAGE_PERIOD_CONFLICT
+
+    def __init__(self, conflicting_rental_ids: Tuple[int, ...]) -> None:
+        self.conflicting_rental_ids = tuple(
+            sorted(set(conflicting_rental_ids))
+        )
+        super().__init__(self.code)
 
 
 class RentalService:
     """租赁服务类"""
+
+    _schedule_overlap_policy = ScheduleOverlapPolicy()
+
+    @staticmethod
+    def _lock_schedule_device(device_id: int) -> Optional[Device]:
+        """Serialize final schedule writes for one device.
+
+        The device row is the stable mutex even when the device currently has
+        no rentals.  The following range lock therefore cannot be bypassed by
+        two concurrent creates both observing an empty schedule.
+        """
+
+        return RentalService._lock_schedule_devices((device_id,)).get(
+            device_id
+        )
+
+    @staticmethod
+    def _lock_schedule_devices(
+        device_ids: Tuple[int, ...],
+    ) -> Dict[int, Device]:
+        """Lock every affected device in deterministic primary-key order."""
+
+        ordered_ids = tuple(sorted(set(device_ids)))
+        if not ordered_ids:
+            return {}
+        rows = db.session.execute(
+            select(Device)
+            .where(Device.id.in_(ordered_ids))
+            .order_by(Device.id.asc())
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalars()
+        return {row.id: row for row in rows}
+
+    @staticmethod
+    def _optional_datetime(value: object, field_name: str) -> Optional[datetime]:
+        if value is None or value == '':
+            return None
+        if isinstance(value, datetime):
+            return value
+        if not isinstance(value, str):
+            raise ValueError(f'{field_name} 格式错误')
+        normalized = value.replace('T', ' ')
+        for pattern in (None, '%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+            try:
+                return (
+                    datetime.fromisoformat(normalized)
+                    if pattern is None
+                    else datetime.strptime(normalized, pattern)
+                )
+            except ValueError:
+                continue
+        raise ValueError(f'{field_name} 格式错误')
+
+    @staticmethod
+    def _require_logistics_days(value: object) -> int:
+        """Accept the confirmed D33 integer range without truthy defaults."""
+
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < 0
+            or value > 7
+        ):
+            raise ValueError('logistics_days 必须是 0 到 7 的整数')
+        return value
+
+    @classmethod
+    def _planned_logistics_window(
+        cls,
+        *,
+        start_date: date,
+        end_date: date,
+        logistics_days: int,
+    ):
+        return cls._schedule_overlap_policy.calculate_planned_window(
+            start_date=start_date,
+            end_date=end_date,
+            logistics_days=logistics_days,
+            tenant_timezone=current_app.config.get(
+                'TIMEZONE', 'Asia/Shanghai'
+            ),
+        )
+
+    @classmethod
+    def _require_usage_period_available(
+        cls,
+        *,
+        device_id: int,
+        start_date: date,
+        end_date: date,
+        candidate_status: str,
+        candidate_rental_id: Optional[int] = None,
+        candidate_logistics_days: Optional[int] = None,
+    ) -> None:
+        """Lock and re-evaluate the authoritative same-device schedule.
+
+        Customer-use conflicts are independent from logistics duration.  A
+        nullable legacy ``logistics_days`` is represented as zero only in this
+        in-memory policy projection; no persisted logistics fact is invented or
+        changed.  The shared policy still owns the inclusive period semantics.
+        """
+
+        locked = tuple(
+            db.session.execute(
+                select(Rental)
+                .where(
+                    Rental.device_id == device_id,
+                    Rental.parent_rental_id.is_(None),
+                    Rental.status.in_(tuple(sorted(ACTIVE_RENTAL_STATUSES))),
+                )
+                .order_by(Rental.start_date.asc(), Rental.id.asc())
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).scalars()
+        )
+        schedules = tuple(
+            RentalSchedule(
+                rental_id=rental.id,
+                device_id=rental.device_id,
+                start_date=rental.start_date,
+                end_date=rental.end_date,
+                logistics_days=(
+                    rental.logistics_days
+                    if rental.logistics_days is not None
+                    else 0
+                ),
+                status=rental.status,
+            )
+            for rental in locked
+        )
+        candidate = RentalSchedule(
+            rental_id=candidate_rental_id,
+            device_id=device_id,
+            start_date=start_date,
+            end_date=end_date,
+            logistics_days=(
+                candidate_logistics_days
+                if candidate_logistics_days is not None
+                else 0
+            ),
+            status=candidate_status,
+        )
+        evaluation = cls._schedule_overlap_policy.evaluate(
+            schedules,
+            candidate=candidate,
+            exclude_rental_id=candidate_rental_id,
+            tenant_timezone=current_app.config.get(
+                "TIMEZONE", "Asia/Shanghai"
+            ),
+        )
+
+        if candidate_rental_id is None:
+            candidate_conflicts = tuple(
+                conflict
+                for conflict in evaluation.hard_conflicts
+                if conflict.predecessor_rental_id is None
+                or conflict.successor_rental_id is None
+            )
+        else:
+            candidate_conflicts = tuple(
+                conflict
+                for conflict in evaluation.hard_conflicts
+                if candidate_rental_id
+                in (
+                    conflict.predecessor_rental_id,
+                    conflict.successor_rental_id,
+                )
+            )
+        if not candidate_conflicts:
+            return
+
+        conflicting_ids = tuple(
+            rental_id
+            for conflict in candidate_conflicts
+            for rental_id in (
+                conflict.predecessor_rental_id,
+                conflict.successor_rental_id,
+            )
+            if rental_id is not None and rental_id != candidate_rental_id
+        )
+        raise RentalUsagePeriodConflictError(conflicting_ids)
 
     @staticmethod
     def get_pending_returns(today: Optional[date] = None) -> List[Dict[str, Any]]:
@@ -159,11 +361,6 @@ class RentalService:
             Tuple[Rental, List[Rental]]: (主租赁, 附件租赁列表)
         """
         try:
-            # 验证设备存在性
-            device = Device.query.get(data['device_id'])
-            if not device:
-                raise ValueError('设备不存在')
-
             # 解析日期
             start_date, end_date = parse_date_strings(data['start_date'], data['end_date'])
 
@@ -171,6 +368,23 @@ class RentalService:
             validation_error = validate_date_range(start_date, end_date)
             if validation_error:
                 raise ValueError(validation_error)
+
+            logistics_days = None
+            planned_ship_out_date = None
+            planned_return_date = None
+            if 'logistics_days' in data:
+                logistics_days = RentalService._require_logistics_days(
+                    data['logistics_days']
+                )
+                planned_window = RentalService._planned_logistics_window(
+                    start_date=start_date,
+                    end_date=end_date,
+                    logistics_days=logistics_days,
+                )
+                planned_ship_out_date = (
+                    planned_window.planned_ship_out_date
+                )
+                planned_return_date = planned_window.planned_return_date
 
             # 解析时间
             ship_out_time = None
@@ -192,6 +406,20 @@ class RentalService:
                     # 回退到原格式
                     ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d %H:%M:%S')
 
+            # The final write never trusts the separate conflict-preview API.
+            # Lock the stable device row first, then lock and re-read every
+            # effective main rental before the candidate is added.
+            device = RentalService._lock_schedule_device(data['device_id'])
+            if not device:
+                raise ValueError('设备不存在')
+            RentalService._require_usage_period_available(
+                device_id=device.id,
+                start_date=start_date,
+                end_date=end_date,
+                candidate_status='not_shipped',
+                candidate_logistics_days=logistics_days,
+            )
+
             # 创建主租赁记录（包含配套附件标记）
             main_rental = Rental(
                 device_id=data['device_id'],
@@ -208,9 +436,13 @@ class RentalService:
                 order_amount=data.get('order_amount'),
                 buyer_id=data.get('buyer_id'),
                 status='not_shipped',
+                logistics_days=logistics_days,
+                planned_ship_out_date=planned_ship_out_date,
+                planned_return_date=planned_return_date,
                 # 新：配套附件标记
                 includes_handle=data.get('includes_handle', False),
                 includes_lens_mount=data.get('includes_lens_mount', False),
+                photo_transfer=data.get('photo_transfer', False),
                 # 镜头组合（由 handler 层校验/补全后传入，handler 不传则使用 server_default）
                 lens_combo=data.get('lens_combo', 'lens_400mm')
             )
@@ -242,6 +474,9 @@ class RentalService:
                             ship_out_tracking_no=data.get('ship_out_tracking_no', ''),
                             ship_in_tracking_no=data.get('ship_in_tracking_no', ''),
                             status='not_shipped',
+                            logistics_days=logistics_days,
+                            planned_ship_out_date=planned_ship_out_date,
+                            planned_return_date=planned_return_date,
                             parent_rental_id=main_rental.id
                         )
                         db.session.add(accessory_rental)
@@ -257,44 +492,12 @@ class RentalService:
 
     @staticmethod
     def update_rental_status(rental_id: int, new_status: str) -> Rental:
-        """更新租赁状态"""
-        try:
-            rental = Rental.query.get(rental_id)
-            if not rental:
-                raise ValueError('租赁记录不存在')
+        """Update status through the same locked final-write transaction."""
 
-            old_status = rental.status
-            rental.status = new_status
-
-            current_app.logger.info(f"状态更新: 接收到状态 {new_status}, 当前状态 {old_status}")
-            current_app.logger.info(f"状态更新: 已设置 rental.status = {rental.status}")
-
-            # 处理状态变化时的逻辑
-            if old_status != new_status:
-                current_app.logger.info(f"租赁状态从 {old_status} 变更为 {new_status}")
-
-                # 如果状态变为已发货，设置发货时间
-                if new_status == 'shipped' and not rental.ship_out_time:
-                    rental.ship_out_time = datetime.utcnow()
-
-                # 如果状态变为已完成，设置收回时间
-                if new_status == 'completed' and not rental.ship_in_time:
-                    rental.ship_in_time = datetime.utcnow()
-
-                # 同步更新子租赁（附件）的状态
-                for child_rental in rental.child_rentals:
-                    child_rental.status = new_status
-
-            current_app.logger.info(f"准备提交数据库事务，当前状态: {rental.status}")
-            db.session.commit()
-            current_app.logger.info(f"数据库事务已提交，当前状态: {rental.status}")
-
-            return rental
-
-        except Exception as e:
-            db.session.rollback()
-            current_app.logger.error(f"更新租赁状态失败: {e}")
-            raise
+        return RentalService.update_rental_with_accessories(
+            rental_id,
+            {'status': new_status},
+        )
 
     @staticmethod
     def delete_rental(rental_id: int) -> bool:
@@ -431,6 +634,11 @@ class RentalService:
                         ship_out_tracking_no=rental.ship_out_tracking_no,
                         ship_in_tracking_no=rental.ship_in_tracking_no,
                         status=rental.status,
+                        logistics_days=rental.logistics_days,
+                        planned_ship_out_date=rental.planned_ship_out_date,
+                        planned_return_date=rental.planned_return_date,
+                        actual_shipped_at=rental.actual_shipped_at,
+                        actual_returned_at=rental.actual_returned_at,
                         parent_rental_id=rental.id
                     )
                     db.session.add(new_accessory_rental)
@@ -443,7 +651,12 @@ class RentalService:
             raise
     
     @staticmethod
-    def update_rental_with_accessories(rental_id: int, data: Dict[str, Any]) -> Rental:
+    def update_rental_with_accessories(
+        rental_id: int,
+        data: Dict[str, Any],
+        *,
+        commit: bool = True,
+    ) -> Rental:
         """更新租赁记录及其附件（包括配套附件标记）
         
         Args:
@@ -458,41 +671,209 @@ class RentalService:
             Rental: 更新后的租赁记录
         """
         try:
-            rental = Rental.query.get(rental_id)
+            # Read only the lock identity first, then follow the same stable
+            # device(s) -> rental -> target schedule lock order as creation.
+            source_identity = db.session.execute(
+                select(Rental.device_id, Rental.parent_rental_id).where(
+                    Rental.id == rental_id
+                )
+            ).one_or_none()
+            if source_identity is None:
+                raise ValueError('租赁记录不存在')
+            source_device_id, source_parent_rental_id = source_identity
+            if source_parent_rental_id is not None:
+                raise ValueError('附件租赁必须通过主租赁更新')
+            proposed_device_id = data.get('device_id', source_device_id)
+            if (
+                isinstance(proposed_device_id, bool)
+                or not isinstance(proposed_device_id, int)
+            ):
+                raise ValueError('设备ID无效')
+            locked_devices = RentalService._lock_schedule_devices(
+                (source_device_id, proposed_device_id)
+            )
+            if source_device_id not in locked_devices:
+                raise ValueError('原设备不存在')
+            if proposed_device_id not in locked_devices:
+                raise ValueError('设备不存在')
+            rental = db.session.execute(
+                select(Rental)
+                .where(
+                    Rental.id == rental_id,
+                    Rental.device_id == source_device_id,
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            ).scalar_one_or_none()
             if not rental:
                 raise ValueError('租赁记录不存在')
-            
-            # 更新基本信息
-            if 'customer_name' in data:
-                rental.customer_name = data['customer_name']
-            if 'customer_phone' in data:
-                rental.customer_phone = data['customer_phone']
-            if 'destination' in data:
-                rental.destination = data['destination']
-            
+            locked_child_rentals = tuple(
+                db.session.execute(
+                    select(Rental)
+                    .where(Rental.parent_rental_id == rental.id)
+                    .order_by(Rental.id.asc())
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                ).scalars()
+            )
+
+            proposed_start_date, proposed_end_date = parse_date_strings(
+                data.get('start_date', rental.start_date),
+                data.get('end_date', rental.end_date),
+            )
+            validation_error = validate_date_range(
+                proposed_start_date,
+                proposed_end_date,
+            )
+            if validation_error:
+                raise ValueError(validation_error)
+            proposed_logistics_days = rental.logistics_days
+            if 'logistics_days' in data:
+                proposed_logistics_days = (
+                    RentalService._require_logistics_days(
+                        data['logistics_days']
+                    )
+                )
+            planned_facts_changed = any(
+                field_name in data
+                for field_name in (
+                    'start_date',
+                    'end_date',
+                    'logistics_days',
+                )
+            )
+            proposed_planned_window = None
+            if (
+                planned_facts_changed
+                and proposed_logistics_days is not None
+            ):
+                proposed_planned_window = (
+                    RentalService._planned_logistics_window(
+                        start_date=proposed_start_date,
+                        end_date=proposed_end_date,
+                        logistics_days=proposed_logistics_days,
+                    )
+                )
+            proposed_status = data.get('status', rental.status)
+            if proposed_status not in VALID_RENTAL_STATUSES:
+                raise ValueError('无效的状态值')
+            if rental.parent_rental_id is None:
+                RentalService._require_usage_period_available(
+                    device_id=proposed_device_id,
+                    start_date=proposed_start_date,
+                    end_date=proposed_end_date,
+                    candidate_status=proposed_status,
+                    candidate_rental_id=rental.id,
+                    candidate_logistics_days=proposed_logistics_days,
+                )
+
+            rental.device_id = proposed_device_id
+            for field_name in (
+                'customer_name',
+                'customer_phone',
+                'destination',
+                'damage_note',
+                'ship_out_tracking_no',
+                'ship_in_tracking_no',
+                'xianyu_order_no',
+                'order_amount',
+                'buyer_id',
+                'includes_handle',
+                'includes_lens_mount',
+                'photo_transfer',
+                'lens_combo',
+            ):
+                if field_name in data:
+                    setattr(rental, field_name, data[field_name])
+
             # 更新日期
             if 'start_date' in data:
-                start_date, _ = parse_date_strings(data['start_date'], data.get('end_date', rental.end_date))
-                rental.start_date = start_date
+                rental.start_date = proposed_start_date
             if 'end_date' in data:
-                _, end_date = parse_date_strings(data.get('start_date', rental.start_date), data['end_date'])
-                rental.end_date = end_date
-            
-            # 更新配套附件标记
-            if 'includes_handle' in data:
-                rental.includes_handle = data['includes_handle']
-            if 'includes_lens_mount' in data:
-                rental.includes_lens_mount = data['includes_lens_mount']
-            
+                rental.end_date = proposed_end_date
+            if 'logistics_days' in data:
+                rental.logistics_days = proposed_logistics_days
+            if planned_facts_changed:
+                rental.planned_ship_out_date = (
+                    proposed_planned_window.planned_ship_out_date
+                    if proposed_planned_window is not None
+                    else None
+                )
+                rental.planned_return_date = (
+                    proposed_planned_window.planned_return_date
+                    if proposed_planned_window is not None
+                    else None
+                )
+                for child_rental in locked_child_rentals:
+                    child_rental.start_date = rental.start_date
+                    child_rental.end_date = rental.end_date
+                    child_rental.logistics_days = rental.logistics_days
+                    child_rental.planned_ship_out_date = (
+                        rental.planned_ship_out_date
+                    )
+                    child_rental.planned_return_date = (
+                        rental.planned_return_date
+                    )
+
+            if 'ship_out_time' in data:
+                rental.ship_out_time = RentalService._optional_datetime(
+                    data['ship_out_time'],
+                    'ship_out_time',
+                )
+            if 'ship_in_time' in data:
+                rental.ship_in_time = RentalService._optional_datetime(
+                    data['ship_in_time'],
+                    'ship_in_time',
+                )
+            if 'scheduled_ship_time' in data:
+                rental.scheduled_ship_time = RentalService._optional_datetime(
+                    data['scheduled_ship_time'],
+                    'scheduled_ship_time',
+                )
+
+            if 'status' in data:
+                rental.status = proposed_status
+                status_changed_at = datetime.utcnow()
+                if proposed_status == 'shipped':
+                    if not rental.ship_out_time:
+                        rental.ship_out_time = status_changed_at
+                    if not rental.actual_shipped_at:
+                        rental.actual_shipped_at = rental.ship_out_time
+                if proposed_status == 'returned':
+                    if not rental.ship_in_time:
+                        rental.ship_in_time = status_changed_at
+                    if not rental.actual_returned_at:
+                        rental.actual_returned_at = rental.ship_in_time
+                if proposed_status == 'completed' and not rental.ship_in_time:
+                    rental.ship_in_time = status_changed_at
+                for child_rental in locked_child_rentals:
+                    child_rental.status = proposed_status
+                    if proposed_status == 'shipped':
+                        if not child_rental.ship_out_time:
+                            child_rental.ship_out_time = status_changed_at
+                        if not child_rental.actual_shipped_at:
+                            child_rental.actual_shipped_at = (
+                                child_rental.ship_out_time
+                            )
+                    if proposed_status == 'returned':
+                        if not child_rental.ship_in_time:
+                            child_rental.ship_in_time = status_changed_at
+                        if not child_rental.actual_returned_at:
+                            child_rental.actual_returned_at = (
+                                child_rental.ship_in_time
+                            )
+
             # 更新库存附件（如果提供）
             if 'accessories' in data:
                 RentalService.update_rental_accessories(rental, data['accessories'])
             
-            db.session.commit()
+            if commit:
+                db.session.commit()
             current_app.logger.info(f"成功更新租赁记录: {rental_id}")
             return rental
             
         except Exception as e:
-            db.session.rollback()
+            if commit:
+                db.session.rollback()
             current_app.logger.error(f"更新租赁记录失败: {e}")
             raise

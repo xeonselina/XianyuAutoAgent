@@ -49,7 +49,7 @@
           <div class="accessories-list">
             <el-tag 
               v-for="accessory in rental.accessories" 
-              :key="accessory.id" 
+              :key="`${accessory.type}:${accessory.id ?? accessory.name}`"
               size="small" 
               type="info"
               style="margin-right: 8px; margin-bottom: 4px;"

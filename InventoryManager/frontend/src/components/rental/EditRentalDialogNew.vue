@@ -2,11 +2,10 @@
   <el-dialog
     v-model="dialogVisible"
     title="编辑租赁记录"
-    width="500px"
+    width="680px"
     :close-on-click-modal="false"
     :close-on-press-escape="!submitting"
     :show-close="!submitting"
-    @close="handleClose"
     @closed="handleClosed"
   >
     <RentalActionButtons
@@ -17,52 +16,170 @@
       @open-contract="openContract"
       @open-shipping-order="openShippingOrder"
       @delete="handleDelete"
-      @close="handleClose"
-      @submit="handleSubmit"
       @ship-to-xianyu="handleShipToXianyu"
     />
 
-    <el-form
-      ref="formRef"
-      :model="form"
-      :rules="rules"
-      label-width="120px"
-      v-if="rental"
-    >
-      <!-- 基础信息 -->
-      <el-divider content-position="left">
-        <span class="divider-title">📋 基础信息</span>
-      </el-divider>
-      <RentalBasicForm
-        :form="form"
-        :rental="rental"
-        :available-devices="deviceManagement.devices.value"
-        :loading-devices="deviceManagement.loading.value"
-        :min-selectable-date="minSelectableDate"
-        @device-change="handleDeviceChange"
-        @end-date-change="handleEndDateChange"
-        @device-selector-focus="handleDeviceSelectorFocus"
-      />
+    <el-form v-if="rental" ref="formRef" :model="form" label-width="118px">
+      <el-divider content-position="left">预约与客户</el-divider>
+      <el-form-item label="闲鱼 ID" required>
+        <el-input v-model="form.customerName" maxlength="100" />
+      </el-form-item>
+      <el-form-item label="客户电话">
+        <el-input v-model="form.customerPhone" maxlength="20" />
+      </el-form-item>
+      <el-form-item label="设备型号" required>
+        <el-select v-model="form.modelId" style="width: 100%">
+          <el-option
+            v-for="model in editContext?.device_models || []"
+            :key="model.id"
+            :label="model.display_name || model.name"
+            :value="model.id"
+          />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="主设备" required>
+        <el-select
+          v-model="form.deviceId"
+          :loading="booking.availabilityLoading.value"
+          style="width: 100%"
+        >
+          <el-option
+            v-for="candidate in deviceCandidates"
+            :key="candidate.device.id"
+            :label="deviceLabel(candidate)"
+            :value="candidate.device.id"
+            :disabled="!candidate.available"
+          />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="优先仓库">
+        <el-select v-model="form.preferredWarehouseId" clearable style="width: 100%">
+          <el-option
+            v-for="warehouse in editContext?.warehouses || []"
+            :key="warehouse.id"
+            :label="warehouse.name"
+            :value="warehouse.id"
+          />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="开始日期" required>
+        <el-date-picker
+          v-model="form.startDate"
+          type="date"
+          value-format="YYYY-MM-DD"
+          style="width: 100%"
+        />
+      </el-form-item>
+      <el-form-item label="结束日期" required>
+        <el-date-picker
+          v-model="form.endDate"
+          type="date"
+          value-format="YYYY-MM-DD"
+          :disabled-date="disableEndDate"
+          style="width: 100%"
+        />
+      </el-form-item>
 
-      <!-- 客户与物流信息 -->
-      <el-divider content-position="left">
-        <span class="divider-title">🚚 客户与物流信息</span>
-      </el-divider>
-      <RentalShippingForm
-        :form="form"
-        :querying-ship-out="queryingShipOut"
-        :querying-ship-in="queryingShipIn"
-        @query-ship-out="queryShipOutTracking"
-        @query-ship-in="queryShipInTracking"
-        @ship-out-time-change="handleShipOutTimeChange"
-        @ship-in-time-change="handleShipInTimeChange"
-        @status-change="handleStatusChange"
-      />
+      <el-divider content-position="left">结构化收货地址</el-divider>
+      <div class="address-grid">
+        <el-form-item label="省" required>
+          <el-input v-model="form.customerProvince" maxlength="50" />
+        </el-form-item>
+        <el-form-item label="市" required>
+          <el-input v-model="form.customerCity" maxlength="50" />
+        </el-form-item>
+        <el-form-item label="区县" required>
+          <el-input v-model="form.customerDistrict" maxlength="50" />
+        </el-form-item>
+      </div>
+      <el-form-item label="详细地址" required>
+        <el-input
+          v-model="form.customerAddressDetail"
+          type="textarea"
+          :rows="2"
+          maxlength="255"
+        />
+      </el-form-item>
 
-      <!-- 损坏反馈 -->
-      <el-divider content-position="left">
-        <span class="divider-title damage-divider-title">⚠️ 损坏反馈</span>
-      </el-divider>
+      <el-divider content-position="left">订单与配件</el-divider>
+      <el-form-item label="闲鱼订单号">
+        <el-input v-model="form.xianyuOrderNo" maxlength="50" />
+      </el-form-item>
+      <el-form-item label="订单金额">
+        <el-input v-model="form.orderAmount" type="number" />
+      </el-form-item>
+      <el-form-item label="买家 ID">
+        <el-input v-model="form.buyerId" maxlength="100" />
+      </el-form-item>
+      <el-form-item label="随机配件">
+        <el-checkbox-group v-model="form.bundledAccessories">
+          <el-checkbox value="handle">手柄</el-checkbox>
+          <el-checkbox value="lens_mount">镜头座</el-checkbox>
+        </el-checkbox-group>
+      </el-form-item>
+      <el-form-item label="逻辑附件">
+        <el-checkbox-group v-model="form.requestedAccessoryTypeIds">
+          <el-checkbox
+            v-for="accessory in logicalAccessoryTypes"
+            :key="accessory.id"
+            :value="accessory.id"
+          >
+            {{ accessory.display_name || accessory.name }}
+          </el-checkbox>
+        </el-checkbox-group>
+        <div class="form-tip">只选择附件类型，系统在最终事务分配内部逻辑单元。</div>
+      </el-form-item>
+      <el-form-item label="镜头组合">
+        <el-select v-model="form.lensCombo" style="width: 100%">
+          <el-option label="400MM 镜头" value="lens_400mm" />
+          <el-option label="200MM 镜头" value="lens_200mm" />
+          <el-option label="裸机" value="bare" />
+          <el-option label="双镜头" value="lens_dual" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="代传照片">
+        <el-switch v-model="form.photoTransfer" />
+      </el-form-item>
+
+      <el-divider content-position="left">物流复验</el-divider>
+      <el-alert
+        v-if="booking.availabilityFailed.value"
+        title="无法确认当前档期和物流，请稍后重试"
+        type="error"
+        :closable="false"
+        show-icon
+      />
+      <el-alert
+        v-else-if="selectedCandidate && !selectedCandidate.available"
+        title="所选设备与当前使用期冲突"
+        type="error"
+        :closable="false"
+        show-icon
+      />
+      <el-alert
+        v-else-if="selectedCandidate?.submission_ready"
+        :title="`最终复验可提交；计划寄出 ${selectedCandidate.planned_ship_out_date}，计划回仓 ${selectedCandidate.planned_return_date}`"
+        type="success"
+        :closable="false"
+        show-icon
+      />
+      <template v-for="estimate in manualEstimates" :key="estimate.warehouse_id">
+        <el-form-item :label="`${warehouseName(estimate.warehouse_id)}时效`">
+          <el-input-number
+            v-model="manualDays[estimate.warehouse_id]"
+            :min="0"
+            :max="7"
+          />
+          <el-button
+            type="primary"
+            plain
+            class="manual-confirm"
+            @click="confirmManualLogistics(estimate.warehouse_id)"
+          >确认并复验</el-button>
+        </el-form-item>
+      </template>
+
+      <el-divider content-position="left">损坏反馈</el-divider>
       <el-alert
         v-if="form.damageNote.trim()"
         class="damage-note-warning"
@@ -79,67 +196,40 @@
           :rows="3"
           maxlength="1000"
           show-word-limit
-          placeholder="填写用户反馈的损坏位置、现象等；清空后将取消验货提醒"
         />
       </el-form-item>
-
-      <!-- 附件选择 -->
-      <el-divider content-position="left">
-        <span class="divider-title">🔧 附件选择</span>
-      </el-divider>
-      <RentalAccessorySelector
-        :form="form"
-        :rental="rental"
-        :available-controllers="deviceManagement.accessories.value"
-        :loading-accessories="deviceManagement.loading.value"
-        :searching-accessory="searchingAccessory"
-        @find-accessory="findAvailableAccessory"
-        @remove-accessory="removeController"
-        @accessory-change="handleAccessoryChange"
-        @accessory-selector-focus="handleAccessorySelectorFocus"
+      <el-alert
+        :title="`当前状态：${rental.status}。状态、运单和实际收发时间由对应作业动作维护。`"
+        type="info"
+        :closable="false"
       />
     </el-form>
 
     <template #footer>
-      <div class="dialog-footer">
-        <el-button :disabled="submitting" @click="handleClose">取消</el-button>
-        <el-button
-          type="primary"
-          @click="handleSubmit"
-          :loading="submitting"
-        >
-          保存
-        </el-button>
-      </div>
+      <el-button :disabled="submitting" @click="handleClose">取消</el-button>
+      <el-button
+        type="primary"
+        :loading="submitting"
+        :disabled="!canSubmit"
+        @click="handleSubmit"
+      >保存</el-button>
     </template>
   </el-dialog>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
 
-// Store & Composables
-import { useGanttStore } from '@/stores/gantt'
-import type { Rental } from '@/stores/gantt'
-import { useDeviceManagement } from '@/composables/useDeviceManagement'
-import { useAvailabilityCheck } from '@/composables/useAvailabilityCheck'
-import { useConflictDetection } from '@/composables/useConflictDetection'
-import { getEditRentalRules } from '@/composables/useRentalFormValidation'
-import {
-  formatLogisticsWarning,
-  getLogisticsMismatch
-} from '@/utils/logisticsWarning'
-
-// Components
 import RentalActionButtons from './RentalActionButtons.vue'
-import RentalBasicForm from './RentalBasicForm.vue'
-import RentalShippingForm from './RentalShippingForm.vue'
-import RentalAccessorySelector from './RentalAccessorySelector.vue'
+import { useGanttStore, type Rental, type RentalEditContext } from '@/stores/gantt'
+import {
+  useRentalBooking,
+  type BookingCandidate,
+} from '@/composables/useRentalBooking'
 
-// Props & Emits
 interface Props {
   modelValue: boolean
   rental: Rental | null
@@ -151,118 +241,276 @@ const emit = defineEmits<{
   'success': [rentalId?: number]
 }>()
 
-// Store & Router
 const ganttStore = useGanttStore()
 const router = useRouter()
-
-// Composables
-const deviceManagement = useDeviceManagement()
-const availability = useAvailabilityCheck()
-const conflictDetection = useConflictDetection()
-
-// Refs
+const booking = useRentalBooking()
 const formRef = ref<FormInstance>()
-const dialogVisible = computed({
-  get: () => props.modelValue,
-  set: (value) => emit('update:modelValue', value)
-})
+const editContext = ref<RentalEditContext | null>(null)
+const loadingLatestData = ref(false)
+const latestDataError = ref<string | null>(null)
+const submitting = ref(false)
+const pendingSuccess = ref<{ rentalId?: number } | null>(null)
+const dialogClosed = ref(!props.modelValue)
+const manualDays = reactive<Record<number, number>>({})
+const manualConfirmations = reactive<Record<string, { days: number; context: string }>>({})
+let availabilityTimer: ReturnType<typeof setTimeout> | undefined
+let initialScheduleKey = ''
+let seededExistingLogistics = false
 
-// Form State
-const form = ref({
-  deviceId: 0,
-  endDate: null as Date | null,
+const form = reactive({
+  customerName: '',
   customerPhone: '',
-  destination: '',
-  shipOutTrackingNo: '',
-  shipInTrackingNo: '',
-  shipOutTime: null as Date | null,
-  shipInTime: null as Date | null,
-  status: 'not_shipped',
-  // 新：分离配套附件和库存附件
-  bundledAccessories: [] as ('handle' | 'lens_mount')[],
-  phoneHolderId: null as number | null,
-  tripodId: null as number | null,
-  // 保留accessories为了兼容性（用于RentalAccessorySelector）
-  accessories: [] as number[],
+  modelId: null as number | null,
+  deviceId: null as number | null,
+  preferredWarehouseId: null as number | null,
+  startDate: '',
+  endDate: '',
+  customerProvince: '',
+  customerCity: '',
+  customerDistrict: '',
+  customerAddressDetail: '',
+  requestedAccessoryTypeIds: [] as number[],
+  bundledAccessories: [] as Array<'handle' | 'lens_mount'>,
   xianyuOrderNo: '',
   orderAmount: '',
   buyerId: '',
   damageNote: '',
-  photoTransfer: false,  // 代传照片标记
-  lensCombo: undefined as ('lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual' | undefined)
+  photoTransfer: false,
+  lensCombo: 'lens_400mm' as 'lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual',
 })
 
-// UI State
-const submitting = ref(false)
-const pendingSuccess = ref<{ rentalId?: number } | null>(null)
-const dialogClosed = ref(!props.modelValue)
-const loadingLatestData = ref(false)
-const latestDataError = ref<string | null>(null)
-const searchingAccessory = ref(false)
-const queryingShipOut = ref(false)
-const queryingShipIn = ref(false)
-const deviceConflictChecked = ref(false)
-const accessoryConflictChecked = ref(false)
-const currentStartDate = ref('')
-const initialScheduleSnapshot = ref('')
-
-// Form Rules
-const rules = getEditRentalRules()
-
-// Computed
-const minSelectableDate = computed(() => {
-  if (!props.rental) return null
-  return new Date(props.rental.start_date)
+const dialogVisible = computed({
+  get: () => props.modelValue,
+  set: value => emit('update:modelValue', value),
 })
 
-const selectedLogisticsDays = computed<number | null>(() => {
-  if (!currentStartDate.value || !form.value.shipOutTime) return null
-  const reservedDays = dayjs(currentStartDate.value)
-    .startOf('day')
-    .diff(dayjs(form.value.shipOutTime).startOf('day'), 'day') - 1
-  return Math.max(0, reservedDays)
+const logicalAccessoryTypes = computed(() =>
+  (editContext.value?.accessory_types || []).filter(
+    accessory => accessory.tracking_mode === 'logical_unit',
+  ),
+)
+
+const warehouseById = (id: number | null | undefined) =>
+  (editContext.value?.warehouses || []).find(warehouse => warehouse.id === id)
+
+const deviceCandidates = computed(() => {
+  return booking.availability.value?.candidates || []
 })
 
-const getScheduleSnapshot = () => JSON.stringify({
-  destination: form.value.destination.trim(),
-  deviceId: form.value.deviceId,
-  startDate: currentStartDate.value,
-  endDate: form.value.endDate ? dayjs(form.value.endDate).format('YYYY-MM-DD') : '',
-  shipOutTime: form.value.shipOutTime
-    ? dayjs(form.value.shipOutTime).format('YYYY-MM-DD HH:mm:ss')
-    : '',
-  shipInTime: form.value.shipInTime
-    ? dayjs(form.value.shipInTime).format('YYYY-MM-DD HH:mm:ss')
+const selectedCandidate = computed(() =>
+  booking.availability.value?.candidates.find(
+    candidate => candidate.device.id === form.deviceId,
+  ) || null,
+)
+
+const manualEstimates = computed(() =>
+  Object.values(booking.availability.value?.estimate_by_warehouse || {})
+    .filter(estimate => estimate.manual_confirmation_required),
+)
+
+const formReady = computed(() => Boolean(
+  editContext.value
+  && form.customerName.trim()
+  && form.modelId
+  && form.deviceId
+  && form.startDate
+  && form.endDate
+  && !dayjs(form.endDate).isBefore(dayjs(form.startDate), 'day')
+  && form.customerProvince.trim()
+  && form.customerCity.trim()
+  && form.customerDistrict.trim()
+  && form.customerAddressDetail.trim(),
+))
+
+const canSubmit = computed(() => Boolean(
+  formReady.value
+  && !loadingLatestData.value
+  && !booking.availabilityLoading.value
+  && !booking.availabilityFailed.value
+  && selectedCandidate.value?.available
+  && selectedCandidate.value?.submission_ready,
+))
+
+const warehouseName = (id: number) => warehouseById(id)?.name || `仓库 ${id}`
+
+const deviceLabel = (candidate: BookingCandidate) => {
+  const serial = candidate.device.serial_number
+    ? ` / ${candidate.device.serial_number}`
     : ''
+  const conflict = candidate.available ? '' : ' / 档期冲突'
+  return `${candidate.device.name} / ${candidate.warehouse?.name || '未知仓'}${serial}${conflict}`
+}
+
+const disableEndDate = (value: Date) => (
+  Boolean(form.startDate) && dayjs(value).isBefore(dayjs(form.startDate), 'day')
+)
+
+const scheduleKey = () => JSON.stringify({
+  modelId: form.modelId,
+  deviceId: form.deviceId,
+  preferredWarehouseId: form.preferredWarehouseId,
+  startDate: form.startDate,
+  endDate: form.endDate,
+  province: form.customerProvince.trim(),
+  city: form.customerCity.trim(),
+  district: form.customerDistrict.trim(),
+  addressDetail: form.customerAddressDetail.trim(),
+  accessoryTypes: [...form.requestedAccessoryTypeIds].sort((a, b) => a - b),
 })
 
-const confirmLogisticsTiming = async (): Promise<boolean> => {
-  if (getScheduleSnapshot() === initialScheduleSnapshot.value) return true
+const buildAvailabilityPayload = () => ({
+  start_date: form.startDate,
+  end_date: form.endDate,
+  model_id: form.modelId!,
+  preferred_warehouse_id: form.preferredWarehouseId,
+  exclude_rental_id: props.rental!.id,
+  destination: {
+    province: form.customerProvince.trim(),
+    city: form.customerCity.trim(),
+    district: form.customerDistrict.trim(),
+    address_detail: form.customerAddressDetail.trim(),
+  },
+  requested_accessory_type_ids: [...form.requestedAccessoryTypeIds],
+  manual_logistics_by_warehouse: { ...manualConfirmations },
+})
 
-  const mismatch = await getLogisticsMismatch(
-    form.value.destination,
-    selectedLogisticsDays.value
-  )
-  if (!mismatch) return true
-
+const evaluateAvailability = async () => {
+  if (!formReady.value || !props.rental) {
+    booking.resetAvailability()
+    return
+  }
   try {
-    await ElMessageBox.confirm(
-      `${formatLogisticsWarning(mismatch)} 是否仍要保存本次档期调整？`,
-      '物流时效可能不足',
-      {
-        type: 'warning',
-        confirmButtonText: '仍要保存',
-        cancelButtonText: '返回修改',
-        confirmButtonClass: 'logistics-warning-confirm'
+    const result = await booking.evaluateAvailability(buildAvailabilityPayload())
+    if (!result || seededExistingLogistics || scheduleKey() !== initialScheduleKey) return
+    const rentalData = editContext.value?.rental as any
+    const candidate = result.candidates.find(item => item.device.id === form.deviceId)
+    const estimate = candidate
+      ? result.estimate_by_warehouse[String(candidate.warehouse.id)]
+      : null
+    if (
+      candidate
+      && estimate?.manual_confirmation_required
+      && rentalData?.logistics_days != null
+      && rentalData?.logistics_estimate_origin_warehouse_id === candidate.warehouse.id
+    ) {
+      seededExistingLogistics = true
+      manualDays[candidate.warehouse.id] = Number(rentalData.logistics_days)
+      manualConfirmations[String(candidate.warehouse.id)] = {
+        days: Number(rentalData.logistics_days),
+        context: estimate.confirmation_context,
       }
-    )
-    return true
+      await booking.evaluateAvailability(buildAvailabilityPayload())
+    }
   } catch {
-    return false
+    // The composable clears stale data and marks this request failed.
   }
 }
 
-// Handlers
+const queueAvailability = () => {
+  if (availabilityTimer) clearTimeout(availabilityTimer)
+  availabilityTimer = setTimeout(() => void evaluateAvailability(), 300)
+}
+
+const confirmManualLogistics = async (warehouseId: number) => {
+  const estimate = booking.availability.value?.estimate_by_warehouse[String(warehouseId)]
+  const days = manualDays[warehouseId]
+  if (!estimate || !Number.isInteger(days) || days < 0 || days > 7) {
+    ElMessage.warning('请填写 0–7 天的物流时效')
+    return
+  }
+  manualConfirmations[String(warehouseId)] = {
+    days,
+    context: estimate.confirmation_context,
+  }
+  await evaluateAvailability()
+}
+
+const loadEditContext = async () => {
+  if (!props.rental) return
+  loadingLatestData.value = true
+  latestDataError.value = null
+  booking.resetAvailability()
+  seededExistingLogistics = false
+  for (const key of Object.keys(manualConfirmations)) delete manualConfirmations[key]
+  try {
+    const context = await ganttStore.getRentalEditContext(props.rental.id)
+    if (!context) throw new Error('编辑上下文不可用')
+    editContext.value = context
+    const rental = context.rental as any
+    const device = context.devices.find(item => item.id === rental.device_id)
+    form.customerName = rental.customer_name || ''
+    form.customerPhone = rental.customer_phone || ''
+    form.modelId = rental.device?.model_id || device?.model_id || null
+    form.deviceId = rental.device_id
+    form.preferredWarehouseId = rental.preferred_warehouse_id
+      ?? (device as any)?.warehouse_id
+      ?? null
+    form.startDate = rental.start_date || ''
+    form.endDate = rental.end_date || ''
+    form.customerProvince = rental.customer_province || ''
+    form.customerCity = rental.customer_city || ''
+    form.customerDistrict = rental.customer_district || ''
+    form.customerAddressDetail = rental.customer_address_detail || ''
+    form.requestedAccessoryTypeIds = [
+      ...(rental.requested_accessory_type_ids || []),
+    ]
+    form.bundledAccessories = []
+    if (rental.includes_handle) form.bundledAccessories.push('handle')
+    if (rental.includes_lens_mount) form.bundledAccessories.push('lens_mount')
+    form.xianyuOrderNo = rental.xianyu_order_no || ''
+    form.orderAmount = rental.order_amount == null ? '' : String(rental.order_amount)
+    form.buyerId = rental.buyer_id || ''
+    form.damageNote = rental.damage_note || ''
+    form.photoTransfer = Boolean(rental.photo_transfer)
+    form.lensCombo = rental.lens_combo || 'lens_400mm'
+    Object.assign(props.rental, rental)
+    initialScheduleKey = scheduleKey()
+    await evaluateAvailability()
+  } catch (error: any) {
+    latestDataError.value = error?.message || '加载编辑信息失败'
+    ElMessage.error(latestDataError.value || '加载编辑信息失败')
+  } finally {
+    loadingLatestData.value = false
+  }
+}
+
+const handleSubmit = async () => {
+  if (!canSubmit.value || !props.rental || !selectedCandidate.value) {
+    ElMessage.error('请先完成当前档期、仓库、物流和附件复验')
+    return
+  }
+  submitting.value = true
+  try {
+    await ganttStore.updateRental(props.rental.id, {
+      ...buildAvailabilityPayload(),
+      device_id: form.deviceId,
+      expected_origin_warehouse_id: selectedCandidate.value.warehouse.id,
+      customer_name: form.customerName.trim(),
+      customer_phone: form.customerPhone.trim() || null,
+      legacy_destination: [
+        form.customerProvince,
+        form.customerCity,
+        form.customerDistrict,
+        form.customerAddressDetail,
+      ].join(''),
+      xianyu_order_no: form.xianyuOrderNo.trim() || null,
+      order_amount: form.orderAmount === '' ? null : form.orderAmount,
+      buyer_id: form.buyerId.trim() || null,
+      includes_handle: form.bundledAccessories.includes('handle'),
+      includes_lens_mount: form.bundledAccessories.includes('lens_mount'),
+      photo_transfer: form.photoTransfer,
+      lens_combo: form.lensCombo,
+      damage_note: form.damageNote.trim() || null,
+    })
+    ElMessage.success('租赁记录更新成功')
+    queuePendingSuccess({ rentalId: props.rental.id })
+  } catch (error: any) {
+    ElMessage.error(`更新失败：${error?.message || '未知错误'}`)
+  } finally {
+    submitting.value = false
+  }
+}
+
 const handleClose = () => {
   dialogVisible.value = false
 }
@@ -273,436 +521,117 @@ const handleClosed = () => {
 }
 
 const flushPendingSuccess = () => {
-  if (!dialogClosed.value) return
+  if (!dialogClosed.value || !pendingSuccess.value) return
   const success = pendingSuccess.value
-  if (!success) return
-
   pendingSuccess.value = null
-  if (typeof success.rentalId === 'number') {
-    emit('success', success.rentalId)
-  } else {
-    emit('success')
-  }
+  if (typeof success.rentalId === 'number') emit('success', success.rentalId)
+  else emit('success')
 }
 
 const queuePendingSuccess = (success: { rentalId?: number }) => {
   pendingSuccess.value = success
-  if (dialogClosed.value) {
-    flushPendingSuccess()
-  } else {
-    handleClose()
-  }
+  if (dialogClosed.value) flushPendingSuccess()
+  else handleClose()
 }
 
 const handleDelete = async () => {
   if (!props.rental) return
-
   try {
-    await ElMessageBox.confirm(
-      '确定要删除这条租赁记录吗？此操作不可撤销。',
-      '删除确认',
-      {
-        confirmButtonText: '确定删除',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    )
-
+    await ElMessageBox.confirm('确定删除这条租赁记录吗？', '删除确认', {
+      type: 'warning',
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消',
+    })
     submitting.value = true
     await ganttStore.deleteRental(props.rental.id)
     ElMessage.success('租赁记录删除成功')
     queuePendingSuccess({})
   } catch (error: any) {
-    if (error !== 'cancel') {
-      ElMessage.error('删除失败：' + (error.message || '未知错误'))
-    }
+    if (error !== 'cancel') ElMessage.error(`删除失败：${error?.message || '未知错误'}`)
   } finally {
     submitting.value = false
-  }
-}
-
-const handleSubmit = async () => {
-  try {
-    await formRef.value?.validate()
-    if (!await confirmLogisticsTiming()) return
-    submitting.value = true
-
-    // 转换UI格式到API格式
-    const accessoryIds = [form.value.phoneHolderId, form.value.tripodId]
-      .filter((id): id is number => id !== null)
-
-    const updateData = {
-      device_id: form.value.deviceId,
-      end_date: dayjs(form.value.endDate).format('YYYY-MM-DD'),
-      customer_phone: form.value.customerPhone,
-      destination: form.value.destination,
-      ship_out_tracking_no: form.value.shipOutTrackingNo,
-      ship_in_tracking_no: form.value.shipInTrackingNo,
-      ship_out_time: form.value.shipOutTime
-        ? dayjs(form.value.shipOutTime).format('YYYY-MM-DD HH:mm:ss')
-        : null,
-      ship_in_time: form.value.shipInTime
-        ? dayjs(form.value.shipInTime).format('YYYY-MM-DD HH:mm:ss')
-        : null,
-      status: form.value.status,
-      // 新：配套附件使用布尔值
-      includes_handle: form.value.bundledAccessories.includes('handle'),
-      includes_lens_mount: form.value.bundledAccessories.includes('lens_mount'),
-      // 新：库存附件使用ID数组
-      accessories: accessoryIds,
-      xianyu_order_no: form.value.xianyuOrderNo,
-      order_amount: form.value.orderAmount ? parseFloat(form.value.orderAmount) : undefined,
-      buyer_id: form.value.buyerId,
-      damage_note: form.value.damageNote,
-      photo_transfer: form.value.photoTransfer,  // 代传照片标记
-      lens_combo: form.value.lensCombo
-    }
-
-    await ganttStore.updateRental(props.rental!.id, updateData)
-    ElMessage.success('租赁记录更新成功')
-    queuePendingSuccess({ rentalId: props.rental!.id })
-  } catch (error: any) {
-    ElMessage.error('更新失败：' + (error.message || '未知错误'))
-  } finally {
-    submitting.value = false
-  }
-}
-
-const handleEndDateChange = (date: Date) => {
-  console.log('End date changed:', date)
-}
-
-const handleDeviceSelectorFocus = async () => {
-  if (!deviceConflictChecked.value && props.rental) {
-    await checkDevicesConflict()
-    deviceConflictChecked.value = true
-  }
-}
-
-const handleDeviceChange = async (deviceId: number) => {
-  if (!props.rental) return
-
-  const selectedDevice = deviceManagement.devices.value.find(d => d.id === deviceId)
-  if (!selectedDevice) return
-
-  try {
-    const shipOutTime = props.rental.ship_out_time || props.rental.start_date
-    const shipInTime = props.rental.ship_in_time || props.rental.end_date
-
-    const hasConflict = await conflictDetection.checkDeviceConflict({
-      deviceId,
-      startDate: shipOutTime,
-      endDate: shipInTime,
-      excludeRentalId: props.rental.id
-    })
-
-    if (hasConflict) {
-      ElMessageBox.confirm(
-        `设备 "${selectedDevice.name}" 在该时间段有冲突，确定要选择吗？`,
-        '设备冲突警告',
-        {
-          confirmButtonText: '确定选择',
-          cancelButtonText: '取消',
-          type: 'warning'
-        }
-      ).catch(() => {
-        if (props.rental) {
-          form.value.deviceId = props.rental.device_id
-        }
-      })
-    }
-  } catch (error) {
-    console.error('检查设备冲突失败:', error)
-  }
-}
-
-const handleShipOutTimeChange = (time: Date) => {
-  console.log('Ship out time changed:', time)
-}
-
-const handleShipInTimeChange = (time: Date) => {
-  console.log('Ship in time changed:', time)
-}
-
-const handleStatusChange = (status: string) => {
-  console.log('Status changed:', status)
-}
-
-const queryShipOutTracking = () => {
-  console.log('Query ship out tracking')
-}
-
-const queryShipInTracking = () => {
-  console.log('Query ship in tracking')
-}
-
-const findAvailableAccessory = async () => {
-  if (!props.rental) return
-
-  searchingAccessory.value = true
-  try {
-    let logisticsDays = 1
-    if (props.rental.start_date && props.rental.ship_out_time) {
-      const startDate = new Date(props.rental.start_date)
-      const shipOutTime = new Date(props.rental.ship_out_time)
-      const diffTime = startDate.getTime() - shipOutTime.getTime()
-      logisticsDays = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)) - 1)
-    }
-
-    const slotResponse = await ganttStore.findAvailableSlot(
-      props.rental.start_date,
-      props.rental.end_date,
-      logisticsDays,
-      '', // 不过滤型号，查所有可用附件
-      true // is_accessory
-    )
-
-    // 更新所有附件的可用性状态
-    const availableDeviceIds = (slotResponse.availableDevices || []).map((d: any) =>
-      typeof d === 'number' ? d : d.id
-    )
-    deviceManagement.accessories.value.forEach(accessory => {
-      accessory.isAvailable = availableDeviceIds.includes(accessory.id)
-      accessory.conflictReason = accessory.isAvailable ? undefined : '档期冲突'
-    })
-
-    ElMessage.success('手柄档期检查完成')
-  } catch (error) {
-    console.error('检查手柄档期失败:', error)
-    ElMessage.error('检查手柄档期失败')
-  } finally {
-    searchingAccessory.value = false
-  }
-}
-
-const removeController = (controllerId: number) => {
-  form.value.accessories = form.value.accessories.filter(id => id !== controllerId)
-}
-
-const handleAccessorySelectorFocus = async () => {
-  if (!accessoryConflictChecked.value) {
-    await findAvailableAccessory()
-    accessoryConflictChecked.value = true
-  }
-}
-
-const handleAccessoryChange = async (accessoryIds: number[]) => {
-  const newAccessoryIds = accessoryIds.filter(id => !form.value.accessories.includes(id))
-
-  for (const accessoryId of newAccessoryIds) {
-    const accessory = deviceManagement.accessories.value.find(a => a.id === accessoryId)
-    if (accessory && accessory.isAvailable === false) {
-      ElMessageBox.confirm(
-        `附件 "${accessory.name}" 在该时间段有冲突，确定要选择吗？`,
-        '附件冲突警告',
-        {
-          confirmButtonText: '确定选择',
-          cancelButtonText: '取消',
-          type: 'warning'
-        }
-      ).catch(() => {
-        form.value.accessories = form.value.accessories.filter(id => id !== accessoryId)
-      })
-    }
-  }
-}
-
-const openContract = () => {
-  if (props.rental) {
-    const url = router.resolve({ path: `/contract/${props.rental.id}` })
-    window.open(url.href, '_blank')
-  }
-}
-
-const openShippingOrder = () => {
-  if (props.rental) {
-    const url = router.resolve({ path: `/shipping/${props.rental.id}` })
-    window.open(url.href, '_blank')
   }
 }
 
 const handleShipToXianyu = async () => {
   if (!props.rental) return
-
   try {
     submitting.value = true
     await ganttStore.shipRentalToXianyu(props.rental.id)
     ElMessage.success('已成功发货到闲鱼')
-    await loadLatestRentalData()
+    await loadEditContext()
   } catch (error: any) {
-    ElMessage.error('发货失败：' + (error.message || '未知错误'))
+    ElMessage.error(`发货失败：${error?.message || '未知错误'}`)
   } finally {
     submitting.value = false
   }
 }
 
-// Check devices conflict
-const checkDevicesConflict = async () => {
+const openContract = () => {
   if (!props.rental) return
-
-  const shipOutTime = props.rental.ship_out_time || props.rental.start_date
-  const shipInTime = props.rental.ship_in_time || props.rental.end_date
-
-  await availability.checkDevicesAvailability(
-    deviceManagement.devices.value,
-    {
-      startDate: shipOutTime,
-      endDate: shipInTime,
-      excludeRentalId: props.rental.id
-    }
-  )
+  window.open(router.resolve({ path: `/contract/${props.rental.id}` }).href, '_blank')
 }
 
-// Load latest rental data
-const loadLatestRentalData = async () => {
-  if (!props.rental) return null
-
-  loadingLatestData.value = true
-  latestDataError.value = null
-
-  try {
-    return await ganttStore.getRentalById(props.rental.id)
-  } catch (error: any) {
-    console.error('获取最新租赁数据失败:', error)
-    latestDataError.value = error.message || '获取最新数据失败'
-    return props.rental
-  } finally {
-    loadingLatestData.value = false
-  }
+const openShippingOrder = () => {
+  if (!props.rental) return
+  window.open(router.resolve({ path: `/shipping/${props.rental.id}` }).href, '_blank')
 }
 
-// Initialize form
-const initForm = async () => {
-  if (props.rental) {
-    deviceConflictChecked.value = false
-    accessoryConflictChecked.value = false
-
-    const latestRental = await loadLatestRentalData()
-    const rentalData = latestRental || props.rental
-    currentStartDate.value = rentalData.start_date
-
-    // 从 API 响应转换为 UI 格式
-    const bundledAccessories: ('handle' | 'lens_mount')[] = []
-    if (rentalData.includes_handle) {
-      bundledAccessories.push('handle')
-    }
-    if (rentalData.includes_lens_mount) {
-      bundledAccessories.push('lens_mount')
-    }
-
-    // 从 accessories数组中提取库存附件
-    const accessories = rentalData.accessories || []
-    const phoneHolder = accessories.find((a: any) => 
-      a.type === 'phone_holder' || 
-      a.name?.includes('手机支架') || 
-      a.name?.toLowerCase().includes('phone') ||
-      a.model?.includes('手机支架') ||
-      a.model?.toLowerCase().includes('phone')
-    )
-    const tripod = accessories.find((a: any) => 
-      a.type === 'tripod' || 
-      a.name?.includes('三脚架') || 
-      a.name?.toLowerCase().includes('tripod') ||
-      a.model?.includes('三脚架') ||
-      a.model?.toLowerCase().includes('tripod')
-    )
-
-    // 也从 child_rentals中提取（兼容旧数据）
-    const childAccessoryIds = (rentalData.child_rentals || [])
-      .map((child: any) => child.device_id)
-      .filter(Boolean)
-
-    form.value = {
-      deviceId: rentalData.device_id,
-      endDate: new Date(rentalData.end_date),
-      customerPhone: rentalData.customer_phone || '',
-      destination: rentalData.destination || '',
-      shipOutTrackingNo: rentalData.ship_out_tracking_no || '',
-      shipInTrackingNo: rentalData.ship_in_tracking_no || '',
-      shipOutTime: rentalData.ship_out_time ? new Date(rentalData.ship_out_time) : null,
-      shipInTime: rentalData.ship_in_time ? new Date(rentalData.ship_in_time) : null,
-      status: rentalData.status || 'not_shipped',
-      // 新字段
-      bundledAccessories,
-      phoneHolderId: phoneHolder?.id || null,
-      tripodId: tripod?.id || null,
-      // 兼容字段（用于RentalAccessorySelector）
-      accessories: childAccessoryIds,
-      xianyuOrderNo: rentalData.xianyu_order_no || '',
-      orderAmount: rentalData.order_amount ? String(rentalData.order_amount) : '',
-      buyerId: rentalData.buyer_id || '',
-      damageNote: rentalData.damage_note || '',
-      photoTransfer: rentalData.photo_transfer || false,  // 代传照片标记
-      lensCombo: rentalData.lens_combo || undefined
-    }
-
-    initialScheduleSnapshot.value = getScheduleSnapshot()
-
-    if (latestRental) {
-      Object.assign(props.rental, latestRental)
-    }
-
-    await Promise.all([
-      deviceManagement.loadDevices(),
-      deviceManagement.loadAccessories()
-    ])
-  }
-}
-
-// Watchers
 watch(
-  () => props.rental,
-  () => {
-    if (props.rental) {
-      initForm()
-    }
+  [() => props.modelValue, () => props.rental?.id],
+  ([visible, rentalId], [wasVisible, previousRentalId] = [false, undefined]) => {
+    if (!visible || rentalId == null) return
+    dialogClosed.value = false
+    pendingSuccess.value = null
+    if (!wasVisible || rentalId !== previousRentalId) void loadEditContext()
   },
-  { immediate: true }
+  { immediate: true },
 )
 
 watch(
-  () => props.modelValue,
-  (newValue) => {
-    if (newValue) {
-      dialogClosed.value = false
-      pendingSuccess.value = null
+  () => scheduleKey(),
+  () => {
+    if (!editContext.value) return
+    if (scheduleKey() !== initialScheduleKey) {
+      for (const key of Object.keys(manualConfirmations)) delete manualConfirmations[key]
     }
-    if (newValue && props.rental) {
-      initForm()
-    }
-  }
+    queueAvailability()
+  },
 )
+
+onBeforeUnmount(() => {
+  if (availabilityTimer) clearTimeout(availabilityTimer)
+  booking.resetAvailability()
+})
 </script>
 
 <style scoped>
-.dialog-footer {
-  text-align: right;
+.address-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
 
-.divider-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
+.address-grid :deep(.el-form-item) {
+  display: block;
 }
 
-.damage-divider-title {
-  color: var(--el-color-danger);
+.form-tip {
+  width: 100%;
+  margin-top: 4px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.manual-confirm {
+  margin-left: 12px;
 }
 
 .damage-note-warning {
   margin-bottom: 16px;
 }
 
-:deep(.el-divider) {
-  margin: 20px 0 16px 0;
-}
-
-:deep(.el-divider:first-of-type) {
-  margin-top: 0;
-}
-
-:deep(.el-divider__text) {
-  background-color: var(--el-bg-color);
-  padding: 0 12px;
+:deep(.el-alert) {
+  margin-bottom: 12px;
 }
 </style>

@@ -6,6 +6,8 @@ import pytest
 import json
 from datetime import date, timedelta
 from app.models.device import Device
+from app.models.rental import Rental
+from app.services.scheduling import USAGE_PERIOD_CONFLICT
 
 
 class TestRentalAPIBundledAccessories:
@@ -243,6 +245,296 @@ class TestRentalAPIBundledAccessories:
         # 验证accessories字段包含配套和库存附件
         # 注意：具体字段结构取决于to_dict实现
         assert 'accessories' in rental_data or 'child_rentals' in rental_data
+
+
+class TestRentalAPIFinalUsagePeriodGuard:
+    @pytest.mark.parametrize(
+        'route_template',
+        (
+            '/api/rentals/{id}/ship-to-xianyu',
+            '/api/shipping-batch/ship-to-xianyu/{id}',
+        ),
+    )
+    def test_xianyu_final_write_syncs_locked_parent_child_group(
+        self,
+        client,
+        db_session,
+        monkeypatch,
+        route_template,
+    ):
+        main_device = Device(name='闲鱼最终写主设备', is_accessory=False)
+        accessory = Device(name='闲鱼最终写附件', is_accessory=True)
+        db_session.add_all([main_device, accessory])
+        db_session.flush()
+        main = Rental(
+            device_id=main_device.id,
+            start_date=date.today() + timedelta(days=5),
+            end_date=date.today() + timedelta(days=7),
+            customer_name='闲鱼最终写客户',
+            xianyu_order_no='XY-FINAL-WRITE',
+            ship_out_tracking_no='SF-FINAL-WRITE',
+            status='not_shipped',
+        )
+        db_session.add(main)
+        db_session.flush()
+        child = Rental(
+            device_id=accessory.id,
+            start_date=main.start_date,
+            end_date=main.end_date,
+            customer_name=main.customer_name,
+            parent_rental_id=main.id,
+            status='not_shipped',
+        )
+        db_session.add(child)
+        db_session.commit()
+
+        class FakeXianyuService:
+            def ship_order(self, _rental):
+                return {'success': True, 'data': {'accepted': True}}
+
+        monkeypatch.setattr(
+            'app.services.xianyu_order_service.get_xianyu_service',
+            lambda: FakeXianyuService(),
+        )
+
+        response = client.post(route_template.format(id=main.id))
+
+        assert response.status_code == 200
+        db_session.expire_all()
+        persisted_main = db_session.get(Rental, main.id)
+        persisted_child = db_session.get(Rental, child.id)
+        assert persisted_main.status == 'shipped'
+        assert persisted_main.actual_shipped_at == persisted_main.ship_out_time
+        assert persisted_main.actual_shipped_at is not None
+        assert persisted_child.status == 'shipped'
+        assert persisted_child.actual_shipped_at == persisted_child.ship_out_time
+        assert persisted_child.actual_shipped_at is not None
+
+    @pytest.mark.parametrize(
+        'route_template',
+        (
+            '/api/rentals/{id}/ship-to-xianyu',
+            '/api/shipping-batch/ship-to-xianyu/{id}',
+        ),
+    )
+    def test_xianyu_child_id_is_rejected_before_provider_call(
+        self,
+        client,
+        db_session,
+        monkeypatch,
+        route_template,
+    ):
+        main_device = Device(name='附件入口主设备', is_accessory=False)
+        accessory = Device(name='附件入口附件', is_accessory=True)
+        db_session.add_all([main_device, accessory])
+        db_session.flush()
+        main = Rental(
+            device_id=main_device.id,
+            start_date=date.today() + timedelta(days=5),
+            end_date=date.today() + timedelta(days=7),
+            customer_name='附件入口客户',
+            status='not_shipped',
+        )
+        db_session.add(main)
+        db_session.flush()
+        child = Rental(
+            device_id=accessory.id,
+            start_date=main.start_date,
+            end_date=main.end_date,
+            customer_name=main.customer_name,
+            xianyu_order_no='XY-CHILD',
+            ship_out_tracking_no='SF-CHILD',
+            parent_rental_id=main.id,
+            status='not_shipped',
+        )
+        db_session.add(child)
+        db_session.commit()
+        provider_calls = []
+
+        class FakeXianyuService:
+            def ship_order(self, _rental):
+                provider_calls.append(True)
+                return {'success': True}
+
+        monkeypatch.setattr(
+            'app.services.xianyu_order_service.get_xianyu_service',
+            lambda: FakeXianyuService(),
+        )
+
+        response = client.post(route_template.format(id=child.id))
+
+        assert response.status_code == 400
+        assert provider_calls == []
+        db_session.refresh(child)
+        assert child.status == 'not_shipped'
+
+    def test_logistics_facts_flow_through_create_update_and_status_routes(
+        self,
+        client,
+        db_session,
+    ):
+        device = Device(name='API物流事实设备', is_accessory=False)
+        db_session.add(device)
+        db_session.commit()
+        start_date = date.today() + timedelta(days=10)
+        end_date = start_date + timedelta(days=2)
+
+        create_response = client.post(
+            '/api/rentals',
+            json={
+                'device_id': device.id,
+                'start_date': start_date.isoformat(),
+                'end_date': end_date.isoformat(),
+                'customer_name': 'API物流事实客户',
+                'logistics_days': 0,
+                'photo_transfer': True,
+                'accessories': [],
+            },
+        )
+
+        assert create_response.status_code == 201
+        created = create_response.get_json()['data']['main_rental']
+        assert created['logistics_days'] == 0
+        assert created['planned_ship_out_date'] == (
+            start_date - timedelta(days=1)
+        ).isoformat()
+        assert created['planned_return_date'] == (
+            end_date + timedelta(days=1)
+        ).isoformat()
+        assert created['photo_transfer'] is True
+        rental_id = created['id']
+
+        new_start = start_date + timedelta(days=5)
+        new_end = end_date + timedelta(days=6)
+        update_response = client.put(
+            f'/api/rentals/{rental_id}',
+            json={
+                'start_date': new_start.isoformat(),
+                'end_date': new_end.isoformat(),
+                'logistics_days': 2,
+            },
+        )
+        assert update_response.status_code == 200
+
+        shipped_response = client.put(
+            f'/api/rentals/{rental_id}/status',
+            json={'status': 'shipped'},
+        )
+        assert shipped_response.status_code == 200
+        returned_response = client.put(
+            f'/api/rentals/{rental_id}/status',
+            json={'status': 'returned'},
+        )
+        assert returned_response.status_code == 200
+
+        persisted = client.get(f'/api/rentals/{rental_id}').get_json()['data']
+        assert persisted['logistics_days'] == 2
+        assert persisted['planned_ship_out_date'] == (
+            new_start - timedelta(days=3)
+        ).isoformat()
+        assert persisted['planned_return_date'] == (
+            new_end + timedelta(days=3)
+        ).isoformat()
+        assert persisted['actual_shipped_at'] == persisted['ship_out_time']
+        assert persisted['actual_returned_at'] == persisted['ship_in_time']
+
+    def test_create_route_returns_stable_409_and_writes_nothing(
+        self,
+        client,
+        db_session,
+    ):
+        device = Device(name='创建路由冲突设备', is_accessory=False)
+        db_session.add(device)
+        db_session.flush()
+        existing = Rental(
+            device_id=device.id,
+            start_date=date.today() + timedelta(days=2),
+            end_date=date.today() + timedelta(days=4),
+            customer_name='已有客户',
+            status='not_shipped',
+        )
+        db_session.add(existing)
+        db_session.commit()
+        existing_id = existing.id
+
+        response = client.post(
+            '/api/rentals',
+            json={
+                'device_id': device.id,
+                'start_date': (
+                    date.today() + timedelta(days=4)
+                ).isoformat(),
+                'end_date': (
+                    date.today() + timedelta(days=6)
+                ).isoformat(),
+                'customer_name': '不得写入的客户',
+                'accessories': [],
+            },
+        )
+
+        assert response.status_code == 409
+        assert response.get_json() == {
+            'success': False,
+            'message': '租赁档期冲突',
+            'data': {
+                'code': USAGE_PERIOD_CONFLICT,
+                'conflicting_rental_ids': [existing_id],
+            },
+        }
+        db_session.expire_all()
+        assert [row.id for row in Rental.query.all()] == [existing_id]
+
+    @pytest.mark.parametrize(
+        'route_template',
+        ('/api/rentals/{id}', '/web/rentals/{id}'),
+    )
+    def test_both_update_routes_use_same_final_guard_and_rollback(
+        self,
+        client,
+        db_session,
+        route_template,
+    ):
+        device = Device(name='更新路由冲突设备', is_accessory=False)
+        db_session.add(device)
+        db_session.flush()
+        first = Rental(
+            device_id=device.id,
+            start_date=date.today() + timedelta(days=1),
+            end_date=date.today() + timedelta(days=3),
+            customer_name='第一位客户',
+            status='not_shipped',
+        )
+        second = Rental(
+            device_id=device.id,
+            start_date=date.today() + timedelta(days=5),
+            end_date=date.today() + timedelta(days=7),
+            customer_name='第二位客户',
+            status='not_shipped',
+        )
+        db_session.add_all([first, second])
+        db_session.commit()
+        first_id = first.id
+        second_id = second.id
+        original_start = second.start_date
+        original_name = second.customer_name
+
+        response = client.put(
+            route_template.format(id=second_id),
+            json={
+                'start_date': first.end_date.isoformat(),
+                'customer_name': '不得提交的新名字',
+            },
+        )
+
+        assert response.status_code == 409
+        assert response.get_json()['data'] == {
+            'code': USAGE_PERIOD_CONFLICT,
+            'conflicting_rental_ids': [first_id],
+        }
+        db_session.expire_all()
+        persisted = db_session.get(Rental, second_id)
+        assert persisted.start_date == original_start
+        assert persisted.customer_name == original_name
 
 
 @pytest.fixture

@@ -48,18 +48,10 @@ vim .env
 
 ```bash
 # 基础配置
-SECRET_KEY=your-super-secret-key-change-this-in-production
 FLASK_ENV=production
-
-# 顺丰快递API (必须配置)
-SF_PARTNER_ID=your-sf-partner-id
-SF_CHECKWORD=your-sf-checkword
-SF_TEST_MODE=false
-
-# 阿里云OCR (可选)
-ALIBABA_CLOUD_ACCESS_KEY_ID=your-access-key-id
-ALIBABA_CLOUD_ACCESS_KEY_SECRET=your-access-key-secret
 ```
+
+顺丰、闲鱼和快麦凭证不再通过进程环境变量配置；租户 Admin 应在集成设置中创建经验证的加密 credential revision。SaaS Core 也不读取通用 `SECRET_KEY` 或 `API_KEY`。
 
 ### 4. 一键部署
 

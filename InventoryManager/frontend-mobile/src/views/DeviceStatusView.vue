@@ -5,7 +5,23 @@
       left-arrow
       @click-left="$router.back()"
       :border="false"
-    />
+    >
+      <template #right>
+        <van-button
+          size="small"
+          icon="link-o"
+          plain
+          style="margin-right: 6px"
+          @click="$router.push({ name: 'tenant-integrations' })"
+        />
+        <van-button
+          size="small"
+          icon="user-o"
+          plain
+          @click="$router.push({ name: 'account-security' })"
+        >账号安全</van-button>
+      </template>
+    </van-nav-bar>
 
     <!-- 生命周期状态过滤 -->
     <van-tabs v-model:active="activeTab" sticky>

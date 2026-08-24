@@ -5,17 +5,44 @@ from datetime import date, timedelta
 from flask import current_app, request
 
 from app import db
+from app.services.accessory_relay_chain_service import (
+    AccessoryRelayChainConflictError,
+)
 from app.services.relay.relay_case_service import (
     ALL_STATUSES,
     OPEN_STATUSES,
     RelayBindingConflictError,
     RelayCaseService,
 )
+from app.services.relay.http_runtime import (
+    RelayQueryInvalid,
+    RelaySaasHttpRuntimeUnavailable,
+    require_relay_saas_http_runtime,
+)
+from app.services.relay.mutation_service import (
+    RelayManualMutationError,
+    RelayStatusMutationError,
+)
 from app.utils.response import bad_request, error, server_error, success
+from inventory_control.tenant_http import TenantHttpError
 
 
 class RelayCaseHandlers:
     """把 HTTP 参数转换成接力领域服务调用。"""
+
+    @staticmethod
+    def _legacy_test_runtime_enabled() -> bool:
+        return (
+            current_app.testing is True
+            and current_app.config.get(
+                "ENABLE_LEGACY_SINGLE_TENANT_RELAY_API"
+            )
+            is True
+        )
+
+    @staticmethod
+    def _tenant_write_unavailable():
+        return error("租户接力写服务尚未就绪", status_code=503)
 
     @staticmethod
     def _statuses():
@@ -90,6 +117,24 @@ class RelayCaseHandlers:
 
     @classmethod
     def handle_list(cls):
+        if not cls._legacy_test_runtime_enabled():
+            try:
+                return success(data=(
+                    require_relay_saas_http_runtime().list_cases(
+                        flask_request=request,
+                        query=request.args,
+                    )
+                ))
+            except RelayQueryInvalid as exc:
+                return bad_request(str(exc))
+            except TenantHttpError as exc:
+                return error(
+                    exc.public_message,
+                    status_code=exc.status_code,
+                    data={"code": exc.code},
+                )
+            except RelaySaasHttpRuntimeUnavailable:
+                return error("租户接力读服务尚未就绪", status_code=503)
         today = date.today()
         try:
             statuses = cls._statuses()
@@ -118,6 +163,29 @@ class RelayCaseHandlers:
 
     @classmethod
     def handle_update(cls, predecessor_id, successor_id):
+        if not cls._legacy_test_runtime_enabled():
+            try:
+                payload = require_relay_saas_http_runtime().update_case(
+                    flask_request=request,
+                    predecessor_id=predecessor_id,
+                    successor_id=successor_id,
+                    payload=request.get_json(silent=True),
+                )
+                return success(data=payload, message="接力状态已更新")
+            except RelayStatusMutationError as exc:
+                return error(
+                    exc.public_message,
+                    status_code=exc.status_code,
+                    data={"code": exc.code},
+                )
+            except TenantHttpError as exc:
+                return error(
+                    exc.public_message,
+                    status_code=exc.status_code,
+                    data={"code": exc.code},
+                )
+            except RelaySaasHttpRuntimeUnavailable:
+                return cls._tenant_write_unavailable()
         data = request.get_json(silent=True) or {}
         status = data.get("status")
         if not status:
@@ -128,6 +196,7 @@ class RelayCaseHandlers:
                 successor_id,
                 status,
                 sf_tracking_number=data.get("sf_tracking_number"),
+                operation_key=request.headers.get("Idempotency-Key"),
             )
             relay_case = outcome.relay_case
             tracking = None
@@ -135,12 +204,15 @@ class RelayCaseHandlers:
                 tracking = RelayCaseService.refresh_tracking(relay_case.id)
             payload = cls._case_payload(relay_case, tracking)
             payload["xianyu_sync"] = outcome.xianyu_sync
+            payload["accessory_chain"] = outcome.accessory_chain
             return success(
                 data=payload,
                 message="接力状态已更新",
             )
         except RelayBindingConflictError as exc:
             return error(str(exc), status_code=409)
+        except AccessoryRelayChainConflictError:
+            return error("附件接力链需要人工核对", status_code=409)
         except ValueError as exc:
             return bad_request(str(exc))
         except Exception:
@@ -150,6 +222,21 @@ class RelayCaseHandlers:
 
     @classmethod
     def handle_manual_options(cls):
+        if not cls._legacy_test_runtime_enabled():
+            try:
+                return success(data=(
+                    require_relay_saas_http_runtime().list_manual_options(
+                        flask_request=request
+                    )
+                ))
+            except TenantHttpError as exc:
+                return error(
+                    exc.public_message,
+                    status_code=exc.status_code,
+                    data={"code": exc.code},
+                )
+            except RelaySaasHttpRuntimeUnavailable:
+                return error("租户接力读服务尚未就绪", status_code=503)
         try:
             return success(data=RelayCaseService.list_manual_options())
         except Exception:
@@ -158,6 +245,27 @@ class RelayCaseHandlers:
 
     @classmethod
     def handle_manual_create(cls):
+        if not cls._legacy_test_runtime_enabled():
+            try:
+                payload = require_relay_saas_http_runtime().create_manual_case(
+                    flask_request=request,
+                    payload=request.get_json(silent=True),
+                )
+                return success(data=payload, message="接力关系已建立")
+            except RelayManualMutationError as exc:
+                return error(
+                    exc.public_message,
+                    status_code=exc.status_code,
+                    data={"code": exc.code},
+                )
+            except TenantHttpError as exc:
+                return error(
+                    exc.public_message,
+                    status_code=exc.status_code,
+                    data={"code": exc.code},
+                )
+            except RelaySaasHttpRuntimeUnavailable:
+                return cls._tenant_write_unavailable()
         data = request.get_json(silent=True) or {}
         try:
             device_id = int(data.get("device_id"))
@@ -172,6 +280,8 @@ class RelayCaseHandlers:
             )
         except RelayBindingConflictError as exc:
             return error(str(exc), status_code=409)
+        except AccessoryRelayChainConflictError:
+            return error("附件接力链需要人工核对", status_code=409)
         except ValueError as exc:
             return bad_request(str(exc))
         except Exception:
@@ -181,6 +291,8 @@ class RelayCaseHandlers:
 
     @staticmethod
     def handle_refresh_tracking(case_id):
+        if not RelayCaseHandlers._legacy_test_runtime_enabled():
+            return error("租户接力物流服务尚未就绪", status_code=503)
         try:
             return success(
                 data=RelayCaseService.refresh_tracking(case_id),
@@ -194,6 +306,8 @@ class RelayCaseHandlers:
 
     @staticmethod
     def handle_refresh_tracking_batch():
+        if not RelayCaseHandlers._legacy_test_runtime_enabled():
+            return error("租户接力物流服务尚未就绪", status_code=503)
         data = request.get_json(silent=True) or {}
         case_ids = data.get("case_ids")
         if not isinstance(case_ids, list) or not case_ids:

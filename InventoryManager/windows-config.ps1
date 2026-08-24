@@ -170,8 +170,6 @@ if (!(Test-Path ".env")) {
 # InventoryManager 环境配置
 FLASK_ENV=development
 FLASK_APP=app.py
-SECRET_KEY=your-secret-key-change-in-production
-API_KEY=your-api-key-change-in-production
 
 # 数据库配置 - 请根据您的环境修改
 # 本地MySQL

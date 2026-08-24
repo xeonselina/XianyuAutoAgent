@@ -31,7 +31,7 @@ SaaS Core 首发只有一个 Core 套餐，不接在线支付：兑换码决定�
 - D25 已确认服务期到期的数据永久保留：不得为 `expired` 租户创建按天数自动删除、drop schema 或丢弃历史记录的任务。其数据库路由保持已登记但业务访问门禁关闭，并继续纳入备份、恢复清单和 fleet schema migration；续期后复用原 tenant/database UUID、原关联和审计记录恢复访问。
 - 永久保留会让已到期租户持续占用在线磁盘、备份容量和 migration 时间，也会长期保存租户录入的客户姓名、手机号和地址；这些是 D25 已接受的代价，必须持续做容量监控和隐私/合规复核，不能把“永久”误实现为无人盘点的孤儿 schema。
 - D25 只处理服务期自然到期；租户 Admin 主动删除使用 D26/D27 的短信复验、人工审核、立即冻结、30 天冷静期和 tombstone 流程。平台强制关闭及其他特殊数据处理流程仍须单独授权，不能伪装成租户自助申请。
-- 支付 webhook 先写入 `billing_events`，按 provider event id 幂等，再更新 subscription；不得直接相信前端支付结果。
+- SaaS Core 不接收支付 webhook，也不创建 `billing_events`；未来 Commercial SaaS 若引入支付 provider，必须另立变更并以 provider event id 幂等写入后再更新 subscription，且不得直接相信前端支付结果。
 - SaaS Core 正常注册或续期由兑换码创建或延长 subscription；D53 已确认后台可在异常处理、补偿或退费场景受审计地增加或减少服务期。自动支付后续接入同一 subscription event 接口。
 
 #### D53 confirmed input contract
@@ -190,7 +190,7 @@ D16 已确认“减少连接/传输但不以陈旧库存缓存换速度”的目
 
 ### 12.5 Connection and request budgets
 
-- 发布门禁测试夹具至少包含 100 台主设备、多个仓库、多个同类型逻辑附件单元和 31 天重叠订单。booking bootstrap 最多 1 个 HTTP 请求；每次稳定筛选变化最多 1 个 availability 请求，availability 租户库 SQL 建议不超过 6 条且不随候选设备数或逻辑单元数增长。
+- 性能测试夹具至少包含 100 台主设备、多个仓库、多个同类型逻辑附件单元和 31 天重叠订单。booking bootstrap 最多 1 个 HTTP 请求；每次稳定筛选变化最多 1 个 availability 请求，availability 租户库 SQL 建议不超过 6 条且不随候选设备数或逻辑单元数增长。
 - 甘特一次进入/窗口移动/筛选刷新最多 1 个核心 view 请求，不得再出现逐日请求；租户库 SQL 建议不超过 8 条且不随天数/设备数增长。抽屉详情和用户主动第三方刷新不计入核心 view，但只能由明确交互触发。
 - 任一 create/update/delete/ship/device mutation 成功后，除写请求本身外最多触发 1 个当前窗口 view 请求；E2E 必须断言 store、页面回调和 watcher 不会产生第二次刷新。打开编辑页/弹窗最多 1 个 edit-context 请求。
 - E2E 通过拦截网络请求断言 fan-out；SQL query-count 测试分别把设备数和日期窗口扩大 10 倍，查询条数不得线性增长；响应契约测试断言 rentals 不重复嵌套、无非必要 PII，压缩后字节数进入基线趋势。

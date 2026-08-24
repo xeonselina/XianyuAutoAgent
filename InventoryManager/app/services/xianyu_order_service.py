@@ -7,7 +7,6 @@ import hashlib
 import requests
 import json
 import time
-import os
 import logging
 from typing import Optional, Dict, Any
 
@@ -21,24 +20,32 @@ class XianyuOrderServiceError(RuntimeError):
 class XianyuOrderService:
     """闲鱼管家订单API服务类 - 统一的闲鱼API客户端"""
 
-    def __init__(self):
-        """初始化服务,从环境变量读取配置"""
-        # 兼容两种环境变量命名方式
-        self.app_key = os.getenv('XIANYU_APP_KEY') or os.getenv('XIANYU_APP_ID')
-        self.app_secret = os.getenv('XIANYU_APP_SECRET') or os.getenv('XIANYU_SECRET')
-        self.api_domain = os.getenv('XIANYU_API_DOMAIN', 'open.goofish.pro')
-        self.base_url = f"https://{self.api_domain}"
+    def __init__(
+        self,
+        *,
+        app_key=None,
+        app_secret=None,
+        base_url="https://open.goofish.pro",
+        seller_id=None,
+        ship_name=None,
+        ship_mobile=None,
+        ship_prov_name=None,
+        ship_city_name=None,
+        ship_area_name=None,
+        ship_address=None,
+    ):
+        """Build an isolated legacy test adapter from explicit values only."""
 
-        # 卖家ID（可选）
-        self.seller_id = os.getenv('XIANYU_SELLER_ID')
-
-        # 寄件方信息（可选，用于发货接口）
-        self.ship_name = os.getenv('XIANYU_SHIP_NAME')
-        self.ship_mobile = os.getenv('XIANYU_SHIP_MOBILE')
-        self.ship_prov_name = os.getenv('XIANYU_SHIP_PROV_NAME')
-        self.ship_city_name = os.getenv('XIANYU_SHIP_CITY_NAME')
-        self.ship_area_name = os.getenv('XIANYU_SHIP_AREA_NAME')
-        self.ship_address = os.getenv('XIANYU_SHIP_ADDRESS')
+        self.app_key = app_key
+        self.app_secret = app_secret
+        self.base_url = base_url.rstrip('/')
+        self.seller_id = seller_id
+        self.ship_name = ship_name
+        self.ship_mobile = ship_mobile
+        self.ship_prov_name = ship_prov_name
+        self.ship_city_name = ship_city_name
+        self.ship_area_name = ship_area_name
+        self.ship_address = ship_address
 
         if not self.app_key or not self.app_secret:
             logger.warning("闲鱼API凭证未配置。请设置XIANYU_APP_KEY/XIANYU_APP_ID和XIANYU_APP_SECRET/XIANYU_SECRET环境变量")
@@ -389,7 +396,7 @@ class XianyuOrderService:
                 request_data['ship_area_name'] = self.ship_area_name
 
         logger.info(f"闲鱼发货通知: Rental {rental.id}, Order {rental.xianyu_order_no}")
-        logger.debug(f"请求数据: {request_data}")
+        logger.debug("闲鱼发货请求字段: %s", sorted(request_data.keys()))
 
         # 使用与 get_order_detail 相同的签名方式
         result = self._request_with_body_sign("/api/open/order/ship", request_data)
@@ -419,7 +426,8 @@ class XianyuOrderService:
             }
 
 
-# 创建全局服务实例
+# Unconfigured compatibility instance for isolated legacy tests. Production
+# routes cannot reach it, and importing this module never reads process Secret.
 xianyu_service = XianyuOrderService()
 
 

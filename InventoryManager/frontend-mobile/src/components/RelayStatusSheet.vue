@@ -33,6 +33,7 @@ const statusOrder: Record<RelayCaseStatus, number> = {
 
 const targetStatus = ref<RelayCaseStatus>('pending')
 const trackingNumber = ref('')
+const accessoryNote = ref('')
 const errorMessage = ref('')
 const saving = ref(false)
 
@@ -46,6 +47,7 @@ watch(
     if (!props.modelValue || !props.relayCase) return
     targetStatus.value = props.relayCase.status
     trackingNumber.value = props.relayCase.tracking.number || ''
+    accessoryNote.value = props.relayCase.accessory_note || ''
     errorMessage.value = ''
   },
   { immediate: true },
@@ -86,6 +88,7 @@ async function save() {
     const result = await updateRelayCase(relayCase.predecessor.id, relayCase.successor.id, {
       status: targetStatus.value,
       sf_tracking_number: needsTracking.value ? trackingNumber.value.trim() : undefined,
+      accessory_note: accessoryNote.value.trim() || null,
     })
     const xianyuSync = result.xianyu_sync
     if (xianyuSync?.attempted && xianyuSync.success) {
@@ -153,6 +156,18 @@ async function save() {
           placeholder="请输入顺丰运单号"
           @input="errorMessage = ''"
         >
+      </label>
+
+      <label class="tracking-field">
+        <span>内部补寄备注</span>
+        <textarea
+          v-model="accessoryNote"
+          data-testid="relay-accessory-note"
+          maxlength="500"
+          rows="3"
+          placeholder="仅内部可见；可记录线下补寄安排，不会创建第二运单"
+          @input="errorMessage = ''"
+        />
       </label>
 
       <div v-if="errorMessage" class="error-message" role="alert">
@@ -246,7 +261,8 @@ async function save() {
   color: #646566;
 }
 
-.tracking-field input {
+.tracking-field input,
+.tracking-field textarea {
   width: 100%;
   min-height: 44px;
   padding: 0 12px;
@@ -254,9 +270,16 @@ async function save() {
   border-radius: 8px;
   outline: none;
   font-size: 16px;
+  font-family: inherit;
 }
 
-.tracking-field input:focus {
+.tracking-field textarea {
+  padding-top: 10px;
+  resize: vertical;
+}
+
+.tracking-field input:focus,
+.tracking-field textarea:focus {
   border-color: #1989fa;
 }
 

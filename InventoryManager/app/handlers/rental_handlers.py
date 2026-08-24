@@ -5,7 +5,10 @@
 
 from datetime import datetime
 from flask import request, current_app
-from app.services.rental.rental_service import RentalService
+from app.services.rental.rental_service import (
+    RentalService,
+    RentalUsagePeriodConflictError,
+)
 from app.services.printing.rental_product_lines import (
     validate_combo,
     get_default_combo,
@@ -210,6 +213,17 @@ class RentalHandlers:
 
             return created(data=response_data, message='租赁记录创建成功')
 
+        except RentalUsagePeriodConflictError as e:
+            return error(
+                '租赁档期冲突',
+                status_code=409,
+                data={
+                    'code': e.code,
+                    'conflicting_rental_ids': list(
+                        e.conflicting_rental_ids
+                    ),
+                },
+            )
         except ValueError as e:
             return bad_request(str(e))
         except Exception as e:
@@ -244,6 +258,17 @@ class RentalHandlers:
                 }
             )
 
+        except RentalUsagePeriodConflictError as e:
+            return error(
+                '租赁档期冲突',
+                status_code=409,
+                data={
+                    'code': e.code,
+                    'conflicting_rental_ids': list(
+                        e.conflicting_rental_ids
+                    ),
+                },
+            )
         except ValueError as e:
             return not_found(str(e))
         except Exception as e:
@@ -309,10 +334,6 @@ class RentalHandlers:
     def handle_web_update_rental(rental_id: str) -> ApiResponse:
         """处理Web界面更新租赁记录请求"""
         try:
-            rental = RentalService.get_rental_by_id(rental_id)
-            if not rental:
-                return not_found('租赁记录不存在')
-
             data = request.get_json()
             if not data:
                 return bad_request('缺少更新数据')
@@ -328,126 +349,26 @@ class RentalHandlers:
                     return bad_request('损坏备注不能超过 1000 个字符')
                 data['damage_note'] = normalized_damage_note
 
-            current_app.logger.info(f"更新租赁记录: {data}")
-            current_app.logger.info(f"accessories 字段内容: {data.get('accessories', '未提供')}, 类型: {type(data.get('accessories'))}")
-
-            # 更新基本字段
-            if 'device_id' in data:
-                rental.device_id = data['device_id']
-
-            if 'customer_name' in data:
-                rental.customer_name = data['customer_name']
-
-            if 'customer_phone' in data:
-                rental.customer_phone = data['customer_phone']
-
-            if 'destination' in data:
-                rental.destination = data['destination']
-
-            if 'damage_note' in data:
-                rental.damage_note = data['damage_note']
-
-            if 'end_date' in data:
-                end_date = datetime.strptime(data['end_date'], '%Y-%m-%d').date()
-                if end_date < rental.start_date:
-                    return bad_request('结束日期不能早于开始日期')
-                rental.end_date = end_date
-
-            if 'ship_out_tracking_no' in data:
-                rental.ship_out_tracking_no = data['ship_out_tracking_no']
-
-            if 'ship_in_tracking_no' in data:
-                rental.ship_in_tracking_no = data['ship_in_tracking_no']
-
-            # 处理订单字段
-            if 'xianyu_order_no' in data:
-                rental.xianyu_order_no = data['xianyu_order_no']
-
-            if 'order_amount' in data:
-                rental.order_amount = data['order_amount']
-
-            if 'buyer_id' in data:
-                rental.buyer_id = data['buyer_id']
-
-            # 处理时间字段
-            if 'ship_out_time' in data:
-                if data['ship_out_time']:
-                    try:
-                        # 先尝试 ISO 格式
-                        rental.ship_out_time = datetime.fromisoformat(data['ship_out_time'].replace('T', ' '))
-                        current_app.logger.info(f"寄出时间解析成功(ISO格式): {data['ship_out_time']} -> {rental.ship_out_time}")
-                    except ValueError:
-                        try:
-                            rental.ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d %H:%M:%S')
-                            current_app.logger.info(f"寄出时间解析成功: {data['ship_out_time']} -> {rental.ship_out_time}")
-                        except ValueError:
-                            try:
-                                rental.ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d')
-                                current_app.logger.info(f"寄出时间解析成功(日期格式): {data['ship_out_time']} -> {rental.ship_out_time}")
-                            except ValueError:
-                                current_app.logger.warning(f"无法解析寄出时间: {data['ship_out_time']}")
-                else:
-                    rental.ship_out_time = None
-
-            if 'ship_in_time' in data:
-                if data['ship_in_time']:
-                    try:
-                        # 先尝试 ISO 格式
-                        rental.ship_in_time = datetime.fromisoformat(data['ship_in_time'].replace('T', ' '))
-                        current_app.logger.info(f"收回时间解析成功(ISO格式): {data['ship_in_time']} -> {rental.ship_in_time}")
-                    except ValueError:
-                        try:
-                            rental.ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d %H:%M:%S')
-                            current_app.logger.info(f"收回时间解析成功: {data['ship_in_time']} -> {rental.ship_in_time}")
-                        except ValueError:
-                            try:
-                                rental.ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d')
-                                current_app.logger.info(f"收回时间解析成功(日期格式): {data['ship_in_time']} -> {rental.ship_in_time}")
-                            except ValueError:
-                                current_app.logger.warning(f"无法解析收回时间: {data['ship_in_time']}")
-                else:
-                    rental.ship_in_time = None
-
-            # 处理状态更新
-            if 'status' in data:
-                rental = RentalService.update_rental_status(rental_id, data['status'])
-
-            # 处理附件更新
-            if 'accessories' in data:
-                current_app.logger.info(f"更新附件: {data['accessories']}")
-                RentalService.update_rental_accessories(rental, data['accessories'])
-            
-            # 处理配套附件标记更新（新功能）
-            if 'includes_handle' in data:
-                rental.includes_handle = data['includes_handle']
-                current_app.logger.info(f"更新includes_handle: {data['includes_handle']}")
-            
-            if 'includes_lens_mount' in data:
-                rental.includes_lens_mount = data['includes_lens_mount']
-                current_app.logger.info(f"更新includes_lens_mount: {data['includes_lens_mount']}")
-            
-            # 处理代传照片标记更新
-            if 'photo_transfer' in data:
-                rental.photo_transfer = data['photo_transfer']
-                current_app.logger.info(f"更新photo_transfer: {data['photo_transfer']}")
-
             # 处理镜头组合更新（按更新后的 device_id 校验机型合法性）
             if 'lens_combo' in data:
-                device_id_for_check = data.get('device_id', rental.device_id)
+                current = RentalService.get_rental_by_id(rental_id)
+                if not current:
+                    return not_found('租赁记录不存在')
+                device_id_for_check = data.get(
+                    'device_id', current.device_id
+                )
                 lens_payload = {'lens_combo': data['lens_combo']}
                 lens_error = _normalize_and_validate_lens_combo(lens_payload, device_id_for_check)
                 if lens_error:
                     return bad_request(lens_error)
-                rental.lens_combo = lens_payload['lens_combo']
-                current_app.logger.info(f"更新lens_combo: {rental.lens_combo}")
+                data['lens_combo'] = lens_payload['lens_combo']
 
-            # 确保所有更改都被提交到数据库
-            # 注意：update_rental_status 会自己提交，但附件更新需要额外提交
-            from app import db
-            if 'accessories' in data or 'status' not in data:
-                current_app.logger.info(f"准备提交数据库事务（附件或其他字段更新）")
-                db.session.commit()
-                current_app.logger.info(f"数据库事务已提交")
+            # One service transaction owns locking, final schedule validation,
+            # every mutation, child/accessory changes, and the sole commit.
+            rental = RentalService.update_rental_with_accessories(
+                rental_id,
+                data,
+            )
 
             # 构建响应数据
             return success(
@@ -469,9 +390,22 @@ class RentalHandlers:
                 }
             )
 
+        except RentalUsagePeriodConflictError as e:
+            return error(
+                '租赁档期冲突',
+                status_code=409,
+                data={
+                    'code': e.code,
+                    'conflicting_rental_ids': list(
+                        e.conflicting_rental_ids
+                    ),
+                },
+            )
+        except ValueError as e:
+            if str(e) == '租赁记录不存在':
+                return not_found(str(e))
+            return bad_request(str(e))
         except Exception as e:
-            from app import db
-            db.session.rollback()
             current_app.logger.error(f"更新租赁记录失败: {e}")
             return server_error('更新租赁记录失败')
 
@@ -755,6 +689,8 @@ class RentalHandlers:
             rental = RentalService.get_rental_by_id(rental_id)
             if not rental:
                 return not_found('租赁记录不存在')
+            if rental.parent_rental_id is not None:
+                return bad_request('附件租赁必须通过主租赁更新')
 
             # 验证必填字段
             if not rental.xianyu_order_no:
@@ -776,16 +712,10 @@ class RentalHandlers:
 
             # 检查闲鱼API调用结果
             if result.get('success'):
-                # 更新租赁状态为已发货（如果不是）
-                if rental.status != 'shipped':
-                    rental.status = 'shipped'
-
-                # 设置发货时间（如果没有）
-                if not rental.ship_out_time:
-                    rental.ship_out_time = datetime.utcnow()
-
-                # 提交数据库事务
-                db.session.commit()
+                rental = RentalService.update_rental_with_accessories(
+                    rental.id,
+                    {'status': 'shipped'},
+                )
 
                 current_app.logger.info(f"单个发货成功: Rental {rental_id}")
 

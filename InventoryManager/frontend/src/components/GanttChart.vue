@@ -105,6 +105,18 @@
                   <el-icon><CircleCheck /></el-icon>
                   验机
                 </el-dropdown-item>
+                <el-dropdown-item command="warehouses">
+                  <el-icon><Location /></el-icon>
+                  仓库与调仓
+                </el-dropdown-item>
+                <el-dropdown-item command="integrations">
+                  <el-icon><Connection /></el-icon>
+                  租户集成
+                </el-dropdown-item>
+                <el-dropdown-item command="account-security">
+                  <el-icon><User /></el-icon>
+                  账号安全
+                </el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -463,7 +475,7 @@ const selectedDeviceModel = ref<string>('')
 const selectedDeviceType = ref<string[]>([])
 const selectedLifecycleStatus = ref<string>('active')  // 默认只显示使用中设备
 const selectedDatePicker = ref<Date>(ganttStore.currentDate)
-const dailyStats = ref<Record<string, {available_count: number, ship_out_count: number, accessory_ship_out_count: number}>>({})
+const dailyStats = computed(() => ganttStore.dailyStatsByDate)
 const {
   snapshot: xianyuAlertSnapshot,
   loading: xianyuAlertsLoading,
@@ -475,12 +487,17 @@ const {
 } = useXianyuOrderAlerts()
 const {
   rentals: pendingReturns,
-  count: pendingReturnsCount,
+  count: loadedPendingReturnsCount,
   loading: pendingReturnsLoading,
   updatingIds: pendingReturnUpdatingIds,
   load: loadPendingReturns,
   markReturned: markPendingReturnReturned
 } = usePendingReturns()
+const pendingReturnsCount = computed(() => Number(
+  ganttStore.summaries.pending_returns?.count
+  ?? loadedPendingReturnsCount.value
+  ?? 0
+))
 
 // 虚拟滚动相关
 const ganttBodyRef = ref<HTMLElement>()
@@ -542,16 +559,11 @@ const dateArray = computed(() => {
 
 // 计算设备型号列表用于筛选
 const availableDeviceModels = computed(() => {
-  const models = new Set<string>()
-  ganttStore.devices.forEach(device => {
-    // 优先使用 device_model.display_name，如果没有则使用旧的 model 字段
-    if (device.device_model?.display_name) {
-      models.add(device.device_model.display_name)
-    } else if (device.model && device.model.trim()) {
-      models.add(device.model)
-    }
-  })
-  return Array.from(models).sort()
+  return ganttStore.modelFacets
+    .filter(facet => facet.model_id != null)
+    .map(facet => facet.display_name)
+    .filter(Boolean)
+    .sort()
 })
 
 const deviceTypes = computed(() => {
@@ -842,10 +854,6 @@ const handleBookingSuccess = async (rentalId?: number) => {
 
   // 重新加载数据以反映最新变化
   await ganttStore.loadData()
-
-  // 清除缓存以确保统计数据更新
-  statsCache.clear()
-  await loadDailyStats()
   await loadXianyuAlerts(true)
 
   // 强制触发组件重新渲染，清除GanttRow中的缓存
@@ -858,8 +866,6 @@ const handleBookingSuccess = async (rentalId?: number) => {
 
 const handleScheduleReorderCompleted = async () => {
   await ganttStore.loadData()
-  statsCache.clear()
-  await loadDailyStats()
   await nextTick()
 }
 
@@ -875,10 +881,6 @@ const handleEditSuccess = async (rentalId?: number) => {
 
   // 重新加载数据以反映最新变化
   await ganttStore.loadData()
-
-  // 清除缓存以确保统计数据更新
-  statsCache.clear()
-  await loadDailyStats()
 
   // 强制触发组件重新渲染，清除GanttRow中的缓存
   await nextTick()
@@ -989,10 +991,6 @@ const handleDeleteRental = async (rental: Rental) => {
 
     // 重新加载数据以反映最新变化
     await ganttStore.loadData()
-
-    // 清除缓存以确保统计数据更新
-    statsCache.clear()
-    await loadDailyStats()
   } catch (error) {
     if (error !== 'cancel') {
       ElMessage.error('删除失败：' + (error as Error).message)
@@ -1062,83 +1060,16 @@ const handleMoreCommand = (command: string) => {
     case 'inspection':
       window.open('/inspection-records', '_blank')
       break
+    case 'warehouses':
+      router.push('/warehouses')
+      break
+    case 'integrations':
+      router.push('/integrations')
+      break
+    case 'account-security':
+      router.push('/account/security')
+      break
   }
-}
-
-// 统计数据缓存
-const statsCache = new Map<string, any>()
-let loadStatsTimer: number | null = null
-
-// 获取每日统计信息（带缓存和防抖）
-const loadDailyStats = async () => {
-  // 防抖处理
-  if (loadStatsTimer) {
-    clearTimeout(loadStatsTimer)
-  }
-
-  loadStatsTimer = setTimeout(async () => {
-    try {
-      const cacheKey = `${selectedDeviceModel.value || 'all'}_${dateArray.value[0]?.getTime() || 0}_${dateArray.value[dateArray.value.length - 1]?.getTime() || 0}`
-
-      // 检查缓存
-      if (statsCache.has(cacheKey)) {
-        dailyStats.value = statsCache.get(cacheKey)
-        return
-      }
-
-      const stats = await Promise.all(
-        dateArray.value.map(async (date) => {
-          const dateStr = toSystemDateString(date)
-          const params: any = { date: dateStr }
-
-          // 如果选择了设备型号，添加到参数中
-          if (selectedDeviceModel.value) {
-            params.device_model = selectedDeviceModel.value
-          }
-
-          const response = await axios.get('/api/gantt/daily-stats', { params })
-
-          if (response.data.success) {
-            return {
-              date: dateStr,
-              ...response.data.data
-            }
-          }
-          return {
-            date: dateStr,
-            available_count: 0,
-            ship_out_count: 0,
-            accessory_ship_out_count: 0
-          }
-        })
-      )
-
-      // 将统计数据存储到响应式对象中
-      const statsMap: Record<string, {available_count: number, ship_out_count: number, accessory_ship_out_count: number}> = {}
-      stats.forEach(stat => {
-        statsMap[stat.date] = {
-          available_count: stat.available_count,
-          ship_out_count: stat.ship_out_count,
-          accessory_ship_out_count: stat.accessory_ship_out_count || 0
-        }
-      })
-
-      // 缓存结果
-      statsCache.set(cacheKey, statsMap)
-
-      // 限制缓存大小
-      if (statsCache.size > 10) {
-        const firstKey = statsCache.keys().next().value
-        if (firstKey) {
-          statsCache.delete(firstKey)
-        }
-      }
-
-      dailyStats.value = statsMap
-    } catch (error) {
-      console.error('加载每日统计失败:', error)
-    }
-  }, 300) // 300ms 防抖
 }
 
 // 获取指定日期的统计信息
@@ -1183,26 +1114,18 @@ const getIdleControllerCountForDate = (date: Date) => {
   return idleCount
 }
 
-// 监听日期范围变化，重新加载统计数据
-watch(() => ganttStore.dateRange, () => {
-  loadDailyStats()
-}, { deep: true })
-
-// 监听设备和租赁数据变化，重新加载统计数据
-watch([() => ganttStore.devices, () => ganttStore.rentals], () => {
-  loadDailyStats()
-}, { deep: true })
-
-// 监听设备型号列表变化，默认选择第一个型号
-watch(availableDeviceModels, (newModels) => {
-  if (newModels.length > 0 && !selectedDeviceModel.value) {
-    selectedDeviceModel.value = newModels[0]
-  }
-}, { immediate: true })
-
-// 监听设备型号筛选变化，重新加载统计数据
-watch(selectedDeviceModel, () => {
-  loadDailyStats()
+// 服务端筛选、设备、租赁和统计在同一个快照中刷新。
+watch([selectedDeviceModel, selectedLifecycleStatus], async () => {
+  const selectedFacet = ganttStore.modelFacets.find(
+    facet => facet.display_name === selectedDeviceModel.value
+  )
+  ganttStore.setViewFilters(
+    selectedFacet?.model_id ?? null,
+    selectedLifecycleStatus.value === 'all'
+      ? null
+      : selectedLifecycleStatus.value
+  )
+  await ganttStore.loadData()
 })
 
 // 监听设备数据变化，重新计算虚拟滚动
@@ -1220,15 +1143,10 @@ watch(showBookingDialog, (visible) => {
 onMounted(async () => {
   await Promise.all([
     ganttStore.loadData(),
-    loadDailyStats(),
     loadDeviceModels(),
-    loadXianyuAlerts(),
-    loadPendingReturns().catch((error) => {
-      ElMessage.error((error as Error).message)
-    })
+    loadXianyuAlerts()
   ])
   startXianyuAlertPolling()
-  void refreshXianyuAlerts()
 
   // 初始化虚拟滚动
   await initVirtualScroll()
@@ -1240,16 +1158,10 @@ onUnmounted(() => {
   }
   ganttBodyResizeObserver?.disconnect()
   ganttBodyResizeObserver = null
-  // 清理定时器
-  if (loadStatsTimer) {
-    clearTimeout(loadStatsTimer)
-  }
   if (searchTimer) {
     clearTimeout(searchTimer)
   }
   stopXianyuAlertPolling()
-  // 清理缓存
-  statsCache.clear()
 })
 </script>
 

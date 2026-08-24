@@ -32,6 +32,23 @@
         />
       </el-form-item>
 
+      <el-form-item label="优先仓库">
+        <el-select
+          v-model="form.preferredWarehouseId"
+          placeholder="请选择优先仓库"
+          style="width: 100%"
+          @change="scheduleAvailability"
+        >
+          <el-option
+            v-for="warehouse in booking.bootstrap.value?.warehouses ?? []"
+            :key="warehouse.id"
+            :label="`${warehouse.name} · ${warehouse.address_summary}`"
+            :value="warehouse.id"
+          />
+        </el-select>
+        <div class="form-tip">优先仓只影响排序，实际起点由最终设备所在仓决定</div>
+      </el-form-item>
+
       <el-form-item label="结束日期" prop="endDate">
         <VueDatePicker
           :model-value="form.endDate"
@@ -76,6 +93,22 @@
         <div class="form-tip">寄出和收回所需的物流时间，0天表示当天取送</div>
       </el-form-item>
 
+      <el-form-item v-if="manualLogisticsRequired" label="物流确认">
+        <el-alert
+          type="warning"
+          :closable="false"
+          :title="`官方估算不可用，请确认按 ${form.logisticsDays} 天预留`"
+        />
+        <el-button
+          type="warning"
+          :loading="booking.availabilityLoading.value"
+          style="margin-top: 8px"
+          @click="confirmManualLogistics"
+        >
+          确认物流天数
+        </el-button>
+      </el-form-item>
+
       <!-- 闲鱼订单信息 -->
       <el-form-item label="闲鱼订单号">
         <div style="display: flex; gap: 8px;">
@@ -111,22 +144,14 @@
               :key="device.id"
               :label="device.name"
               :value="device.id"
-              :disabled="getDeviceLifecycleLabel(device) !== null"
+              :disabled="device.available !== true"
             >
               <div class="device-option">
                 <span>{{ device.name }}</span>
                 <div class="device-status">
-                  <span class="device-model">{{ device.model }}</span>
+                  <span class="device-model">{{ device.warehouse_name }}</span>
                   <el-tag
-                    v-if="getDeviceLifecycleLabel(device)"
-                    type="info"
-                    size="small"
-                    effect="dark"
-                  >
-                    {{ getDeviceLifecycleLabel(device) }}
-                  </el-tag>
-                  <el-tag
-                    v-else-if="availability.deviceAvailability.value.checked && availability.isDeviceAvailable(device.id)"
+                    v-if="device.available"
                     type="success"
                     size="small"
                     effect="dark"
@@ -134,7 +159,7 @@
                     可用
                   </el-tag>
                   <el-tag
-                    v-else-if="availability.deviceAvailability.value.checked"
+                    v-else
                     type="danger"
                     size="small"
                     effect="dark"
@@ -175,14 +200,28 @@
         <div class="form-tip">可选填写，也可在收件信息中提供</div>
       </el-form-item>
 
-      <el-form-item label="收件信息" prop="destination">
+      <el-form-item label="省" prop="customerProvince">
         <el-input
-          v-model="form.destination"
-          type="textarea"
-          :rows="3"
-          placeholder="请输入收件人信息（姓名、电话、地址）"
+          v-model="form.customerProvince"
+          placeholder="例如：广东省"
         />
-        <div class="form-tip">可选填写，系统会自动从收件信息中提取手机号码</div>
+      </el-form-item>
+
+      <el-form-item label="市" prop="customerCity">
+        <el-input v-model="form.customerCity" placeholder="例如：深圳市" />
+      </el-form-item>
+
+      <el-form-item label="区县" prop="customerDistrict">
+        <el-input v-model="form.customerDistrict" placeholder="例如：南山区" />
+      </el-form-item>
+
+      <el-form-item label="详细地址" prop="customerAddressDetail">
+        <el-input
+          v-model="form.customerAddressDetail"
+          type="textarea"
+          :rows="2"
+          placeholder="街道、门牌号等"
+        />
       </el-form-item>
 
       <el-form-item label="订单金额(元)">
@@ -224,90 +263,18 @@
         <div class="form-tip">勾选此项表示需要代替客户传输照片</div>
       </el-form-item>
 
-      <!-- 库存附件 - 手机支架 -->
-      <el-form-item label="手机支架">
-        <el-select 
-          v-model="form.phoneHolderId" 
-          placeholder="选择手机支架(可选)" 
-          clearable
-          filterable
-          @focus="handleAccessoryFocus"
-        >
-          <el-option
-            v-for="holder in phoneHolders"
-            :key="holder.id"
-            :label="holder.name"
-            :value="holder.id"
-            :disabled="availability.accessoryAvailability.value.checked && !availability.isAccessoryAvailable(holder.id)"
+      <el-form-item v-if="logicalAccessoryTypes.length" label="库存附件">
+        <el-checkbox-group v-model="form.requestedAccessoryTypeIds">
+          <el-checkbox
+            v-for="accessoryType in logicalAccessoryTypes"
+            :key="accessoryType.id"
+            :label="accessoryType.id"
+            :disabled="!canRequestAccessory(accessoryType.id)"
           >
-            <div class="device-option">
-              <span>{{ holder.name }}</span>
-              <div class="device-status">
-                <span class="device-model">{{ holder.model }}</span>
-                <el-tag
-                  v-if="availability.accessoryAvailability.value.checked && availability.isAccessoryAvailable(holder.id)"
-                  type="success"
-                  size="small"
-                  effect="dark"
-                >
-                  可用
-                </el-tag>
-                <el-tag
-                  v-else-if="availability.accessoryAvailability.value.checked"
-                  type="danger"
-                  size="small"
-                  effect="dark"
-                >
-                  档期不可用
-                </el-tag>
-              </div>
-            </div>
-          </el-option>
-        </el-select>
-        <div class="form-tip">手机支架为库存附件，需选择具体编号</div>
-      </el-form-item>
-
-      <!-- 库存附件 - 三脚架 -->
-      <el-form-item label="三脚架">
-        <el-select 
-          v-model="form.tripodId" 
-          placeholder="选择三脚架(可选)" 
-          clearable
-          filterable
-          @focus="handleAccessoryFocus"
-        >
-          <el-option
-            v-for="tripod in tripods"
-            :key="tripod.id"
-            :label="tripod.name"
-            :value="tripod.id"
-            :disabled="availability.accessoryAvailability.value.checked && !availability.isAccessoryAvailable(tripod.id)"
-          >
-            <div class="device-option">
-              <span>{{ tripod.name }}</span>
-              <div class="device-status">
-                <span class="device-model">{{ tripod.model }}</span>
-                <el-tag
-                  v-if="availability.accessoryAvailability.value.checked && availability.isAccessoryAvailable(tripod.id)"
-                  type="success"
-                  size="small"
-                  effect="dark"
-                >
-                  可用
-                </el-tag>
-                <el-tag
-                  v-else-if="availability.accessoryAvailability.value.checked"
-                  type="danger"
-                  size="small"
-                  effect="dark"
-                >
-                  档期不可用
-                </el-tag>
-              </div>
-            </div>
-          </el-option>
-        </el-select>
-        <div class="form-tip">三脚架为库存附件，需选择具体编号</div>
+            {{ accessoryTypeLabel(accessoryType.id) }}
+          </el-checkbox>
+        </el-checkbox-group>
+        <div class="form-tip">只选择附件类型，系统在最终事务中自动分配同仓逻辑单元</div>
       </el-form-item>
 
       <!-- 查找到的档期信息 -->
@@ -317,8 +284,8 @@
           已找到可用设备: {{ availableSlot.device?.name || '未知设备' }}
         </div>
         <div class="slot-times">
-          <div>寄出时间: {{ formatDateTime(availableSlot.shipOutDate) }}</div>
-          <div>收回时间: {{ formatDateTime(availableSlot.shipInDate) }}</div>
+          <div>寄出时间: {{ availableSlot.planned_ship_out_date || '待物流确认' }}</div>
+          <div>收回时间: {{ availableSlot.planned_return_date || '待物流确认' }}</div>
         </div>
       </div>
     </el-form>
@@ -339,7 +306,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
 import { Monitor } from '@element-plus/icons-vue'
 import VueDatePicker from '@vuepic/vue-datepicker'
@@ -349,15 +316,14 @@ import axios from 'axios'
 
 // 导入组合式函数
 import { useGanttStore } from '@/stores/gantt'
-import { useDeviceManagement } from '@/composables/useDeviceManagement'
-import { useAvailabilityCheck } from '@/composables/useAvailabilityCheck'
 import { useConflictDetection } from '@/composables/useConflictDetection'
 import { getCreateRentalRules } from '@/composables/useRentalFormValidation'
-import { extractPhoneNumber } from '@/utils/phoneExtractor'
 import {
-  formatLogisticsWarning,
-  getLogisticsMismatch
-} from '@/utils/logisticsWarning'
+  useRentalBooking,
+  type BookingAccessoryType,
+  type BookingAvailabilityPayload,
+  type BookingCandidate,
+} from '@/composables/useRentalBooking'
 import LensComboSelector from './rental/LensComboSelector.vue'
 
 // Props & Emits
@@ -375,9 +341,8 @@ const emit = defineEmits<{
 
 // Store & Composables
 const ganttStore = useGanttStore()
-const deviceManagement = useDeviceManagement()
-const availability = useAvailabilityCheck()
 const conflictDetection = useConflictDetection()
+const booking = useRentalBooking()
 
 // Refs
 const formRef = ref<FormInstance>()
@@ -392,14 +357,18 @@ const form = ref({
   endDate: null as Date | null,
   logisticsDays: 1,
   selectedModelId: null as number | null,
+  preferredWarehouseId: null as number | null,
   selectedDeviceId: null as number | null,
   customerName: '',
   customerPhone: '',
   destination: '',
+  customerProvince: '',
+  customerCity: '',
+  customerDistrict: '',
+  customerAddressDetail: '',
   // 新：分离配套附件和库存附件
   bundledAccessories: [] as ('handle' | 'lens_mount')[],
-  phoneHolderId: null as number | null,
-  tripodId: null as number | null,
+  requestedAccessoryTypeIds: [] as number[],
   xianyuOrderNo: '',
   orderAmount: '',
   buyerId: '',
@@ -408,40 +377,22 @@ const form = ref({
 })
 
 const availableDeviceModels = computed(() =>
-  deviceManagement.deviceModels.value.filter(model => model.is_active !== false)
+  booking.bootstrap.value?.device_models ?? []
 )
 
 const selectedModel = computed(() =>
-  deviceManagement.deviceModels.value.find(
+  availableDeviceModels.value.find(
     model => model.id === form.value.selectedModelId
   ) || null
 )
 
-const filteredDevices = computed(() => {
-  const model = selectedModel.value
-  if (!model) return []
-
-  return deviceManagement.devices.value.filter(device => {
-    if (device.model_id != null) {
-      return device.model_id === model.id
-    }
-    if (device.device_model?.id != null) {
-      return device.device_model.id === model.id
-    }
-
-    const selectedModelNames = [model.name, model.display_name]
-      .filter(Boolean)
-      .map(name => name.toLowerCase())
-    const deviceModelNames = [
-      device.model,
-      device.device_model?.name,
-      device.device_model?.display_name
-    ]
-      .filter((name): name is string => Boolean(name))
-      .map(name => name.toLowerCase())
-    return deviceModelNames.some(name => selectedModelNames.includes(name))
-  })
-})
+const filteredDevices = computed(() =>
+  (booking.availability.value?.candidates ?? []).map(candidate => ({
+    ...candidate.device,
+    available: candidate.available,
+    warehouse_name: candidate.warehouse.name,
+  }))
+)
 
 // 当前所选型号的 short name（用于镜头组合选项）
 const selectedModelName = computed<string | null>(() =>
@@ -453,33 +404,26 @@ const submitting = ref(false)
 const pendingSuccess = ref<{ rentalId: number } | null>(null)
 const dialogClosed = ref(!props.modelValue)
 const searching = ref(false)
-const searchingAccessory = ref(false)
 const fetchingOrder = ref(false)
-const availableSlot = ref<any>(null)
-const availableAccessorySlot = ref<any>(null)
-let slotSearchGeneration = 0
+const availableSlot = ref<BookingCandidate | null>(null)
+const manualLogisticsByWarehouse = ref<NonNullable<
+  BookingAvailabilityPayload['manual_logistics_by_warehouse']
+>>({})
+let availabilityTimer: ReturnType<typeof setTimeout> | undefined
+
+onBeforeUnmount(() => {
+  if (availabilityTimer) clearTimeout(availabilityTimer)
+  availabilityTimer = undefined
+})
 
 const invalidateSlotSearch = () => {
-  slotSearchGeneration += 1
+  booking.resetAvailability()
+  if (availabilityTimer) clearTimeout(availabilityTimer)
   searching.value = false
 }
 
 // Form Rules
 const rules = getCreateRentalRules()
-
-// 设备生命周期标签映射
-const LIFECYCLE_LABELS: Record<string, string> = {
-  sold: '已售出',
-  damaged: '已损坏',
-  decommissioned: '已停用',
-  retired: '已退役'
-}
-
-// 获取设备的生命周期标签（非 active 返回中文标签，active 返回 null）
-const getDeviceLifecycleLabel = (device: any): string | null => {
-  const lifecycle = device?.lifecycle_status || 'active'
-  return lifecycle !== 'active' ? (LIFECYCLE_LABELS[lifecycle] || lifecycle) : null
-}
 
 // Computed
 const canSearchSlot = computed(() => {
@@ -487,25 +431,64 @@ const canSearchSlot = computed(() => {
     form.value.startDate &&
     form.value.endDate &&
     form.value.logisticsDays >= 0 &&
-    form.value.selectedModelId
+    form.value.selectedModelId &&
+    form.value.customerProvince.trim() &&
+    form.value.customerCity.trim() &&
+    form.value.customerDistrict.trim() &&
+    form.value.customerAddressDetail.trim()
   )
 })
 
-// 过滤出手机支架
-const phoneHolders = computed(() => {
-  return deviceManagement.accessories.value.filter(a => 
-    a.name.includes('手机支架') || a.name.toLowerCase().includes('phone') ||
-    (a.model && (a.model.includes('手机支架') || a.model.toLowerCase().includes('phone')))
+const selectedCandidate = computed(() =>
+  booking.availability.value?.candidates.find(
+    candidate => candidate.device.id === form.value.selectedDeviceId,
+  ) ?? null
+)
+
+const logicalAccessoryTypes = computed<BookingAccessoryType[]>(() => {
+  const configuredIds = new Set(
+    selectedCandidate.value?.accessories
+      .filter(item => item.tracking_mode === 'logical_unit')
+      .map(item => item.accessory_type_id) ?? [],
+  )
+  return (booking.bootstrap.value?.accessory_types ?? []).filter(
+    item => item.tracking_mode === 'logical_unit' && configuredIds.has(item.id),
   )
 })
 
-// 过滤出三脚架
-const tripods = computed(() => {
-  return deviceManagement.accessories.value.filter(a => 
-    a.name.includes('三脚架') || a.name.toLowerCase().includes('tripod') ||
-    (a.model && (a.model.includes('三脚架') || a.model.toLowerCase().includes('tripod')))
+const accessoryFact = (accessoryTypeId: number) =>
+  selectedCandidate.value?.accessories.find(
+    item => item.accessory_type_id === accessoryTypeId,
+  ) ?? null
+
+const canRequestAccessory = (accessoryTypeId: number) => {
+  const fact = accessoryFact(accessoryTypeId)
+  if (!fact) return false
+  return Boolean(
+    (fact.available ?? 0) > 0
+    || fact.relay_confirmation_required
+    || (fact.shortage && selectedCandidate.value?.relay_candidate)
   )
-})
+}
+
+const accessoryTypeLabel = (accessoryTypeId: number) => {
+  const type = logicalAccessoryTypes.value.find(
+    item => item.id === accessoryTypeId,
+  )
+  const fact = accessoryFact(accessoryTypeId)
+  if (!type || !fact) return type?.display_name ?? '附件'
+  if (fact.relay_confirmation_required) {
+    return `${type.display_name}（接力确认后可满足）`
+  }
+  if (fact.shortage) return `${type.display_name}（库存不足）`
+  return `${type.display_name}（可用 ${fact.available ?? 0}）`
+}
+
+const manualLogisticsRequired = computed(() =>
+  Object.values(
+    booking.availability.value?.estimate_by_warehouse ?? {},
+  ).some(estimate => estimate.manual_confirmation_required)
+)
 
 // Date Methods
 const disabledDate = (date: Date) => {
@@ -524,63 +507,93 @@ const disabledEndDate = (date: Date) => {
   return false
 }
 
-const formatDateTime = (date: Date) => {
-  return dayjs(date).format('YYYY-MM-DD HH:mm')
-}
-
 // Date Change Handlers
 const handleStartDateChange = (date: Date | null) => {
-  invalidateSlotSearch()
   form.value.startDate = date
   if (date && form.value.endDate && dayjs(form.value.endDate).isBefore(dayjs(date))) {
     form.value.endDate = null
   }
 
   availableSlot.value = null
-  availability.resetAll()
-
-  if (date && form.value.endDate) {
-    nextTick(() => {
-      checkAvailabilities()
-    })
-  }
+  scheduleAvailability()
 }
 
 const handleEndDateChange = (date: Date | null) => {
-  invalidateSlotSearch()
   form.value.endDate = date
   availableSlot.value = null
-  availability.resetAll()
+  scheduleAvailability()
+}
 
-  if (date && form.value.startDate) {
-    nextTick(() => {
-      checkAvailabilities()
+const structuredDestination = () => ({
+  province: form.value.customerProvince.trim(),
+  city: form.value.customerCity.trim(),
+  district: form.value.customerDistrict.trim(),
+  address_detail: form.value.customerAddressDetail.trim(),
+})
+
+const syncLegacyDestination = () => {
+  const destination = structuredDestination()
+  form.value.destination = [
+    destination.province,
+    destination.city,
+    destination.district,
+    destination.address_detail,
+  ].join('')
+}
+
+const checkAvailabilities = async () => {
+  if (!canSearchSlot.value || !form.value.startDate || !form.value.endDate) {
+    booking.resetAvailability()
+    return null
+  }
+  const priorDeviceId = form.value.selectedDeviceId
+  try {
+    const result = await booking.evaluateAvailability({
+      start_date: dayjs(form.value.startDate).format('YYYY-MM-DD'),
+      end_date: dayjs(form.value.endDate).format('YYYY-MM-DD'),
+      model_id: Number(form.value.selectedModelId),
+      preferred_warehouse_id: form.value.preferredWarehouseId,
+      destination: structuredDestination(),
+      requested_accessory_type_ids: [
+        ...form.value.requestedAccessoryTypeIds,
+      ].sort((left, right) => left - right),
+      ...(Object.keys(manualLogisticsByWarehouse.value).length
+        ? { manual_logistics_by_warehouse: manualLogisticsByWarehouse.value }
+        : {}),
     })
+    if (!result) return null
+    if (!result.candidates.some(
+      candidate => candidate.device.id === priorDeviceId && candidate.available,
+    )) {
+      form.value.selectedDeviceId = null
+      form.value.requestedAccessoryTypeIds = []
+      availableSlot.value = null
+    } else {
+      availableSlot.value = selectedCandidate.value
+    }
+    return result
+  } catch (error) {
+    form.value.selectedDeviceId = null
+    form.value.requestedAccessoryTypeIds = []
+    availableSlot.value = null
+    ElMessage.error((error as Error).message || '无法确认设备可用性')
+    return null
   }
 }
 
-// Availability Check
-const checkAvailabilities = async () => {
-  if (!form.value.startDate || !form.value.endDate) return
-
-  const params = {
-    startDate: dayjs(form.value.startDate).format('YYYY-MM-DD'),
-    endDate: dayjs(form.value.endDate).format('YYYY-MM-DD'),
-    logisticsDays: form.value.logisticsDays
-  }
-
-  await Promise.all([
-    availability.checkDevicesAvailability(filteredDevices.value, params),
-    availability.checkAccessoriesAvailability(deviceManagement.accessories.value, params)
-  ])
+const scheduleAvailability = () => {
+  if (availabilityTimer) clearTimeout(availabilityTimer)
+  availabilityTimer = setTimeout(() => {
+    void checkAvailabilities()
+  }, 250)
 }
 
 const handleModelChange = (modelId: number | null | undefined) => {
-  invalidateSlotSearch()
   form.value.selectedModelId = modelId ?? null
   form.value.selectedDeviceId = null
+  form.value.requestedAccessoryTypeIds = []
   availableSlot.value = null
-  availability.resetAll()
+  scheduleAvailability()
 }
 
 // Device Focus Handler
@@ -595,19 +608,7 @@ const handleDeviceFocus = async () => {
     return
   }
 
-  if (!availability.deviceAvailability.value.checked) {
-    await checkAvailabilities()
-  }
-}
-
-// Accessory Focus Handler
-const handleAccessoryFocus = async () => {
-  if (!form.value.startDate || !form.value.endDate) {
-    ElMessage.warning('请先选择日期后查看附件可用性')
-    return
-  }
-
-  if (!availability.accessoryAvailability.value.checked) {
+  if (!booking.availability.value) {
     await checkAvailabilities()
   }
 }
@@ -624,103 +625,68 @@ const findAvailableSlot = async () => {
     return
   }
 
-  const modelId = form.value.selectedModelId.toString()
-  const searchGeneration = ++slotSearchGeneration
-
   searching.value = true
   try {
-    const result = await ganttStore.findAvailableSlot(
-      dayjs(form.value.startDate).format('YYYY-MM-DD'),
-      dayjs(form.value.endDate).format('YYYY-MM-DD'),
-      form.value.logisticsDays,
-      modelId,
-      false
-    )
-
-    if (searchGeneration !== slotSearchGeneration) return
-
-    if (result.device) {
-      availableSlot.value = result
-      form.value.selectedDeviceId = result.device.id
-      ElMessage.success(`找到可用设备: ${result.device.name}`)
+    const result = await checkAvailabilities()
+    const candidate = result?.candidates.find(
+      item => item.available && item.submission_ready,
+    ) ?? result?.candidates.find(item => item.available)
+    if (candidate) {
+      form.value.selectedDeviceId = candidate.device.id
+      form.value.requestedAccessoryTypeIds = []
+      availableSlot.value = candidate
+      ElMessage.success(`找到可用设备: ${candidate.device.name}`)
     } else {
       throw new Error('在指定时间段内没有可用设备')
     }
   } catch (error) {
-    if (searchGeneration !== slotSearchGeneration) return
-    console.error('查找档期失败:', error)
     ElMessage.error((error as Error).message)
     availableSlot.value = null
   } finally {
-    if (searchGeneration === slotSearchGeneration) {
-      searching.value = false
-    }
+    searching.value = false
   }
 }
 
-// Find Available Accessory
-const findAvailableAccessory = async () => {
-  if (!canSearchSlot.value) {
-    ElMessage.warning('请先完善日期和物流信息')
-    return
-  }
-
-  // 查找所有可用附件（暂时不限制附件型号）
-  // TODO: 后续可以根据主设备型号的关联附件来筛选
-  const accessoryModelId = ''
-
-  searchingAccessory.value = true
-  try {
-    const result = await ganttStore.findAvailableSlot(
-      dayjs(form.value.startDate).format('YYYY-MM-DD'),
-      dayjs(form.value.endDate).format('YYYY-MM-DD'),
-      form.value.logisticsDays,
-      accessoryModelId, // 查找所有附件
-      true
-    )
-
-    if (result.device) {
-      availableAccessorySlot.value = {
-        accessory: result.device,
-        shipOutDate: result.shipOutDate,
-        shipInDate: result.shipInDate
-      }
-      ElMessage.success(`找到可用附件: ${result.device.name}`)
-    } else {
-      throw new Error('在指定时间段内没有可用的附件')
-    }
-  } catch (error) {
-    console.error('查找附件失败:', error)
-    ElMessage.error((error as Error).message)
-    availableAccessorySlot.value = null
-  } finally {
-    searchingAccessory.value = false
-  }
+const confirmManualLogistics = async () => {
+  const estimates = booking.availability.value?.estimate_by_warehouse ?? {}
+  manualLogisticsByWarehouse.value = Object.fromEntries(
+    Object.entries(estimates).map(([warehouseId, estimate]) => [
+      warehouseId,
+      {
+        days: form.value.logisticsDays,
+        context: estimate.confirmation_context,
+      },
+    ]),
+  )
+  await checkAvailabilities()
 }
 
-// Add Found Accessory
-const addFoundAccessory = () => {
-  if (availableAccessorySlot.value?.accessory) {
-    const accessory = availableAccessorySlot.value.accessory
-    const accessoryName = accessory.name.toLowerCase()
-    const accessoryModel = accessory.model?.toLowerCase() || ''
-    
-    // 根据附件名称或型号分配到相应字段
-    if (accessoryName.includes('手机支架') || accessoryName.includes('phone') ||
-        accessoryModel.includes('手机支架') || accessoryModel.includes('phone')) {
-      form.value.phoneHolderId = accessory.id
-      ElMessage.success(`已添加手机支架: ${accessory.name}`)
-    } else if (accessoryName.includes('三脚架') || accessoryName.includes('tripod') ||
-               accessoryModel.includes('三脚架') || accessoryModel.includes('tripod')) {
-      form.value.tripodId = accessory.id
-      ElMessage.success(`已添加三脚架: ${accessory.name}`)
-    } else {
-      ElMessage.warning('不支持的附件类型')
-    }
-    
-    availableAccessorySlot.value = null
+watch([
+  () => form.value.customerProvince,
+  () => form.value.customerCity,
+  () => form.value.customerDistrict,
+  () => form.value.customerAddressDetail,
+  () => form.value.logisticsDays,
+], () => {
+  manualLogisticsByWarehouse.value = {}
+  scheduleAvailability()
+})
+
+watch(
+  () => form.value.requestedAccessoryTypeIds.join(','),
+  scheduleAvailability,
+)
+
+watch(() => form.value.selectedDeviceId, (deviceId, priorDeviceId) => {
+  if (
+    priorDeviceId !== null
+    && deviceId !== priorDeviceId
+    && form.value.requestedAccessoryTypeIds.length
+  ) {
+    form.value.requestedAccessoryTypeIds = []
   }
-}
+  availableSlot.value = selectedCandidate.value
+})
 
 // 拉取闲鱼订单信息
 const handleFetchOrderInfo = async () => {
@@ -734,75 +700,37 @@ const handleFetchOrderInfo = async () => {
   fetchingOrder.value = true
 
   try {
-    console.log('开始请求订单信息，订单号:', orderNo)
-
     const response = await axios.post('/api/rentals/fetch-xianyu-order', {
       order_no: orderNo
     })
 
-    console.log('API响应:', response.data)
-    console.log('响应成功:', response.data.success)
-    console.log('响应数据:', response.data.data)
-
     if (response.data.success && response.data.data) {
       const orderData = response.data.data
-
-      console.log('=== 开始填充订单数据 ===')
-      console.log('订单数据:', orderData)
-
-      // 自动填充闲鱼ID（买家昵称）
       if (orderData.buyer_nick) {
         form.value.customerName = orderData.buyer_nick
-        console.log('填充闲鱼ID:', orderData.buyer_nick)
       }
-
-      // 组合收件信息：姓名 + 电话 + 地址
-      const destinationParts = []
-
-      // 添加收件人姓名
-      if (orderData.receiver_name) {
-        destinationParts.push(orderData.receiver_name)
-      }
-
-      // 添加收件人电话
-      if (orderData.receiver_mobile) {
-        destinationParts.push(orderData.receiver_mobile)
-      }
-
-      // 添加完整地址
-      const addressParts = [
-        orderData.prov_name,
-        orderData.city_name,
-        orderData.area_name,
+      form.value.customerProvince = (
+        orderData.prov_name || form.value.customerProvince
+      )
+      form.value.customerCity = (
+        orderData.city_name || form.value.customerCity
+      )
+      form.value.customerDistrict = (
+        orderData.area_name || form.value.customerDistrict
+      )
+      form.value.customerAddressDetail = [
         orderData.town_name,
-        orderData.address
-      ].filter(Boolean)
-
-      if (addressParts.length > 0) {
-        destinationParts.push(addressParts.join(''))
-      }
-
-      if (destinationParts.length > 0) {
-        form.value.destination = destinationParts.join(' ')
-        console.log('填充收件信息:', form.value.destination)
-      }
-
-      // 自动填充买家ID
+        orderData.address,
+      ].filter(Boolean).join('') || form.value.customerAddressDetail
+      syncLegacyDestination()
       if (orderData.buyer_eid) {
         form.value.buyerId = orderData.buyer_eid
-        console.log('填充买家ID:', orderData.buyer_eid)
       }
-
-      // 自动填充订单金额（从分转换为元）
       if (orderData.pay_amount) {
         form.value.orderAmount = (orderData.pay_amount / 100).toFixed(2)
-        console.log('填充订单金额:', form.value.orderAmount)
       }
-
-      // 最后填充手机号（覆盖可能被watch自动提取的手机号）
       if (orderData.receiver_mobile) {
         form.value.customerPhone = orderData.receiver_mobile
-        console.log('填充手机号:', orderData.receiver_mobile)
       }
 
       ElMessage.success('订单信息获取成功')
@@ -817,30 +745,6 @@ const handleFetchOrderInfo = async () => {
   }
 }
 
-const confirmLogisticsTiming = async (): Promise<boolean> => {
-  const mismatch = await getLogisticsMismatch(
-    form.value.destination,
-    form.value.logisticsDays
-  )
-  if (!mismatch) return true
-
-  try {
-    await ElMessageBox.confirm(
-      `${formatLogisticsWarning(mismatch)} 是否仍要创建该档期？`,
-      '物流时效可能不足',
-      {
-        type: 'warning',
-        confirmButtonText: '仍要创建',
-        cancelButtonText: '返回修改',
-        confirmButtonClass: 'logistics-warning-confirm'
-      }
-    )
-    return true
-  } catch {
-    return false
-  }
-}
-
 // Submit Handler
 const handleSubmit = async () => {
   try {
@@ -848,6 +752,16 @@ const handleSubmit = async () => {
   } catch {
     return
   }
+  const candidate = selectedCandidate.value
+  if (!candidate?.available) {
+    ElMessage.error('请选择当前可用的设备')
+    return
+  }
+  if (!candidate.submission_ready) {
+    ElMessage.error('请先完成物流天数确认')
+    return
+  }
+  syncLegacyDestination()
 
   // 检查重复租赁
   const duplicateCheck = await conflictDetection.checkDuplicateRental({
@@ -881,51 +795,44 @@ const handleSubmit = async () => {
     }
   }
 
-  try {
-    if (!await confirmLogisticsTiming()) return
-  } catch (error: any) {
-    ElMessage.error(error.message || '顺丰时效预估失败，请稍后重试')
-    return
-  }
-
   submitting.value = true
   try {
-    const deviceId = form.value.selectedDeviceId || availableSlot.value?.device.id
+    const deviceId = form.value.selectedDeviceId
     if (!deviceId) {
       ElMessage.error('请选择设备')
       return
     }
 
-    const shipOutTime = availableSlot.value
-      ? availableSlot.value.shipOutDate
-      : dayjs(form.value.startDate).startOf('day').subtract(1 + form.value.logisticsDays, 'day').toDate()
-    const shipInTime = availableSlot.value
-      ? availableSlot.value.shipInDate
-      : dayjs(form.value.endDate).startOf('day').add(1 + form.value.logisticsDays, 'day').toDate()
-
-    // 转换UI格式到API格式
-    const accessoryIds = [form.value.phoneHolderId, form.value.tripodId]
-      .filter((id): id is number => id !== null)
-    
     const rentalData = {
       device_id: deviceId,
+      model_id: form.value.selectedModelId,
+      expected_origin_warehouse_id: candidate.warehouse.id,
+      preferred_warehouse_id: form.value.preferredWarehouseId,
       start_date: dayjs(form.value.startDate).format('YYYY-MM-DD'),
       end_date: dayjs(form.value.endDate).format('YYYY-MM-DD'),
       customer_name: form.value.customerName,
       customer_phone: form.value.customerPhone,
-      destination: form.value.destination,
-      ship_out_time: dayjs(shipOutTime).format('YYYY-MM-DD HH:mm:ss'),
-      ship_in_time: dayjs(shipInTime).format('YYYY-MM-DD HH:mm:ss'),
-      // 新：配套附件使用布尔值
+      destination: structuredDestination(),
+      legacy_destination: form.value.destination,
+      customer_province: form.value.customerProvince.trim(),
+      customer_city: form.value.customerCity.trim(),
+      customer_district: form.value.customerDistrict.trim(),
+      customer_address_detail: form.value.customerAddressDetail.trim(),
+      logistics_days: form.value.logisticsDays,
       includes_handle: form.value.bundledAccessories.includes('handle'),
       includes_lens_mount: form.value.bundledAccessories.includes('lens_mount'),
-      // 新：库存附件使用ID数组
-      accessories: accessoryIds,
+      accessories: [],
+      requested_accessory_type_ids: [
+        ...form.value.requestedAccessoryTypeIds,
+      ].sort((left, right) => left - right),
+      manual_logistics_by_warehouse: manualLogisticsByWarehouse.value,
       xianyu_order_no: form.value.xianyuOrderNo,
       order_amount: form.value.orderAmount ? parseFloat(form.value.orderAmount) : undefined,
       buyer_id: form.value.buyerId,
-      photo_transfer: form.value.photoTransfer,  // 代传照片标记
-      lens_combo: form.value.lensCombo
+      photo_transfer: form.value.photoTransfer,
+      ...(form.value.lensCombo
+        ? { lens_combo: form.value.lensCombo }
+        : {})
     }
 
     const result = await ganttStore.createRental(rentalData)
@@ -954,13 +861,17 @@ const handleClose = () => {
     endDate: null,
     logisticsDays: 1,
     selectedModelId: null,
+    preferredWarehouseId: null,
     selectedDeviceId: null,
     customerName: '',
     customerPhone: '',
     destination: '',
+    customerProvince: '',
+    customerCity: '',
+    customerDistrict: '',
+    customerAddressDetail: '',
     bundledAccessories: [],
-    phoneHolderId: null,
-    tripodId: null,
+    requestedAccessoryTypeIds: [],
     xianyuOrderNo: '',
     orderAmount: '',
     buyerId: '',
@@ -968,8 +879,8 @@ const handleClose = () => {
     lensCombo: undefined
   }
   availableSlot.value = null
-  availableAccessorySlot.value = null
-  availability.resetAll()
+  manualLogisticsByWarehouse.value = {}
+  booking.resetAvailability()
   emit('update:modelValue', false)
 }
 
@@ -1001,12 +912,20 @@ watch(() => props.modelValue, async (visible) => {
   if (visible) {
     dialogClosed.value = false
     pendingSuccess.value = null
-    await Promise.all([
-      deviceManagement.loadDevices(),
-      deviceManagement.loadAccessories(),
-      deviceManagement.loadDeviceModels()
-    ])
-    form.value.selectedModelId = deviceManagement.deviceModels.value.find(
+    let bootstrap
+    try {
+      bootstrap = await booking.loadBootstrap()
+    } catch {
+      ElMessage.error('预约表单加载失败，请稍后重试')
+      return
+    }
+    form.value.preferredWarehouseId = (
+      bootstrap.recent_warehouse_id
+      ?? bootstrap.default_warehouse_id
+      ?? bootstrap.warehouses[0]?.id
+      ?? null
+    )
+    form.value.selectedModelId = bootstrap.device_models.find(
       model => model.display_name === props.selectedDeviceModel
     )?.id ?? null
     if (props.initialXianyuOrderNo) {
@@ -1016,18 +935,6 @@ watch(() => props.modelValue, async (visible) => {
     }
   }
 }, { immediate: true })
-
-// Watch destination change to extract phone number
-watch(() => form.value.destination, (newDestination) => {
-  // 只有当客户电话为空时才自动提取
-  if (newDestination && !form.value.customerPhone) {
-    const extractedPhone = extractPhoneNumber(newDestination)
-    if (extractedPhone) {
-      form.value.customerPhone = extractedPhone
-      ElMessage.success('已自动从收件信息中提取手机号')
-    }
-  }
-})
 </script>
 
 <style scoped>

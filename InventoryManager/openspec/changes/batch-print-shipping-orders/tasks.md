@@ -1,5 +1,16 @@
 # Tasks
 
+## Status
+
+**PAUSED — 2026-08-21。** 不再执行本清单中建设旧 A4 独立发货单页面或浏览器批量打印流程的剩余任务；保持现有勾选状态，不得把暂停项标记为完成。
+
+## Pause Boundary
+
+- 不删除当前仍被批量发货页复用的 `GET /api/rentals/by-ship-date`，直到可信 tenant/warehouse 级分页队列替代完成并迁移全部调用方。
+- 旧页面、入口和独立文档链路的最终移除由 `convert-inventory-manager-to-saas` task 10.5/10.7 执行，不在本暂停 change 中继续开发。
+- 顺丰第一联、本地仓库寄回第二联、两个教程二维码和仓库打印能力继续由 SaaS Core 实施，不属于本暂停范围。
+- 若未来确需恢复旧范围，必须先批准新的 OpenSpec change；不得直接恢复执行下方遗留任务。
+
 ## Backend Tasks
 
 - [x] **Task 1: 创建批量查询 API**

@@ -1,9 +1,6 @@
 """可由普通发货和客户接力共同复用的顺丰轨迹查询。"""
 
-import os
 import re
-
-from app.utils.sf.sf_sdk_wrapper import SFExpressSDK
 
 
 class TrackingNotFoundError(ValueError):
@@ -22,10 +19,8 @@ class SFTrackingService:
 
     @classmethod
     def get_client(cls):
-        return SFExpressSDK(
-            partner_id=os.getenv("SF_PARTNER_ID"),
-            checkword=os.getenv("SF_CHECKWORD"),
-            test_mode=os.getenv("SF_TEST_MODE", "true").lower() == "true",
+        raise RuntimeError(
+            "legacy SF tracking requires an explicitly injected test client"
         )
 
     @classmethod

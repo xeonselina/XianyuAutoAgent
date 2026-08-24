@@ -20,6 +20,17 @@ class Device(db.Model):
     model = db.Column(db.String(50), nullable=False, default='x200u', comment='设备型号')
     model_id = db.Column(db.Integer, db.ForeignKey('device_models.id'), nullable=True, comment='设备型号ID')
     is_accessory = db.Column(db.Boolean, default=False, comment='是否为附件')
+    warehouse_id = db.Column(
+        db.Integer,
+        db.ForeignKey(
+            'warehouses.id',
+            name='fk_devices_warehouse_id_warehouses',
+            ondelete='RESTRICT',
+        ),
+        nullable=True,
+        index=True,
+        comment='当前实际仓库ID',
+    )
     
     # 生命周期管理字段
     lifecycle_status = db.Column(
@@ -46,6 +57,7 @@ class Device(db.Model):
     # 关系
     rentals = db.relationship('Rental', backref='device', lazy='dynamic', cascade='all, delete-orphan')
     audit_logs = db.relationship('AuditLog', backref='device', lazy='dynamic')
+    warehouse = db.relationship('Warehouse', back_populates='devices')
     
     def __repr__(self):
         return f'<Device {self.name} ({self.id})>'
@@ -60,6 +72,7 @@ class Device(db.Model):
             'model_id': self.model_id,
             'device_model': self.device_model.to_dict() if self.device_model else None,
             'is_accessory': self.is_accessory,
+            'warehouse_id': self.warehouse_id,
             'lifecycle_status': self.lifecycle_status,
             'lifecycle_reason': self.lifecycle_reason,
             'lifecycle_date': self.lifecycle_date.isoformat() if self.lifecycle_date else None,

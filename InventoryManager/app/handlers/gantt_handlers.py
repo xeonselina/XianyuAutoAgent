@@ -20,17 +20,40 @@ from app.utils.date_utils import (
 )
 from app.services.gantt.gantt_service import GanttService
 from app.services.gantt.reorder_service import (
-    GanttReorderService,
     StalePreviewError,
 )
+from app.services.gantt.http_runtime import (
+    GanttSaasHttpRuntimeUnavailable,
+    GanttViewQueryInvalid,
+    require_gantt_saas_http_runtime,
+)
+from app.services.scheduling import ScheduleValidationError
+from inventory_control.tenant_http import TenantHttpError
 
 
 class GanttHandlers:
     """甘特图处理器类"""
 
     @staticmethod
+    def _legacy_single_tenant_reads_unavailable() -> ApiResponse | None:
+        """Fail closed until these reads are routed to a tenant database."""
+
+        if (
+            current_app.testing is not True
+            or current_app.config.get(
+                "ENABLE_LEGACY_SINGLE_TENANT_GANTT_READS"
+            )
+            is not True
+        ):
+            return error("租户档期读服务尚未就绪", status_code=503)
+        return None
+
+    @staticmethod
     def handle_get_gantt_data() -> ApiResponse:
         """处理获取甘特图数据请求"""
+        unavailable = GanttHandlers._legacy_single_tenant_reads_unavailable()
+        if unavailable is not None:
+            return unavailable
         try:
             # 获取查询参数
             start_date_str = request.args.get('start_date')
@@ -48,8 +71,39 @@ class GanttHandlers:
             return server_error('获取甘特图数据失败')
 
     @staticmethod
+    def handle_get_gantt_view() -> ApiResponse:
+        """处理标准化、单请求的甘特范围快照。"""
+        try:
+            runtime = require_gantt_saas_http_runtime()
+            return success(
+                data=runtime.view(
+                    flask_request=request,
+                    query=request.args,
+                )
+            )
+        except GanttViewQueryInvalid as exc:
+            return bad_request(str(exc))
+        except GanttSaasHttpRuntimeUnavailable:
+            return error("租户档期服务尚未就绪", status_code=503)
+        except TenantHttpError as exc:
+            return error(
+                exc.public_message,
+                status_code=exc.status_code,
+                data={"code": exc.code},
+            )
+        except ScheduleValidationError as exc:
+            return error(
+                "档期计划事实不完整或已漂移",
+                status_code=409,
+                data={"code": exc.code},
+            )
+
+    @staticmethod
     def handle_get_daily_stats() -> ApiResponse:
         """处理获取每日统计信息请求"""
+        unavailable = GanttHandlers._legacy_single_tenant_reads_unavailable()
+        if unavailable is not None:
+            return unavailable
         try:
             # 获取查询参数
             date_str = request.args.get('date')
@@ -69,6 +123,9 @@ class GanttHandlers:
     @staticmethod
     def handle_find_rental_slot() -> ApiResponse:
         """处理查找可用租赁时间段请求"""
+        unavailable = GanttHandlers._legacy_single_tenant_reads_unavailable()
+        if unavailable is not None:
+            return unavailable
         try:
             data = request.get_json() or {}
 
@@ -118,15 +175,49 @@ class GanttHandlers:
     @staticmethod
     def handle_analyze_reorder() -> ApiResponse:
         """扫描需要人工确认的接力关系。"""
-        return success(data=GanttReorderService.analyze())
+        try:
+            runtime = require_gantt_saas_http_runtime()
+            return success(data=runtime.analyze(flask_request=request))
+        except GanttSaasHttpRuntimeUnavailable:
+            return error("租户档期服务尚未就绪", status_code=503)
+        except TenantHttpError as exc:
+            return error(
+                exc.public_message,
+                status_code=exc.status_code,
+                data={"code": exc.code},
+            )
+        except ScheduleValidationError as exc:
+            return error(
+                "档期计划事实不完整或已漂移",
+                status_code=409,
+                data={"code": exc.code},
+            )
 
     @staticmethod
     def handle_preview_reorder() -> ApiResponse:
         """生成零写入的档期重排预览。"""
         data = request.get_json(silent=True) or {}
         try:
+            runtime = require_gantt_saas_http_runtime()
             return success(
-                data=GanttReorderService.preview(data.get("decisions", []))
+                data=runtime.preview(
+                    flask_request=request,
+                    decisions=data.get("decisions", []),
+                )
+            )
+        except GanttSaasHttpRuntimeUnavailable:
+            return error("租户档期服务尚未就绪", status_code=503)
+        except TenantHttpError as exc:
+            return error(
+                exc.public_message,
+                status_code=exc.status_code,
+                data={"code": exc.code},
+            )
+        except ScheduleValidationError as exc:
+            return error(
+                "档期计划事实不完整或已漂移",
+                status_code=409,
+                data={"code": exc.code},
             )
         except ValueError as exc:
             return bad_request(str(exc))
@@ -135,15 +226,31 @@ class GanttHandlers:
     def handle_execute_reorder() -> ApiResponse:
         """原子执行已签名的档期重排预览。"""
         data = request.get_json(silent=True) or {}
-        if not data.get("token"):
-            return bad_request("缺少预览令牌")
         try:
+            runtime = require_gantt_saas_http_runtime()
             return success(
-                data=GanttReorderService.execute(data["token"]),
+                data=runtime.execute(
+                    flask_request=request,
+                    token=data.get("token"),
+                ),
                 message="档期重排完成",
+            )
+        except GanttSaasHttpRuntimeUnavailable:
+            return error("租户档期服务尚未就绪", status_code=503)
+        except TenantHttpError as exc:
+            return error(
+                exc.public_message,
+                status_code=exc.status_code,
+                data={"code": exc.code},
             )
         except StalePreviewError as exc:
             return error(str(exc), status_code=409)
+        except ScheduleValidationError as exc:
+            return error(
+                "档期计划事实不完整或已漂移",
+                status_code=409,
+                data={"code": exc.code},
+            )
         except ValueError as exc:
             return bad_request(str(exc))
         except Exception:

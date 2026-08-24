@@ -74,6 +74,8 @@ export interface RelayCase {
   predecessor: RelayCustomer
   successor: RelayCustomer
   tracking: RelayTracking
+  accessory_note: string | null
+  accessory_note_updated_at: string | null
   created_at: string | null
   updated_at: string | null
 }
@@ -121,6 +123,8 @@ export interface RelayCaseMutationResponse {
   successor_rental_id: number
   status: RelayCaseStatus
   sf_tracking_number: string | null
+  accessory_note: string | null
+  accessory_note_updated_at: string | null
   tracking: RelayTracking
   xianyu_sync?: RelayXianyuSync
 }

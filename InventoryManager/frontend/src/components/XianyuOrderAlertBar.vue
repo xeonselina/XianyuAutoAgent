@@ -92,6 +92,7 @@ const visible = computed(() => (
   props.snapshot.count > 0
   || Boolean(props.snapshot.sync.last_error)
   || !props.snapshot.sync.last_success_at
+  || props.snapshot.stale === true
 ))
 
 const headline = computed(() => {
@@ -106,14 +107,19 @@ const headline = computed(() => {
 
 const statusText = computed(() => {
   const sync = props.snapshot.sync
+  if (props.loading || props.snapshot.refreshing) {
+    return '正在刷新'
+  }
   if (sync.last_error) {
     const lastSuccess = sync.last_success_at
       ? `；上次成功：${formatTime(sync.last_success_at)}`
       : ''
     return `${sync.last_error}${lastSuccess}`
   }
-  if (props.loading || props.snapshot.refreshing) {
-    return '正在刷新'
+  if (props.snapshot.stale) {
+    return sync.last_success_at
+      ? `数据已超过两个同步周期；上次成功：${formatTime(sync.last_success_at)}`
+      : '尚无成功同步结果'
   }
   return ''
 })
