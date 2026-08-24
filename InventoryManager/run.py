@@ -8,12 +8,10 @@ WSGI entry point for gunicorn
 import gevent.monkey
 gevent.monkey.patch_all()
 
-import os  # noqa: E402
-
 from app import create_app  # noqa: E402
 
 # Create the Flask application instance
-app = create_app(os.environ.get('FLASK_ENV') or 'production')
+app = create_app('production')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5002, debug=False)

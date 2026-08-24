@@ -562,6 +562,63 @@ describe('authenticated shell and platform tenant actions', () => {
     expect(apiMocks.retryTenant).toHaveBeenCalledWith(8, 'platform-csrf')
   })
 
+  it('continues provisioning tenants and disables both continuation controls while busy', async () => {
+    const provisioningTenant = {
+      id: 7,
+      name: '租户建库中',
+      status: 'active',
+      expires_at: '2026-09-30T00:00:00Z',
+      db_name: 'inventory_tenant_00000007',
+      provisioning_status: 'provisioning',
+      provisioning_error: null,
+      admin_phone: '+8613800138000',
+    } as const
+    const failedTenant = {
+      ...provisioningTenant,
+      id: 8,
+      name: '租户建库失败',
+      db_name: 'inventory_tenant_00000008',
+      provisioning_status: 'failed',
+      provisioning_error: 'migration failed',
+    } as const
+    const pendingRetry = deferred<typeof provisioningTenant>()
+    apiMocks.listTenants.mockResolvedValue([provisioningTenant, failedTenant])
+    apiMocks.retryTenant.mockReturnValue(pendingRetry.promise)
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useAuthStore().applyPlatformSession(platformData)
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: PlatformTenantsView }],
+    })
+    await router.push('/')
+    await router.isReady()
+    const wrapper = mount(PlatformTenantsView, {
+      global: { plugins: [pinia, router] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.get('[data-testid="retry-7"]').text()).toBe('继续建库')
+      expect(wrapper.get('[data-testid="retry-8"]').text()).toBe('重试建库')
+    })
+
+    await wrapper.get('[data-testid="retry-7"]').trigger('click')
+    await vi.waitFor(() => {
+      expect(apiMocks.retryTenant).toHaveBeenCalledWith(7, 'platform-csrf')
+      expect(
+        (wrapper.get('[data-testid="retry-7"]').element as HTMLButtonElement).disabled,
+      ).toBe(true)
+      expect(
+        (wrapper.get('[data-testid="retry-8"]').element as HTMLButtonElement).disabled,
+      ).toBe(true)
+    })
+
+    pendingRetry.resolve({ ...provisioningTenant, provisioning_status: 'active' })
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="retry-7"]').exists()).toBe(false)
+    })
+  })
+
   it('labels an ordinary tenant list load failure clearly', async () => {
     apiMocks.listTenants.mockRejectedValue(
       apiRejection('控制库暂时不可用', 503),

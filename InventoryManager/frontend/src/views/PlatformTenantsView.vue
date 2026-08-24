@@ -185,13 +185,13 @@ onMounted(load)
             {{ tenant.status === 'active' ? '暂停' : '恢复' }}
           </button>
           <button
-            v-if="tenant.provisioning_status === 'failed'"
+            v-if="['provisioning', 'failed'].includes(tenant.provisioning_status)"
             :data-testid="`retry-${tenant.id}`"
             type="button"
             :disabled="mutationBusy"
             @click="retry(tenant)"
           >
-            重试建库
+            {{ tenant.provisioning_status === 'provisioning' ? '继续建库' : '重试建库' }}
           </button>
         </div>
         <p v-if="tenant.provisioning_error" class="error">

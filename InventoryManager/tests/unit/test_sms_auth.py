@@ -489,11 +489,49 @@ def test_non_exact_cors_origins_are_rejected(auth_module, origin):
         create_app(WildcardConfig)
 
 
-def test_gunicorn_entrypoint_selects_production_security_profile():
+def test_gunicorn_entrypoint_rejects_docker_profile_without_control_database():
     environment = os.environ.copy()
     environment.update(
         {
-            "FLASK_ENV": "production",
+            "FLASK_ENV": "docker",
+            "TESTING": "true",
+            "PROVISIONER_DATABASE_URL": (
+                "mysql+pymysql://root@127.0.0.1:9/mysql"
+            ),
+            "TENANT_DB_NAME_PREFIX": "inventory_tenant_",
+            "TENANT_DB_USER_PREFIX": "im_t",
+            "SAAS_MASTER_KEY": MASTER_KEY,
+            "TENCENTCLOUD_SECRET_ID": "test-secret-id",
+            "TENCENTCLOUD_SECRET_KEY": "test-secret-key",
+            "TENCENT_SMS_SDK_APP_ID": "test-sdk-app-id",
+            "TENCENT_SMS_SIGN_NAME": "test-sign",
+            "TENCENT_SMS_TEMPLATE_ID": "test-template",
+        }
+    )
+    environment.pop("CONTROL_DATABASE_URL", None)
+    environment.pop("DEV_SMS_CODE", None)
+    project_root = Path(__file__).resolve().parents[2]
+
+    result = subprocess.run(
+        [sys.executable, "-c", "import run"],
+        cwd=project_root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "Production requires CONTROL_DATABASE_URL" in result.stderr
+
+
+def test_gunicorn_entrypoint_ignores_docker_profile_and_uses_production_security():
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "FLASK_ENV": "docker",
+            "TESTING": "true",
             "DATABASE_URL_HOST": (
                 "mysql+pymysql://entrypoint@127.0.0.1:9/entrypoint_test"
             ),
