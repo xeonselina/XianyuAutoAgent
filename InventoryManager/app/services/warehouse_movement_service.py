@@ -290,7 +290,6 @@ class WarehouseMovementService:
         warehouse_id,
         model_key,
         interval,
-        excluded_rental_ids,
     ):
         for candidate in candidates:
             if (
@@ -301,8 +300,6 @@ class WarehouseMovementService:
                 continue
             occupied = False
             for rental in existing_by_device.get(candidate.id, []):
-                if rental.id in excluded_rental_ids:
-                    continue
                 existing_interval = cls._occupancy(rental)
                 if (
                     existing_interval is None
@@ -398,7 +395,6 @@ class WarehouseMovementService:
             replacements = []
             missing = []
             local_reservations = []
-            excluded_ids = {row.id for row in group["rows"]}
             for child, old_device in sorted(
                 group["needs"], key=lambda item: item[0].id
             ):
@@ -417,7 +413,6 @@ class WarehouseMovementService:
                     group["fulfillment_warehouse_id"],
                     model_key,
                     group["interval"],
-                    excluded_ids,
                 )
                 if replacement is None:
                     missing.append({

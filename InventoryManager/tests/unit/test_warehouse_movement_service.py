@@ -401,6 +401,94 @@ def test_existing_overlap_makes_candidate_unavailable(app):
         assert db.session.get(Rental, moving_children[0].id).device_id == moving.id
 
 
+@pytest.mark.parametrize("with_spare", [False, True])
+def test_main_move_never_reuses_retained_target_accessory(app, with_spare):
+    with app.app_context():
+        source = _warehouse("深圳")
+        target = _warehouse("杭州")
+        main_model = _model("retained-main", accessory=False)
+        accessory_model = _model("retained-tripod", accessory=True)
+        moving_main = _device("retained-moving-main", source, main_model)
+        old_accessory = _device(
+            "retained-old", source, accessory_model, accessory=True
+        )
+        retained = _device(
+            "retained-target", target, accessory_model, accessory=True
+        )
+        spare = (
+            _device("retained-spare", target, accessory_model, accessory=True)
+            if with_spare
+            else None
+        )
+        main, children = _rental(
+            moving_main, source, old_accessory, retained
+        )
+        db.session.commit()
+        before = _group_snapshot(main.id)
+
+        preview = WarehouseMovementService.preview(moving_main.id, target.id)
+
+        if not with_spare:
+            assert preview["auto_fixable"] == []
+            assert preview["shortages"][0]["rental_id"] == main.id
+            WarehouseMovementService.execute(preview["token"])
+            assert _group_snapshot(main.id) == before
+            return
+
+        replacement = preview["auto_fixable"][0]["replacements"][0]
+        assert replacement["new_device_id"] == spare.id
+        WarehouseMovementService.execute(preview["token"])
+        repaired = db.session.get(Rental, children[0].id)
+        kept = db.session.get(Rental, children[1].id)
+        assert repaired.device_id == spare.id
+        assert kept.device_id == retained.id
+        assert repaired.device_id != kept.device_id
+
+
+@pytest.mark.parametrize("with_spare", [False, True])
+def test_accessory_move_never_reuses_other_child_in_same_group(
+    app, with_spare
+):
+    with app.app_context():
+        source = _warehouse("深圳")
+        target = _warehouse("杭州")
+        main_model = _model("same-group-main", accessory=False)
+        accessory_model = _model("same-group-tripod", accessory=True)
+        main_device = _device("same-group-main-1", source, main_model)
+        moving = _device(
+            "same-group-moving", source, accessory_model, accessory=True
+        )
+        retained = _device(
+            "same-group-retained", source, accessory_model, accessory=True
+        )
+        spare = (
+            _device("same-group-spare", source, accessory_model, accessory=True)
+            if with_spare
+            else None
+        )
+        main, children = _rental(main_device, source, moving, retained)
+        db.session.commit()
+        before = _group_snapshot(main.id)
+
+        preview = WarehouseMovementService.preview(moving.id, target.id)
+
+        if not with_spare:
+            assert preview["auto_fixable"] == []
+            assert preview["shortages"][0]["rental_id"] == main.id
+            WarehouseMovementService.execute(preview["token"])
+            assert _group_snapshot(main.id) == before
+            return
+
+        replacement = preview["auto_fixable"][0]["replacements"][0]
+        assert replacement["new_device_id"] == spare.id
+        WarehouseMovementService.execute(preview["token"])
+        repaired = db.session.get(Rental, children[0].id)
+        kept = db.session.get(Rental, children[1].id)
+        assert repaired.device_id == spare.id
+        assert kept.device_id == retained.id
+        assert repaired.device_id != kept.device_id
+
+
 @pytest.mark.parametrize(
     ("legacy_model", "expected_code"),
     [("", "MODEL_UNKNOWN"), ("tripod-without-spare", "NO_AVAILABLE_REPLACEMENT")],
