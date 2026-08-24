@@ -5,6 +5,13 @@ from sqlalchemy.engine import make_url
 from config import TestingConfig
 
 
+def assert_test_database_names(*names: str) -> None:
+    if not names or any("test" not in name.lower() for name in names):
+        raise RuntimeError("所有测试数据库名必须包含 test")
+    if any(name.lower() in {"mysql", "inventory_management"} for name in names):
+        raise RuntimeError("拒绝系统库或生产默认库")
+
+
 def assert_test_database_url(url: str):
     """拒绝测试进程使用生产业务库。"""
     if os.environ.get("TESTING", "").lower() != "true":
