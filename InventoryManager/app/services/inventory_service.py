@@ -16,7 +16,11 @@ class InventoryService:
     """库存管理服务"""
     
     @staticmethod
-    def get_available_devices(ship_out_time: datetime, ship_in_time: datetime) -> List[Device]:
+    def get_available_devices(
+        ship_out_time: datetime,
+        ship_in_time: datetime,
+        warehouse_id=None,
+    ) -> List[Device]:
         """
         获取指定时间段内可用的设备
         
@@ -33,7 +37,14 @@ class InventoryService:
             logger.info(f"calc available devices: ship_out_time: {ship_out_time}, ship_in_time: {ship_in_time}")
             
             # 获取所有非附件设备（过滤掉手柄等附件）
-            all_devices = Device.query.filter(Device.is_accessory.is_(False)).all()
+            devices_query = Device.query.filter(
+                Device.is_accessory.is_(False)
+            )
+            if isinstance(warehouse_id, int):
+                devices_query = devices_query.filter(
+                    Device.warehouse_id == warehouse_id
+                )
+            all_devices = devices_query.all()
             available_devices = []
             
             for device in all_devices:
@@ -110,8 +121,13 @@ class InventoryService:
             return []
     
     @staticmethod
-    def check_device_availability(device_id: str, ship_out_time: datetime, 
-                                ship_in_time: datetime, exclude_rental_id: int = None) -> Dict:
+    def check_device_availability(
+        device_id: str,
+        ship_out_time: datetime,
+        ship_in_time: datetime,
+        exclude_rental_id: int = None,
+        warehouse_id=None,
+    ) -> Dict:
         """
         检查指定设备在指定寄出和收回时间段是否可用
         
@@ -131,6 +147,15 @@ class InventoryService:
                     'available': False,
                     'reason': '设备不存在',
                     'device_id': device_id
+                }
+            if (
+                isinstance(warehouse_id, int)
+                and device.warehouse_id != warehouse_id
+            ):
+                return {
+                    'available': False,
+                    'reason': '设备不属于所选仓库',
+                    'device_id': device_id,
                 }
             
             # 检查寄出和收回时间冲突（使用寄出收回时间而不是租赁时间）
@@ -515,8 +540,12 @@ class InventoryService:
             }
 
     @staticmethod
-    def query_available_inventory(start_date: date, end_date: date, 
-                                device_type: str = None) -> List[Dict]:
+    def query_available_inventory(
+        start_date: date,
+        end_date: date,
+        device_type: str = None,
+        warehouse_id=None,
+    ) -> List[Dict]:
         """
         通用库存查询方法
         
@@ -538,7 +567,9 @@ class InventoryService:
             )
             
             # 查询可用设备（使用新的参数类型）
-            available_devices = InventoryService.get_available_devices(ship_out_time, ship_in_time)
+            available_devices = InventoryService.get_available_devices(
+                ship_out_time, ship_in_time, warehouse_id
+            )
             logger.info(f"查询到 {available_devices} 可用设备")
             
             # 按设备类型过滤（如果指定）
@@ -553,6 +584,7 @@ class InventoryService:
                     'name': device.name,
                     'serial_number': device.serial_number,
                     'lifecycle_status': device.lifecycle_status,
+                    'warehouse_id': device.warehouse_id,
                     'location': None  # location字段已移除
                 }
                 response_data.append(device_info)

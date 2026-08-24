@@ -6,6 +6,7 @@ from app import db
 from app.models.device import Device
 from app.models.device_model import DeviceModel
 from app.models.rental import Rental
+from app.models.warehouse import Warehouse
 
 
 @pytest.fixture
@@ -24,6 +25,10 @@ def client(app):
 def db_session(app):
     with app.app_context():
         db.create_all()
+        db.session.add(Warehouse(
+            province="待配置", city="待配置", name="默认仓库"
+        ))
+        db.session.commit()
         yield db.session
         db.session.rollback()
         db.drop_all()
@@ -32,6 +37,7 @@ def db_session(app):
 def _rental(device_id, *, end_date, status="shipped", parent_rental_id=None):
     return Rental(
         device_id=device_id,
+        warehouse_id=db.session.get(Device, device_id).warehouse_id,
         start_date=end_date - timedelta(days=3),
         end_date=end_date,
         customer_name="提醒测试客户",
@@ -62,12 +68,14 @@ def test_pending_returns_includes_due_today_and_overdue_main_rentals(
             model="iphone-15-pro",
             model_id=model.id,
             is_accessory=False,
+            warehouse_id=db_session.query(Warehouse.id).scalar(),
         )
         accessory = Device(
             name="手机支架-01",
             serial_number="DUE-CHILD-01",
             model="phone-holder",
             is_accessory=True,
+            warehouse_id=db_session.query(Warehouse.id).scalar(),
         )
         db_session.add_all([main_device, accessory])
         db_session.flush()
@@ -140,6 +148,7 @@ def test_due_today_endpoint_is_a_pending_returns_compatibility_alias(
             serial_number="PENDING-COMPAT",
             model="iphone-compat",
             is_accessory=False,
+            warehouse_id=db_session.query(Warehouse.id).scalar(),
         )
         db_session.add(device)
         db_session.flush()
@@ -168,12 +177,14 @@ def test_due_today_uses_device_model_and_name_fallbacks(
             serial_number="DUE-FALLBACK-MODEL",
             model="x200u",
             is_accessory=False,
+            warehouse_id=db_session.query(Warehouse.id).scalar(),
         )
         name_fallback_device = Device(
             name="未命名型号手机",
             serial_number="DUE-FALLBACK-NAME",
             model="",
             is_accessory=False,
+            warehouse_id=db_session.query(Warehouse.id).scalar(),
         )
         db_session.add_all([legacy_model_device, name_fallback_device])
         db_session.flush()

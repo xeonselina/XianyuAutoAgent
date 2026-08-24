@@ -75,8 +75,11 @@ def test_preview_ignores_completed_past_not_shipped_conflicts(
 ):
     past = date.today() - timedelta(days=60)
     stale_rentals = [
-        Rental(
-            device_id=seeded_reorder_case.first_device.id,
+            Rental(
+                device_id=seeded_reorder_case.first_device.id,
+                warehouse_id=(
+                    seeded_reorder_case.first_device.warehouse_id
+                ),
             start_date=past + timedelta(days=1),
             end_date=past + timedelta(days=4),
             ship_out_time=datetime.combine(past, time(19)),

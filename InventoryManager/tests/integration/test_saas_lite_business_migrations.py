@@ -786,7 +786,10 @@ def test_head_public_create_apis_resolve_and_persist_warehouses(
         )
         assert missing_rental_warehouse.status_code == 400
         assert missing_rental_warehouse.get_json()["message"] == "请指定仓库"
-        assert mismatched_rental_warehouse.status_code == 400
+        assert mismatched_rental_warehouse.status_code == 409
+        assert mismatched_rental_warehouse.get_json()["code"] == (
+            "WAREHOUSE_MISMATCH"
+        )
         assert mismatched_rental_warehouse.get_json()["message"] == (
             "主设备不属于所选仓库"
         )

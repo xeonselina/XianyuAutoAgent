@@ -10,6 +10,8 @@ from app import db
 from app.models.rental import Rental
 from app.models.device import Device
 from app.models.warehouse import resolve_write_warehouse_id
+from app.models.xianyu_order_alert import XianyuOrderAlert
+from app.models.xianyu_shop import XianyuShop
 from app.utils.date_utils import parse_date_strings, validate_date_range
 
 
@@ -17,15 +19,21 @@ class WarehouseMismatchError(ValueError):
     """A requested inventory accessory belongs to another warehouse."""
 
 
+class DeviceUnavailableError(ValueError):
+    """A selected device overlaps another active rental."""
+
+
 class RentalService:
     """租赁服务类"""
 
     @staticmethod
-    def get_pending_returns(today: Optional[date] = None) -> List[Dict[str, Any]]:
+    def get_pending_returns(
+        today: Optional[date] = None, warehouse_id=None
+    ) -> List[Dict[str, Any]]:
         """获取今天及以前应归还、仍未寄回的主租赁记录。"""
         current_date = today or date.today()
         latest_end_date = current_date - timedelta(days=1)
-        rentals = (
+        query = (
             Rental.query
             .options(joinedload(Rental.device))
             .filter(
@@ -33,8 +41,10 @@ class RentalService:
                 Rental.status == 'shipped',
                 Rental.parent_rental_id.is_(None),
             )
-            .all()
         )
+        if isinstance(warehouse_id, int):
+            query = query.filter(Rental.warehouse_id == warehouse_id)
+        rentals = query.all()
 
         rows = []
         for rental in rentals:
@@ -74,7 +84,8 @@ class RentalService:
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         phone: Optional[str] = None,
-        destination: Optional[str] = None
+        destination: Optional[str] = None,
+        warehouse_id=None,
     ) -> Dict[str, Any]:
         """获取带过滤条件的租赁记录
         
@@ -94,6 +105,9 @@ class RentalService:
         """
         try:
             query = Rental.query
+
+            if isinstance(warehouse_id, int):
+                query = query.filter(Rental.warehouse_id == warehouse_id)
 
             # 应用过滤条件
             if device_id:
@@ -148,6 +162,133 @@ class RentalService:
         return Rental.query.get(rental_id)
 
     @staticmethod
+    def _parse_datetime(value):
+        if value in (None, ""):
+            return None
+        if isinstance(value, datetime):
+            return value
+        normalized = str(value).replace('T', ' ')
+        for parser in (
+            datetime.fromisoformat,
+            lambda raw: datetime.strptime(raw, '%Y-%m-%d'),
+        ):
+            try:
+                return parser(normalized)
+            except ValueError:
+                continue
+        raise ValueError('时间格式错误')
+
+    @staticmethod
+    def _resolve_shop(order_no, requested_shop_id, exclude_rental_id=None):
+        order_no = str(order_no or '').strip() or None
+        if order_no is None:
+            return None, None
+
+        if requested_shop_id not in (None, ''):
+            if isinstance(requested_shop_id, bool):
+                raise ValueError('闲鱼店铺不存在或已停用')
+            try:
+                requested_shop_id = int(requested_shop_id)
+            except (TypeError, ValueError):
+                raise ValueError('闲鱼店铺不存在或已停用') from None
+            shop = db.session.get(XianyuShop, requested_shop_id)
+            if shop is None or not shop.is_active:
+                raise ValueError('闲鱼店铺不存在或已停用')
+        else:
+            alert_shop_ids = [
+                shop_id
+                for (shop_id,) in db.session.query(
+                    XianyuOrderAlert.xianyu_shop_id
+                ).filter(
+                    XianyuOrderAlert.order_no == order_no,
+                    XianyuOrderAlert.state == 'pending',
+                ).distinct().limit(2).all()
+            ]
+            if len(alert_shop_ids) == 1:
+                shop = db.session.get(XianyuShop, alert_shop_ids[0])
+                if shop is None:
+                    raise ValueError('闲鱼告警所属店铺不存在')
+            else:
+                active_shops = XianyuShop.query.filter_by(
+                    is_active=True
+                ).order_by(XianyuShop.id).limit(2).all()
+                if len(active_shops) != 1:
+                    raise ValueError('请指定闲鱼店铺')
+                shop = active_shops[0]
+
+        duplicate_query = Rental.query.filter(
+            Rental.xianyu_shop_id == shop.id,
+            Rental.xianyu_order_no == order_no,
+        )
+        if exclude_rental_id is not None:
+            duplicate_query = duplicate_query.filter(
+                Rental.id != exclude_rental_id
+            )
+        if duplicate_query.first() is not None:
+            raise ValueError('该闲鱼店铺已存在相同订单号')
+        return order_no, shop.id
+
+    @staticmethod
+    def _validate_selection(
+        warehouse_id,
+        device_id,
+        accessory_ids,
+        start_date,
+        end_date,
+        exclude_rental_ids=(),
+    ):
+        device = db.session.get(Device, device_id)
+        if device is None:
+            raise ValueError('设备不存在')
+        if device.is_accessory:
+            raise ValueError('主设备不能是库存附件')
+        if device.warehouse_id != warehouse_id:
+            raise WarehouseMismatchError('主设备不属于所选仓库')
+        if not device.is_in_service():
+            raise DeviceUnavailableError('主设备当前不可用于新租赁')
+
+        normalized_ids = []
+        accessories = []
+        for raw_id in accessory_ids or []:
+            try:
+                accessory_id = int(raw_id)
+            except (TypeError, ValueError):
+                raise ValueError('附件设备不存在') from None
+            if accessory_id in normalized_ids:
+                raise ValueError('附件设备不能重复选择')
+            normalized_ids.append(accessory_id)
+            accessory = db.session.get(Device, accessory_id)
+            if accessory is None:
+                raise ValueError('附件设备不存在')
+            if not accessory.is_accessory:
+                raise ValueError('设备不是库存附件')
+            if accessory.warehouse_id != warehouse_id:
+                raise WarehouseMismatchError('附件设备不属于所选仓库')
+            if not accessory.is_in_service():
+                raise DeviceUnavailableError('附件设备当前不可用于新租赁')
+            accessories.append(accessory)
+
+        selected_ids = [device.id] + normalized_ids
+        conflict_query = Rental.query.filter(
+            Rental.device_id.in_(selected_ids),
+            Rental.status.in_([
+                'not_shipped', 'scheduled_for_shipping', 'shipped',
+                'returned',
+            ]),
+            Rental.start_date <= end_date,
+            Rental.end_date >= start_date,
+        )
+        excluded = tuple(exclude_rental_ids)
+        if excluded:
+            conflict_query = conflict_query.filter(~Rental.id.in_(excluded))
+        conflict = conflict_query.first()
+        if conflict is not None:
+            raise DeviceUnavailableError(
+                f'设备 {conflict.device_id} 在所选租期内不可用'
+            )
+        return device, accessories
+
+    @staticmethod
     def create_rental_with_accessories(data: Dict[str, Any]) -> Tuple[Rental, List[Rental]]:
         """创建租赁记录及其附件
         
@@ -164,28 +305,9 @@ class RentalService:
             Tuple[Rental, List[Rental]]: (主租赁, 附件租赁列表)
         """
         try:
-            # 验证设备存在性
-            device = Device.query.get(data['device_id'])
-            if not device:
-                raise ValueError('设备不存在')
             warehouse_id = resolve_write_warehouse_id(
                 data.get('warehouse_id')
             )
-            if device.warehouse_id != warehouse_id:
-                raise ValueError('主设备不属于所选仓库')
-
-            validated_accessories = []
-            for accessory_id in data.get('accessories') or []:
-                accessory_device = db.session.get(Device, accessory_id)
-                if accessory_device is None:
-                    raise ValueError('附件设备不存在')
-                if not accessory_device.is_accessory:
-                    raise ValueError('设备不是库存附件')
-                if accessory_device.warehouse_id != warehouse_id:
-                    raise WarehouseMismatchError(
-                        '附件设备不属于所选仓库'
-                    )
-                validated_accessories.append(accessory_device)
 
             # 解析日期
             start_date, end_date = parse_date_strings(data['start_date'], data['end_date'])
@@ -195,25 +317,25 @@ class RentalService:
             if validation_error:
                 raise ValueError(validation_error)
 
-            # 解析时间
-            ship_out_time = None
-            ship_in_time = None
-
-            if data.get('ship_out_time'):
-                try:
-                    # 尝试 ISO 格式
-                    ship_out_time = datetime.fromisoformat(data['ship_out_time'].replace('T', ' '))
-                except ValueError:
-                    # 回退到原格式
-                    ship_out_time = datetime.strptime(data['ship_out_time'], '%Y-%m-%d %H:%M:%S')
-
-            if data.get('ship_in_time'):
-                try:
-                    # 尝试 ISO 格式
-                    ship_in_time = datetime.fromisoformat(data['ship_in_time'].replace('T', ' '))
-                except ValueError:
-                    # 回退到原格式
-                    ship_in_time = datetime.strptime(data['ship_in_time'], '%Y-%m-%d %H:%M:%S')
+            _device, validated_accessories = (
+                RentalService._validate_selection(
+                    warehouse_id,
+                    data['device_id'],
+                    data.get('accessories') or [],
+                    start_date,
+                    end_date,
+                )
+            )
+            order_no, shop_id = RentalService._resolve_shop(
+                data.get('xianyu_order_no'),
+                data.get('xianyu_shop_id'),
+            )
+            ship_out_time = RentalService._parse_datetime(
+                data.get('ship_out_time')
+            )
+            ship_in_time = RentalService._parse_datetime(
+                data.get('ship_in_time')
+            )
 
             # 创建主租赁记录（包含配套附件标记）
             main_rental = Rental(
@@ -228,13 +350,15 @@ class RentalService:
                 ship_in_time=ship_in_time,
                 ship_out_tracking_no=data.get('ship_out_tracking_no', ''),
                 ship_in_tracking_no=data.get('ship_in_tracking_no', ''),
-                xianyu_order_no=data.get('xianyu_order_no'),
+                xianyu_order_no=order_no,
+                xianyu_shop_id=shop_id,
                 order_amount=data.get('order_amount'),
                 buyer_id=data.get('buyer_id'),
                 status='not_shipped',
                 # 新：配套附件标记
                 includes_handle=data.get('includes_handle', False),
                 includes_lens_mount=data.get('includes_lens_mount', False),
+                photo_transfer=data.get('photo_transfer', False),
                 # 镜头组合（由 handler 层校验/补全后传入，handler 不传则使用 server_default）
                 lens_combo=data.get('lens_combo', 'lens_400mm')
             )
@@ -404,121 +528,138 @@ class RentalService:
 
     @staticmethod
     def update_rental_accessories(rental: Rental, new_accessory_ids: List[int]):
-        """更新租赁附件（仅库存附件，不包括配套附件）
-        
-        Args:
-            rental: 租赁记录对象
-            new_accessory_ids: 新的库存附件ID列表（手机支架、三脚架）
-        
-        Note:
-            手柄和镜头支架通过 includes_handle/includes_lens_mount 字段管理
-        """
-        try:
-            current_app.logger.info(f"开始更新附件 - rental_id: {rental.id}, new_accessory_ids: {new_accessory_ids}, 类型: {type(new_accessory_ids)}")
+        """Replace serialized accessories while preserving parent fields."""
+        current_children = {
+            child.device_id: child for child in rental.child_rentals
+        }
+        requested_ids = list(dict.fromkeys(new_accessory_ids or []))
+        requested_devices = []
+        for accessory_id in requested_ids:
+            accessory = db.session.get(Device, accessory_id)
+            if accessory is None:
+                raise ValueError('附件设备不存在')
+            if not accessory.is_accessory:
+                raise ValueError('设备不是库存附件')
+            if accessory.warehouse_id != rental.warehouse_id:
+                raise WarehouseMismatchError('附件设备不属于所选仓库')
+            requested_devices.append(accessory)
 
-            # 获取当前附件租赁记录
-            current_accessory_rentals = list(rental.child_rentals)
-            current_accessories = {r.device_id for r in current_accessory_rentals}
-            new_accessories = set(new_accessory_ids if new_accessory_ids else [])
+        effective_ids = {
+            device.id
+            for device in requested_devices
+            if '手柄' not in device.name and '镜头支架' not in device.name
+        }
+        for device_id, child in current_children.items():
+            if device_id not in effective_ids:
+                db.session.delete(child)
 
-            current_app.logger.info(f"当前附件: {current_accessories}")
-            current_app.logger.info(f"新附件: {new_accessories}")
-
-            # 找出需要删除和添加的附件
-            to_remove = current_accessories - new_accessories
-            to_add = new_accessories - current_accessories
-
-            current_app.logger.info(f"需要删除的附件: {to_remove}")
-            current_app.logger.info(f"需要添加的附件: {to_add}")
-
-            # 删除不再需要的附件租赁记录
-            for accessory_id in to_remove:
-                accessory_rental_to_remove = next(
-                    (r for r in current_accessory_rentals if r.device_id == accessory_id),
-                    None
+        for accessory in requested_devices:
+            if '手柄' in accessory.name or '镜头支架' in accessory.name:
+                continue
+            child = current_children.get(accessory.id)
+            if child is None:
+                child = Rental(
+                    device_id=accessory.id,
+                    parent_rental_id=rental.id,
                 )
-                if accessory_rental_to_remove:
-                    db.session.delete(accessory_rental_to_remove)
-                    current_app.logger.info(f"删除附件租赁记录: {accessory_rental_to_remove.id}")
-
-            # 添加新的附件租赁记录（跳过配套附件）
-            for accessory_id in to_add:
-                accessory_device = Device.query.get(accessory_id)
-                if accessory_device and accessory_device.is_accessory:
-                    # 跳过配套附件
-                    if '手柄' in accessory_device.name or '镜头支架' in accessory_device.name:
-                        current_app.logger.info(f"跳过配套附件: {accessory_device.name}")
-                        continue
-                    
-                    new_accessory_rental = Rental(
-                        device_id=accessory_id,
-                        customer_name=rental.customer_name,
-                        customer_phone=rental.customer_phone,
-                        destination=rental.destination,
-                        start_date=rental.start_date,
-                        end_date=rental.end_date,
-                        ship_out_time=rental.ship_out_time,
-                        ship_in_time=rental.ship_in_time,
-                        ship_out_tracking_no=rental.ship_out_tracking_no,
-                        ship_in_tracking_no=rental.ship_in_tracking_no,
-                        status=rental.status,
-                        parent_rental_id=rental.id
-                    )
-                    db.session.add(new_accessory_rental)
-                    current_app.logger.info(f"为附件创建新租赁记录: {accessory_device.name}")
-                else:
-                    current_app.logger.warning(f"附件设备 {accessory_id} 不存在或不是附件类型")
-
-        except Exception as e:
-            current_app.logger.error(f"更新租赁附件失败: {e}")
-            raise
+                db.session.add(child)
+            child.warehouse_id = rental.warehouse_id
+            child.customer_name = rental.customer_name
+            child.customer_phone = rental.customer_phone
+            child.destination = rental.destination
+            child.start_date = rental.start_date
+            child.end_date = rental.end_date
+            child.ship_out_time = rental.ship_out_time
+            child.ship_in_time = rental.ship_in_time
+            child.ship_out_tracking_no = rental.ship_out_tracking_no
+            child.ship_in_tracking_no = rental.ship_in_tracking_no
+            child.status = rental.status
     
     @staticmethod
     def update_rental_with_accessories(rental_id: int, data: Dict[str, Any]) -> Rental:
-        """更新租赁记录及其附件（包括配套附件标记）
-        
-        Args:
-            rental_id: 租赁记录ID
-            data: 更新数据，可包含：
-                - customer_name, customer_phone, destination: 客户信息
-                - start_date, end_date: 日期
-                - includes_handle, includes_lens_mount: 配套附件标记
-                - accessories: 库存附件ID列表
-        
-        Returns:
-            Rental: 更新后的租赁记录
-        """
+        """Validate and atomically update a main rental and its children."""
         try:
-            rental = Rental.query.get(rental_id)
+            rental = db.session.get(Rental, rental_id)
             if not rental:
                 raise ValueError('租赁记录不存在')
-            
-            # 更新基本信息
-            if 'customer_name' in data:
-                rental.customer_name = data['customer_name']
-            if 'customer_phone' in data:
-                rental.customer_phone = data['customer_phone']
-            if 'destination' in data:
-                rental.destination = data['destination']
-            
-            # 更新日期
-            if 'start_date' in data:
-                start_date, _ = parse_date_strings(data['start_date'], data.get('end_date', rental.end_date))
-                rental.start_date = start_date
-            if 'end_date' in data:
-                _, end_date = parse_date_strings(data.get('start_date', rental.start_date), data['end_date'])
-                rental.end_date = end_date
-            
-            # 更新配套附件标记
-            if 'includes_handle' in data:
-                rental.includes_handle = data['includes_handle']
-            if 'includes_lens_mount' in data:
-                rental.includes_lens_mount = data['includes_lens_mount']
-            
-            # 更新库存附件（如果提供）
-            if 'accessories' in data:
-                RentalService.update_rental_accessories(rental, data['accessories'])
-            
+
+            warehouse_id = resolve_write_warehouse_id(
+                data.get('warehouse_id')
+            )
+            start_date, end_date = parse_date_strings(
+                data.get('start_date', rental.start_date),
+                data.get('end_date', rental.end_date),
+            )
+            validation_error = validate_date_range(start_date, end_date)
+            if validation_error:
+                raise ValueError(validation_error)
+
+            children = list(rental.child_rentals)
+            accessory_ids = data.get(
+                'accessories', [child.device_id for child in children]
+            )
+            device_id = data.get('device_id', rental.device_id)
+            RentalService._validate_selection(
+                warehouse_id,
+                device_id,
+                accessory_ids,
+                start_date,
+                end_date,
+                exclude_rental_ids=[rental.id] + [
+                    child.id for child in children
+                ],
+            )
+
+            if 'xianyu_order_no' in data or 'xianyu_shop_id' in data:
+                order_no, shop_id = RentalService._resolve_shop(
+                    data.get('xianyu_order_no', rental.xianyu_order_no),
+                    data.get('xianyu_shop_id', rental.xianyu_shop_id),
+                    exclude_rental_id=rental.id,
+                )
+            else:
+                order_no = rental.xianyu_order_no
+                shop_id = rental.xianyu_shop_id
+
+            status = data.get('status', rental.status)
+            valid_statuses = {
+                'not_shipped', 'scheduled_for_shipping', 'shipped',
+                'returned', 'completed', 'cancelled',
+            }
+            if status not in valid_statuses:
+                raise ValueError(f'无效的状态值: {status}')
+
+            rental.warehouse_id = warehouse_id
+            rental.device_id = device_id
+            rental.start_date = start_date
+            rental.end_date = end_date
+            rental.xianyu_order_no = order_no
+            rental.xianyu_shop_id = shop_id
+            for field in (
+                'customer_name', 'customer_phone', 'destination',
+                'damage_note', 'ship_out_tracking_no',
+                'ship_in_tracking_no', 'order_amount', 'buyer_id',
+                'includes_handle', 'includes_lens_mount',
+                'photo_transfer', 'lens_combo', 'express_type_id',
+            ):
+                if field in data:
+                    setattr(rental, field, data[field])
+            if 'ship_out_time' in data:
+                rental.ship_out_time = RentalService._parse_datetime(
+                    data['ship_out_time']
+                )
+            if 'ship_in_time' in data:
+                rental.ship_in_time = RentalService._parse_datetime(
+                    data['ship_in_time']
+                )
+            old_status = rental.status
+            rental.status = status
+            if old_status != status:
+                if status == 'shipped' and not rental.ship_out_time:
+                    rental.ship_out_time = datetime.utcnow()
+                if status == 'completed' and not rental.ship_in_time:
+                    rental.ship_in_time = datetime.utcnow()
+
+            RentalService.update_rental_accessories(rental, accessory_ids)
             db.session.commit()
             current_app.logger.info(f"成功更新租赁记录: {rental_id}")
             return rental

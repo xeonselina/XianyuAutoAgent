@@ -6,6 +6,7 @@ from app import create_app, db
 from app.models.device import Device
 from app.models.rental import Rental
 from app.models.rental_relay_binding import RentalRelayBinding
+from app.models.warehouse import Warehouse
 
 
 @pytest.fixture
@@ -22,6 +23,10 @@ def client(app):
 def db_session(app):
     with app.app_context():
         db.create_all()
+        db.session.add(Warehouse(
+            province="待配置", city="待配置", name="默认仓库"
+        ))
+        db.session.commit()
         yield db.session
         db.session.rollback()
         db.drop_all()
@@ -33,12 +38,14 @@ def seed_relay_pair(db_session):
         name="批量发货接力测试设备",
         model="x300u",
         is_accessory=False,
+        warehouse_id=db_session.query(Warehouse.id).scalar(),
     )
     db_session.add(device)
     db_session.flush()
 
     predecessor = Rental(
         device_id=device.id,
+        warehouse_id=device.warehouse_id,
         start_date=ship_date - timedelta(days=6),
         end_date=ship_date - timedelta(days=2),
         ship_out_time=datetime(2026, 8, 13, 19),
@@ -49,6 +56,7 @@ def seed_relay_pair(db_session):
     )
     successor = Rental(
         device_id=device.id,
+        warehouse_id=device.warehouse_id,
         start_date=ship_date + timedelta(days=1),
         end_date=ship_date + timedelta(days=4),
         ship_out_time=datetime(2026, 8, 20, 19),

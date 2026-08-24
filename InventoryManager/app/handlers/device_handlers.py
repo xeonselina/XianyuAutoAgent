@@ -4,6 +4,7 @@
 
 from flask import request, current_app
 from app.services.device.device_service import DeviceService
+from app.models.warehouse import resolve_read_warehouse_id
 from app.utils.response import bad_request
 
 
@@ -23,6 +24,9 @@ class DeviceHandlers:
             lifecycle_status = request.args.get('lifecycle_status')
             is_accessory = request.args.get('is_accessory')
             serial_number = request.args.get('serial_number')
+            warehouse_id = resolve_read_warehouse_id(
+                request.args.get('warehouse_id')
+            )
             
             # 转换布尔值
             if is_accessory is not None:
@@ -35,12 +39,13 @@ class DeviceHandlers:
                 model=model,
                 lifecycle_status=lifecycle_status,
                 is_accessory=is_accessory,
-                serial_number=serial_number
+                serial_number=serial_number,
+                warehouse_id=warehouse_id,
             )
         
         except ValueError as e:
             current_app.logger.error(f"参数解析错误: {e}")
-            raise
+            return bad_request(str(e))
         except Exception as e:
             current_app.logger.error(f"获取设备列表失败: {e}")
             raise
@@ -62,6 +67,9 @@ class DeviceHandlers:
             is_accessory = data.get('is_accessory')
             page = int(data.get('page', 1))
             per_page = int(data.get('per_page', 20))
+            warehouse_id = resolve_read_warehouse_id(
+                data.get('warehouse_id')
+            )
             
             return DeviceService.get_devices_with_filters(
                 page=page,
@@ -70,12 +78,13 @@ class DeviceHandlers:
                 model=model,
                 lifecycle_status=lifecycle_status,
                 is_accessory=is_accessory,
-                serial_number=serial_number
+                serial_number=serial_number,
+                warehouse_id=warehouse_id,
             )
         
         except ValueError as e:
             current_app.logger.error(f"参数解析错误: {e}")
-            raise
+            return bad_request(str(e))
         except Exception as e:
             current_app.logger.error(f"搜索设备失败: {e}")
             raise

@@ -14,6 +14,7 @@ from app.services.rental_statistics_service import (
     lifecycle_end_date,
     service_overlap_days,
 )
+from app.models.warehouse import resolve_read_warehouse_id
 
 bp = Blueprint('rental_stats_api', __name__, url_prefix='/api/rental-stats')
 
@@ -28,9 +29,12 @@ X200U_PURCHASE_PRICE = 7299.0
 X200U_PURCHASE_DATE = date(2025, 8, 1)
 
 
-def _get_excluded_device_ids_from_db():
+def _get_excluded_device_ids_from_db(warehouse_id=None):
     """返回永久排除的代发设备 ID 集合。"""
-    excluded_by_name = Device.query.filter(Device.name.in_(EXCLUDED_DEVICE_NAMES)).all()
+    query = Device.query.filter(Device.name.in_(EXCLUDED_DEVICE_NAMES))
+    if isinstance(warehouse_id, int):
+        query = query.filter(Device.warehouse_id == warehouse_id)
+    excluded_by_name = query.all()
     return {d.id for d in excluded_by_name}
 
 
@@ -155,6 +159,9 @@ def get_periodic_stats():
         model_filter = request.args.get('model', 'all')  # 'all' 或 model_id 整数字符串
         start_str = request.args.get('start_date')
         end_str = request.args.get('end_date')
+        warehouse_id = resolve_read_warehouse_id(
+            request.args.get('warehouse_id')
+        )
 
         today = date.today()
         if start_str:
@@ -166,13 +173,17 @@ def get_periodic_stats():
         else:
             end_date = today
 
-        excluded = _get_excluded_device_ids_from_db()
+        excluded = _get_excluded_device_ids_from_db(warehouse_id)
 
         # 查询所有非附件设备（排除黑名单）
         device_query = Device.query.filter(
             Device.is_accessory == False,
             ~Device.id.in_(excluded)
         )
+        if isinstance(warehouse_id, int):
+            device_query = device_query.filter(
+                Device.warehouse_id == warehouse_id
+            )
         if model_filter != 'all':
             try:
                 filter_model_id = int(model_filter)
@@ -331,6 +342,8 @@ def get_periodic_stats():
             }
         })
 
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -346,16 +359,24 @@ def get_x200u_forecast():
     """
     try:
         today = date.today()
+        warehouse_id = resolve_read_warehouse_id(
+            request.args.get('warehouse_id')
+        )
 
         # ── 设备信息 ──────────────────────────────────────────
-        excluded = _get_excluded_device_ids_from_db()
+        excluded = _get_excluded_device_ids_from_db(warehouse_id)
         x200u_model_id = _get_model_id_by_name('x200u')
 
         historical_devices = Device.query.filter(
             Device.is_accessory == False,
             Device.model_id == x200u_model_id,
             ~Device.id.in_(excluded)
-        ).all()
+        )
+        if isinstance(warehouse_id, int):
+            historical_devices = historical_devices.filter(
+                Device.warehouse_id == warehouse_id
+            )
+        historical_devices = historical_devices.all()
         devices = [
             device
             for device in historical_devices
@@ -571,6 +592,8 @@ def get_x200u_forecast():
             'scenarios': result
         })
 
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
         import traceback
         return jsonify({'success': False, 'error': str(e), 'trace': traceback.format_exc()}), 500

@@ -23,7 +23,9 @@ def assert_test_database_url(url: str):
     return parsed
 
 
-def assert_current_user_has_test_only_grants(connection, database_name: str):
+def assert_current_user_has_test_only_grants(
+    connection, database_name: str, *additional_database_names: str
+):
     """确认 MySQL 当前账号没有测试库以外的数据权限。"""
     grants = [
         row[0]
@@ -31,8 +33,9 @@ def assert_current_user_has_test_only_grants(connection, database_name: str):
     ]
     allowed_global_prefix = "GRANT USAGE ON *.*"
     allowed_database_tokens = {
-        f"ON `{database_name}`.*",
-        f"ON {database_name}.*",
+        token
+        for name in (database_name,) + additional_database_names
+        for token in (f"ON `{name}`.*", f"ON {name}.*")
     }
 
     for grant in grants:

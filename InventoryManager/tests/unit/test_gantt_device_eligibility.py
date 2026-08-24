@@ -5,6 +5,7 @@ import pytest
 from app import create_app, db
 from app.models.device import Device
 from app.models.device_model import DeviceModel
+from app.models.warehouse import Warehouse
 from app.services.gantt.gantt_service import GanttService
 from tests.support.test_database import assert_test_database_url
 
@@ -18,6 +19,12 @@ def app():
 def db_session(app):
     with app.app_context():
         db.create_all()
+        db.session.add(
+            Warehouse(
+                province="待配置", city="待配置", name="默认仓库"
+            )
+        )
+        db.session.commit()
         yield db.session
         db.session.rollback()
         db.drop_all()
@@ -61,6 +68,7 @@ def test_find_slot_excludes_online_non_active_device(
                 model_id=model.id,
                 is_accessory=False,
                 lifecycle_status=lifecycle_status,
+                warehouse_id=db_session.query(Warehouse.id).scalar(),
             )
         )
         db_session.commit()
@@ -92,6 +100,7 @@ def test_find_slot_includes_active_device(app, db_session):
                 model_id=model.id,
                 is_accessory=False,
                 lifecycle_status="active",
+                warehouse_id=db_session.query(Warehouse.id).scalar(),
             )
         )
         db_session.commit()

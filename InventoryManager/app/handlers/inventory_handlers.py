@@ -15,6 +15,7 @@ from app.utils.date_utils import (
     validate_date_range
 )
 from app.services.inventory_service import InventoryService
+from app.models.warehouse import resolve_read_warehouse_id
 
 
 class InventoryHandlers:
@@ -28,6 +29,9 @@ class InventoryHandlers:
             start_date_str = request.args.get('start_date')
             end_date_str = request.args.get('end_date')
             device_type = request.args.get('device_type')
+            warehouse_id = resolve_read_warehouse_id(
+                request.args.get('warehouse_id')
+            )
 
             # 验证必填参数
             if not start_date_str or not end_date_str:
@@ -48,7 +52,8 @@ class InventoryHandlers:
             response_data = InventoryService.query_available_inventory(
                 start_date,
                 end_date,
-                device_type
+                device_type,
+                warehouse_id,
             )
 
             return success(
@@ -56,6 +61,8 @@ class InventoryHandlers:
                 message=f'查询成功，共 {len(response_data)} 台可用设备'
             )
 
+        except ValueError as e:
+            return bad_request(str(e))
         except Exception as e:
             current_app.logger.error(f"查询可用库存失败: {e}")
             return server_error('查询可用库存失败')

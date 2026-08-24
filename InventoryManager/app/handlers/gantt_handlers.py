@@ -23,6 +23,7 @@ from app.services.gantt.reorder_service import (
     GanttReorderService,
     StalePreviewError,
 )
+from app.models.warehouse import resolve_read_warehouse_id
 
 
 class GanttHandlers:
@@ -35,9 +36,14 @@ class GanttHandlers:
             # 获取查询参数
             start_date_str = request.args.get('start_date')
             end_date_str = request.args.get('end_date')
+            warehouse_id = resolve_read_warehouse_id(
+                request.args.get('warehouse_id')
+            )
 
             # 调用服务层获取甘特图数据
-            gantt_data = GanttService.get_gantt_data(start_date_str, end_date_str)
+            gantt_data = GanttService.get_gantt_data(
+                start_date_str, end_date_str, warehouse_id
+            )
             return success(data=gantt_data)
 
         except ValueError as e:
@@ -54,9 +60,14 @@ class GanttHandlers:
             # 获取查询参数
             date_str = request.args.get('date')
             device_model = request.args.get('device_model')
+            warehouse_id = resolve_read_warehouse_id(
+                request.args.get('warehouse_id')
+            )
 
             # 调用服务层获取每日统计
-            daily_stats = GanttService.get_daily_statistics(date_str, device_model)
+            daily_stats = GanttService.get_daily_statistics(
+                date_str, device_model, warehouse_id
+            )
             return success(data=daily_stats)
 
         except ValueError as e:
@@ -92,6 +103,9 @@ class GanttHandlers:
 
             model = data['model']
             is_accessory = data.get('is_accessory', False)
+            warehouse_id = resolve_read_warehouse_id(
+                data.get('warehouse_id')
+            )
 
             # 验证日期范围
             validation_error = validate_date_range(start_date, end_date, allow_same_date=True)
@@ -100,7 +114,12 @@ class GanttHandlers:
 
             # 调用服务层查找可用档期
             available_slot = GanttService.find_available_slot(
-                start_date, end_date, logistics_days, model, is_accessory
+                start_date,
+                end_date,
+                logistics_days,
+                model,
+                is_accessory,
+                warehouse_id,
             )
 
             if available_slot:
@@ -111,6 +130,8 @@ class GanttHandlers:
             else:
                 return not_found(f'在指定时间段内没有可用的 {model} 型号设备档期')
 
+        except ValueError as e:
+            return bad_request(str(e))
         except Exception as e:
             current_app.logger.error(f"查找租赁档期失败: {e}")
             return server_error('查找档期失败')

@@ -34,6 +34,7 @@ from app.models.audit_log import AuditLog
 from app.models.device import Device
 from app.models.device_model import DeviceModel
 from app.models.rental import Rental
+from app.models.warehouse import Warehouse
 from config import TestingConfig
 
 
@@ -498,6 +499,9 @@ def _smoke_current_business_models(environment, snapshot):
     engine = _tenant_engine(environment, snapshot)
     try:
         with Session(engine) as session:
+            warehouse_id = session.execute(
+                select(Warehouse.id).order_by(Warehouse.id)
+            ).scalar_one()
             device_model = DeviceModel(
                 name=f"task5-smoke-{snapshot['tenant_id']}",
                 display_name="Task 5 smoke model",
@@ -513,11 +517,13 @@ def _smoke_current_business_models(environment, snapshot):
                 model_id=device_model.id,
                 is_accessory=False,
                 lifecycle_status="active",
+                warehouse_id=warehouse_id,
             )
             session.add(device)
             session.flush()
             rental = Rental(
                 device_id=device.id,
+                warehouse_id=warehouse_id,
                 start_date=datetime(2026, 1, 1).date(),
                 end_date=datetime(2026, 1, 2).date(),
                 customer_name="Task 5 smoke customer",

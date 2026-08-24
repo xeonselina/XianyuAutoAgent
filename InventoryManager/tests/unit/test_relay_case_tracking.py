@@ -9,6 +9,7 @@ from app.models.device_model import DeviceModel
 from app.models.rental import Rental
 from app.services.relay.relay_case_service import RelayCaseService
 from app.services.shipping.sf_tracking_service import SFTrackingService
+from app.models.warehouse import Warehouse
 from tests.support.test_database import (
     assert_current_user_has_test_only_grants,
     build_mysql_test_config,
@@ -32,6 +33,10 @@ def app():
 def db_session(app):
     with app.app_context():
         db.create_all()
+        db.session.add(Warehouse(
+            province="待配置", city="待配置", name="默认仓库"
+        ))
+        db.session.commit()
         yield db.session
         db.session.rollback()
         db.drop_all()
@@ -51,11 +56,13 @@ def seed_shipped_case(db_session, phone="13800138000"):
         model_id=model.id,
         is_accessory=False,
         lifecycle_status="active",
+        warehouse_id=db_session.query(Warehouse.id).scalar(),
     )
     db_session.add(device)
     db_session.flush()
     first = Rental(
         device_id=device.id,
+        warehouse_id=device.warehouse_id,
         start_date=date(2026, 8, 2),
         end_date=date(2026, 8, 5),
         ship_out_time=datetime(2026, 8, 1, 19),
@@ -67,6 +74,7 @@ def seed_shipped_case(db_session, phone="13800138000"):
     )
     second = Rental(
         device_id=device.id,
+        warehouse_id=device.warehouse_id,
         start_date=date(2026, 8, 10),
         end_date=date(2026, 8, 14),
         ship_out_time=datetime(2026, 8, 7, 19),

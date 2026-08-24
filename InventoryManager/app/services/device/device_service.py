@@ -19,7 +19,8 @@ class DeviceService:
         model: Optional[str] = None,
         lifecycle_status: Optional[str] = None,
         is_accessory: Optional[bool] = None,
-        serial_number: Optional[str] = None
+        serial_number: Optional[str] = None,
+        warehouse_id=None,
     ) -> Dict[str, Any]:
         """获取带过滤条件的设备列表
         
@@ -53,6 +54,9 @@ class DeviceService:
             
             if is_accessory is not None:
                 query = query.filter(Device.is_accessory == is_accessory)
+
+            if isinstance(warehouse_id, int):
+                query = query.filter(Device.warehouse_id == warehouse_id)
             
             # 按生命周期日期降序排列（最新的在前面），然后按创建日期降序
             # 使用 MySQL 兼容写法：IS NULL DESC 将 NULL 排在前面

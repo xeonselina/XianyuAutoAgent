@@ -55,6 +55,7 @@ def get_device(device_id):
             'serial_number': device.serial_number,
             'model': device.model,
             'is_accessory': device.is_accessory,
+            'warehouse_id': device.warehouse_id,
             'lifecycle_status': device.lifecycle_status,
             'created_at': device.created_at.isoformat(),
             'updated_at': device.updated_at.isoformat()
@@ -146,6 +147,12 @@ def update_device(device_id):
             }), 404
         
         data = request.get_json()
+
+        if 'warehouse_id' in data:
+            return jsonify({
+                'success': False,
+                'error': '设备移仓请使用跨仓移动功能'
+            }), 400
         
         # 更新字段
         if 'name' in data:
@@ -184,6 +191,7 @@ def update_device(device_id):
                 'serial_number': device.serial_number,
                 'model': device.model,
                 'is_accessory': device.is_accessory,
+                'warehouse_id': device.warehouse_id,
                 'lifecycle_status': device.lifecycle_status
             }
         })

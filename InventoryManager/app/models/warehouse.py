@@ -39,6 +39,23 @@ def resolve_write_warehouse_id(requested_id):
     return warehouse_ids[0]
 
 
+def resolve_read_warehouse_id(requested_id):
+    """Resolve an optional read filter; ``all`` means no warehouse filter."""
+    if requested_id is None:
+        return None
+    if requested_id == "all":
+        return "all"
+    if isinstance(requested_id, bool):
+        raise ValueError("仓库不存在")
+    try:
+        warehouse_id = int(requested_id)
+    except (TypeError, ValueError):
+        raise ValueError("仓库不存在") from None
+    if warehouse_id <= 0 or db.session.get(Warehouse, warehouse_id) is None:
+        raise ValueError("仓库不存在")
+    return warehouse_id
+
+
 class Warehouse(db.Model):
     __tablename__ = "warehouses"
 

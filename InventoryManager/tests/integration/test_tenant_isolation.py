@@ -76,6 +76,28 @@ def _create_device_table(engine, device_name):
     with engine.begin() as connection:
         connection.exec_driver_sql(
             """
+            CREATE TABLE warehouses (
+                id INTEGER NOT NULL PRIMARY KEY,
+                province VARCHAR(64) NOT NULL,
+                city VARCHAR(64) NOT NULL,
+                name VARCHAR(100) NOT NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
+            INSERT INTO warehouses (
+                id, province, city, name, created_at, updated_at
+            ) VALUES (
+                1, '广东省', '深圳市', '深圳市仓库',
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.exec_driver_sql(
+            """
             CREATE TABLE devices (
                 id INTEGER NOT NULL PRIMARY KEY,
                 name VARCHAR(100) NOT NULL,
@@ -83,6 +105,7 @@ def _create_device_table(engine, device_name):
                 model VARCHAR(50) NOT NULL,
                 model_id INTEGER NULL,
                 is_accessory BOOLEAN NOT NULL,
+                warehouse_id INTEGER NOT NULL,
                 lifecycle_status VARCHAR(32) NOT NULL,
                 lifecycle_reason VARCHAR(255) NULL,
                 lifecycle_date DATETIME NULL,
@@ -95,9 +118,9 @@ def _create_device_table(engine, device_name):
             """
             INSERT INTO devices (
                 id, name, serial_number, model, is_accessory,
-                lifecycle_status, created_at, updated_at
+                warehouse_id, lifecycle_status, created_at, updated_at
             ) VALUES (
-                1, %s, %s, 'x200u', 0, 'active',
+                1, %s, %s, 'x200u', 0, 1, 'active',
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
             """,

@@ -7,6 +7,7 @@ import pytest
 from app import create_app, db
 from app.models.device import Device
 from app.models.rental import Rental
+from app.models.warehouse import Warehouse
 
 
 @pytest.fixture
@@ -24,6 +25,10 @@ def client(app):
 def db_session(app):
     with app.app_context():
         db.create_all()
+        db.session.add(Warehouse(
+            province="待配置", city="待配置", name="默认仓库"
+        ))
+        db.session.commit()
         yield db.session
         db.session.rollback()
         db.drop_all()
@@ -31,12 +36,18 @@ def db_session(app):
 
 @pytest.fixture
 def rental(db_session):
-    device = Device(name="损坏备注测试机", is_accessory=False)
+    warehouse_id = db_session.query(Warehouse.id).scalar()
+    device = Device(
+        name="损坏备注测试机",
+        is_accessory=False,
+        warehouse_id=warehouse_id,
+    )
     db_session.add(device)
     db_session.flush()
 
     record = Rental(
         device_id=device.id,
+        warehouse_id=warehouse_id,
         start_date=date.today() - timedelta(days=3),
         end_date=date.today() - timedelta(days=1),
         customer_name="测试客户",

@@ -10,6 +10,7 @@ from app.models.device_model import DeviceModel
 from app.models.rental import Rental
 from app.models.rental_relay_binding import RentalRelayBinding
 from app.models.rental_relay_case import RentalRelayCase
+from app.models.warehouse import Warehouse
 from app.services import xianyu_order_service
 from app.services.relay.relay_case_service import RelayCaseService
 from app.services.shipping.sf_tracking_service import SFTrackingService
@@ -41,6 +42,10 @@ def client(app):
 def db_session(app):
     with app.app_context():
         db.create_all()
+        db.session.add(Warehouse(
+            province="待配置", city="待配置", name="默认仓库"
+        ))
+        db.session.commit()
         yield db.session
         db.session.rollback()
         db.drop_all()
@@ -61,6 +66,7 @@ def seed_pair(db_session, suffix, planned_ship_date=None):
         model_id=model.id,
         is_accessory=False,
         lifecycle_status="active",
+        warehouse_id=db_session.query(Warehouse.id).scalar(),
     )
     db_session.add(device)
     db_session.flush()
@@ -70,6 +76,7 @@ def seed_pair(db_session, suffix, planned_ship_date=None):
     second_ship_out = first_ship_in - timedelta(days=2)
     first = Rental(
         device_id=device.id,
+        warehouse_id=device.warehouse_id,
         start_date=planned_ship_date - timedelta(days=4),
         end_date=planned_ship_date - timedelta(days=1),
         ship_out_time=datetime.combine(first_ship_out, time(19)),
@@ -82,6 +89,7 @@ def seed_pair(db_session, suffix, planned_ship_date=None):
     )
     second = Rental(
         device_id=device.id,
+        warehouse_id=device.warehouse_id,
         start_date=planned_ship_date + timedelta(days=4),
         end_date=planned_ship_date + timedelta(days=8),
         ship_out_time=datetime.combine(second_ship_out, time(19)),
@@ -411,6 +419,7 @@ def test_binding_conflict_returns_409(client, db_session):
     first, second = seed_pair(db_session, "conflict")
     third = Rental(
         device_id=first.device_id,
+        warehouse_id=first.warehouse_id,
         start_date=date.today() + timedelta(days=20),
         end_date=date.today() + timedelta(days=23),
         ship_out_time=datetime.combine(

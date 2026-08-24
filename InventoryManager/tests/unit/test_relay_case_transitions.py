@@ -15,6 +15,7 @@ from app.services.relay.relay_case_service import (
     RelayCaseService,
 )
 from app.services import xianyu_order_service
+from app.models.warehouse import Warehouse
 from tests.support.test_database import (
     assert_current_user_has_test_only_grants,
     build_mysql_test_config,
@@ -38,6 +39,10 @@ def app():
 def db_session(app):
     with app.app_context():
         db.create_all()
+        db.session.add(Warehouse(
+            province="待配置", city="待配置", name="默认仓库"
+        ))
+        db.session.commit()
         yield db.session
         db.session.rollback()
         db.drop_all()
@@ -57,6 +62,7 @@ def seed_pair(db_session, overlap_days=2):
         model_id=model.id,
         is_accessory=False,
         lifecycle_status="active",
+        warehouse_id=db_session.query(Warehouse.id).scalar(),
     )
     db_session.add(device)
     db_session.flush()
@@ -65,6 +71,7 @@ def seed_pair(db_session, overlap_days=2):
     second_ship_out = first_ship_in - timedelta(days=overlap_days)
     first = Rental(
         device_id=device.id,
+        warehouse_id=device.warehouse_id,
         start_date=date(2026, 8, 2),
         end_date=date(2026, 8, 5),
         ship_out_time=datetime.combine(first_ship_out, time(19)),
@@ -76,6 +83,7 @@ def seed_pair(db_session, overlap_days=2):
     )
     second = Rental(
         device_id=device.id,
+        warehouse_id=device.warehouse_id,
         start_date=second_ship_out + timedelta(days=3),
         end_date=second_ship_out + timedelta(days=7),
         ship_out_time=datetime.combine(second_ship_out, time(19)),
@@ -413,6 +421,7 @@ def test_conflicting_binding_rejects_agreed_and_keeps_case_unchanged(
     first, second = seed_pair(db_session)
     third = Rental(
         device_id=first.device_id,
+        warehouse_id=first.warehouse_id,
         start_date=date(2026, 8, 20),
         end_date=date(2026, 8, 23),
         ship_out_time=datetime(2026, 8, 18, 19),

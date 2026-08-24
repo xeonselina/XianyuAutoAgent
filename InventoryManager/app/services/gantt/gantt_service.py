@@ -20,7 +20,9 @@ class GanttService:
     """甘特图服务类"""
 
     @staticmethod
-    def get_gantt_data(start_date_str=None, end_date_str=None) -> dict:
+    def get_gantt_data(
+        start_date_str=None, end_date_str=None, warehouse_id=None
+    ) -> dict:
         """获取甘特图数据
         
         Args:
@@ -43,10 +45,17 @@ class GanttService:
                 start_date, end_date = parse_date_strings(start_date_str, end_date_str)
 
             # 获取所有非附件设备（甘特图不显示附件）
-            devices = Device.query.filter(Device.is_accessory.is_(False)).all()
+            devices_query = Device.query.filter(
+                Device.is_accessory.is_(False)
+            )
+            if isinstance(warehouse_id, int):
+                devices_query = devices_query.filter(
+                    Device.warehouse_id == warehouse_id
+                )
+            devices = devices_query.all()
 
             # 获取指定时间范围内的租赁记录（只包括主租赁记录，用于甘特图显示）
-            rentals = Rental.query.filter(
+            rentals_query = Rental.query.filter(
                 Rental.status != 'cancelled',
                 Rental.parent_rental_id.is_(None),  # 只显示主租赁记录
                 db.or_(
@@ -63,7 +72,12 @@ class GanttService:
                         Rental.end_date <= end_date
                     )
                 )
-            ).all()
+            )
+            if isinstance(warehouse_id, int):
+                rentals_query = rentals_query.filter(
+                    Rental.warehouse_id == warehouse_id
+                )
+            rentals = rentals_query.all()
 
             # 构建甘特图数据
             gantt_data = {
@@ -86,6 +100,7 @@ class GanttService:
                     'model_id': device.model_id,
                     'device_model': device.device_model.to_dict() if device.device_model else None,
                     'is_accessory': getattr(device, 'is_accessory', False),  # 默认值防止旧数据报错
+                    'warehouse_id': device.warehouse_id,
                     'lifecycle_status': device.lifecycle_status,
                     'lifecycle_reason': device.lifecycle_reason,
                     'lifecycle_date': device.lifecycle_date.isoformat() if device.lifecycle_date else None,
@@ -120,6 +135,7 @@ class GanttService:
                 rental_data = {
                     'id': rental.id,
                     'device_id': rental.device_id,
+                    'warehouse_id': rental.warehouse_id,
                     'device_name': rental.device.name if rental.device else 'Unknown',
                     'start_date': rental.start_date.isoformat(),
                     'end_date': rental.end_date.isoformat(),
@@ -142,7 +158,9 @@ class GanttService:
             raise
 
     @staticmethod
-    def get_daily_statistics(date_str=None, device_model=None) -> dict:
+    def get_daily_statistics(
+        date_str=None, device_model=None, warehouse_id=None
+    ) -> dict:
         """获取每日统计信息
         
         Args:
@@ -167,7 +185,9 @@ class GanttService:
             target_end = datetime.combine(target_date, datetime.max.time())
 
             # 查询在目标日期这一天不被任何租赁物流时间占用的设备
-            available_devices = InventoryService.get_available_devices(target_start, target_end)
+            available_devices = InventoryService.get_available_devices(
+                target_start, target_end, warehouse_id
+            )
 
             # 如果指定了设备型号，筛选对应型号的设备
             if device_model:
@@ -182,12 +202,17 @@ class GanttService:
             available_count = len(available_devices)
 
             # 计算待寄出设备数量
-            rentals_with_ship_out = Rental.query.filter(
+            rentals_query = Rental.query.filter(
                 db.and_(
                     Rental.ship_out_time.isnot(None),
                     Rental.status.in_(['not_shipped', 'scheduled_for_shipping'])
                 )
-            ).all()
+            )
+            if isinstance(warehouse_id, int):
+                rentals_query = rentals_query.filter(
+                    Rental.warehouse_id == warehouse_id
+                )
+            rentals_with_ship_out = rentals_query.all()
 
             main_device_ship_out_count = 0
             accessory_ship_out_count = 0
@@ -231,7 +256,14 @@ class GanttService:
             raise
 
     @staticmethod
-    def find_available_slot(start_date, end_date, logistics_days, model_filter, is_accessory=False) -> dict:
+    def find_available_slot(
+        start_date,
+        end_date,
+        logistics_days,
+        model_filter,
+        is_accessory=False,
+        warehouse_id=None,
+    ) -> dict:
         """查找可用的租赁时间段
         
         Args:
@@ -267,6 +299,10 @@ class GanttService:
             device_type = "附件" if is_accessory else "主设备"
 
             devices_query = Device.in_service_query(is_accessory=is_accessory)
+            if isinstance(warehouse_id, int):
+                devices_query = devices_query.filter(
+                    Device.warehouse_id == warehouse_id
+                )
 
             if model_filter and str(model_filter).strip():
                 try:
@@ -285,7 +321,10 @@ class GanttService:
             available_device_objects = []
             for device in devices:
                 availability = InventoryService.check_device_availability(
-                    device.id, ship_out_time, ship_in_time
+                    device.id,
+                    ship_out_time,
+                    ship_in_time,
+                    warehouse_id=warehouse_id,
                 )
                 if availability['available']:
                     available_devices.append(device.id)

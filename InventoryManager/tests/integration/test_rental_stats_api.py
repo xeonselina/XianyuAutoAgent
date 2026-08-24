@@ -6,6 +6,7 @@ from app import create_app, db
 from app.models.device import Device
 from app.models.device_model import DeviceModel
 from app.models.rental import Rental
+from app.models.warehouse import Warehouse
 from app.services.rental_statistics_service import calculate_period_depreciation
 
 
@@ -14,6 +15,10 @@ def app():
     application = create_app("testing")
     with application.app_context():
         db.create_all()
+        db.session.add(Warehouse(
+            province="待配置", city="待配置", name="默认仓库"
+        ))
+        db.session.commit()
         yield application
         db.session.remove()
         db.drop_all()
@@ -28,6 +33,7 @@ def add_rental(device_id, start_date, amount):
     db.session.add(
         Rental(
             device_id=device_id,
+            warehouse_id=db.session.get(Device, device_id).warehouse_id,
             start_date=start_date,
             end_date=start_date,
             customer_name=f"customer-{start_date}",
@@ -54,6 +60,7 @@ def test_periodic_stats_prorate_device_until_lifecycle_date(app, client):
             model_id=model.id,
             is_accessory=False,
             lifecycle_status="active",
+            warehouse_id=db.session.query(Warehouse.id).scalar(),
         )
         sold = Device(
             name="sold-device",
@@ -63,6 +70,7 @@ def test_periodic_stats_prorate_device_until_lifecycle_date(app, client):
             is_accessory=False,
             lifecycle_status="sold",
             lifecycle_date=datetime(2026, 7, 15, 16, 30),
+            warehouse_id=db.session.query(Warehouse.id).scalar(),
         )
         db.session.add_all([active, sold])
         db.session.flush()
@@ -113,6 +121,7 @@ def test_forecast_retains_exited_device_history_but_not_future_capacity(
             model_id=model.id,
             is_accessory=False,
             lifecycle_status="active",
+            warehouse_id=db.session.query(Warehouse.id).scalar(),
         )
         sold = Device(
             name="sold-x200u",
@@ -122,6 +131,7 @@ def test_forecast_retains_exited_device_history_but_not_future_capacity(
             is_accessory=False,
             lifecycle_status="sold",
             lifecycle_date=datetime(2026, 6, 1),
+            warehouse_id=db.session.query(Warehouse.id).scalar(),
         )
         db.session.add_all([active, sold])
         db.session.flush()
@@ -161,6 +171,7 @@ def test_device_api_rejects_removed_online_offline_status(app, client):
             model="test",
             is_accessory=False,
             lifecycle_status="active",
+            warehouse_id=db.session.query(Warehouse.id).scalar(),
         )
         db.session.add(device)
         db.session.commit()

@@ -7,6 +7,7 @@ from app import db
 from app.models.device import Device
 from app.models.device_model import DeviceModel
 from app.models.rental import Rental
+from app.models.warehouse import Warehouse
 
 
 @dataclass
@@ -67,6 +68,7 @@ class ReorderCase:
         base = date.today() + timedelta(days=20)
         predecessor = Rental(
             device_id=self.first_device.id,
+            warehouse_id=self.first_device.warehouse_id,
             start_date=base + timedelta(days=1),
             end_date=base + timedelta(days=5),
             ship_out_time=datetime.combine(base, time(19)),
@@ -78,6 +80,7 @@ class ReorderCase:
         )
         successor = Rental(
             device_id=self.first_device.id,
+            warehouse_id=self.first_device.warehouse_id,
             start_date=base + timedelta(days=5),
             end_date=base + timedelta(days=9),
             ship_out_time=datetime.combine(base + timedelta(days=6), time(19)),
@@ -95,10 +98,13 @@ class ReorderCase:
 @pytest.fixture
 def seeded_reorder_case(db_session):
     base = date.today() + timedelta(days=5)
+    warehouse = Warehouse(
+        province="待配置", city="待配置", name="默认仓库"
+    )
     model = DeviceModel(
         name="reorder-api", display_name="重排 API 测试", is_active=True
     )
-    db_session.add(model)
+    db_session.add_all([warehouse, model])
     db_session.flush()
     first_device = Device(
         name="R-01",
@@ -106,6 +112,7 @@ def seeded_reorder_case(db_session):
         model_id=model.id,
         is_accessory=False,
         lifecycle_status="active",
+        warehouse_id=warehouse.id,
     )
     second_device = Device(
         name="R-02",
@@ -113,17 +120,20 @@ def seeded_reorder_case(db_session):
         model_id=model.id,
         is_accessory=False,
         lifecycle_status="active",
+        warehouse_id=warehouse.id,
     )
     accessory = Device(
         name="手机支架-01",
         model="stand",
         is_accessory=True,
         lifecycle_status="active",
+        warehouse_id=warehouse.id,
     )
     db_session.add_all([first_device, second_device, accessory])
     db_session.flush()
     first = Rental(
         device_id=first_device.id,
+        warehouse_id=warehouse.id,
         start_date=base + timedelta(days=1),
         end_date=base + timedelta(days=2),
         ship_out_time=datetime.combine(base, time(19)),
@@ -135,6 +145,7 @@ def seeded_reorder_case(db_session):
     )
     second = Rental(
         device_id=second_device.id,
+        warehouse_id=warehouse.id,
         start_date=base + timedelta(days=4),
         end_date=base + timedelta(days=7),
         ship_out_time=datetime.combine(base + timedelta(days=3), time(19)),
@@ -148,6 +159,7 @@ def seeded_reorder_case(db_session):
     db_session.flush()
     child = Rental(
         device_id=accessory.id,
+        warehouse_id=warehouse.id,
         parent_rental_id=second.id,
         start_date=second.start_date,
         end_date=second.end_date,

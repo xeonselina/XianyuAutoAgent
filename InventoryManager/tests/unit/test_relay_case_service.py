@@ -9,6 +9,7 @@ from app.models.device_model import DeviceModel
 from app.models.rental import Rental
 from app.models.rental_relay_binding import RentalRelayBinding
 from app.models.rental_relay_case import RentalRelayCase
+from app.models.warehouse import Warehouse
 from app.services.relay.relay_case_service import RelayCaseService
 from tests.support.test_database import (
     assert_current_user_has_test_only_grants,
@@ -33,6 +34,10 @@ def app():
 def db_session(app):
     with app.app_context():
         db.create_all()
+        db.session.add(Warehouse(
+            province="待配置", city="待配置", name="默认仓库"
+        ))
+        db.session.commit()
         yield db.session
         db.session.rollback()
         db.drop_all()
@@ -52,6 +57,7 @@ def add_device(db_session, suffix):
         model_id=model.id,
         is_accessory=False,
         lifecycle_status="active",
+        warehouse_id=db_session.query(Warehouse.id).scalar(),
     )
     db_session.add(device)
     db_session.flush()
@@ -71,6 +77,7 @@ def add_pair(
     second_ship_out = first_ship_in - timedelta(days=overlap_days)
     first = Rental(
         device_id=device.id,
+        warehouse_id=device.warehouse_id,
         start_date=first_ship_out + timedelta(days=1),
         end_date=first_ship_out + timedelta(days=4),
         ship_out_time=datetime.combine(first_ship_out, time(19)),
@@ -85,6 +92,7 @@ def add_pair(
     )
     second = Rental(
         device_id=device.id,
+        warehouse_id=device.warehouse_id,
         start_date=second_ship_out + timedelta(days=3),
         end_date=second_ship_out + timedelta(days=7),
         ship_out_time=datetime.combine(second_ship_out, time(19)),
@@ -143,6 +151,7 @@ def test_candidates_only_compare_adjacent_non_cancelled_main_rentals(
     middle.status = "cancelled"
     last = Rental(
         device_id=device.id,
+        warehouse_id=device.warehouse_id,
         start_date=date(2026, 8, 9),
         end_date=date(2026, 8, 12),
         ship_out_time=datetime(2026, 8, 6, 19),
@@ -152,6 +161,7 @@ def test_candidates_only_compare_adjacent_non_cancelled_main_rentals(
     )
     child = Rental(
         device_id=device.id,
+        warehouse_id=device.warehouse_id,
         parent_rental_id=first.id,
         start_date=date(2026, 8, 3),
         end_date=date(2026, 8, 4),
@@ -178,6 +188,7 @@ def test_candidate_order_keeps_rental_with_missing_ship_in_time(
     middle.ship_in_time = None
     last = Rental(
         device_id=device.id,
+        warehouse_id=device.warehouse_id,
         start_date=date(2026, 8, 12),
         end_date=date(2026, 8, 15),
         ship_out_time=datetime(2026, 8, 9, 19),

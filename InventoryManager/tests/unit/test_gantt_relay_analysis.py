@@ -7,6 +7,7 @@ from app.models.device import Device
 from app.models.device_model import DeviceModel
 from app.models.rental import Rental
 from app.models.rental_relay_binding import RentalRelayBinding
+from app.models.warehouse import Warehouse
 from app.services.gantt.reorder_service import GanttReorderService
 
 
@@ -19,6 +20,10 @@ def app():
 def db_session(app):
     with app.app_context():
         db.create_all()
+        db.session.add(Warehouse(
+            province="待配置", city="待配置", name="默认仓库"
+        ))
+        db.session.commit()
         yield db.session
         db.session.rollback()
         db.drop_all()
@@ -27,6 +32,7 @@ def db_session(app):
 def make_rental(device_id, customer, ship_out_day, ship_in_day, parent_id=None):
     return Rental(
         device_id=device_id,
+        warehouse_id=db.session.get(Device, device_id).warehouse_id,
         start_date=ship_out_day + timedelta(days=1),
         end_date=ship_in_day - timedelta(days=1),
         ship_out_time=datetime.combine(ship_out_day, time(19)),
@@ -49,6 +55,7 @@ def seed_device(db_session):
         model_id=model.id,
         is_accessory=False,
         lifecycle_status="active",
+        warehouse_id=db_session.query(Warehouse.id).scalar(),
     )
     db_session.add(device)
     db_session.flush()
