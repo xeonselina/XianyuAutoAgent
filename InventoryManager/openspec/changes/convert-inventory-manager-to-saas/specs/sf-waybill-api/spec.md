@@ -17,6 +17,12 @@ The system MUST obtain a waybill PDF only within an authorized tenant operation 
 - **THEN** the system SHALL fail closed without calling SF Express
 - **AND** the response SHALL NOT reveal whether another tenant owns the object or expose credentials, sender data, or provider response bodies
 
+#### Scenario: Reject PDF retrieval for legacy-unattributed history
+- **GIVEN** the requested record is a D68 `legacy_unattributed` snapshot rather than a Core shipment with exact credential revisions
+- **WHEN** waybill PDF retrieval is requested
+- **THEN** the system SHALL return a stable read-only-history result without calling SF Express
+- **AND** it SHALL NOT attach a current credential, create a provider operation, or expose a retry/reprint action
+
 #### Scenario: Historical credential is no longer usable
 - **GIVEN** the shipment references an immutable credential revision that is missing, cannot be authenticated, or has been revoked by SF Express
 - **WHEN** the waybill PDF is requested

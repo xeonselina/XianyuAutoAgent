@@ -61,7 +61,7 @@ The migration program MUST treat D61 as a temporary risk acceptance only for the
 - **AND** only least-privilege database identities and newly validated encrypted provider revisions may be used by the rehearsal candidate
 
 ### Requirement: The existing business schema becomes the default tenant in place
-The migration MUST register the original business schema as one immutable default tenant/database identity without copying the whole database or adding `tenant_id` to every business table. It SHALL require explicitly supplied default-tenant display identity and first Admin canonical phone, create a ready or runtime-restricted default warehouse from existing sender data, assign non-secret provider configuration ownership to that tenant, and preserve business primary keys, relationships, row counts, and audited amounts. D61-covered legacy SF/Kuaimai values MUST NOT be read, copied, hashed, mechanically encrypted, or wrapped as Core revision 1/current revisions. Only provider-rotated replacement values that are freshly submitted and successfully validated may create the new revision 1 before first rehearsal.
+The migration MUST register the original business schema as one immutable default tenant/database identity without copying the whole database or adding `tenant_id` to every business table. It SHALL require explicitly supplied default-tenant display identity and first Admin canonical phone, create a ready or runtime-restricted default warehouse from existing sender data, assign non-secret provider configuration ownership to that tenant, and preserve business primary keys, relationships, row counts, and audited amounts. D61-covered legacy SF/Kuaimai values MUST NOT be read, copied, hashed, mechanically encrypted, or wrapped as Core revision 1/current revisions. Only provider-rotated replacement values that are freshly submitted and successfully validated may create the new revision 1 before first rehearsal. Under D68, recognized legacy shipping, tracking, lifecycle, and print-occurrence facts SHALL instead enter structurally separate `legacy_unattributed` read-only snapshots that contain no integration, account, binding, credential-revision, provider-order, printer, or provider-task authority.
 
 #### Scenario: Default tenant migration is rerun with the same inputs
 - **GIVEN** an earlier attempt stopped after any supported intermediate step
@@ -74,6 +74,12 @@ The migration MUST register the original business schema as one immutable defaul
 - **WHEN** the default-tenant migration imports provider ownership
 - **THEN** it may create only non-secret `unconfigured/pending` connection or account metadata and creates no secret revision, current pointer, or claim from that value
 - **AND** a separate provider-rotated, freshly submitted, successfully validated replacement is required to create revision 1
+
+#### Scenario: The importer encounters old shipment and print history
+- **GIVEN** a legacy rental or audit row proves a lifecycle, tracking number, or print-occurrence fact but cannot prove the exact historical credential revision
+- **WHEN** the default-tenant backfill runs under the approved D68 adapter
+- **THEN** it SHALL create or replay only the matching `legacy_unattributed` read-only snapshot and preserve its source identity and digest
+- **AND** it SHALL create no Core shipment, provider attempt, print job, credential revision, provider order, printer task, or provider call from that history
 
 ### Requirement: Default tenant receives one fixed long-term migration grant
 The migration MUST create the default tenant's initial subscription from the immutable Core plan revision bundled with that migration, with `member_seats = 10` and an exact duration of 36,500 days of 24 hours. The final control-database transaction SHALL calculate expiry from database current time and append one immutable `migration_grant` subscription event uniquely bound to the default tenant UUID, database UUID, initial baseline, and migration idempotency key; it MUST NOT accept a duration/expiry deployment parameter, create a perpetual-subscription state, consume a redemption code, or bypass normal lifecycle and recovery state checks.
@@ -98,13 +104,19 @@ The migration MUST create the default tenant's initial subscription from the imm
 - **AND** default-tenant identity or long expiry does not create an exemption
 
 ### Requirement: Business backfill is ordered and idempotent
-The migration MUST backfill default warehouse and device ownership before structured logistics snapshots, then accessory types/units before requests/links/events, then provider connections/account revisions/bindings before shipment and job snapshots. Every transform SHALL have a stable source identity, idempotency key, negative/orphan checks, and reversible expand-period mapping; legacy quantity, child-rental, global-credential, or shipment facts MUST NOT be double-counted after enforcement.
+The migration MUST backfill default warehouse and device ownership before structured logistics snapshots, then accessory types/units before requests/links/events, then non-secret provider metadata before D68 `legacy_unattributed` shipment/print snapshots; newly validated provider connections/account revisions/bindings remain separate inputs for new Core operations. Every transform SHALL have a stable source identity, idempotency key, negative/orphan checks, and reversible expand-period mapping; legacy quantity, child-rental, global-credential, or shipment facts MUST NOT be double-counted after enforcement.
 
 #### Scenario: Accessory backfill restarts midway
 - **GIVEN** some legacy accessories have generated units and unfinished child rentals have generated requests/links
 - **WHEN** the backfill resumes after failure
 - **THEN** each source produces at most one intended unit/request/link/event lineage
 - **AND** source, target, holder, warehouse, and unresolved counts reconcile before legacy readers are disabled
+
+#### Scenario: Legacy history backfill restarts after committed snapshots
+- **GIVEN** some source rentals or print audits already produced `legacy_unattributed` snapshots
+- **WHEN** the same manifest and historical boundary rerun the backfill
+- **THEN** each source identity replays the exact snapshot without creating a second row
+- **AND** any changed source digest, unmatched count, Core credential reference, or executable provider/print record fails the phase before reconciliation passes
 
 ### Requirement: Cutover has one safe rollback boundary
 The migration MUST stop Web writes, schedulers, workers, and provider submissions during the production maintenance window and record the exact point at which tenant-aware writes become authoritative. Before that point the tested rollback may restore the old application without reverse data movement; after that point rollback SHALL use only a compatible tenant-aware version or forward fix and MUST NOT restart the old global writer.

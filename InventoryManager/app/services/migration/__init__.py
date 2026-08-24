@@ -116,6 +116,7 @@ from .default_phase_adapters import (
     DefaultTenantSchemaExpandStep,
     ResolvedDefaultMigrationBackfillBundle,
     VerifiedEmptyHistoricalSnapshotsStep,
+    VerifiedLegacyUnattributedHistoricalSnapshotsStep,
     build_default_migration_backfill_executor,
     build_default_migration_application_enforce_executor,
     build_default_migration_contract_executor,
@@ -250,6 +251,7 @@ __all__ += [
     "DefaultTenantSchemaExpandStep",
     "ResolvedDefaultMigrationBackfillBundle",
     "VerifiedEmptyHistoricalSnapshotsStep",
+    "VerifiedLegacyUnattributedHistoricalSnapshotsStep",
     "build_default_migration_backfill_executor",
     "build_default_migration_application_enforce_executor",
     "build_default_migration_contract_executor",
@@ -311,6 +313,18 @@ from .empty_historical_snapshot import (
     EmptyHistoricalSnapshotVerifier,
     HistoricalSnapshotNotEmptyError,
 )
+from .legacy_unattributed_history import (
+    LEGACY_UNATTRIBUTED_HISTORY_POLICY_REVISION,
+    LegacyUnattributedHistoryBackfillService,
+    LegacyUnattributedHistoryBoundaryError,
+    LegacyUnattributedHistoryConflictError,
+    LegacyUnattributedHistoryError,
+    LegacyUnattributedHistoryIdentityError,
+    LegacyUnattributedHistoryInputError,
+    LegacyUnattributedHistoryPersistenceError,
+    LegacyUnattributedHistoryResult,
+    LegacyUnattributedHistoryTransactionError,
+)
 
 __all__ += [
     "EMPTY_HISTORICAL_SNAPSHOT_POLICY_REVISION",
@@ -322,4 +336,14 @@ __all__ += [
     "EmptyHistoricalSnapshotTransactionError",
     "EmptyHistoricalSnapshotVerifier",
     "HistoricalSnapshotNotEmptyError",
+    "LEGACY_UNATTRIBUTED_HISTORY_POLICY_REVISION",
+    "LegacyUnattributedHistoryBackfillService",
+    "LegacyUnattributedHistoryBoundaryError",
+    "LegacyUnattributedHistoryConflictError",
+    "LegacyUnattributedHistoryError",
+    "LegacyUnattributedHistoryIdentityError",
+    "LegacyUnattributedHistoryInputError",
+    "LegacyUnattributedHistoryPersistenceError",
+    "LegacyUnattributedHistoryResult",
+    "LegacyUnattributedHistoryTransactionError",
 ]

@@ -58,10 +58,24 @@ from .tracking_http_runtime import (
     require_sf_tracking_http_runtime,
 )
 from .sf_sdk_tracking_adapter import SfSdkTrackingAdapter
+from .legacy_unattributed_history import (
+    LegacyHistoryPage,
+    LegacyHistoryQueryError,
+    LegacyHistoryQueryInputError,
+    LegacyPrintHistorySummary,
+    LegacyShipmentHistorySummary,
+    LegacyUnattributedHistoryQueryService,
+)
 
 __all__ = [
     "HistoricalTrackingBatch",
     "HistoricalTrackingShipment",
+    "LegacyHistoryPage",
+    "LegacyHistoryQueryError",
+    "LegacyHistoryQueryInputError",
+    "LegacyPrintHistorySummary",
+    "LegacyShipmentHistorySummary",
+    "LegacyUnattributedHistoryQueryService",
     "ResolvedHistoricalTrackingBatch",
     "SFTrackingService",
     "SF_TRACKING_HTTP_RUNTIME_EXTENSION",

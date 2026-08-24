@@ -68,7 +68,7 @@ def test_manifest_retry_requires_the_same_controlled_identity_inputs() -> None:
         baseline_migration_id="initial-baseline-v1",
         core_plan_revision_uuid=UUID("10000000-0000-4000-8000-000000000003"),
         control_schema_head="202608220021",
-        tenant_schema_head="20260823_shipping_contract",
+        tenant_schema_head="20260824_legacy_history",
         source_snapshot_digest=b"s" * 32,
         implementation_identity_digest=b"i" * 32,
         migration_bundle_digest=b"m" * 32,

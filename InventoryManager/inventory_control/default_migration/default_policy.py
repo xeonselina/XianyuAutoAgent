@@ -19,6 +19,10 @@ from app.models.device_model import DeviceModel
 from app.models.rental import Rental
 from app.models.rental_accessory import RentalAccessory
 from app.models.rental_relay_case import RentalRelayCase
+from app.models.legacy_unattributed_history import (
+    LegacyUnattributedPrintSnapshot,
+    LegacyUnattributedShipmentSnapshot,
+)
 from app.models.shipping_execution import (
     OutboundShipment,
     ProviderOperationAttempt,
@@ -339,10 +343,25 @@ def _rental_total_minor_statement() -> sa.sql.Select:
 
 
 def _historical_waybills_statement() -> sa.sql.Select:
-    return (
+    core_count = (
         sa.select(sa.func.count())
         .select_from(OutboundShipment)
         .where(OutboundShipment.waybill_no.is_not(None))
+        .scalar_subquery()
+    )
+    legacy_count = (
+        sa.select(sa.func.count())
+        .select_from(LegacyUnattributedShipmentSnapshot)
+        .where(
+            LegacyUnattributedShipmentSnapshot.ship_out_tracking_no.is_not(
+                None
+            )
+        )
+        .scalar_subquery()
+    )
+    return sa.select(
+        sa.func.coalesce(core_count, 0)
+        + sa.func.coalesce(legacy_count, 0)
     )
 
 
@@ -369,6 +388,8 @@ def _orphan_count_statement() -> sa.sql.Select:
     shipment = OutboundShipment.__table__
     attempt = ProviderOperationAttempt.__table__
     print_job = WaybillPrintJob.__table__
+    legacy_shipment = LegacyUnattributedShipmentSnapshot.__table__
+    legacy_print = LegacyUnattributedPrintSnapshot.__table__
 
     counts = (
         _missing_reference(device, device.c.model_id, device_model),
@@ -417,6 +438,15 @@ def _orphan_count_statement() -> sa.sql.Select:
         _missing_reference(print_job, print_job.c.rental_id, rental),
         _missing_reference(
             print_job, print_job.c.return_warehouse_id, warehouse
+        ),
+        _missing_reference(
+            legacy_shipment, legacy_shipment.c.rental_id, rental
+        ),
+        _missing_reference(legacy_print, legacy_print.c.rental_id, rental),
+        _missing_reference(
+            legacy_print,
+            legacy_print.c.shipment_snapshot_id,
+            legacy_shipment,
         ),
         _orphan_scalar(
             link.join(unit, unit.c.id == link.c.accessory_unit_id),

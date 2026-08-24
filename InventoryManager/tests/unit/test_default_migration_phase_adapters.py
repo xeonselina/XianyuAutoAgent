@@ -105,7 +105,7 @@ def _manifest():
         baseline_migration_id="baseline-v1",
         core_plan_revision_uuid=PLAN_UUID,
         control_schema_head="202608220026",
-        tenant_schema_head="20260823_shipping_contract",
+        tenant_schema_head="20260824_legacy_history",
         source_snapshot_digest=_digest("source"),
         implementation_identity_digest=_digest("implementation"),
         migration_bundle_digest=_digest("bundle"),

@@ -56,7 +56,7 @@ def test_bundle_is_canonical_round_trippable_and_manifest_bound():
 
     assert first == second
     assert first.control_schema_head == "202608230038"
-    assert first.tenant_schema_head == "20260823_shipping_contract"
+    assert first.tenant_schema_head == "20260824_legacy_history"
     assert len(first.files) >= 180
     assert tuple(item.relative_path for item in first.files) == tuple(
         sorted(item.relative_path for item in first.files)

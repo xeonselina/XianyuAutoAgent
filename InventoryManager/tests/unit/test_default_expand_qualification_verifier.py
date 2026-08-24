@@ -53,7 +53,7 @@ def _invocation() -> DefaultMigrationStepInvocation:
             "89000000-0000-4000-8000-000000000003"
         ),
         control_schema_head=CONTROL_HEAD,
-        tenant_schema_head="20260823_shipping_contract",
+        tenant_schema_head="20260824_legacy_history",
         source_snapshot_digest=_digest("source"),
         implementation_identity_digest=_digest("implementation"),
         migration_bundle_digest=_digest("bundle"),
@@ -243,7 +243,7 @@ def test_tenant_verifier_requires_one_bound_dual_account_matrix():
             apply_connection_factory=lambda: _Connection("tenant-apply"),
             apply_target=MYSQL_TEST_TARGET,
             runner=_Runner(
-                schema_head="20260823_shipping_contract",
+                schema_head="20260824_legacy_history",
                 baseline_revision="20260807_damage_notes",
             ),
         ),
@@ -253,7 +253,7 @@ def test_tenant_verifier_requires_one_bound_dual_account_matrix():
         grant_matrix_verifier=_Matrix(),
     )
     evidence = verifier.verify(_invocation())
-    assert evidence.schema_head == "20260823_shipping_contract"
+    assert evidence.schema_head == "20260824_legacy_history"
     assert evidence.tenant_dml_grants_digest == _digest("dml-grants")
     assert evidence.platform_read_grants_digest == _digest(
         "platform-grants"

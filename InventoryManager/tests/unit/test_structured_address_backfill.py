@@ -44,7 +44,7 @@ def _manifest() -> DefaultTenantMigrationManifest:
             "51000000-0000-4000-8000-000000000003"
         ),
         control_schema_head="202608220026",
-        tenant_schema_head="20260823_shipping_contract",
+        tenant_schema_head="20260824_legacy_history",
         source_snapshot_digest=_digest("source"),
         implementation_identity_digest=_digest("implementation"),
         migration_bundle_digest=_digest("bundle"),

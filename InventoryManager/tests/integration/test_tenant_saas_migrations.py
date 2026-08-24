@@ -15,7 +15,7 @@ from config import TestingConfig
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TENANT_MIGRATIONS = PROJECT_ROOT / "migrations"
 LEGACY_SAAS_BASE = "20260807_damage_notes"
-TENANT_SAAS_HEAD = "20260823_shipping_contract"
+TENANT_SAAS_HEAD = "20260824_legacy_history"
 
 
 def _config() -> Config:

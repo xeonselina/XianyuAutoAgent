@@ -22,6 +22,10 @@ from sqlalchemy.orm import Session, SessionTransactionOrigin
 
 from app.models.audit_log import AuditLog
 from app.models.database_identity import TenantDatabaseIdentity
+from app.models.legacy_unattributed_history import (
+    LegacyUnattributedPrintSnapshot,
+    LegacyUnattributedShipmentSnapshot,
+)
 from app.models.rental import Rental
 from app.models.shipping_execution import (
     OutboundShipment,
@@ -251,6 +255,16 @@ def _collect_counts(session: Session) -> tuple[tuple[str, int], ...]:
         "legacy_tracking_rows": (
             sa.select(sa.func.count()).select_from(Rental).where(
                 legacy_tracking
+            )
+        ),
+        "legacy_unattributed_prints": (
+            sa.select(sa.func.count()).select_from(
+                LegacyUnattributedPrintSnapshot
+            )
+        ),
+        "legacy_unattributed_shipments": (
+            sa.select(sa.func.count()).select_from(
+                LegacyUnattributedShipmentSnapshot
             )
         ),
         "outbound_shipments": (

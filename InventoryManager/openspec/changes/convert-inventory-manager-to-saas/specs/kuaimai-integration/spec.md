@@ -15,6 +15,12 @@ The system MUST generate valid Kuaimai MD5 signatures from the exact immutable t
 - **THEN** it SHALL use v1 recorded on the job
 - **AND** it SHALL NOT use v2, another tenant's integration, or a global default
 
+#### Scenario: Migrated print occurrence has no executable print authority
+- **GIVEN** a D68 `legacy_unattributed` record proves that legacy printing occurred but records no exact Kuaimai credential or printer execution snapshot
+- **WHEN** a user views the history or attempts status lookup, retry, or reprint
+- **THEN** the system SHALL return only the read-only occurrence summary and no executable print job
+- **AND** it SHALL NOT resolve current credentials, submit an image, query Kuaimai, or synthesize a provider task ID
+
 #### Scenario: Credential authentication fails
 - **GIVEN** the secret revision is missing, belongs to another tenant, or fails authenticated decryption
 - **WHEN** a Kuaimai operation is attempted

@@ -1,4 +1,4 @@
-"""Reusable complete default-backfill composition for isolated MySQL 8."""
+"""Reusable complete default-backfill composition on the approved MySQL schema."""
 
 from __future__ import annotations
 
@@ -41,6 +41,7 @@ from inventory_control.default_migration import (
     DefaultLegacyAuthorityBoundaryEvidence,
     DefaultLegacyDoubleCountCollector,
     DefaultMigrationReconciliationRunner,
+    MigrationReconciliationCollectionError,
     MigrationReconciliationBlockedError,
     DefaultTenantMigrationManifest,
     DefaultTenantReconciliationExpectedFacts,
@@ -49,24 +50,18 @@ from inventory_control.default_migration import (
     MigrationExecutionPlan,
     MigrationPhase,
     MigrationPhaseInvocation,
-    TenantSchemaObservationCollectorSet,
+    ReconciliationObservation,
     build_default_tenant_reconciliation_policy,
     compose_default_tenant_reconciliation_collectors,
 )
-from inventory_control.fleet_migrations import (
-    FleetSchemaIdentity,
-    FleetSchemaOperationFence,
-    MySql8TenantSchemaObserver,
-    TenantMigrationExecutionContext,
-    TenantMigrationObservationPhase,
-)
 from inventory_control.models import Tenant, TenantIntegration
+from tests.support.test_database import preflight_test_database_write
 
 
 TENANT_UUID = UUID("8b000000-0000-4000-8000-000000000001")
 DATABASE_UUID = UUID("8b000000-0000-4000-8000-000000000002")
 PLAN_UUID = UUID("8b000000-0000-4000-8000-000000000003")
-TENANT_HEAD = "20260823_shipping_contract"
+TENANT_HEAD = "20260824_legacy_history"
 TENANT_BASELINE = "20260807_damage_notes"
 SCHEMA_GENERATION = 2
 NOW = datetime(2026, 8, 23, 12, 0, tzinfo=timezone.utc)
@@ -114,48 +109,62 @@ class _CrashAfterCommittedStep:
         raise _InjectedBackfillCrash()
 
 
+@dataclass(frozen=True, slots=True)
+class _CurrentTestSchemaCollector:
+    """Re-observe the one approved test schema after backfill mutations."""
+
+    key: str
+    engine: Engine
+
+    def collect(self, *, manifest, requirement):
+        if manifest != _manifest() or requirement.key != self.key:
+            raise MigrationReconciliationCollectionError()
+        preflight = _test_schema_preflight(self.engine)
+        if self.key == "schema.generation":
+            observed = _schema_generation(preflight)
+        elif self.key == "schema.digest":
+            observed = bytes.fromhex(preflight.preflight_digest)
+        else:
+            raise MigrationReconciliationCollectionError()
+        return ReconciliationObservation(key=self.key, observed=observed)
+
+
 def run_complete_default_backfill_composition(
     *,
-    tenant_engine: Engine,
-    control_engine: Engine,
-    schema_observer_engine: Engine,
+    engine: Engine,
 ) -> CompleteBackfillObservation:
     """Execute every resolved backfill plus empty-history verification twice."""
 
     if (
-        not isinstance(tenant_engine, Engine)
-        or not isinstance(control_engine, Engine)
-        or not isinstance(schema_observer_engine, Engine)
-        or tenant_engine is control_engine
-        or schema_observer_engine in {tenant_engine, control_engine}
-        or tenant_engine.dialect.name != "mysql"
-        or control_engine.dialect.name != "mysql"
-        or schema_observer_engine.dialect.name != "mysql"
+        not isinstance(engine, Engine)
+        or engine.dialect.name != "mysql"
     ):
-        raise TypeError("complete backfill requires two MySQL engines")
-    _install_tenant_revision(tenant_engine)
+        raise TypeError("complete backfill requires one bound MySQL engine")
+    _install_tenant_revision(engine)
     manifest = _manifest()
     seeded = _seed_databases(
-        tenant_engine=tenant_engine,
-        control_engine=control_engine,
+        tenant_engine=engine,
+        control_engine=engine,
     )
     tenant_factory = sessionmaker(
-        bind=tenant_engine,
+        bind=engine,
         expire_on_commit=False,
     )
     control_factory = sessionmaker(
-        bind=control_engine,
+        bind=engine,
         expire_on_commit=False,
     )
 
-    schema_connection = schema_observer_engine.connect()
     tenant_read_session = tenant_factory(autoflush=False)
     control_read_session = control_factory(autoflush=False)
     try:
-        schema_context, schema_digest = _schema_context(
-            schema_connection,
-            manifest=manifest,
-        )
+        schema_preflight = _test_schema_preflight(engine)
+        if (
+            _schema_generation(schema_preflight) != SCHEMA_GENERATION
+            or schema_preflight.alembic_versions != (TENANT_HEAD,)
+        ):
+            raise AssertionError("test tenant schema identity is invalid")
+        schema_digest = bytes.fromhex(schema_preflight.preflight_digest)
         bundle = _bundle(
             manifest=manifest,
             seeded=seeded,
@@ -179,13 +188,9 @@ def run_complete_default_backfill_composition(
                 default_warehouse_count=1,
             )
         )
-        schema_collectors = TenantSchemaObservationCollectorSet(
-            observer=MySql8TenantSchemaObserver(),
-            connection=schema_connection,
-            context=schema_context,
-        ).collectors(
-            generation_key="schema.generation",
-            digest_key="schema.digest",
+        schema_collectors = (
+            _CurrentTestSchemaCollector("schema.digest", engine),
+            _CurrentTestSchemaCollector("schema.generation", engine),
         )
         registry = DefaultTenantReconciliationSqlRegistry(
             manifest=manifest,
@@ -267,11 +272,11 @@ def run_complete_default_backfill_composition(
     finally:
         tenant_read_session.close()
         control_read_session.close()
-        schema_connection.close()
 
 
 def _install_tenant_revision(engine: Engine) -> None:
     with engine.begin() as connection:
+        connection.exec_driver_sql("DROP TABLE IF EXISTS alembic_version")
         connection.exec_driver_sql(
             "CREATE TABLE alembic_version ("
             "version_num VARCHAR(128) NOT NULL PRIMARY KEY)"
@@ -368,58 +373,18 @@ def _seed_databases(
     return seeded
 
 
-def _schema_context(connection, *, manifest):
-    observer = MySql8TenantSchemaObserver()
-    provisional = _migration_context(
-        target_digest=_digest("provisional-target-schema")
-    )
-    observation = observer.observe(
-        connection,
-        phase=TenantMigrationObservationPhase.AFTER_DDL,
-        context=provisional,
-    )
-    if (
-        observation.identity.schema_generation != SCHEMA_GENERATION
-        or observation.identity.schema_revision != manifest.tenant_schema_head
-    ):
-        raise AssertionError("isolated tenant schema identity is invalid")
-    return (
-        _migration_context(target_digest=observation.identity.schema_sha256),
-        observation.identity.schema_sha256,
+def _test_schema_preflight(engine: Engine):
+    return preflight_test_database_write(
+        engine.url,
+        lambda _parsed: engine.connect(),
+        disposition="metadata_rebuild",
     )
 
 
-def _migration_context(*, target_digest: bytes):
-    source = FleetSchemaIdentity(
-        tenant_uuid=TENANT_UUID,
-        database_uuid=DATABASE_UUID,
-        schema_generation=SCHEMA_GENERATION - 1,
-        schema_revision=TENANT_BASELINE,
-        schema_sha256=_digest("baseline-schema"),
-    )
-    target = FleetSchemaIdentity(
-        tenant_uuid=TENANT_UUID,
-        database_uuid=DATABASE_UUID,
-        schema_generation=SCHEMA_GENERATION,
-        schema_revision=TENANT_HEAD,
-        schema_sha256=target_digest,
-    )
-    return TenantMigrationExecutionContext(
-        migration_uuid=UUID("8b000000-0000-4000-8000-000000000010"),
-        operation_generation=1,
-        schema_operation_fence=FleetSchemaOperationFence(
-            claim_id=UUID("8b000000-0000-4000-8000-000000000011"),
-            owner_id="default-backfill-mysql-test",
-            generation=1,
-            fencing_token=1,
-            row_version=1,
-        ),
-        bundle_id="default-tenant-backfill",
-        bundle_revision="v1",
-        bundle_sha256=_digest("migration-bundle"),
-        source=source,
-        target=target,
-    )
+def _schema_generation(preflight) -> int:
+    if preflight.identity_generations != ((1, SCHEMA_GENERATION),):
+        raise MigrationReconciliationCollectionError()
+    return SCHEMA_GENERATION
 
 
 def _bundle(

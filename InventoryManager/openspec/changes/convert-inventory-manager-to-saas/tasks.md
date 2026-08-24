@@ -5,7 +5,7 @@
 - 本清单按真实技术依赖顺序排列；可独立的盘点、开发和验证可以并行，只有直接依赖的实现或数据前置未完成时才等待。
 - 只有实现、自动化测试、演练记录和文档均完成时才勾选任务；仅开始开发、仅完成代码或仅人工确认均不算完成。
 - 各阶段末尾的验证项是普通可勾选任务，用来证明结果可复现，不构成额外流程或时间条件。
-- D01–D67 以当前决策表和 superseding 记录为准；D63 取消迁移冻结，D64 将项目流程简化为实现、验证、记时、演练、切换和观察，D65–D67 将 SQL-backed 测试简化为串行复用现有 `inventory_management_test` 且不再使用 SQLite 正向 backend；历史文字与当前规则冲突时不得恢复已被取代的流程。
+- D01–D68 以当前决策表和 superseding 记录为准；D63 取消迁移冻结，D64 将项目流程简化为实现、验证、记时、演练、切换和观察，D65–D67 将 SQL-backed 测试简化为串行复用现有 `inventory_management_test` 且不再使用 SQLite 正向 backend；D68 将默认租户旧运单/打印事实迁为独立 `legacy_unattributed` 只读历史；历史文字与当前规则冲突时不得恢复已被取代的流程。
 - 实施期间保留用户已有改动，不处理、覆盖或提交与本 change 无关的文件。
 
 ## 0. 基线、D12 变更排序与实施准备规划
@@ -51,6 +51,8 @@
     - [x] runner 当前精确收集的 55 个逐 revision MariaDB migration 用例已按模块用 `-x` 分批全部跑绿；control `base→head→base→head` 为 `1 passed in 564.50s`。分批过程同时验证并修正 MariaDB inspector 的 `BINARY(32)`/CHECK 表达式、默认 `RESTRICT` 省略、CHECK 错误类别、固定 `BINARY` 短输入补零、反射 JSON 文本、历史 revision 与 head 模型的预期类型差异、数据库生成时间窗口及真实 FK 父记录前置。最终只读核对为 `remaining_table_count=0`；未连接生产业务 schema、provider 或打印机。完整默认真实库命令仍由上级 D67 主项追踪。
     - [x] 逐 revision 修复后的当前 shared database group 已完整重跑：`761 passed, 1793 warnings in 633.03s`。warning 均为现有 dateutil/SQLAlchemy `utcnow` 弃用提示；未出现测试失败，未连接生产业务 schema、provider 或打印机。
     - [x] D67 最终连续验证于 2026-08-24 以 `make test-real-db` 一次完整退出 0：isolated `326 passed in 3362.79s`，migration `55 passed in 9872.00s`，shared `761 passed in 647.74s`，合计 `1142 passed`。测试串行复用名称精确为 `inventory_management_test` 的获准测试库；未写生产业务 schema，未调用真实 provider 或打印机。
+    - [x] D67 后续将此前要求两个 MySQL 8 实例和三个 URL 的完整 default-backfill 组合用例迁入同一 `inventory_management_test` shared lifecycle，并加入默认 shared selector。MariaDB/MySQL 双兼容 schema preflight digest 取代该用例中的 MySQL 8 专属 observer，仍在 backfill 后重新观察 generation/revision/schema digest；六个已决 backfill steps、空历史 adapter、步骤提交后崩溃续跑、二次幂等重放及 12 类 reconciliation 聚焦运行 `1 passed in 182.19s`。MySQL 8 专属 observer 保留独立测试，不再为本组合用例创建第二实例。
+    - [x] 同一连接能力矩阵已在 MariaDB 10.11 上证明 PyMySQL/`utf8mb4`/严格 SQL mode/UTC session、两条独立连接的 `FOR UPDATE SKIP LOCKED` 优先级跳锁语义，以及 connection-bound `GET_LOCK` 获取/拒绝/释放；聚焦运行 `1 passed in 177.37s`，只使用 `inventory_management_test`。
 - [ ] 1.6 建立不可变事件、版本号、fencing generation、幂等键、审计 actor/request context 和统一 tenant-first 锁序基础设施。
 - [ ] 1.7 实现普通重启语义：同一控制库持久卷、installation marker 和正确根密钥下保留平台 TOTP、恢复码使用状态和仍有效 session；旧快照导入不得走普通重启路径。
 - [ ] 1.8 增加密码派生黄金向量、不同用途隔离、密文调换拒绝、nonce/tag 损坏、根密钥错误、版本轮换和日志脱敏自动化测试。
@@ -439,7 +441,8 @@
   - [x] 已把固定迁移 bundle 变成 manifest-bound machine evidence：由仓库固定选择器覆盖 188 个 migration/runtime/model/harness/test 文件，逐文件绑定 canonical path、size 与 SHA-256，并从 Alembic script directory 自动要求唯一 control/tenant heads；source manifest 模板不再接受人工填写 heads 或 `migration_bundle_digest`，而是由 exact-key bundle evidence 注入。verified expand 在 source preflight 通过后、任何 control/tenant DDL verifier 之前核对当前 bundle；文件、head、字段或 digest 漂移均 fail closed。离线 CLI 可创建/验证 evidence 且不读取 DSN、provider 或打印配置。
   - [x] 同一只读一致性快照内已增加历史边界分类：在验证 schema/count baseline 的同时，按兼容的 legacy/current lifecycle 列固定统计历史生命周期、tracking、打印审计和 Core shipment/attempt/print 六类事实；缺列/未知 shape 拒绝。verified expand 第一阶段绑定 baseline 与 boundary 的组合 digest；backfill builder 对空历史只接受正式 zero-history verifier，对非空历史只接受 boundary digest 和正 approval revision 都匹配的获批 adapter。
   - [x] 已用 `inventory_saas_test_platform_read` 在生产实例的 `inventory_management_test` 真实观察并立即重放：MariaDB 10.11、9 张表、总计 6,264 行，两次得到相同 source snapshot digest `86a529d2f7825c5f26f11bf36916fd4de56489d7c9103fb26c82babb38b49824`；历史边界稳定判定为 `requires_approved_nonempty_adapter`，包含 1,828 条 lifecycle 历史和 1,807 条 tracking 历史，boundary digest 为 `7872e738642beba9f7f2e8c9ccdc2160204af5d46d02b9c25c55774cfdf0f575`。opt-in 集成测试 `1 passed`，无 DML/DDL、锁定读、provider 或打印。
-  - [ ] 仍需实现非空历史的获批 snapshot adapter，并在 `inventory_management_test` 执行完整命令。上述 9 表/6,264 行 baseline 与 digest 保留为历史只读证据；D66 获准的 metadata-rebuild 已清理测试库当前内容，所以执行本项前必须先把获准代表性快照重新恢复到该测试库、重新观察并生成绑定新 source identity 的 manifest。D61 非空历史仍会在 backfill 阻断，不能靠旧 digest、空库、重建结构或后续 verifier evidence 绕过。
+  - [x] D68 非空历史 adapter 已实现：旧 lifecycle、出入库运单号和打印发生事实写入两张独立 `legacy_unattributed` 表，表与 DTO 均无 integration/account/binding/credential revision/provider order/printer/provider task 字段；adapter 绑定 manifest、database identity、schema generation、六类 boundary counts、稳定 source UUID/digest，完全一致重跑为 no-op，源内容漂移或既有 Core shipment/attempt/print ledger 非零即失败。真实 MariaDB 聚焦矩阵 `3 passed in 183.25s`，并证明 Core tracking、provider attempt、取消和打印规划均拒绝 legacy snapshot ID。
+  - [ ] 仍需把获准代表性快照恢复到 `inventory_management_test`，重新观察并生成绑定新 source identity 的 manifest，再执行完整命令与统一 reconciliation。上述 9 表/6,264 行 baseline 与 digest 只保留为历史只读证据，不能靠旧 digest、空库或重建结构绕过；D68 已消除产品决策阻塞，但没有把旧 snapshot 绑定到任何后来新验证的凭证。
 - [ ] 12.3 实现原地登记工具：新建或迁移 `inventory_control`，为现有公司生成不可变 tenant/database UUID，在原业务 schema 写入唯一 `database_identity` 并登记可信 route；不得复制整库、重编号主键、重命名 schema 或给每张业务表添加 `tenant_id`。默认租户显示名称和首位 Admin 手机号必须由受控输入显式提供，拒绝空值、占位值、非法/歧义手机号和同 idempotency key 下不一致的重跑输入，且日志不得回显敏感值。
   - [x] 已实现已路由 tenant transaction 内唯一 `database_identity` 的创建/精确重放，tenant/database UUID、schema generation 或既有单行身份不一致时 fail closed；服务不选择/复制/重命名数据库、不修改业务主键且不接收 DSN、密码或 provider secret。
   - [x] 已实现 control transaction 内 tenant、首位未验证 Admin、migration Admin membership、route 和 control-side identity record 的 manifest-bound 幂等登记；显示名称/手机号先经过受控输入 commitment 校验，冲突或半成品既有身份拒绝，不静默补齐或替换。route 只登记为 `provisional`，expand 不提前发布业务路由。
@@ -460,8 +463,9 @@
   - [x] 已实现显式逐行结构化收货地址回填：迁移计划只保存旧 `destination` 和目标地址的不可逆 commitment，不从自由文本猜测省/市/区；源值、父子关系、半回填或不一致目标发生变化时整批回滚，精确重跑不改写，兼容期保留旧展示字段。
   - [x] 已实现上述已决 backfill 的 phase adapter prefix：每个切片使用新建的已绑定 Session 与 caller-owned transaction，失败只回滚当前步骤且不产生 phase completion；步骤提交后进程崩溃会以相同稳定输入重放，warehouse/integration 的 evidence 排除 created/replayed 等瞬时差异，metadata adapter 发现任何 credential revision pointer 即拒绝。
   - [x] 对源快照确实不存在任何 shipping/print 历史的情况，已有独立零历史 verifier：它要求唯一 tenant database identity 与 manifest/schema generation 精确一致，并同时证明 legacy 跟踪字段、历史生命周期/打印审计和全部 Core shipment/attempt/print ledger 为零；该路径仅证明“无需创建历史行”，不会把旧值或后来的 current revision 绑定为历史凭证。
-  - [x] 已实现非空历史前置分类与 adapter 选择约束，而未实现产品语义：真实测试快照的 1,828 条 lifecycle/1,807 条 tracking 历史被稳定分类为必须使用获批非空 adapter；普通同名 step、zero-history verifier 或 boundary digest/approval revision 不匹配均在组合阶段拒绝，不会借此创建 credential revision、shipment 或 print snapshot。
-  - [ ] 仍需实现非空 shipment/print snapshot、轮换后新 credential revision 引用核对等其余切片及统一反向核对组合；D61 非空历史凭证归属规则未确认前继续 fail closed。
+  - [x] 已实现非空历史前置分类与 adapter 选择约束：真实测试快照的 1,828 条 lifecycle/1,807 条 tracking 历史被稳定分类为必须使用获批非空 adapter；普通同名 step、zero-history verifier 或 boundary digest/approval revision 不匹配均在组合阶段拒绝，不会借此创建 credential revision、Core shipment 或 print job。
+  - [x] D68 产品语义与非空 shipment/print snapshot 已落地：每个租赁/打印审计使用 database UUID 派生稳定 source UUID，保留租户内展示所需状态、运单号、时间与打印发生事实；独立只读查询 DTO 固定 `actionable=false`/空动作集，旧记录不引用新旧凭证且不能顺丰查询、PDF 获取、重打、取消或重试。Core 原生新业务仍只接受 `historical=false` 且已验证的 exact credential revisions。
+  - [ ] 仍需在重新恢复的代表性快照上运行该非空 adapter、核对实际分类总量/孤儿/源漂移/重放，并完成统一反向 reconciliation；不得把后来新验证的 credential revision 回填给 `legacy_unattributed` 历史。
 - [x] 12.5 实现 D60 默认租户初始 subscription：最终控制事务以数据库当前时间加精确 36,500×24 小时，写入固定 plan revision/entitlement 和唯一不可变 `migration_grant` event；唯一性绑定 tenant/database/initial-baseline/idempotency key，响应丢失或重跑只返回原结果，不得再次加时。实现由 manifest/journal 绑定 writer 在 backfill reconciliation 已记录后进入调用方拥有的最终控制事务，固定使用 manifest 的 Core plan revision 且不暴露期限参数；隔离控制库测试覆盖精确 `3,153,600,000` 秒、响应丢失重放、不一致 manifest/route/plan 拒绝和零重复 subscription/event。
 - [ ] 12.6 实现控制库、默认 tenant schema 和迁移报告的自动对账，覆盖逐表行数、金额、设备/租赁/附件关联、孤儿数据、历史运单、凭证 revision、默认仓、legacy 双重计数、schema generation/digest 和预先定义阈值；任一未知、漂移或非零异常没有显式 disposition 时，迁移命令返回失败且不得继续写入。
   - [x] 已实现 versioned reconciliation policy/report、全部 12 类 scope 的精确覆盖要求、值类型/阈值/disposition 规则、unknown/undispositioned/schema/legacy fail-closed，以及与 manifest/source snapshot/policy/report digest 绑定的 backfill completion 边界。

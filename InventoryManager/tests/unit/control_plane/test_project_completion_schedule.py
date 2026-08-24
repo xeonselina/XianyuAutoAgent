@@ -24,7 +24,7 @@ def _identity(**overrides) -> ProjectCompletionIdentity:
         "migration_bundle_digest": _digest("bundle-a"),
         "runtime_configuration_digest": _digest("config-a"),
         "control_schema_head": "202608220026",
-        "tenant_schema_head": "20260823_shipping_contract",
+        "tenant_schema_head": "20260824_legacy_history",
     }
     values.update(overrides)
     return ProjectCompletionIdentity(**values)

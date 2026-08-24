@@ -5,11 +5,9 @@ invokes the already implemented idempotent domain backfill, commits only on a
 complete result, and returns replay-stable evidence to the resumable migration
 runner.  The adapters never call providers or printers.
 
-The module can prove and compose the strictly empty-history case.  Non-empty
-historical shipment/print migration is intentionally not invented: the
-approved design still needs a product decision about which new credential
-revision may own legacy rows.  The complete executor builder therefore still
-requires an explicit historical step.
+The module supports both the strictly empty-history case and D68's approved
+non-empty ``legacy_unattributed`` adapter.  Neither path gives legacy rows a
+credential revision or provider/printing authority.
 """
 
 from __future__ import annotations
@@ -36,6 +34,7 @@ from inventory_control.default_migration import (
     ReconciliationPolicy,
 )
 from inventory_control.default_migration.historical_boundary import (
+    DefaultHistoricalBoundaryError,
     DefaultHistoricalSnapshotBoundaryEvidence,
     DefaultSourceMigrationPreflightEvidence,
     HistoricalSnapshotDisposition,
@@ -67,6 +66,10 @@ from .express_type_backfill import (
     ExpressTypeBackfillService,
 )
 from .empty_historical_snapshot import EmptyHistoricalSnapshotVerifier
+from .legacy_unattributed_history import (
+    LEGACY_UNATTRIBUTED_HISTORY_POLICY_REVISION,
+    LegacyUnattributedHistoryBackfillService,
+)
 from .integration_metadata_backfill import (
     IntegrationMetadataBackfillPlan,
     IntegrationMetadataBackfillService,
@@ -103,15 +106,19 @@ class _RegistrationService(Protocol):
         **kwargs: Any,
     ) -> Any: ...
 
-
-class _EmptyHistoricalSnapshotVerifier(Protocol):
-    def verify(self, session: Session, **kwargs: Any) -> Any: ...
-
     def write_control_registration(
         self,
         session: Session,
         **kwargs: Any,
     ) -> Any: ...
+
+
+class _EmptyHistoricalSnapshotVerifier(Protocol):
+    def verify(self, session: Session, **kwargs: Any) -> Any: ...
+
+
+class _LegacyUnattributedHistoryService(Protocol):
+    def backfill(self, session: Session, **kwargs: Any) -> Any: ...
 
 
 class _ApplicationEnforcementVerifier(Protocol):
@@ -839,6 +846,91 @@ class VerifiedEmptyHistoricalSnapshotsStep:
         )
 
 
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class VerifiedLegacyUnattributedHistoricalSnapshotsStep:
+    """D68 boundary-bound, provider-free non-empty history adapter."""
+
+    tenant_session_factory: SessionFactory = field(repr=False)
+    expected_schema_generation: int
+    historical_boundary: DefaultHistoricalSnapshotBoundaryEvidence
+    approved_historical_boundary_digest: bytes
+    approved_policy_revision: int = (
+        LEGACY_UNATTRIBUTED_HISTORY_POLICY_REVISION
+    )
+    service: _LegacyUnattributedHistoryService = field(
+        default_factory=LegacyUnattributedHistoryBackfillService,
+        repr=False,
+    )
+    name: str = "historical_snapshots"
+
+    def __post_init__(self) -> None:
+        if (
+            not callable(self.tenant_session_factory)
+            or isinstance(self.expected_schema_generation, bool)
+            or not isinstance(self.expected_schema_generation, int)
+            or self.expected_schema_generation < 1
+            or not isinstance(
+                self.historical_boundary,
+                DefaultHistoricalSnapshotBoundaryEvidence,
+            )
+            or self.historical_boundary.disposition
+            is not HistoricalSnapshotDisposition.REQUIRES_APPROVED_NONEMPTY_ADAPTER
+            or not isinstance(self.approved_historical_boundary_digest, bytes)
+            or self.approved_historical_boundary_digest
+            != self.historical_boundary.digest
+            or self.approved_policy_revision
+            != LEGACY_UNATTRIBUTED_HISTORY_POLICY_REVISION
+            or not callable(getattr(self.service, "backfill", None))
+            or self.name != "historical_snapshots"
+        ):
+            raise MigrationEvidenceError(
+                "verified legacy-unattributed historical step is invalid"
+            )
+
+    def execute(
+        self,
+        invocation: DefaultMigrationStepInvocation,
+    ) -> DefaultMigrationStepResult:
+        manifest = invocation.phase_invocation.manifest
+        try:
+            self.historical_boundary.require_manifest(manifest)
+        except DefaultHistoricalBoundaryError:
+            raise MigrationEvidenceError(
+                "historical boundary does not match migration manifest"
+            ) from None
+        result = _run_in_transaction(
+            self.tenant_session_factory,
+            lambda session: self.service.backfill(
+                session,
+                manifest=manifest,
+                expected_schema_generation=(
+                    self.expected_schema_generation
+                ),
+                historical_boundary=self.historical_boundary,
+            ),
+        )
+        if result.verification_passed is not True:
+            raise MigrationEvidenceError(
+                "legacy-unattributed historical verification did not pass"
+            )
+        return _result(
+            invocation,
+            self.name,
+            _digest(result.result_digest),
+            executor_prefix="verified-legacy-unattributed-history",
+        )
+
+    def __repr__(self) -> str:
+        return (
+            "VerifiedLegacyUnattributedHistoricalSnapshotsStep("
+            f"expected_schema_generation="
+            f"{self.expected_schema_generation!r}, "
+            f"boundary_digest="
+            f"{self.approved_historical_boundary_digest.hex()!r}, "
+            "session='<bound>')"
+        )
+
+
 def build_default_migration_backfill_executor(
     *,
     bundle: ResolvedDefaultMigrationBackfillBundle,
@@ -1139,6 +1231,7 @@ __all__ = [
     "DefaultTenantSchemaExpandStep",
     "ResolvedDefaultMigrationBackfillBundle",
     "VerifiedEmptyHistoricalSnapshotsStep",
+    "VerifiedLegacyUnattributedHistoricalSnapshotsStep",
     "build_default_migration_backfill_executor",
     "build_default_migration_application_enforce_executor",
     "build_default_migration_database_jobs_enforce_executor",

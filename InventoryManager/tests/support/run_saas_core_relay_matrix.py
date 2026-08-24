@@ -23,7 +23,7 @@ from inventory_control.default_migration import (
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MATRIX_REVISION = "saas-core-relay-matrix.v1"
 EXPECTED_CONTROL_HEAD = "202608230038"
-EXPECTED_TENANT_HEAD = "20260823_shipping_contract"
+EXPECTED_TENANT_HEAD = "20260824_legacy_history"
 
 LOCAL_BACKEND_SELECTORS = (
     "tests/unit/scheduling/test_overlap_policy.py::"

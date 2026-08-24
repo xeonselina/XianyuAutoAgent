@@ -37,6 +37,11 @@ from .shipping_execution import (
     ProviderOperationAttempt,
     WaybillPrintJob,
 )
+from .legacy_unattributed_history import (
+    LEGACY_UNATTRIBUTED_KIND,
+    LegacyUnattributedPrintSnapshot,
+    LegacyUnattributedShipmentSnapshot,
+)
 
 __all__ = [
     'Device', 'Rental', 'AuditLog', 'DeviceModel', 'RentalStatistics',
@@ -48,5 +53,7 @@ __all__ = [
     'WarehouseProviderBinding', 'DeviceWarehouseMovement',
     'AccessoryType', 'DeviceAccessoryConfig', 'AccessoryUnit',
     'RentalAccessoryRequest', 'RentalAccessoryUnitLink', 'AccessoryUnitEvent',
-    'OutboundShipment', 'ProviderOperationAttempt', 'WaybillPrintJob'
+    'OutboundShipment', 'ProviderOperationAttempt', 'WaybillPrintJob',
+    'LEGACY_UNATTRIBUTED_KIND', 'LegacyUnattributedPrintSnapshot',
+    'LegacyUnattributedShipmentSnapshot'
 ]

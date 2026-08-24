@@ -54,13 +54,19 @@ The system MUST resolve official estimates, new waybill orders, and current prin
 - **AND** it does not borrow warehouse A's account or warehouse B's details selectively
 
 ### Requirement: Shipments freeze exact provider context
-The system MUST snapshot the warehouse UUID, account and binding revisions, masked account hint, sender details, integration and account credential revision UUIDs, product type, and provider operation identity when a waybill is created. Historical query, cancellation, and reconciliation SHALL use those exact revisions even after current pointers, defaults, bindings, or root-key envelopes change.
+The system MUST snapshot the warehouse UUID, account and binding revisions, masked account hint, sender details, integration and account credential revision UUIDs, product type, and provider operation identity when a Core waybill is created. Historical query, cancellation, and reconciliation for that Core shipment SHALL use those exact revisions even after current pointers, defaults, bindings, or root-key envelopes change. D68 `legacy_unattributed` migration snapshots are not Core shipments and SHALL remain query-display-only with no provider or print authority.
 
 #### Scenario: Credentials rotate after shipment creation
 - **GIVEN** a shipment was created with credential revision 4 and current revision is later 5
 - **WHEN** the system queries or cancels the historical shipment
 - **THEN** it resolves revision 4 through its authorized historical path
 - **AND** it never retries with revision 5 merely because the old call failed
+
+#### Scenario: Migrated history has no attributable credential revision
+- **GIVEN** a default-tenant record is classified as `legacy_unattributed`
+- **WHEN** a user views it or attempts a query, PDF retrieval, cancellation, retry, reprint, or reconciliation
+- **THEN** the tenant may receive only its saved read-only history summary
+- **AND** every provider/print action SHALL fail closed without resolving a current or historical credential and without creating an attempt or job
 
 ### Requirement: Device movement after waybill requires cancel and rebuild
 The system MUST block printing and actual shipment when a device moved after waybill creation. The old waybill SHALL be explicitly cancelled using its saved context; only confirmed provider cancellation, or completed review of an unknown result, may authorize a new waybill and two-sheet context for the new warehouse.
@@ -99,4 +105,3 @@ The system MUST send registration, login, and sensitive-action OTPs through the 
 - **WHEN** the next legitimate OTP is sent
 - **THEN** the approved platform signature and template remain unchanged
 - **AND** neither the code nor Tencent secret appears in the API response, database plaintext, logs, or metrics
-
