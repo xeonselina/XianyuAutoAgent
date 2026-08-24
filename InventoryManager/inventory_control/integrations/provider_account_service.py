@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.crypto import (
     CryptoConfigurationError,
@@ -22,6 +22,7 @@ from inventory_control.crypto import (
 )
 from inventory_control.database import read_database_utc_value
 from inventory_control.domain import EffectiveTenantGate, TenantRole
+from inventory_control.evidence import require_sha256_digest
 from inventory_control.models.integrations import (
     TenantIntegration,
     TenantIntegrationSecretRevision,
@@ -30,6 +31,7 @@ from inventory_control.models.provider_accounts import (
     TenantProviderAccount,
     TenantProviderAccountSecretRevision,
 )
+from inventory_control.transactions import require_caller_transaction
 from inventory_control.models.provider_claims import ProviderAccountClaim
 
 from .provider_account_credentials import (
@@ -174,7 +176,10 @@ class TenantProviderAccountService:
         actor_id = _uuid(created_by_user_uuid)
         action_id = _uuid(action_uuid)
         selected_label = _label(label)
-        selected_digest = _digest32(request_digest)
+        selected_digest = require_sha256_digest(
+            request_digest,
+            ProviderAccountInputError,
+        )
         request_key = _technical_key(idempotency_key)
         expected_claim_gen = _positive(expected_claim_generation)
         expected_claim_row = _positive(expected_claim_row_version)
@@ -189,9 +194,7 @@ class TenantProviderAccountService:
         expected_current_revision = _optional_uuid(
             expected_current_secret_revision_uuid
         )
-        expected_current_claim = _optional_uuid(
-            expected_current_global_claim_uuid
-        )
+        expected_current_claim = _optional_uuid(expected_current_global_claim_uuid)
         if not isinstance(root_key, RootKey):
             raise ProviderAccountInputError()
         try:
@@ -492,7 +495,10 @@ class TenantProviderAccountService:
             selected_outcome = ProviderValidationOutcome(outcome)
         except (TypeError, ValueError):
             raise ProviderAccountInputError() from None
-        result_digest = _digest32(provider_result_digest)
+        result_digest = require_sha256_digest(
+            provider_result_digest,
+            ProviderAccountInputError,
+        )
         result_code = _safe_code(safe_code)
         occurred_at = _datetime(completed_at or datetime.now(timezone.utc))
         revision = self._lock_revision(revision_id)
@@ -546,7 +552,10 @@ class TenantProviderAccountService:
             selected = ProviderValidationReconciliation(resolution)
         except (TypeError, ValueError):
             raise ProviderAccountInputError() from None
-        result_digest = _digest32(provider_result_digest)
+        result_digest = require_sha256_digest(
+            provider_result_digest,
+            ProviderAccountInputError,
+        )
         result_code = _safe_code(safe_code)
         occurred_at = _datetime(completed_at or datetime.now(timezone.utc))
         revision = self._lock_revision(revision_id)
@@ -579,8 +588,7 @@ class TenantProviderAccountService:
             )
         outcome = (
             ProviderValidationOutcome.SUCCESS
-            if selected
-            is ProviderValidationReconciliation.CONFIRMED_SUCCESS
+            if selected is ProviderValidationReconciliation.CONFIRMED_SUCCESS
             else ProviderValidationOutcome.DEFINITIVE_FAILURE
         )
         return self._apply_validation_result(
@@ -628,9 +636,7 @@ class TenantProviderAccountService:
                 occurred_at=occurred_at,
                 expected_verification_status=expected_verification_status,
             )
-            account = self._lock_required_account(
-                revision.tenant_provider_account_id
-            )
+            account = self._lock_required_account(revision.tenant_provider_account_id)
             if (
                 revision.expected_current_secret_revision_id is None
                 and account.current_secret_revision_id is None
@@ -708,8 +714,7 @@ class TenantProviderAccountService:
             claim.claim_status == SfClaimState.ACTIVE.value
             and claim.claim_generation == revision.expected_claim_generation
             and claim.row_version == revision.expected_claim_row_version
-            and claim.current_provider_account_id
-            == revision.tenant_provider_account_id
+            and claim.current_provider_account_id == revision.tenant_provider_account_id
             and claim.current_tenant_id == revision.tenant_id
             and claim.current_warehouse_uuid == str(owner.warehouse_uuid)
             and claim.active_binding_revision == selected_binding_revision
@@ -855,7 +860,10 @@ class TenantProviderAccountService:
         account_id = _uuid(provider_account_uuid)
         warehouse_id = _uuid(warehouse_uuid)
         action_id = _uuid(action_uuid)
-        selected_digest = _digest32(request_digest)
+        selected_digest = require_sha256_digest(
+            request_digest,
+            ProviderAccountInputError,
+        )
         expected_account_row = _positive(expected_account_row_version)
         expected_claim_gen = _positive(expected_claim_generation)
         expected_claim_row = _positive(expected_claim_row_version)
@@ -886,8 +894,7 @@ class TenantProviderAccountService:
                     ProviderAccountClaim.last_action_uuid == action_id,
                     ProviderAccountClaim.last_request_digest == selected_digest,
                     ProviderAccountClaim.claim_status == SfClaimState.RELEASED.value,
-                    ProviderAccountClaim.claim_generation
-                    == expected_claim_gen + 1,
+                    ProviderAccountClaim.claim_generation == expected_claim_gen + 1,
                 )
                 .with_for_update()
             )
@@ -1205,7 +1212,9 @@ class TenantProviderAccountService:
             raise ProviderAccountNotFoundError()
         return revision
 
-    def _refresh_revision(self, revision_id: str) -> TenantProviderAccountSecretRevision:
+    def _refresh_revision(
+        self, revision_id: str
+    ) -> TenantProviderAccountSecretRevision:
         return self._session.execute(
             sa.select(TenantProviderAccountSecretRevision)
             .where(TenantProviderAccountSecretRevision.id == revision_id)
@@ -1243,12 +1252,10 @@ class TenantProviderAccountService:
             raise ProviderAccountPersistenceError() from None
 
     def _require_transaction(self) -> None:
-        transaction = self._session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            raise ProviderAccountTransactionError()
+        require_caller_transaction(
+            self._session,
+            ProviderAccountTransactionError,
+        )
 
 
 def _crypto_context(
@@ -1338,12 +1345,6 @@ def _positive(value: int) -> int:
 
 def _optional_positive(value: int | None) -> int | None:
     return None if value is None else _positive(value)
-
-
-def _digest32(value: bytes) -> bytes:
-    if not isinstance(value, bytes) or len(value) != 32:
-        raise ProviderAccountInputError()
-    return bytes(value)
 
 
 def _label(value: str) -> str:

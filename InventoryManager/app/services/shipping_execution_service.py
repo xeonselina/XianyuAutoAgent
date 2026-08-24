@@ -19,7 +19,7 @@ from uuid import UUID
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from app.models.accessory_inventory import (
     AccessoryUnit,
@@ -45,6 +45,7 @@ from app.services.warehouse.provider_binding_service import (
     WarehouseProviderBindingUnavailableError,
 )
 from inventory_control.integrations import SfProviderExecutionContext
+from inventory_control.transactions import require_caller_transaction
 
 
 _TECHNICAL_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:._/-]*$")
@@ -350,12 +351,14 @@ class ShippingExecutionService:
                 f"{scheduled_dispatch_at.isoformat(timespec='seconds')}Z"
             ),
         }
-        request_hash = _request_hash({
-            "provider": "sf",
-            "device_id": device_id,
-            "provider_order_id": provider_order_id,
-            **hash_facts,
-        })
+        request_hash = _request_hash(
+            {
+                "provider": "sf",
+                "device_id": device_id,
+                "provider_order_id": provider_order_id,
+                **hash_facts,
+            }
+        )
         expected["request_hash"] = request_hash
 
         shipment = OutboundShipment(
@@ -387,9 +390,10 @@ class ShippingExecutionService:
         ):
             raise ShippingInputError()
         if job_provenance is not None:
-            if background_job_uuid is not None and _uuid_string(
-                background_job_uuid
-            ) != job_provenance.job_uuid:
+            if (
+                background_job_uuid is not None
+                and _uuid_string(background_job_uuid) != job_provenance.job_uuid
+            ):
                 raise ShippingInputError()
             background_job = job_provenance.job_uuid
         else:
@@ -410,14 +414,10 @@ class ShippingExecutionService:
                 else None
             ),
             "request_id": (
-                job_provenance.request_id
-                if job_provenance is not None
-                else None
+                job_provenance.request_id if job_provenance is not None else None
             ),
             "correlation_id": (
-                job_provenance.correlation_id
-                if job_provenance is not None
-                else None
+                job_provenance.correlation_id if job_provenance is not None else None
             ),
         }
         existing = self._session.execute(
@@ -515,10 +515,8 @@ class ShippingExecutionService:
             or attempt.operation != "create_waybill"
             or attempt.shipment_id != shipment_id
             or attempt.background_job_uuid != provenance.job_uuid
-            or attempt.tenant_access_version
-            != provenance.tenant_access_version
-            or attempt.requested_by_user_uuid
-            != provenance.requested_by_user_uuid
+            or attempt.tenant_access_version != provenance.tenant_access_version
+            or attempt.requested_by_user_uuid != provenance.requested_by_user_uuid
             or attempt.request_id != provenance.request_id
             or attempt.correlation_id != provenance.correlation_id
         ):
@@ -787,8 +785,7 @@ class ShippingExecutionService:
                 shipment.status,
                 status=target_shipment_status,
                 safe_error_code=(
-                    shipment.safe_error_code
-                    or "PROVIDER_RECONCILIATION_STARTED"
+                    shipment.safe_error_code or "PROVIDER_RECONCILIATION_STARTED"
                 ),
                 updated_at=started_at,
             )
@@ -798,8 +795,7 @@ class ShippingExecutionService:
             attempt.status,
             status="needs_review",
             safe_provider_code=(
-                attempt.safe_provider_code
-                or "PROVIDER_RECONCILIATION_STARTED"
+                attempt.safe_provider_code or "PROVIDER_RECONCILIATION_STARTED"
             ),
         )
         return _attempt_ref(updated)
@@ -964,9 +960,7 @@ class ShippingExecutionService:
             by_key = {job.idempotency_key: job for job in existing}
             if (
                 set(by_key) != {first_key, second_key}
-                or any(
-                    not _entity_matches(job, expected) for job in existing
-                )
+                or any(not _entity_matches(job, expected) for job in existing)
                 or not _same_print_snapshot(
                     by_key[first_key],
                     by_key[second_key],
@@ -1035,12 +1029,8 @@ class ShippingExecutionService:
             raise ShippingStateConflictError()
 
         base_key = _print_base_key(job.idempotency_key, label_kind)
-        first_job = self._lock_print_key(
-            _print_key(base_key, PrintLabelKind.FIRST)
-        )
-        second_job = self._lock_print_key(
-            _print_key(base_key, PrintLabelKind.SECOND)
-        )
+        first_job = self._lock_print_key(_print_key(base_key, PrintLabelKind.FIRST))
+        second_job = self._lock_print_key(_print_key(base_key, PrintLabelKind.SECOND))
         if first_job is None or second_job is None:
             raise ShippingStateConflictError()
         if not _same_print_snapshot(first_job, second_job):
@@ -1362,8 +1352,7 @@ class ShippingExecutionService:
             select(Rental.device_id).where(Rental.id == rental_id)
         ).scalar_one_or_none()
         if peeked_device_id is None or (
-            expected_device_id is not None
-            and peeked_device_id != expected_device_id
+            expected_device_id is not None and peeked_device_id != expected_device_id
         ):
             raise ShippingSnapshotMismatchError()
         device = self._lock(Device, peeked_device_id)
@@ -1428,12 +1417,10 @@ class ShippingExecutionService:
             raise ShippingPersistenceError()
 
     def _require_transaction(self) -> None:
-        transaction = self._session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            raise ShippingTransactionRequiredError()
+        require_caller_transaction(
+            self._session,
+            ShippingTransactionRequiredError,
+        )
 
 
 def _shipment_ref(
@@ -1517,8 +1504,7 @@ def _warehouse_sender_snapshot(warehouse: Warehouse) -> dict[str, str]:
         "address_detail": warehouse.address_detail,
     }
     if any(
-        not isinstance(value, str) or not value.strip()
-        for value in values.values()
+        not isinstance(value, str) or not value.strip() for value in values.values()
     ):
         raise ShippingSnapshotMismatchError()
     return {name: value.strip() for name, value in values.items()}
@@ -1545,8 +1531,7 @@ def _rental_receiver_snapshot(rental: Rental) -> dict[str, str]:
         "address_detail": rental.customer_address_detail,
     }
     if any(
-        not isinstance(value, str) or not value.strip()
-        for value in values.values()
+        not isinstance(value, str) or not value.strip() for value in values.values()
     ):
         raise ShippingSnapshotMismatchError()
     return {name: value.strip() for name, value in values.items()}

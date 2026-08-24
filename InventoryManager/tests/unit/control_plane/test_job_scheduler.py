@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import select
 
-from inventory_control import ControlBase, Tenant
+from inventory_control import Tenant
 from inventory_control.jobs import (
     PeriodicJobDefinition,
     PeriodicTenantScheduler,
@@ -11,11 +11,6 @@ from inventory_control.jobs import (
 )
 from inventory_control.jobs.scheduler import _current_cycle
 from inventory_control.models.jobs import BackgroundJob
-from tests.support.test_database import (
-    clear_guarded_mysql_test_rows,
-    guarded_mysql_control_database,
-)
-
 
 BUCKET_START = datetime(2026, 8, 22, 0, 0, tzinfo=timezone.utc)
 
@@ -34,16 +29,9 @@ class Gate:
         return ScheduleGateVerdict(True)
 
 
-@pytest.fixture(scope="module")
-def database_schema():
-    with guarded_mysql_control_database(ControlBase.metadata) as database:
-        yield database
-
-
 @pytest.fixture
-def database(database_schema):
-    clear_guarded_mysql_test_rows(database_schema.engine, ControlBase.metadata)
-    return database_schema
+def database(mysql_control_database):
+    return mysql_control_database
 
 
 def create_tenants(database):

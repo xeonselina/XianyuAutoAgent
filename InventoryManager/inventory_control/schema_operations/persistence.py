@@ -21,11 +21,12 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.models.schema_operations import (
     PlatformSchemaOperationLease,
 )
+from inventory_control.transactions import require_caller_transaction
 
 from .domain import (
     SchemaOperationLease,
@@ -199,27 +200,18 @@ class SchemaOperationLeasePersistenceService:
     require_live_fence = require_live_schema_operation_fence
 
     def _prepare(self) -> None:
-        transaction = self._session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            raise SchemaOperationTransactionError()
-        dirty = any(
-            self._session.is_modified(instance, include_collections=True)
-            for instance in self._session.dirty
+        require_caller_transaction(
+            self._session,
+            SchemaOperationTransactionError,
+            clean=True,
         )
-        if self._session.new or self._session.deleted or dirty:
-            raise SchemaOperationTransactionError()
-        _materialize_sqlite_outer_transaction(self._session)
 
     def _lock_row(self) -> PlatformSchemaOperationLease:
         try:
             row = self._session.scalar(
                 sa.select(PlatformSchemaOperationLease)
                 .where(
-                    PlatformSchemaOperationLease.lease_key
-                    == SCHEMA_OPERATION_LEASE_KEY
+                    PlatformSchemaOperationLease.lease_key == SCHEMA_OPERATION_LEASE_KEY
                 )
                 .with_for_update()
                 .execution_options(autoflush=False, populate_existing=True)
@@ -254,12 +246,9 @@ class SchemaOperationLeasePersistenceService:
                 .where(
                     PlatformSchemaOperationLease.lease_key
                     == SCHEMA_OPERATION_LEASE_KEY,
-                    PlatformSchemaOperationLease.row_version
-                    == before.row_version,
-                    PlatformSchemaOperationLease.generation
-                    == before.generation,
-                    PlatformSchemaOperationLease.fencing_token
-                    == before.fencing_token,
+                    PlatformSchemaOperationLease.row_version == before.row_version,
+                    PlatformSchemaOperationLease.generation == before.generation,
+                    PlatformSchemaOperationLease.fencing_token == before.fencing_token,
                 )
                 .values(
                     state=after.state.value,
@@ -269,16 +258,12 @@ class SchemaOperationLeasePersistenceService:
                     observed_at=after.observed_at,
                     owner_id=after.owner_id,
                     claim_id=_optional_uuid_text(after.claim_id),
-                    purpose=(
-                        None if after.purpose is None else after.purpose.value
-                    ),
+                    purpose=(None if after.purpose is None else after.purpose.value),
                     acquired_at=after.acquired_at,
                     expires_at=after.expires_at,
                     last_claim_id=_optional_uuid_text(after.last_claim_id),
                     last_effect=(
-                        None
-                        if after.last_effect is None
-                        else after.last_effect.value
+                        None if after.last_effect is None else after.last_effect.value
                     ),
                     last_request_digest=after.last_request_digest,
                 )
@@ -306,9 +291,7 @@ def _domain_lease(row: PlatformSchemaOperationLease) -> SchemaOperationLease:
             owner_id=row.owner_id,
             claim_id=_optional_uuid(row.claim_id),
             purpose=(
-                None
-                if row.purpose is None
-                else SchemaOperationPurpose(row.purpose)
+                None if row.purpose is None else SchemaOperationPurpose(row.purpose)
             ),
             acquired_at=_optional_utc(row.acquired_at),
             expires_at=_optional_utc(row.expires_at),
@@ -356,9 +339,9 @@ def _verify_transition(
 
 
 def _read_database_utc_now(session: Session) -> datetime:
-    if session.get_bind().dialect.name in {"mysql", "mariadb"}:
-        return _as_utc(session.scalar(sa.text("SELECT UTC_TIMESTAMP(6)")))
-    return _as_utc(session.scalar(sa.select(sa.func.current_timestamp())))
+    if session.get_bind().dialect.name not in {"mysql", "mariadb"}:
+        raise SchemaOperationPersistenceError()
+    return _as_utc(session.scalar(sa.text("SELECT UTC_TIMESTAMP(6)")))
 
 
 def _as_utc(value: object) -> datetime:
@@ -386,15 +369,6 @@ def _optional_uuid(value: object | None) -> UUID | None:
 
 def _optional_uuid_text(value: UUID | None) -> str | None:
     return None if value is None else str(value)
-
-
-def _materialize_sqlite_outer_transaction(session: Session) -> None:
-    connection = session.connection()
-    if connection.dialect.name != "sqlite":
-        return
-    driver_connection = getattr(connection.connection, "driver_connection", None)
-    if driver_connection is not None and not driver_connection.in_transaction:
-        connection.exec_driver_sql("BEGIN IMMEDIATE")
 
 
 __all__ = [

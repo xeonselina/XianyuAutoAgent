@@ -8,7 +8,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import sqlalchemy as sa
-from sqlalchemy.dialects import mysql, sqlite
+from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Session
 
 from inventory_control.crypto import RootKey, derive_platform_auth_subject_digest
@@ -77,19 +77,18 @@ class PlatformRateLimitPolicy:
         try:
             ZoneInfo(self.calendar_timezone)
         except (TypeError, ZoneInfoNotFoundError):
-            raise ValueError("platform rate-limit calendar timezone is invalid") from None
+            raise ValueError(
+                "platform rate-limit calendar timezone is invalid"
+            ) from None
         if not self.rules:
             raise ValueError("platform rate-limit policy requires explicit rules")
         identities = [
-            (rule.scope, rule.subject_type, rule.window_kind)
-            for rule in self.rules
+            (rule.scope, rule.subject_type, rule.window_kind) for rule in self.rules
         ]
         if len(identities) != len(set(identities)):
             raise ValueError("platform rate-limit policy contains duplicate rules")
         for scope in self.scopes:
-            covered = {
-                rule.subject_type for rule in self.rules if rule.scope == scope
-            }
+            covered = {rule.subject_type for rule in self.rules if rule.scope == scope}
             if covered != _SUBJECT_TYPES:
                 raise ValueError(
                     "each platform rate-limit scope must cover username, IP, and device"
@@ -266,9 +265,7 @@ class PlatformAdminRateLimiter:
     ) -> tuple[datetime, datetime]:
         if rule.window_kind == "calendar_day":
             local_now = now.astimezone(self._calendar_timezone)
-            local_start = local_now.replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
+            local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
             local_end = local_start + timedelta(days=1)
             return local_start.astimezone(timezone.utc), local_end.astimezone(
                 timezone.utc
@@ -340,18 +337,8 @@ class PlatformAdminRateLimiter:
         if dialect in {"mysql", "mariadb"}:
             statement = mysql.insert(table).values(**values)
             statement = statement.on_duplicate_key_update(id=table.c.id)
-        elif dialect == "sqlite":
-            statement = sqlite.insert(table).values(**values)
-            statement = statement.on_conflict_do_nothing(
-                index_elements=(
-                    "scope",
-                    "subject_digest_sha256",
-                    "window_kind",
-                    "window_started_at",
-                )
-            )
         else:
-            raise RuntimeError("platform rate limiter requires MySQL or SQLite")
+            raise RuntimeError("platform rate limiter requires MySQL or MariaDB")
         session.execute(statement)
         row = self._load_exact(
             session,

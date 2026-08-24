@@ -11,7 +11,7 @@ from typing import Optional, Sequence, Tuple
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from app import db
 from app.models.accessory_inventory import (
@@ -34,6 +34,7 @@ from app.services.accessory_relay_chain_service import (
     AccessoryRelayChainError,
     AccessoryRelayChainService,
 )
+from inventory_control.transactions import require_caller_transaction
 
 
 _UNSHIPPED_RENTAL_STATUSES = (
@@ -126,20 +127,12 @@ class DeviceWarehouseLocationService:
             or not actor_user_id.strip()
             or len(actor_user_id.strip()) > 36
             or (note is not None and len(note) > 500)
-            or (
-                related_resource_type is not None
-                and len(related_resource_type) > 64
-            )
-            or (
-                related_resource_id is not None
-                and len(related_resource_id) > 64
-            )
+            or (related_resource_type is not None and len(related_resource_type) > 64)
+            or (related_resource_id is not None and len(related_resource_id) > 64)
         ):
             raise WarehouseServiceError("device warehouse movement is invalid")
         if device.warehouse_id == target_warehouse.id:
-            raise SameWarehouseMoveError(
-                "device is already in the target warehouse"
-            )
+            raise SameWarehouseMoveError("device is already in the target warehouse")
         movement = DeviceWarehouseMovement(
             device_id=device.id,
             from_warehouse_id=device.warehouse_id,
@@ -293,9 +286,7 @@ def _load_preview_accessory_types(
         .scalars()
         .all()
     )
-    type_ids = {
-        row.accessory_type_id for row in (*requests, *links)
-    }
+    type_ids = {row.accessory_type_id for row in (*requests, *links)}
     type_names = {
         accessory_type.id: accessory_type.display_name
         for accessory_type in (
@@ -374,11 +365,7 @@ def _preview_revision(
             ),
             current_warehouse.name if current_warehouse is not None else None,
             current_warehouse.status if current_warehouse is not None else None,
-            (
-                current_warehouse.setup_state
-                if current_warehouse is not None
-                else None
-            ),
+            (current_warehouse.setup_state if current_warehouse is not None else None),
         ),
         (
             "target_warehouse",
@@ -468,11 +455,7 @@ def _preview_revision(
                 link.source_relay_case_id,
                 unit.warehouse_id if unit is not None else None,
                 unit.condition_status if unit is not None else None,
-                (
-                    unit.current_holder_rental_id is None
-                    if unit is not None
-                    else False
-                ),
+                (unit.current_holder_rental_id is None if unit is not None else False),
                 (
                     unit.accessory_type_id == link.accessory_type_id
                     if unit is not None
@@ -520,9 +503,7 @@ def _relay_chain_roots(
     affected = set(affected_rental_ids)
     successor_ids = {item.successor_rental_id for item in relay_cases}
     all_roots = tuple(
-        item
-        for item in relay_cases
-        if item.predecessor_rental_id not in successor_ids
+        item for item in relay_cases if item.predecessor_rental_id not in successor_ids
     )
     if not all_roots:
         raise AccessoryMoveReassignmentUnsupportedError(
@@ -618,10 +599,7 @@ def _request_window(
             existing_link.reservation_start_at,
             existing_link.reservation_end_at,
         )
-    if (
-        rental.planned_ship_out_date is None
-        or rental.planned_return_date is None
-    ):
+    if rental.planned_ship_out_date is None or rental.planned_return_date is None:
         return None
     return (
         datetime.combine(rental.planned_ship_out_date, time.min),
@@ -666,20 +644,13 @@ def _operation_session(
         return db.session(), True
     if not isinstance(tenant_session, Session):
         raise TypeError("tenant_session must be a SQLAlchemy Session")
-    transaction = (
-        tenant_session.get_nested_transaction()
-        or tenant_session.get_transaction()
-    )
-    if (
-        transaction is None
-        or (
-            tenant_session.get_nested_transaction() is None
-            and transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        )
-    ):
-        raise WarehouseServiceError(
+    require_caller_transaction(
+        tenant_session,
+        lambda: WarehouseServiceError(
             "an explicit caller-owned tenant transaction is required"
-        )
+        ),
+        accept_nested=True,
+    )
     return tenant_session, False
 
 
@@ -779,8 +750,7 @@ class WarehouseService:
             )
             warehouses = tuple(
                 session.execute(
-                    warehouse_statement
-                    .order_by(Warehouse.id.asc())
+                    warehouse_statement.order_by(Warehouse.id.asc())
                     .execution_options(populate_existing=True)
                     .with_for_update()
                 )
@@ -889,9 +859,7 @@ class WarehouseService:
             .all()
         )
         if len(defaults) != 1:
-            raise WarehousePersistenceError(
-                "exactly one default warehouse is required"
-            )
+            raise WarehousePersistenceError("exactly one default warehouse is required")
         return defaults[0]
 
     @staticmethod
@@ -927,9 +895,7 @@ class WarehouseService:
                 )
             warehouse = defaults[0]
             if warehouse.status != "active":
-                raise WarehouseUnavailableError(
-                    "default warehouse must be active"
-                )
+                raise WarehouseUnavailableError("default warehouse must be active")
             warehouse.mark_ready(
                 name=name,
                 contact_name=contact_name,
@@ -973,13 +939,8 @@ class WarehouseService:
             ).scalar_one_or_none()
             if warehouse is None:
                 raise WarehouseNotFoundError("warehouse not found")
-            if (
-                warehouse.status != "active"
-                or warehouse.setup_state != "ready"
-            ):
-                raise WarehouseUnavailableError(
-                    "warehouse must be active and ready"
-                )
+            if warehouse.status != "active" or warehouse.setup_state != "ready":
+                raise WarehouseUnavailableError("warehouse must be active and ready")
             warehouse.mark_ready(
                 name=name,
                 contact_name=contact_name,
@@ -1130,9 +1091,7 @@ class WarehouseService:
                 or len(user_id.strip()) > 36
                 or scene not in {"booking", "shipping", "inspection"}
             ):
-                raise WarehouseServiceError(
-                    "warehouse preference is invalid"
-                )
+                raise WarehouseServiceError("warehouse preference is invalid")
             warehouse = session.execute(
                 select(Warehouse)
                 .where(Warehouse.id == warehouse_id)
@@ -1225,9 +1184,7 @@ class WarehouseService:
         if device is None:
             raise DeviceNotFoundError("device not found")
         if device.is_accessory is True:
-            raise UnsupportedDeviceMoveError(
-                "warehouse move requires a main device"
-            )
+            raise UnsupportedDeviceMoveError("warehouse move requires a main device")
 
         target_warehouse = session.execute(
             select(Warehouse)
@@ -1253,14 +1210,14 @@ class WarehouseService:
             lock=False,
         )
         accessory_types_by_rental = _load_preview_accessory_types(
-            session,
-            tuple(rental.id for rental in affected_rentals)
+            session, tuple(rental.id for rental in affected_rentals)
         )
-        revision_requests, revision_links, revision_unit_by_id = (
-            _load_preview_revision_facts(
-                session,
-                tuple(rental.id for rental in affected_rentals)
-            )
+        (
+            revision_requests,
+            revision_links,
+            revision_unit_by_id,
+        ) = _load_preview_revision_facts(
+            session, tuple(rental.id for rental in affected_rentals)
         )
         device_rental_ids = tuple(
             session.execute(
@@ -1286,9 +1243,7 @@ class WarehouseService:
             ),
             target_warehouse=_warehouse_reference(target_warehouse),
             is_same_warehouse=device.warehouse_id == target_warehouse.id,
-            affected_rental_ids=tuple(
-                rental.id for rental in affected_rentals
-            ),
+            affected_rental_ids=tuple(rental.id for rental in affected_rentals),
             affected_rentals=tuple(
                 _rental_preview(
                     rental,
@@ -1389,12 +1344,8 @@ class WarehouseService:
                     key=lambda rental: (rental.start_date, rental.id),
                 )
             )
-            affected_rental_ids = tuple(
-                rental.id for rental in affected_rentals
-            )
-            rental_by_id = {
-                rental.id: rental for rental in affected_rentals
-            }
+            affected_rental_ids = tuple(rental.id for rental in affected_rentals)
+            rental_by_id = {rental.id: rental for rental in affected_rentals}
             relay_cases = _load_relay_cases(
                 session,
                 tuple(rental.id for rental in device_rentals),
@@ -1405,8 +1356,7 @@ class WarehouseService:
                 affected_rental_ids=affected_rental_ids,
             )
             relay_successor_ids = {
-                relay_case.successor_rental_id
-                for relay_case in relay_cases
+                relay_case.successor_rental_id for relay_case in relay_cases
             }
 
             # Shared lock order is device -> affected rentals -> warehouses.
@@ -1460,9 +1410,7 @@ class WarehouseService:
                     session.execute(
                         select(RentalAccessoryRequest)
                         .where(
-                            RentalAccessoryRequest.rental_id.in_(
-                                affected_rental_ids
-                            )
+                            RentalAccessoryRequest.rental_id.in_(affected_rental_ids)
                         )
                         .order_by(
                             RentalAccessoryRequest.rental_id.asc(),
@@ -1482,9 +1430,7 @@ class WarehouseService:
                     session.execute(
                         select(RentalAccessoryUnitLink)
                         .where(
-                            RentalAccessoryUnitLink.rental_id.in_(
-                                affected_rental_ids
-                            )
+                            RentalAccessoryUnitLink.rental_id.in_(affected_rental_ids)
                         )
                         .order_by(
                             RentalAccessoryUnitLink.rental_id.asc(),
@@ -1505,15 +1451,12 @@ class WarehouseService:
                 for request in requests
             }
             link_by_key = {
-                (link.rental_id, link.accessory_type_id): link
-                for link in links
+                (link.rental_id, link.accessory_type_id): link for link in links
             }
             requested_type_ids = tuple(
                 sorted({request.accessory_type_id for request in requests})
             )
-            linked_unit_ids = tuple(
-                sorted({link.accessory_unit_id for link in links})
-            )
+            linked_unit_ids = tuple(sorted({link.accessory_unit_id for link in links}))
             unit_predicates = []
             if linked_unit_ids:
                 unit_predicates.append(AccessoryUnit.id.in_(linked_unit_ids))
@@ -1564,9 +1507,7 @@ class WarehouseService:
                 unit_by_id=unit_by_id,
             )
             if current_preview_revision != expected_preview_revision:
-                raise StaleDeviceWarehouseError(
-                    "move facts changed after preview"
-                )
+                raise StaleDeviceWarehouseError("move facts changed after preview")
             if (
                 target_warehouse.status != "active"
                 or target_warehouse.setup_state != "ready"
@@ -1581,9 +1522,7 @@ class WarehouseService:
                     # including requestless neutral carry-through links.
                     continue
                 unit = unit_by_id.get(link.accessory_unit_id)
-                request = request_by_key.get(
-                    (link.rental_id, link.accessory_type_id)
-                )
+                request = request_by_key.get((link.rental_id, link.accessory_type_id))
                 if (
                     link.source_relay_case_id is not None
                     or request is None
@@ -1613,9 +1552,7 @@ class WarehouseService:
                 key = (request.rental_id, request.accessory_type_id)
                 link = link_by_key.get(key)
                 unit = (
-                    unit_by_id.get(link.accessory_unit_id)
-                    if link is not None
-                    else None
+                    unit_by_id.get(link.accessory_unit_id) if link is not None else None
                 )
                 windows_by_key[key] = _request_window(
                     rental_by_id[request.rental_id],
@@ -1805,18 +1742,20 @@ class WarehouseService:
                 ) from None
             session.flush()
 
-            fulfilled_keys = set(
-                session.execute(
-                    select(
-                        RentalAccessoryUnitLink.rental_id,
-                        RentalAccessoryUnitLink.accessory_type_id,
-                    ).where(
-                        RentalAccessoryUnitLink.rental_id.in_(
-                            affected_rental_ids
+            fulfilled_keys = (
+                set(
+                    session.execute(
+                        select(
+                            RentalAccessoryUnitLink.rental_id,
+                            RentalAccessoryUnitLink.accessory_type_id,
+                        ).where(
+                            RentalAccessoryUnitLink.rental_id.in_(affected_rental_ids)
                         )
-                    )
-                ).all()
-            ) if affected_rental_ids else set()
+                    ).all()
+                )
+                if affected_rental_ids
+                else set()
+            )
             fulfillment = tuple(
                 RentalAccessoryFulfillmentFact(
                     rental_id=request.rental_id,

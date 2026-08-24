@@ -44,9 +44,7 @@ def _manifest() -> DefaultTenantMigrationManifest:
         database_uuid=DATABASE_UUID,
         source_schema_name="inventory_management",
         baseline_migration_id="initial-baseline-v1",
-        core_plan_revision_uuid=UUID(
-            "53000000-0000-4000-8000-000000000003"
-        ),
+        core_plan_revision_uuid=UUID("53000000-0000-4000-8000-000000000003"),
         control_schema_head="202608220026",
         tenant_schema_head="rev_9",
         source_snapshot_digest=_digest("source"),
@@ -125,14 +123,10 @@ def _legacy_authority_evidence(manifest):
     return DefaultLegacyAuthorityBoundaryEvidence(
         manifest_digest=manifest.digest,
         source_snapshot_digest=manifest.source_snapshot_digest,
-        implementation_identity_digest=(
-            manifest.implementation_identity_digest
-        ),
+        implementation_identity_digest=(manifest.implementation_identity_digest),
         migration_bundle_digest=manifest.migration_bundle_digest,
         legacy_quantity_negative_digest=_digest("legacy-quantity-negative"),
-        legacy_child_rental_negative_digest=_digest(
-            "legacy-child-rental-negative"
-        ),
+        legacy_child_rental_negative_digest=_digest("legacy-child-rental-negative"),
         legacy_global_provider_negative_digest=_digest(
             "legacy-global-provider-negative"
         ),
@@ -151,9 +145,7 @@ def test_policy_and_registry_run_exact_cross_database_queries(databases) -> None
         control_session=control_session,
     )
     supplemental = (
-        DefaultLegacyDoubleCountCollector(
-            _legacy_authority_evidence(_manifest())
-        ),
+        DefaultLegacyDoubleCountCollector(_legacy_authority_evidence(_manifest())),
         _SupplementalCollector("schema.digest", _digest("schema-9")),
         _SupplementalCollector("schema.generation", 9),
     )
@@ -163,9 +155,9 @@ def test_policy_and_registry_run_exact_cross_database_queries(databases) -> None
         supplemental_collectors=supplemental,
     )
 
-    report = DefaultMigrationReconciliationRunner(
-        collectors
-    ).collect_and_evaluate(manifest=_manifest(), policy=policy)
+    report = DefaultMigrationReconciliationRunner(collectors).collect_and_evaluate(
+        manifest=_manifest(), policy=policy
+    )
 
     assert report.passed is True
     assert tuple(item.key for item in registry.collectors()) == (
@@ -179,6 +171,10 @@ def test_policy_and_registry_run_exact_cross_database_queries(databases) -> None
         "tables.devices.rows",
         "warehouses.default_count",
     )
+    orphan_collector = next(
+        item for item in registry.collectors() if item.key == "orphans.foreign_keys"
+    )
+    assert "rental_accessories" not in str(orphan_collector.statement)
 
 
 def test_legacy_authority_evidence_is_manifest_bound_and_nonzero_fails_closed():
@@ -190,10 +186,13 @@ def test_legacy_authority_evidence_is_manifest_bound_and_nonzero_fails_closed():
     evidence = _legacy_authority_evidence(manifest)
     collector = DefaultLegacyDoubleCountCollector(evidence)
 
-    assert collector.collect(
-        manifest=manifest,
-        requirement=requirement,
-    ).observed == 0
+    assert (
+        collector.collect(
+            manifest=manifest,
+            requirement=requirement,
+        ).observed
+        == 0
+    )
     assert "legacy-quantity-negative" not in repr(evidence)
 
     changed_manifest = replace(

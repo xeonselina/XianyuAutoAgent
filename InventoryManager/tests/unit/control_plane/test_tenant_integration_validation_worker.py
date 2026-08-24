@@ -122,52 +122,56 @@ def harness(tmp_path, mysql_control_database):
                 status="active",
                 access_version=1,
             )
-            session.add_all((
-                plan,
-                tenant,
-                PlatformRootKeyVersion(
-                    version=ROOT_KEY.version,
-                    fingerprint_sha256=bytes.fromhex(ROOT_KEY.fingerprint_sha256),
-                    status="active",
-                    activated_at=NOW,
-                ),
-            ))
-            session.flush()
-            session.add_all((
-                TenantDatabase(
-                    tenant_id=str(TENANT_ID),
-                    database_instance_key="primary",
-                    database_name="tenant_6b000000000040008000000000000001",
-                    status="ready",
-                    schema_version="test-head",
-                    activated_by_registration_commit_uuid=(
-                        "6b000000-0000-4000-8000-000000000099"
+            session.add_all(
+                (
+                    plan,
+                    tenant,
+                    PlatformRootKeyVersion(
+                        version=ROOT_KEY.version,
+                        fingerprint_sha256=bytes.fromhex(ROOT_KEY.fingerprint_sha256),
+                        status="active",
+                        activated_at=NOW,
                     ),
-                    activation_route_version=1,
-                    activation_credential_generation=1,
-                    dml_username="tenant_dml_g1",
-                    dml_credential_generation=1,
-                    dml_root_key_version=1,
-                    dml_derivation_version=1,
-                    dml_desired_login_state="active",
-                    dml_observed_login_state="active",
-                    dml_login_state_version=1,
-                    platform_read_username="tenant_read_g1",
-                    platform_read_credential_generation=1,
-                    platform_read_root_key_version=1,
-                    platform_read_derivation_version=1,
-                    platform_read_route_version=1,
-                ),
-                Subscription(
-                    tenant_id=str(TENANT_ID),
-                    plan_revision_uuid=plan.id,
-                    entitlements_schema_version=1,
-                    entitlements_json=entitlements,
-                    entitlements_digest=entitlements_digest,
-                    status="active",
-                    expires_at=NOW + timedelta(days=30),
-                ),
-            ))
+                )
+            )
+            session.flush()
+            session.add_all(
+                (
+                    TenantDatabase(
+                        tenant_id=str(TENANT_ID),
+                        database_instance_key="primary",
+                        database_name="tenant_6b000000000040008000000000000001",
+                        status="ready",
+                        schema_version="test-head",
+                        activated_by_registration_commit_uuid=(
+                            "6b000000-0000-4000-8000-000000000099"
+                        ),
+                        activation_route_version=1,
+                        activation_credential_generation=1,
+                        dml_username="tenant_dml_g1",
+                        dml_credential_generation=1,
+                        dml_root_key_version=1,
+                        dml_derivation_version=1,
+                        dml_desired_login_state="active",
+                        dml_observed_login_state="active",
+                        dml_login_state_version=1,
+                        platform_read_username="tenant_read_g1",
+                        platform_read_credential_generation=1,
+                        platform_read_root_key_version=1,
+                        platform_read_derivation_version=1,
+                        platform_read_route_version=1,
+                    ),
+                    Subscription(
+                        tenant_id=str(TENANT_ID),
+                        plan_revision_uuid=plan.id,
+                        entitlements_schema_version=1,
+                        entitlements_json=entitlements,
+                        entitlements_digest=entitlements_digest,
+                        status="active",
+                        expires_at=NOW + timedelta(days=30),
+                    ),
+                )
+            )
         with database.transaction() as session:
             service = TenantIntegrationService(session)
             service.create_integration(
@@ -229,7 +233,6 @@ def _run(harness, validator, *, authority=None):
         result_mac_key=MAC_KEY,
         lease_duration=timedelta(minutes=2),
         clock=lambda: NOW,
-        allow_sqlite_claim_for_tests=True,
         service=ControlOutboxService(database_clock=lambda _session: NOW),
     )
     return worker.run_once()

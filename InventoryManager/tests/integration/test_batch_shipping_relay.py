@@ -2,29 +2,15 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
-from app import create_app, db
+from app import db
 from app.models.device import Device
 from app.models.rental import Rental
 from app.models.rental_relay_binding import RentalRelayBinding
 
 
 @pytest.fixture
-def app():
-    return create_app("testing")
-
-
-@pytest.fixture
 def client(app):
     return app.test_client()
-
-
-@pytest.fixture
-def db_session(app):
-    with app.app_context():
-        db.create_all()
-        yield db.session
-        db.session.rollback()
-        db.drop_all()
 
 
 def seed_relay_pair(db_session):
@@ -59,10 +45,12 @@ def seed_relay_pair(db_session):
     )
     db_session.add_all([predecessor, successor])
     db_session.flush()
-    db_session.add(RentalRelayBinding(
-        predecessor_rental_id=predecessor.id,
-        successor_rental_id=successor.id,
-    ))
+    db_session.add(
+        RentalRelayBinding(
+            predecessor_rental_id=predecessor.id,
+            successor_rental_id=successor.id,
+        )
+    )
     db_session.commit()
     return predecessor, successor
 
@@ -86,9 +74,7 @@ def test_ship_date_list_marks_relay_successor(client, db_session):
     assert rentals[0]["relay_predecessor_rental_id"] == predecessor.id
 
 
-def test_schedule_api_refuses_relay_successor(
-    client, db_session, monkeypatch
-):
+def test_schedule_api_refuses_relay_successor(client, db_session, monkeypatch):
     _, successor = seed_relay_pair(db_session)
     shipping_calls = []
 

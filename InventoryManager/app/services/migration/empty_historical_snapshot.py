@@ -18,7 +18,7 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from app.models.audit_log import AuditLog
 from app.models.database_identity import TenantDatabaseIdentity
@@ -35,6 +35,7 @@ from app.models.shipping_execution import (
 from inventory_control.default_migration import (
     DefaultTenantMigrationManifest,
 )
+from inventory_control.transactions import require_caller_transaction
 
 
 EMPTY_HISTORICAL_SNAPSHOT_POLICY_REVISION: Final = 1
@@ -127,7 +128,12 @@ class EmptyHistoricalSnapshotVerifier:
             or expected_schema_generation < 1
         ):
             raise EmptyHistoricalSnapshotInputError()
-        _prepare_session(session)
+        require_caller_transaction(
+            session,
+            EmptyHistoricalSnapshotTransactionError,
+            invalid_session_error=EmptyHistoricalSnapshotInputError,
+            clean=True,
+        )
         _verify_database_identity(
             session,
             tenant_uuid=manifest.tenant_uuid,
@@ -144,13 +150,9 @@ class EmptyHistoricalSnapshotVerifier:
                     "counts": list(counts),
                     "database_uuid": str(manifest.database_uuid),
                     "manifest_digest": manifest.digest.hex(),
-                    "policy_revision": (
-                        EMPTY_HISTORICAL_SNAPSHOT_POLICY_REVISION
-                    ),
+                    "policy_revision": (EMPTY_HISTORICAL_SNAPSHOT_POLICY_REVISION),
                     "schema_generation": expected_schema_generation,
-                    "source_snapshot_digest": (
-                        manifest.source_snapshot_digest.hex()
-                    ),
+                    "source_snapshot_digest": (manifest.source_snapshot_digest.hex()),
                     "tenant_uuid": str(manifest.tenant_uuid),
                 },
                 sort_keys=True,
@@ -165,38 +167,6 @@ class EmptyHistoricalSnapshotVerifier:
             counts=counts,
             verification_passed=True,
         )
-
-
-def _prepare_session(session: Session) -> None:
-    if not isinstance(session, Session):
-        raise EmptyHistoricalSnapshotInputError()
-    transaction = session.get_transaction()
-    dirty = any(
-        session.is_modified(instance, include_collections=True)
-        for instance in session.dirty
-    )
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        or session.new
-        or session.deleted
-        or dirty
-    ):
-        raise EmptyHistoricalSnapshotTransactionError()
-    try:
-        connection = session.connection()
-        if connection.dialect.name == "sqlite":
-            driver = getattr(
-                connection.connection,
-                "driver_connection",
-                None,
-            )
-            if driver is not None and not driver.in_transaction:
-                connection.exec_driver_sql("BEGIN IMMEDIATE")
-    except EmptyHistoricalSnapshotError:
-        raise
-    except SQLAlchemyError:
-        raise EmptyHistoricalSnapshotPersistenceError() from None
 
 
 def _verify_database_identity(
@@ -245,27 +215,19 @@ def _collect_counts(session: Session) -> tuple[tuple[str, int], ...]:
     )
     statements = {
         "legacy_historical_rentals": (
-            sa.select(sa.func.count()).select_from(Rental).where(
-                historical_status
-            )
+            sa.select(sa.func.count()).select_from(Rental).where(historical_status)
         ),
         "legacy_print_audits": (
             sa.select(sa.func.count()).select_from(AuditLog).where(print_audit)
         ),
         "legacy_tracking_rows": (
-            sa.select(sa.func.count()).select_from(Rental).where(
-                legacy_tracking
-            )
+            sa.select(sa.func.count()).select_from(Rental).where(legacy_tracking)
         ),
         "legacy_unattributed_prints": (
-            sa.select(sa.func.count()).select_from(
-                LegacyUnattributedPrintSnapshot
-            )
+            sa.select(sa.func.count()).select_from(LegacyUnattributedPrintSnapshot)
         ),
         "legacy_unattributed_shipments": (
-            sa.select(sa.func.count()).select_from(
-                LegacyUnattributedShipmentSnapshot
-            )
+            sa.select(sa.func.count()).select_from(LegacyUnattributedShipmentSnapshot)
         ),
         "outbound_shipments": (
             sa.select(sa.func.count()).select_from(OutboundShipment)
@@ -273,9 +235,7 @@ def _collect_counts(session: Session) -> tuple[tuple[str, int], ...]:
         "provider_operation_attempts": (
             sa.select(sa.func.count()).select_from(ProviderOperationAttempt)
         ),
-        "waybill_print_jobs": (
-            sa.select(sa.func.count()).select_from(WaybillPrintJob)
-        ),
+        "waybill_print_jobs": (sa.select(sa.func.count()).select_from(WaybillPrintJob)),
     }
     try:
         values = tuple(
@@ -287,9 +247,7 @@ def _collect_counts(session: Session) -> tuple[tuple[str, int], ...]:
     except SQLAlchemyError:
         raise EmptyHistoricalSnapshotPersistenceError() from None
     if any(
-        isinstance(value, bool)
-        or not isinstance(value, int)
-        or value < 0
+        isinstance(value, bool) or not isinstance(value, int) or value < 0
         for _key, value in values
     ):
         raise EmptyHistoricalSnapshotPersistenceError()

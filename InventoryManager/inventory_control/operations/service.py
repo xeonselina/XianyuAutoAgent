@@ -12,12 +12,13 @@ from uuid import uuid4
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.models.operations import (
     PlatformAlertLifecycleEvent,
     PlatformOperationalSignal,
 )
+from inventory_control.transactions import require_caller_transaction
 
 
 ALERT_FINGERPRINT_VERSION = 1
@@ -134,56 +135,54 @@ class _SignalDefinition:
     severity: str
 
 
-_SIGNAL_DEFINITIONS: Mapping[OperationalSignalKey, _SignalDefinition] = (
-    MappingProxyType(
-        {
-            OperationalSignalKey.BACKUP_DUMP_DURATION: _SignalDefinition(
-                "nas", "backup", "p2"
-            ),
-            OperationalSignalKey.BACKUP_VERIFIED_FRESHNESS: _SignalDefinition(
-                "nas", "backup", "p1"
-            ),
-            OperationalSignalKey.CLOUD_SYNC_FRESHNESS: _SignalDefinition(
-                "nas", "cloud_sync", "p2"
-            ),
-            OperationalSignalKey.CONTROL_DB_CONNECTION_CAPACITY: (
-                _SignalDefinition("control_db", "mysql", "p2")
-            ),
-            OperationalSignalKey.CONTROL_DB_CONNECTIVITY: _SignalDefinition(
-                "control_db", "mysql", "p1"
-            ),
-            OperationalSignalKey.EVALUATOR_HEARTBEAT: _SignalDefinition(
-                "evaluator", "evaluator", "p2"
-            ),
-            OperationalSignalKey.KUAIMAI_AGGREGATE: _SignalDefinition(
-                "provider_aggregate", "kuaimai", "p2"
-            ),
-            OperationalSignalKey.NOTIFICATION_DELIVERY: _SignalDefinition(
-                "notification_adapter", "notification", "p2"
-            ),
-            OperationalSignalKey.QUEUE_CONSECUTIVE_FAILURES: _SignalDefinition(
-                "worker", "queue", "p2"
-            ),
-            OperationalSignalKey.QUEUE_OLDEST_WAIT: _SignalDefinition(
-                "worker", "queue", "p2"
-            ),
-            OperationalSignalKey.SF_AGGREGATE: _SignalDefinition(
-                "provider_aggregate", "sf", "p2"
-            ),
-            OperationalSignalKey.SMS_AGGREGATE: _SignalDefinition(
-                "provider_aggregate", "sms", "p1"
-            ),
-            OperationalSignalKey.WEB_HEARTBEAT: _SignalDefinition(
-                "web", "web", "p2"
-            ),
-            OperationalSignalKey.WORKER_HEARTBEAT: _SignalDefinition(
-                "worker", "worker", "p2"
-            ),
-            OperationalSignalKey.XIANYU_AGGREGATE: _SignalDefinition(
-                "provider_aggregate", "xianyu", "p2"
-            ),
-        }
-    )
+_SIGNAL_DEFINITIONS: Mapping[
+    OperationalSignalKey, _SignalDefinition
+] = MappingProxyType(
+    {
+        OperationalSignalKey.BACKUP_DUMP_DURATION: _SignalDefinition(
+            "nas", "backup", "p2"
+        ),
+        OperationalSignalKey.BACKUP_VERIFIED_FRESHNESS: _SignalDefinition(
+            "nas", "backup", "p1"
+        ),
+        OperationalSignalKey.CLOUD_SYNC_FRESHNESS: _SignalDefinition(
+            "nas", "cloud_sync", "p2"
+        ),
+        OperationalSignalKey.CONTROL_DB_CONNECTION_CAPACITY: (
+            _SignalDefinition("control_db", "mysql", "p2")
+        ),
+        OperationalSignalKey.CONTROL_DB_CONNECTIVITY: _SignalDefinition(
+            "control_db", "mysql", "p1"
+        ),
+        OperationalSignalKey.EVALUATOR_HEARTBEAT: _SignalDefinition(
+            "evaluator", "evaluator", "p2"
+        ),
+        OperationalSignalKey.KUAIMAI_AGGREGATE: _SignalDefinition(
+            "provider_aggregate", "kuaimai", "p2"
+        ),
+        OperationalSignalKey.NOTIFICATION_DELIVERY: _SignalDefinition(
+            "notification_adapter", "notification", "p2"
+        ),
+        OperationalSignalKey.QUEUE_CONSECUTIVE_FAILURES: _SignalDefinition(
+            "worker", "queue", "p2"
+        ),
+        OperationalSignalKey.QUEUE_OLDEST_WAIT: _SignalDefinition(
+            "worker", "queue", "p2"
+        ),
+        OperationalSignalKey.SF_AGGREGATE: _SignalDefinition(
+            "provider_aggregate", "sf", "p2"
+        ),
+        OperationalSignalKey.SMS_AGGREGATE: _SignalDefinition(
+            "provider_aggregate", "sms", "p1"
+        ),
+        OperationalSignalKey.WEB_HEARTBEAT: _SignalDefinition("web", "web", "p2"),
+        OperationalSignalKey.WORKER_HEARTBEAT: _SignalDefinition(
+            "worker", "worker", "p2"
+        ),
+        OperationalSignalKey.XIANYU_AGGREGATE: _SignalDefinition(
+            "provider_aggregate", "xianyu", "p2"
+        ),
+    }
 )
 
 _OK_RESULT_CLASSES = frozenset(
@@ -428,13 +427,10 @@ class OperationalSignalService:
             signal.result_class = result.value
             if signal.active_alert_fingerprint is not None:
                 if (
-                    signal.effective_status
-                    == OperationalEffectiveStatus.UNKNOWN.value
+                    signal.effective_status == OperationalEffectiveStatus.UNKNOWN.value
                     and signal.consecutive_failures >= policy.failure_threshold
                 ):
-                    signal.effective_status = (
-                        OperationalEffectiveStatus.UNHEALTHY.value
-                    )
+                    signal.effective_status = OperationalEffectiveStatus.UNHEALTHY.value
             elif signal.consecutive_failures >= policy.failure_threshold:
                 signal.effective_status = OperationalEffectiveStatus.UNHEALTHY.value
                 self._open_alert(signal, key=key, now=current_time)
@@ -497,9 +493,7 @@ class OperationalSignalService:
             or current_time < previous_evaluated_at
         ):
             raise OperationalInputError()
-        policy_changed = self._apply_policy(
-            signal, policy=policy, now=current_time
-        )
+        policy_changed = self._apply_policy(signal, policy=policy, now=current_time)
 
         changed = False
         if current_time >= _as_utc(signal.freshness_deadline_at):
@@ -767,14 +761,11 @@ class OperationalSignalService:
 
     @staticmethod
     def _require_transaction(session: Session) -> None:
-        if not isinstance(session, Session):
-            raise OperationalInputError()
-        transaction = session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            raise OperationalTransactionRequiredError()
+        require_caller_transaction(
+            session,
+            OperationalTransactionRequiredError,
+            invalid_session_error=OperationalInputError,
+        )
 
 
 def _alert_fingerprint(
@@ -811,9 +802,7 @@ def _snapshot(
             component=signal.component,
             severity=signal.severity,
             observed_status=OperationalObservationStatus(signal.observed_status),
-            observed_result_class=OperationalResultClass(
-                signal.observed_result_class
-            ),
+            observed_result_class=OperationalResultClass(signal.observed_result_class),
             effective_status=OperationalEffectiveStatus(signal.effective_status),
             result_class=OperationalResultClass(signal.result_class),
             policy_version=signal.policy_version,
@@ -883,8 +872,7 @@ def _validate_observation_result(
     result: OperationalResultClass,
 ) -> None:
     if (
-        status is OperationalObservationStatus.OK
-        and result not in _OK_RESULT_CLASSES
+        status is OperationalObservationStatus.OK and result not in _OK_RESULT_CLASSES
     ) or (
         status is OperationalObservationStatus.FAILURE
         and result not in _FAILURE_RESULT_CLASSES
@@ -911,11 +899,7 @@ def _duration_seconds(value: timedelta, *, policy: bool = False) -> int:
             raise OperationalPolicyError()
         raise OperationalInputError()
     seconds = value.total_seconds()
-    if (
-        seconds < 1
-        or seconds > _MAX_POLICY_SECONDS
-        or not float(seconds).is_integer()
-    ):
+    if seconds < 1 or seconds > _MAX_POLICY_SECONDS or not float(seconds).is_integer():
         if policy:
             raise OperationalPolicyError()
         raise OperationalInputError()

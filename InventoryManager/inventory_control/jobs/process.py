@@ -35,11 +35,13 @@ class PeriodicScheduler(Protocol):
         definition: PeriodicJobDefinition,
         *,
         now: datetime,
-    ) -> FanOutResult: ...
+    ) -> FanOutResult:
+        ...
 
 
 class JobWorker(Protocol):
-    def run_once(self) -> WorkerRunResult: ...
+    def run_once(self) -> WorkerRunResult:
+        ...
 
 
 StopWaiter = Callable[[float], bool]
@@ -247,8 +249,7 @@ class DurableJobProcess:
             raise TypeError("definitions must contain periodic job definitions")
         selected_triggers = tuple(triggers)
         if any(
-            not isinstance(trigger, JobProcessTrigger)
-            for trigger in selected_triggers
+            not isinstance(trigger, JobProcessTrigger) for trigger in selected_triggers
         ):
             raise TypeError("triggers must contain process triggers")
         if not selected_definitions and not selected_triggers:
@@ -429,9 +430,7 @@ class SignalAwareJobProcessHost:
 
     def run(self) -> None:
         selected = (self._signals.SIGINT, self._signals.SIGTERM)
-        previous = {
-            number: self._signals.getsignal(number) for number in selected
-        }
+        previous = {number: self._signals.getsignal(number) for number in selected}
 
         def request_stop(_number, _frame):
             self._host.stop(wait=False)
@@ -458,7 +457,6 @@ def build_durable_job_process(
     max_jobs_per_cycle: int = 100,
     idle_poll_interval: timedelta = timedelta(seconds=1),
     clock: Callable[[], datetime] | None = None,
-    allow_sqlite_claim_for_tests: bool = False,
 ) -> DurableJobProcess:
     """Merge capability registrations into one scheduler and one worker."""
 
@@ -492,8 +490,7 @@ def build_durable_job_process(
         handlers.update(capability.handlers)
         selected_authority = capability.authority or authority
         authorities.update(
-            (job_type, selected_authority)
-            for job_type in capability.handlers
+            (job_type, selected_authority) for job_type in capability.handlers
         )
         for definition in capability.schedules:
             if definition.job_type in scheduled_types:
@@ -521,7 +518,6 @@ def build_durable_job_process(
         worker_id=worker_id,
         lease_duration=lease_duration,
         clock=selected_clock,
-        allow_sqlite_claim_for_tests=allow_sqlite_claim_for_tests,
         claim_job_types=handlers.keys(),
     )
     return DurableJobProcess(

@@ -80,7 +80,7 @@ RESOLVE_ACTION_ID = UUID("19000000-0000-4000-8000-00000000000f")
     ("dialect_name", "expected_sql"),
     (
         ("mysql", "SELECT UTC_TIMESTAMP(6)"),
-        ("sqlite", "SELECT CURRENT_TIMESTAMP AS current_timestamp_1"),
+        ("mariadb", "SELECT UTC_TIMESTAMP(6)"),
     ),
 )
 def test_default_database_clock_keeps_microseconds_and_is_dialect_safe(
@@ -94,6 +94,8 @@ def test_default_database_clock_keeps_microseconds_and_is_dialect_safe(
     assert _read_database_utc_now(session) == NOW
     statement = session.scalar.call_args.args[0]
     assert str(statement) == expected_sql
+
+
 OUTBOX_RESULT_MAC_KEY = b"suspension-test-result-mac-key-v1!!"
 FREEZE_RESULT_SAFE_CODE = "SUSPENSION_EFFECT_COMPLETED"
 
@@ -115,9 +117,7 @@ def _seed(control_database, *, hold_state="held", mfa_at=MFA_AT):
                 actual_survivor_count=1,
                 sealed_coverage_digest=b"s" * 32,
                 final_coverage_digest=b"f" * 32,
-                accepted_smoke_evidence_uuid=(
-                    "19000000-0000-4000-8000-000000000010"
-                ),
+                accepted_smoke_evidence_uuid=("19000000-0000-4000-8000-000000000010"),
                 host_installation_fingerprint="a" * 64,
                 deployment_marker_fingerprint="b" * 64,
                 row_version=2,
@@ -478,16 +478,12 @@ def _seed_deletion(control_database):
                 tenant_id=str(TENANT_ID),
                 database_uuid=str(DATABASE_ID),
                 requested_by_user_id=str(USER_ID),
-                request_challenge_id=(
-                    "19000000-0000-4000-8000-000000000013"
-                ),
+                request_challenge_id=("19000000-0000-4000-8000-000000000013"),
                 status="pending_review",
                 request_revision=1,
                 execution_generation=1,
                 executor_fencing_token=1,
-                current_action_id=(
-                    "19000000-0000-4000-8000-000000000014"
-                ),
+                current_action_id=("19000000-0000-4000-8000-000000000014"),
                 committed_tenant_access_version=7,
                 desired_dml_login_state="locked",
                 published_dml_generation=7,
@@ -539,9 +535,7 @@ def test_freeze_is_atomic_immediate_deny_with_provenance_and_outbox(
         }
 
         tenant = session.get(Tenant, str(TENANT_ID), populate_existing=True)
-        route = session.get(
-            TenantDatabase, str(TENANT_ID), populate_existing=True
-        )
+        route = session.get(TenantDatabase, str(TENANT_ID), populate_existing=True)
         suspension = session.get(TenantSuspension, str(SUSPENSION_ID))
         action = session.get(TenantSuspensionAction, str(FREEZE_ACTION_ID))
         user_session = session.get(TenantUserSession, str(USER_SESSION_ID))
@@ -597,13 +591,8 @@ def test_exact_freeze_replay_does_not_duplicate_action_or_outbox(
         assert replay.replayed
         assert replay.action_uuid == first.action_uuid
         assert session.scalar(sa.select(sa.func.count(TenantSuspension.id))) == 1
-        assert (
-            session.scalar(sa.select(sa.func.count(TenantSuspensionAction.id)))
-            == 1
-        )
-        assert (
-            session.scalar(sa.select(sa.func.count(ControlOutboxEvent.id))) == 6
-        )
+        assert session.scalar(sa.select(sa.func.count(TenantSuspensionAction.id))) == 1
+        assert session.scalar(sa.select(sa.func.count(ControlOutboxEvent.id))) == 6
 
     with control_database.transaction() as session:
         with pytest.raises(SuspensionPersistenceConflictError) as caught:
@@ -709,9 +698,7 @@ def test_freeze_completion_requires_authenticated_persisted_receipts_and_replays
         assert completed.phase is SuspensionPhase.ACTIVE
         assert completed.suspension_row_version == 2
         assert completed.route_row_version == 6
-        route = session.get(
-            TenantDatabase, str(TENANT_ID), populate_existing=True
-        )
+        route = session.get(TenantDatabase, str(TENANT_ID), populate_existing=True)
         assert route.dml_observed_login_state == "locked"
     with control_database.transaction() as session:
         replay = _service(session).complete_freeze(_freeze_command())
@@ -760,9 +747,7 @@ def test_freeze_failure_stays_denied_and_changed_failure_is_not_replay(
         )
         assert failed.phase is SuspensionPhase.FAILED
         tenant = session.get(Tenant, str(TENANT_ID), populate_existing=True)
-        route = session.get(
-            TenantDatabase, str(TENANT_ID), populate_existing=True
-        )
+        route = session.get(TenantDatabase, str(TENANT_ID), populate_existing=True)
         assert tenant.status == "suspending"
         assert route.dml_desired_login_state == "locked"
     with control_database.transaction() as session:
@@ -814,9 +799,7 @@ def test_resolve_intent_stays_locked_unpublished_and_exactly_replays(
         assert result.candidate_dml_generation == 8
         assert result.tenant_access_version == 9
         tenant = session.get(Tenant, str(TENANT_ID), populate_existing=True)
-        route = session.get(
-            TenantDatabase, str(TENANT_ID), populate_existing=True
-        )
+        route = session.get(TenantDatabase, str(TENANT_ID), populate_existing=True)
         action = session.get(TenantSuspensionAction, str(RESOLVE_ACTION_ID))
         candidate_event = session.scalar(
             sa.select(ControlOutboxEvent).where(

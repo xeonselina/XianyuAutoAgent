@@ -5,13 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Callable
 from uuid import UUID, uuid5
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from app.models.accessory_inventory import (
     AccessoryType,
@@ -25,7 +25,7 @@ from app.models.device import Device
 from app.models.rental import Rental
 from app.services.scheduling.overlap_policy import ACTIVE_RENTAL_STATUSES
 from inventory_control.default_migration import DefaultTenantMigrationManifest
-
+from inventory_control.transactions import require_caller_transaction
 
 _UNIT_DOMAIN = "inventory-manager/default-accessory-unit/v1/"
 _LINK_DOMAIN = "inventory-manager/default-accessory-link/v1/"
@@ -56,6 +56,31 @@ class LogicalAccessoryBackfillConflictError(LogicalAccessoryBackfillError):
 
 class LogicalAccessoryBackfillPersistenceError(LogicalAccessoryBackfillError):
     code = "LOGICAL_ACCESSORY_BACKFILL_PERSISTENCE_FAILED"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class LegacyAccessoryTypeEntry:
+    accessory_type_id: int
+    name: str
+    display_name: str
+    display_order: int
+
+    def __post_init__(self) -> None:
+        _positive(self.accessory_type_id)
+        if (
+            not isinstance(self.name, str)
+            or not self.name.strip()
+            or len(self.name.strip()) > 100
+            or not isinstance(self.display_name, str)
+            or not self.display_name.strip()
+            or len(self.display_name.strip()) > 100
+            or isinstance(self.display_order, bool)
+            or not isinstance(self.display_order, int)
+            or self.display_order < 0
+        ):
+            raise LogicalAccessoryBackfillInputError()
+        object.__setattr__(self, "name", self.name.strip())
+        object.__setattr__(self, "display_name", self.display_name.strip())
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -96,6 +121,10 @@ class LegacyAccessoryRequestEntry:
     main_rental_id: int
     accessory_type_id: int
     linked_legacy_device_id: int | None
+    expected_child_device_id: int | None = None
+    expected_child_start_date: date | None = None
+    expected_child_end_date: date | None = None
+    expected_child_status: str | None = None
 
     def __post_init__(self) -> None:
         for value in (
@@ -113,6 +142,23 @@ class LegacyAccessoryRequestEntry:
             or self.linked_legacy_device_id < 1
         ):
             raise LogicalAccessoryBackfillInputError()
+        source_values = (
+            self.expected_child_device_id,
+            self.expected_child_start_date,
+            self.expected_child_end_date,
+            self.expected_child_status,
+        )
+        if any(value is not None for value in source_values):
+            if (
+                isinstance(self.expected_child_device_id, bool)
+                or not isinstance(self.expected_child_device_id, int)
+                or self.expected_child_device_id < 1
+                or not isinstance(self.expected_child_start_date, date)
+                or not isinstance(self.expected_child_end_date, date)
+                or self.expected_child_start_date > self.expected_child_end_date
+                or self.expected_child_status not in ACTIVE_RENTAL_STATUSES
+            ):
+                raise LogicalAccessoryBackfillInputError()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -121,7 +167,9 @@ class LogicalAccessoryBackfillPlan:
     migration_idempotency_key: str
     units: tuple[LegacyAccessoryUnitEntry, ...]
     requests: tuple[LegacyAccessoryRequestEntry, ...]
-    policy_revision: int = 1
+    types: tuple[LegacyAccessoryTypeEntry, ...] = ()
+    child_fact_authority: str = "strict_match"
+    policy_revision: int = 2
 
     def __post_init__(self) -> None:
         if (
@@ -129,22 +177,32 @@ class LogicalAccessoryBackfillPlan:
             or len(self.parent_manifest_digest) != 32
             or not isinstance(self.migration_idempotency_key, str)
             or not self.migration_idempotency_key
-            or self.policy_revision != 1
+            or self.policy_revision != 2
             or not isinstance(self.units, tuple)
             or not self.units
-            or not all(isinstance(item, LegacyAccessoryUnitEntry) for item in self.units)
+            or not all(
+                isinstance(item, LegacyAccessoryUnitEntry) for item in self.units
+            )
             or not isinstance(self.requests, tuple)
             or not all(
-                isinstance(item, LegacyAccessoryRequestEntry)
-                for item in self.requests
+                isinstance(item, LegacyAccessoryRequestEntry) for item in self.requests
             )
+            or not isinstance(self.types, tuple)
+            or not all(
+                isinstance(item, LegacyAccessoryTypeEntry) for item in self.types
+            )
+            or self.child_fact_authority not in {"strict_match", "main_rental"}
         ):
             raise LogicalAccessoryBackfillInputError()
         unit_ids = tuple(item.legacy_device_id for item in self.units)
         request_ids = tuple(item.child_rental_id for item in self.requests)
+        type_ids = tuple(item.accessory_type_id for item in self.types)
+        type_names = tuple(item.name for item in self.types)
         if (
             unit_ids != tuple(sorted(set(unit_ids)))
             or request_ids != tuple(sorted(set(request_ids)))
+            or type_ids != tuple(sorted(set(type_ids)))
+            or len(type_names) != len(set(type_names))
         ):
             raise LogicalAccessoryBackfillInputError()
         units_by_device = {item.legacy_device_id: item for item in self.units}
@@ -154,6 +212,20 @@ class LogicalAccessoryBackfillPlan:
         if len(request_identity) != len(set(request_identity)):
             raise LogicalAccessoryBackfillInputError()
         for request in self.requests:
+            source_values = (
+                request.expected_child_device_id,
+                request.expected_child_start_date,
+                request.expected_child_end_date,
+                request.expected_child_status,
+            )
+            if self.child_fact_authority == "strict_match" and any(
+                value is not None for value in source_values
+            ):
+                raise LogicalAccessoryBackfillInputError()
+            if self.child_fact_authority == "main_rental" and any(
+                value is None for value in source_values
+            ):
+                raise LogicalAccessoryBackfillInputError()
             if request.linked_legacy_device_id is None:
                 continue
             unit = units_by_device.get(request.linked_legacy_device_id)
@@ -170,26 +242,47 @@ class LogicalAccessoryBackfillPlan:
                 "migration_idempotency_key": self.migration_idempotency_key,
                 "parent_manifest_digest": self.parent_manifest_digest.hex(),
                 "policy_revision": self.policy_revision,
+                "child_fact_authority": self.child_fact_authority,
                 "requests": [
                     {
                         "accessory_type_id": item.accessory_type_id,
                         "child_rental_id": item.child_rental_id,
                         "linked_legacy_device_id": item.linked_legacy_device_id,
                         "main_rental_id": item.main_rental_id,
+                        "expected_child_device_id": item.expected_child_device_id,
+                        "expected_child_end_date": (
+                            None
+                            if item.expected_child_end_date is None
+                            else item.expected_child_end_date.isoformat()
+                        ),
+                        "expected_child_start_date": (
+                            None
+                            if item.expected_child_start_date is None
+                            else item.expected_child_start_date.isoformat()
+                        ),
+                        "expected_child_status": item.expected_child_status,
                     }
                     for item in self.requests
                 ],
                 "units": [
                     {
                         "accessory_type_id": item.accessory_type_id,
-                        "expected_lifecycle_status": (
-                            item.expected_lifecycle_status
-                        ),
+                        "expected_lifecycle_status": (item.expected_lifecycle_status),
                         "expected_warehouse_id": item.expected_warehouse_id,
                         "legacy_device_id": item.legacy_device_id,
                         "reliable_and_available": item.reliable_and_available,
                     }
                     for item in self.units
+                ],
+                "types": [
+                    {
+                        "accessory_type_id": item.accessory_type_id,
+                        "display_name": item.display_name,
+                        "display_order": item.display_order,
+                        "name": item.name,
+                        "tracking_mode": "logical_unit",
+                    }
+                    for item in self.types
                 ],
             },
             sort_keys=True,
@@ -231,16 +324,50 @@ class LogicalAccessoryBackfillService:
             not isinstance(manifest, DefaultTenantMigrationManifest)
             or not isinstance(plan, LogicalAccessoryBackfillPlan)
             or plan.parent_manifest_digest != manifest.digest
-            or plan.migration_idempotency_key
-            != manifest.migration_idempotency_key
+            or plan.migration_idempotency_key != manifest.migration_idempotency_key
         ):
             raise LogicalAccessoryBackfillInputError()
         generation = _positive(expected_schema_generation)
-        _require_explicit_transaction(session)
+        require_caller_transaction(
+            session,
+            LogicalAccessoryBackfillTransactionError,
+        )
         now = _naive_utc(self._clock())
         created_facts = 0
         try:
             _require_identity(session, manifest=manifest, generation=generation)
+            for type_entry in plan.types:
+                existing_type = session.scalar(
+                    sa.select(AccessoryType)
+                    .where(
+                        sa.or_(
+                            AccessoryType.id == type_entry.accessory_type_id,
+                            AccessoryType.name == type_entry.name,
+                        )
+                    )
+                    .with_for_update()
+                )
+                if existing_type is None:
+                    existing_type = AccessoryType(
+                        id=type_entry.accessory_type_id,
+                        name=type_entry.name,
+                        display_name=type_entry.display_name,
+                        tracking_mode="logical_unit",
+                        is_active=True,
+                        display_order=type_entry.display_order,
+                    )
+                    session.add(existing_type)
+                    session.flush()
+                    created_facts += 1
+                elif (
+                    existing_type.id != type_entry.accessory_type_id
+                    or existing_type.name != type_entry.name
+                    or existing_type.display_name != type_entry.display_name
+                    or existing_type.tracking_mode != "logical_unit"
+                    or existing_type.is_active is not True
+                    or existing_type.display_order != type_entry.display_order
+                ):
+                    raise LogicalAccessoryBackfillConflictError()
             unit_types = {item.accessory_type_id for item in plan.units}
             types = tuple(
                 session.scalars(
@@ -269,19 +396,16 @@ class LogicalAccessoryBackfillService:
                 )
             )
             devices_by_id = {item.id: item for item in devices}
-            if set(devices_by_id) != {
-                item.legacy_device_id for item in plan.units
-            }:
+            if set(devices_by_id) != {item.legacy_device_id for item in plan.units}:
                 raise LogicalAccessoryBackfillConflictError()
 
             incomplete_children = tuple(
                 session.scalars(
                     sa.select(Rental)
-                    .join(Device, Device.id == Rental.device_id)
                     .where(
                         Rental.parent_rental_id.is_not(None),
                         Rental.status.in_(tuple(sorted(ACTIVE_RENTAL_STATUSES))),
-                        Device.is_accessory.is_(True),
+                        Rental.device_id.in_(tuple(sorted(devices_by_id))),
                     )
                     .order_by(Rental.id)
                     .with_for_update()
@@ -375,20 +499,18 @@ class LogicalAccessoryBackfillService:
                 main = mains_by_id[request_entry.main_rental_id]
                 if (
                     child.parent_rental_id != main.id
-                    or child.device_id
-                    != (
-                        request_entry.linked_legacy_device_id
-                        if request_entry.linked_legacy_device_id is not None
-                        else child.device_id
-                    )
                     or main.parent_rental_id is not None
-                    or child.start_date != main.start_date
-                    or child.end_date != main.end_date
-                    or child.status != main.status
                     or main.status not in ACTIVE_RENTAL_STATUSES
                     or main.planned_ship_out_date is None
                     or main.planned_return_date is None
                     or main.logistics_days is None
+                ):
+                    raise LogicalAccessoryBackfillConflictError()
+                if self._child_source_conflicts(
+                    plan=plan,
+                    request=request_entry,
+                    child=child,
+                    main=main,
                 ):
                     raise LogicalAccessoryBackfillConflictError()
                 accessory_type = types_by_id[request_entry.accessory_type_id]
@@ -412,7 +534,11 @@ class LogicalAccessoryBackfillService:
                     raise LogicalAccessoryBackfillConflictError()
 
                 if request_entry.linked_legacy_device_id is None:
-                    if child.status in {"shipped", "returned"}:
+                    source_unit = units_by_device.get(child.device_id)
+                    if child.status in {"shipped", "returned"} and (
+                        source_unit is None
+                        or source_unit.condition_status != "maintenance"
+                    ):
                         raise LogicalAccessoryBackfillConflictError()
                     continue
                 unit = units_by_device[request_entry.linked_legacy_device_id]
@@ -542,6 +668,33 @@ class LogicalAccessoryBackfillService:
             idempotent_replay=created_facts == 0,
         )
 
+    @staticmethod
+    def _child_source_conflicts(
+        *,
+        plan: LogicalAccessoryBackfillPlan,
+        request: LegacyAccessoryRequestEntry,
+        child: Rental,
+        main: Rental,
+    ) -> bool:
+        if plan.child_fact_authority == "strict_match":
+            return (
+                child.device_id
+                != (
+                    request.linked_legacy_device_id
+                    if request.linked_legacy_device_id is not None
+                    else child.device_id
+                )
+                or child.start_date != main.start_date
+                or child.end_date != main.end_date
+                or child.status != main.status
+            )
+        return (
+            child.device_id != request.expected_child_device_id
+            or child.start_date != request.expected_child_start_date
+            or child.end_date != request.expected_child_end_date
+            or child.status != request.expected_child_status
+        )
+
 
 def _require_identity(
     session: Session,
@@ -596,9 +749,7 @@ def _ensure_event(
             rental_id=None if rental is None else rental.id,
             relay_case_id=None,
             from_warehouse_id=None,
-            to_warehouse_id=(
-                unit.warehouse_id if event_type == "created" else None
-            ),
+            to_warehouse_id=(unit.warehouse_id if event_type == "created" else None),
             from_holder_rental_id=None,
             to_holder_rental_id=(
                 rental.id if event_type == "dispatched" and rental else None
@@ -679,17 +830,6 @@ def _naive_utc(value: object) -> datetime:
     return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
-def _require_explicit_transaction(session: Session) -> None:
-    if not isinstance(session, Session):
-        raise LogicalAccessoryBackfillTransactionError()
-    transaction = session.get_transaction()
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-    ):
-        raise LogicalAccessoryBackfillTransactionError()
-
-
 def _positive(value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise LogicalAccessoryBackfillInputError()
@@ -698,6 +838,7 @@ def _positive(value: object) -> int:
 
 __all__ = [
     "LegacyAccessoryRequestEntry",
+    "LegacyAccessoryTypeEntry",
     "LegacyAccessoryUnitEntry",
     "LogicalAccessoryBackfillConflictError",
     "LogicalAccessoryBackfillError",

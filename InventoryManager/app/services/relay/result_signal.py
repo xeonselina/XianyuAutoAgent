@@ -15,7 +15,7 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from app.models.rental_relay_case import RentalRelayCase
 from app.models.shipping_execution import (
@@ -25,6 +25,7 @@ from app.models.shipping_execution import (
 from inventory_control import ControlDatabase
 from inventory_control.models.foundation import Tenant
 from inventory_control.models.jobs import BackgroundJob
+from inventory_control.transactions import require_caller_transaction
 
 from .external_projection import (
     RelayExternalProjectionCommand,
@@ -138,8 +139,7 @@ class RelayShipmentResultSignalService:
                 tenant_session.scalars(
                     sa.select(ProviderOperationAttempt)
                     .where(
-                        ProviderOperationAttempt.shipment_id
-                        == attempt.shipment_id,
+                        ProviderOperationAttempt.shipment_id == attempt.shipment_id,
                         ProviderOperationAttempt.operation == "create_waybill",
                         ProviderOperationAttempt.status == "succeeded",
                     )
@@ -167,8 +167,7 @@ class RelayShipmentResultSignalService:
                 tenant_session.scalars(
                     sa.select(RentalRelayCase)
                     .where(
-                        RentalRelayCase.successor_rental_id
-                        == shipment.rental_id,
+                        RentalRelayCase.successor_rental_id == shipment.rental_id,
                         RentalRelayCase.status == "agreed",
                     )
                     .order_by(RentalRelayCase.id.asc())
@@ -263,12 +262,7 @@ class RelayCommittedShipmentResultEnqueuer:
 
 
 def _require_transaction(session: Session) -> None:
-    transaction = session.get_transaction() if isinstance(session, Session) else None
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-    ):
-        raise RelayShipmentResultSignalInputError()
+    require_caller_transaction(session, RelayShipmentResultSignalInputError)
 
 
 def _positive(value: object) -> int:

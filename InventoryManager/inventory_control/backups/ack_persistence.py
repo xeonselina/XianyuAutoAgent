@@ -13,13 +13,14 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.database import read_database_utc_value
 from inventory_control.models.backups import (
     BackupArtifactAcknowledgementRecord,
     CompletedBackupArtifactRecord,
 )
+from inventory_control.transactions import require_caller_transaction
 
 from .acknowledgements import (
     AcknowledgementKind,
@@ -234,20 +235,11 @@ class BackupAcknowledgementPersistenceService:
         return reduced
 
     def _prepare(self, *, mutation: bool) -> None:
-        transaction = self._session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            raise BackupAckPersistenceTransactionError()
-        dirty = any(
-            self._session.is_modified(instance, include_collections=True)
-            for instance in self._session.dirty
+        require_caller_transaction(
+            self._session,
+            BackupAckPersistenceTransactionError,
+            clean=True,
         )
-        if self._session.new or self._session.deleted or dirty:
-            raise BackupAckPersistenceTransactionError()
-        if mutation:
-            _materialize_sqlite_outer_transaction(self._session)
 
     def _now(self) -> datetime:
         try:
@@ -266,19 +258,14 @@ class BackupAcknowledgementPersistenceService:
         try:
             row = self._session.scalar(
                 sa.select(CompletedBackupArtifactRecord)
-                .where(
-                    CompletedBackupArtifactRecord.artifact_id
-                    == str(artifact_id)
-                )
+                .where(CompletedBackupArtifactRecord.artifact_id == str(artifact_id))
                 .with_for_update()
                 .execution_options(autoflush=False, populate_existing=True)
             )
         except SQLAlchemyError:
             raise BackupAckPersistenceError() from None
         if row is None:
-            raise BackupAckPersistenceIntegrityError(
-                "ACK_COMPLETED_ARTIFACT_NOT_FOUND"
-            )
+            raise BackupAckPersistenceIntegrityError("ACK_COMPLETED_ARTIFACT_NOT_FOUND")
         return row
 
     def _lock_conflicts(
@@ -325,9 +312,7 @@ class BackupAcknowledgementPersistenceService:
         # avoiding cross-artifact lock inversion keeps this boundary bounded.
         if any(row.artifact_id != str(submission.artifact_id) for row in rows):
             raise BackupAcknowledgementConflict()
-        return tuple(
-            _ack_from_row(row, artifact=artifact) for row in rows
-        )
+        return tuple(_ack_from_row(row, artifact=artifact) for row in rows)
 
     def _artifact_binding(
         self,
@@ -436,15 +421,6 @@ def _uuid(value: object) -> UUID:
     if str(selected) != value or selected.int == 0:
         raise ValueError("invalid technical identity")
     return selected
-
-
-def _materialize_sqlite_outer_transaction(session: Session) -> None:
-    connection = session.connection()
-    if connection.dialect.name != "sqlite":
-        return
-    driver_connection = getattr(connection.connection, "driver_connection", None)
-    if driver_connection is not None and not driver_connection.in_transaction:
-        connection.exec_driver_sql("BEGIN IMMEDIATE")
 
 
 __all__ = [

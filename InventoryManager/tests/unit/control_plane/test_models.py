@@ -39,12 +39,14 @@ def test_minimal_control_model_graph_persists(control_database):
     with control_database.transaction() as session:
         session.add(Installation(marker_fingerprint="c" * 64))
         session.add(tenant)
+        session.flush()
+        session.refresh(tenant)
+        assert tenant.status == "provisioning"
+        assert tenant.database_route is route
+        assert route.identity_record.database_route is route
 
     UUID(tenant.id)
     UUID(route.database_uuid)
-    assert tenant.status == "provisioning"
-    assert tenant.database_route is route
-    assert route.identity_record.database_route is route
 
 
 def test_database_route_is_unique_per_instance_and_name(control_database):

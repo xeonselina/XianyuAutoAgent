@@ -159,6 +159,9 @@ def _persist_subscription_graph(database):
             source_uuid=registration_commit_uuid,
         )
         session.add(event)
+        session.flush()
+        for record in (tenant, plan, guard, subscription, event):
+            session.refresh(record)
     return now, tenant, plan, guard, subscription, event
 
 

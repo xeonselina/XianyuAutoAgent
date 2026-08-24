@@ -21,7 +21,7 @@ from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError, OperationalError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.domain.tenant_gate import TenantStatus
 from inventory_control.models.deletion import TenantDeletionRequest
@@ -32,6 +32,7 @@ from inventory_control.models.platform_identity import (
     PlatformAdmin,
     PlatformAdminSession,
 )
+from inventory_control.transactions import require_caller_transaction
 from inventory_control.models.recovery import (
     DisasterRecoveryRun,
     TenantRecoveryHold,
@@ -243,10 +244,9 @@ class TenantSuspensionPersistenceCoordinator:
             raise SuspensionPersistenceTransactionError(
                 "SUSPENSION_CALLER_TRANSACTION_REQUIRED"
             )
-        if (
-            not isinstance(recent_step_up_window, timedelta)
-            or recent_step_up_window <= timedelta(0)
-        ):
+        if not isinstance(
+            recent_step_up_window, timedelta
+        ) or recent_step_up_window <= timedelta(0):
             raise ValueError("recent_step_up_window must be positive")
         if database_clock is not None and not callable(database_clock):
             raise TypeError("database_clock must be callable")
@@ -281,9 +281,7 @@ class TenantSuspensionPersistenceCoordinator:
                 idempotency_key=normalized.idempotency_key,
                 request_digest=digest,
                 expected_access_version=normalized.expected_access_version,
-                expected_barrier_generation=(
-                    normalized.expected_barrier_generation
-                ),
+                expected_barrier_generation=(normalized.expected_barrier_generation),
             )
         )
         if transition.idempotent:
@@ -300,9 +298,7 @@ class TenantSuspensionPersistenceCoordinator:
         )
         after = transition.state
         if context.suspension is not None:
-            raise SuspensionPersistenceConflictError(
-                "SUSPENSION_ACTION_CONFLICT"
-            )
+            raise SuspensionPersistenceConflictError("SUSPENSION_ACTION_CONFLICT")
         if after.current_action is None:
             raise SuspensionPersistenceConflictError(
                 "SUSPENSION_REDUCER_RESULT_INVALID"
@@ -417,9 +413,7 @@ class TenantSuspensionPersistenceCoordinator:
                 idempotency_key=normalized.idempotency_key,
                 request_digest=digest,
                 expected_access_version=normalized.expected_access_version,
-                expected_barrier_generation=(
-                    normalized.expected_barrier_generation
-                ),
+                expected_barrier_generation=(normalized.expected_barrier_generation),
             )
         )
         if transition.idempotent:
@@ -464,17 +458,11 @@ class TenantSuspensionPersistenceCoordinator:
                 )
                 self._cas_suspension(
                     suspension,
-                    expected_row_version=(
-                        normalized.expected_suspension_row_version
-                    ),
+                    expected_row_version=(normalized.expected_suspension_row_version),
                     values={
                         "state": transition.state.phase.value,
-                        "barrier_generation": (
-                            transition.state.barrier_generation
-                        ),
-                        "committed_tenant_row_version": (
-                            next_tenant_row_version
-                        ),
+                        "barrier_generation": (transition.state.barrier_generation),
+                        "committed_tenant_row_version": (next_tenant_row_version),
                         "committed_access_version": (
                             transition.state.tenant_access_version
                         ),
@@ -525,7 +513,7 @@ class TenantSuspensionPersistenceCoordinator:
         if context.deletion is not None:
             raise SuspensionPersistenceBoundaryError(
                 "SUSPENSION_HIGHER_PRIORITY_COMPENSATION_REQUIRED"
-        )
+            )
         self._require_barrier_identity(context, normalized)
         evidence = self._lock_verified_freeze_receipts(context, normalized)
         state = self._domain_state(context)
@@ -545,9 +533,7 @@ class TenantSuspensionPersistenceCoordinator:
         suspension = context.suspension
         action = context.action
         if suspension is None or action is None:
-            raise SuspensionPersistenceConflictError(
-                "SUSPENSION_ACTION_UNAVAILABLE"
-            )
+            raise SuspensionPersistenceConflictError("SUSPENSION_ACTION_UNAVAILABLE")
         now = self._now()
         next_tenant_row_version = context.tenant.row_version + 1
         next_suspension_row_version = suspension.row_version + 1
@@ -567,9 +553,7 @@ class TenantSuspensionPersistenceCoordinator:
                 )
                 self._cas_suspension(
                     suspension,
-                    expected_row_version=(
-                        normalized.expected_suspension_row_version
-                    ),
+                    expected_row_version=(normalized.expected_suspension_row_version),
                     values={
                         "state": transition.state.phase.value,
                         "committed_tenant_row_version": next_tenant_row_version,
@@ -662,24 +646,18 @@ class TenantSuspensionPersistenceCoordinator:
         suspension = context.suspension
         action = context.action
         if suspension is None or action is None:
-            raise SuspensionPersistenceConflictError(
-                "SUSPENSION_ACTION_UNAVAILABLE"
-            )
+            raise SuspensionPersistenceConflictError("SUSPENSION_ACTION_UNAVAILABLE")
         now = self._now()
         next_suspension_row_version = suspension.row_version + 1
         aggregate_failure = (
-            safe_failure
-            if transition.state.phase is SuspensionPhase.FAILED
-            else None
+            safe_failure if transition.state.phase is SuspensionPhase.FAILED else None
         )
 
         try:
             with self._session.no_autoflush:
                 self._cas_suspension(
                     suspension,
-                    expected_row_version=(
-                        normalized.expected_suspension_row_version
-                    ),
+                    expected_row_version=(normalized.expected_suspension_row_version),
                     values={
                         "state": transition.state.phase.value,
                         "safe_failure_code": aggregate_failure,
@@ -746,22 +724,16 @@ class TenantSuspensionPersistenceCoordinator:
     resolve = request_resolve
 
     def _prepare(self) -> None:
-        transaction = self._session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            raise SuspensionPersistenceTransactionError(
+        require_caller_transaction(
+            self._session,
+            lambda: SuspensionPersistenceTransactionError(
                 "SUSPENSION_CALLER_TRANSACTION_REQUIRED"
-            )
-        dirty = any(
-            self._session.is_modified(instance, include_collections=True)
-            for instance in self._session.dirty
-        )
-        if self._session.new or self._session.deleted or dirty:
-            raise SuspensionPersistenceTransactionError(
+            ),
+            dirty_error=lambda: SuspensionPersistenceTransactionError(
                 "SUSPENSION_CLEAN_CALLER_UNIT_OF_WORK_REQUIRED"
-            )
+            ),
+            clean=True,
+        )
 
     def _lock_context(
         self,
@@ -777,9 +749,7 @@ class TenantSuspensionPersistenceCoordinator:
             .execution_options(populate_existing=True)
         )
         if tenant is None:
-            raise SuspensionPersistenceGateError(
-                "SUSPENSION_TENANT_UNAVAILABLE"
-            )
+            raise SuspensionPersistenceGateError("SUSPENSION_TENANT_UNAVAILABLE")
         run = self._session.scalar(
             sa.select(DisasterRecoveryRun)
             .where(DisasterRecoveryRun.current_run_marker == "current")
@@ -787,9 +757,7 @@ class TenantSuspensionPersistenceCoordinator:
             .execution_options(populate_existing=True)
         )
         if run is None:
-            raise SuspensionPersistenceGateError(
-                "SUSPENSION_RECOVERY_RUN_UNAVAILABLE"
-            )
+            raise SuspensionPersistenceGateError("SUSPENSION_RECOVERY_RUN_UNAVAILABLE")
         hold = self._session.scalar(
             sa.select(TenantRecoveryHold)
             .where(
@@ -800,9 +768,7 @@ class TenantSuspensionPersistenceCoordinator:
             .execution_options(populate_existing=True)
         )
         if hold is None:
-            raise SuspensionPersistenceGateError(
-                "SUSPENSION_RECOVERY_HOLD_UNAVAILABLE"
-            )
+            raise SuspensionPersistenceGateError("SUSPENSION_RECOVERY_HOLD_UNAVAILABLE")
         deletion = self._session.scalar(
             sa.select(TenantDeletionRequest)
             .where(
@@ -824,8 +790,7 @@ class TenantSuspensionPersistenceCoordinator:
                 sa.select(TenantSuspensionAction)
                 .where(
                     TenantSuspensionAction.suspension_id == suspension.id,
-                    TenantSuspensionAction.generation
-                    == suspension.barrier_generation,
+                    TenantSuspensionAction.generation == suspension.barrier_generation,
                 )
                 .with_for_update()
                 .execution_options(populate_existing=True)
@@ -841,9 +806,7 @@ class TenantSuspensionPersistenceCoordinator:
             .execution_options(populate_existing=True)
         )
         if subscription is None:
-            raise SuspensionPersistenceGateError(
-                "SUSPENSION_SUBSCRIPTION_UNAVAILABLE"
-            )
+            raise SuspensionPersistenceGateError("SUSPENSION_SUBSCRIPTION_UNAVAILABLE")
         route = self._session.scalar(
             sa.select(TenantDatabase)
             .where(TenantDatabase.tenant_id == tenant.id)
@@ -857,9 +820,7 @@ class TenantSuspensionPersistenceCoordinator:
             or route.dml_desired_login_state is None
             or route.dml_login_state_version is None
         ):
-            raise SuspensionPersistenceGateError(
-                "SUSPENSION_ROUTE_UNAVAILABLE"
-            )
+            raise SuspensionPersistenceGateError("SUSPENSION_ROUTE_UNAVAILABLE")
         return _LockedContext(
             tenant=tenant,
             run=run,
@@ -947,13 +908,9 @@ class TenantSuspensionPersistenceCoordinator:
     ) -> None:
         self._require_gate_fences(context, request)
         if context.deletion is not None:
-            raise SuspensionPersistenceGateError(
-                "SUSPENSION_DELETION_IN_PROGRESS"
-            )
+            raise SuspensionPersistenceGateError("SUSPENSION_DELETION_IN_PROGRESS")
         if context.suspension is not None:
-            raise SuspensionPersistenceConflictError(
-                "SUSPENSION_ACTION_CONFLICT"
-            )
+            raise SuspensionPersistenceConflictError("SUSPENSION_ACTION_CONFLICT")
         if (
             request.expected_suspension_row_version != 0
             or request.expected_barrier_generation != 0
@@ -963,16 +920,12 @@ class TenantSuspensionPersistenceCoordinator:
             or context.route.dml_login_state_version
             != request.expected_login_state_version
         ):
-            raise SuspensionPersistenceConflictError(
-                "SUSPENSION_VERSION_CONFLICT"
-            )
+            raise SuspensionPersistenceConflictError("SUSPENSION_VERSION_CONFLICT")
         if (
             context.tenant.status not in {"active", "expired"}
             or context.subscription.status != context.tenant.status
         ):
-            raise SuspensionPersistenceGateError(
-                "SUSPENSION_FREEZE_STATE_INELIGIBLE"
-            )
+            raise SuspensionPersistenceGateError("SUSPENSION_FREEZE_STATE_INELIGIBLE")
 
     def _require_resolve_fences(
         self,
@@ -981,9 +934,7 @@ class TenantSuspensionPersistenceCoordinator:
     ) -> None:
         self._require_gate_fences(context, request)
         if context.deletion is not None:
-            raise SuspensionPersistenceGateError(
-                "SUSPENSION_DELETION_IN_PROGRESS"
-            )
+            raise SuspensionPersistenceGateError("SUSPENSION_DELETION_IN_PROGRESS")
         if context.hold.state != "released":
             raise SuspensionPersistenceGateError(
                 "SUSPENSION_RECOVERY_HOLD_NOT_RELEASED"
@@ -997,10 +948,8 @@ class TenantSuspensionPersistenceCoordinator:
             suspension is None
             or suspension.id != str(request.suspension_uuid)
             or suspension.state != "active"
-            or suspension.row_version
-            != request.expected_suspension_row_version
-            or suspension.barrier_generation
-            != request.expected_barrier_generation
+            or suspension.row_version != request.expected_suspension_row_version
+            or suspension.barrier_generation != request.expected_barrier_generation
             or context.tenant.status != "suspended"
             or context.tenant.row_version != request.expected_tenant_row_version
             or context.tenant.access_version != request.expected_access_version
@@ -1009,9 +958,7 @@ class TenantSuspensionPersistenceCoordinator:
             != request.expected_login_state_version
             or context.route.dml_desired_login_state != "locked"
         ):
-            raise SuspensionPersistenceConflictError(
-                "SUSPENSION_VERSION_CONFLICT"
-            )
+            raise SuspensionPersistenceConflictError("SUSPENSION_VERSION_CONFLICT")
 
     def _require_barrier_fences(
         self,
@@ -1025,10 +972,8 @@ class TenantSuspensionPersistenceCoordinator:
             or action is None
             or suspension.id != str(command.suspension_uuid)
             or action.id != str(command.action_uuid)
-            or suspension.row_version
-            != command.expected_suspension_row_version
-            or context.tenant.row_version
-            != command.expected_tenant_row_version
+            or suspension.row_version != command.expected_suspension_row_version
+            or context.tenant.row_version != command.expected_tenant_row_version
             or context.tenant.access_version != command.expected_access_version
             or context.route.row_version != command.expected_route_row_version
             or context.route.dml_login_state_version
@@ -1091,8 +1036,7 @@ class TenantSuspensionPersistenceCoordinator:
         ).all()
         if (
             len(events) != len(_FREEZE_EFFECT_EVENT_TYPES)
-            or {event.event_type for event in events}
-            != _FREEZE_EFFECT_EVENT_TYPES
+            or {event.event_type for event in events} != _FREEZE_EFFECT_EVENT_TYPES
         ):
             raise SuspensionPersistenceProofError(
                 "SUSPENSION_BARRIER_RECEIPT_INCOMPLETE"
@@ -1159,16 +1103,12 @@ class TenantSuspensionPersistenceCoordinator:
         request: _NormalizedActionRequest | _NormalizedBarrierCommand,
     ) -> None:
         if context.run.id != str(request.expected_recovery_run_uuid):
-            raise SuspensionPersistenceGateError(
-                "SUSPENSION_RECOVERY_RUN_CHANGED"
-            )
+            raise SuspensionPersistenceGateError("SUSPENSION_RECOVERY_RUN_CHANGED")
         if (
             context.hold.id != str(request.expected_hold_uuid)
             or context.hold.hold_revision != request.expected_hold_revision
         ):
-            raise SuspensionPersistenceGateError(
-                "SUSPENSION_RECOVERY_HOLD_CHANGED"
-            )
+            raise SuspensionPersistenceGateError("SUSPENSION_RECOVERY_HOLD_CHANGED")
 
     def _lock_platform_authority(
         self,
@@ -1182,9 +1122,7 @@ class TenantSuspensionPersistenceCoordinator:
         )
         platform_session = self._session.scalar(
             sa.select(PlatformAdminSession)
-            .where(
-                PlatformAdminSession.id == str(request.platform_session_uuid)
-            )
+            .where(PlatformAdminSession.id == str(request.platform_session_uuid))
             .with_for_update()
             .execution_options(populate_existing=True)
         )
@@ -1253,9 +1191,7 @@ class TenantSuspensionPersistenceCoordinator:
             safe_note=request.safe_note,
             idempotency_key=request.idempotency_key,
             request_digest=request_digest,
-            expected_suspension_row_version=(
-                request.expected_suspension_row_version
-            ),
+            expected_suspension_row_version=(request.expected_suspension_row_version),
             expected_tenant_row_version=request.expected_tenant_row_version,
             expected_access_version=request.expected_access_version,
             state="running",
@@ -1300,14 +1236,10 @@ class TenantSuspensionPersistenceCoordinator:
                         "action_uuid": action.id,
                         "dml_generation": effect.dml_generation,
                         "effect": effect.kind.value,
-                        "expected_access_version": (
-                            effect.tenant_access_version
-                        ),
+                        "expected_access_version": (effect.tenant_access_version),
                         "expected_login_state_version": login_state_version,
                         "expected_route_row_version": route_row_version,
-                        "expected_suspension_row_version": (
-                            suspension_row_version
-                        ),
+                        "expected_suspension_row_version": (suspension_row_version),
                         "hold_uuid": hold.id,
                         "recovery_run_uuid": run.id,
                         "suspension_uuid": suspension.id,
@@ -1364,9 +1296,7 @@ class TenantSuspensionPersistenceCoordinator:
             .execution_options(synchronize_session=False)
         )
         if changed.rowcount != 1:
-            raise SuspensionPersistenceConflictError(
-                "SUSPENSION_TENANT_FENCE_CONFLICT"
-            )
+            raise SuspensionPersistenceConflictError("SUSPENSION_TENANT_FENCE_CONFLICT")
 
     def _cas_route(
         self,
@@ -1382,10 +1312,8 @@ class TenantSuspensionPersistenceCoordinator:
                 TenantDatabase.tenant_id == route.tenant_id,
                 TenantDatabase.database_uuid == route.database_uuid,
                 TenantDatabase.row_version == expected_row_version,
-                TenantDatabase.dml_login_state_version
-                == expected_login_state_version,
-                TenantDatabase.dml_desired_login_state
-                == route.dml_desired_login_state,
+                TenantDatabase.dml_login_state_version == expected_login_state_version,
+                TenantDatabase.dml_desired_login_state == route.dml_desired_login_state,
                 TenantDatabase.dml_observed_login_state
                 == route.dml_observed_login_state,
             )
@@ -1393,9 +1321,7 @@ class TenantSuspensionPersistenceCoordinator:
             .execution_options(synchronize_session=False)
         )
         if changed.rowcount != 1:
-            raise SuspensionPersistenceConflictError(
-                "SUSPENSION_ROUTE_FENCE_CONFLICT"
-            )
+            raise SuspensionPersistenceConflictError("SUSPENSION_ROUTE_FENCE_CONFLICT")
 
     def _cas_suspension(
         self,
@@ -1410,8 +1336,7 @@ class TenantSuspensionPersistenceCoordinator:
                 TenantSuspension.id == suspension.id,
                 TenantSuspension.row_version == expected_row_version,
                 TenantSuspension.state == suspension.state,
-                TenantSuspension.barrier_generation
-                == suspension.barrier_generation,
+                TenantSuspension.barrier_generation == suspension.barrier_generation,
             )
             .values(**values)
             .execution_options(synchronize_session=False)
@@ -1440,9 +1365,7 @@ class TenantSuspensionPersistenceCoordinator:
             .execution_options(synchronize_session=False)
         )
         if changed.rowcount != 1:
-            raise SuspensionPersistenceConflictError(
-                "SUSPENSION_ACTION_FENCE_CONFLICT"
-            )
+            raise SuspensionPersistenceConflictError("SUSPENSION_ACTION_FENCE_CONFLICT")
 
     def _replay(
         self,
@@ -1467,14 +1390,11 @@ class TenantSuspensionPersistenceCoordinator:
             or action.safe_correlation != request.safe_correlation
             or action.expected_suspension_row_version
             != request.expected_suspension_row_version
-            or action.expected_tenant_row_version
-            != request.expected_tenant_row_version
+            or action.expected_tenant_row_version != request.expected_tenant_row_version
             or action.expected_access_version != request.expected_access_version
             or bytes(action.request_digest) != request_digest
         ):
-            raise SuspensionPersistenceConflictError(
-                "SUSPENSION_IDEMPOTENCY_CONFLICT"
-            )
+            raise SuspensionPersistenceConflictError("SUSPENSION_IDEMPOTENCY_CONFLICT")
         return _result(
             transition,
             suspension_uuid=request.suspension_uuid,
@@ -1495,9 +1415,7 @@ class TenantSuspensionPersistenceCoordinator:
         require_observed_locked: bool,
     ) -> SuspensionPersistenceResult:
         if context.suspension is None or context.action is None:
-            raise SuspensionPersistenceConflictError(
-                "SUSPENSION_ACTION_UNAVAILABLE"
-            )
+            raise SuspensionPersistenceConflictError("SUSPENSION_ACTION_UNAVAILABLE")
         expected_tenant_row_version = command.expected_tenant_row_version + (
             1 if tenant_row_advanced else 0
         )
@@ -1561,24 +1479,16 @@ def suspension_action_digest(
             "canonicalization_version": 1,
             "direction": direction.value,
             "expected_access_version": normalized.expected_access_version,
-            "expected_barrier_generation": (
-                normalized.expected_barrier_generation
-            ),
+            "expected_barrier_generation": (normalized.expected_barrier_generation),
             "expected_hold_revision": normalized.expected_hold_revision,
             "expected_hold_uuid": str(normalized.expected_hold_uuid),
-            "expected_login_state_version": (
-                normalized.expected_login_state_version
-            ),
-            "expected_recovery_run_uuid": str(
-                normalized.expected_recovery_run_uuid
-            ),
+            "expected_login_state_version": (normalized.expected_login_state_version),
+            "expected_recovery_run_uuid": str(normalized.expected_recovery_run_uuid),
             "expected_route_row_version": normalized.expected_route_row_version,
             "expected_suspension_row_version": (
                 normalized.expected_suspension_row_version
             ),
-            "expected_tenant_row_version": (
-                normalized.expected_tenant_row_version
-            ),
+            "expected_tenant_row_version": (normalized.expected_tenant_row_version),
             "idempotency_key": normalized.idempotency_key,
             "platform_admin_uuid": str(normalized.platform_admin_uuid),
             "platform_session_uuid": str(normalized.platform_session_uuid),
@@ -1717,9 +1627,7 @@ def _result(
     action = transition.state.current_action
     phase = transition.state.phase
     if action is None or phase is None:
-        raise SuspensionPersistenceConflictError(
-            "SUSPENSION_REDUCER_RESULT_INVALID"
-        )
+        raise SuspensionPersistenceConflictError("SUSPENSION_REDUCER_RESULT_INVALID")
     return SuspensionPersistenceResult(
         suspension_uuid=suspension_uuid,
         action_uuid=action.action_id,
@@ -1733,25 +1641,23 @@ def _result(
         suspension_row_version=suspension_row_version,
         route_row_version=route_row_version,
         login_state_version=login_state_version,
-        candidate_dml_generation=(
-            transition.state.candidate_dml_generation
-        ),
+        candidate_dml_generation=(transition.state.candidate_dml_generation),
         effects=tuple(effect.kind for effect in transition.effects),
         replayed=replayed,
     )
 
 
 def _read_database_utc_now(session: Session) -> datetime:
-    if session.get_bind().dialect.name in {"mysql", "mariadb"}:
-        return _as_utc(session.scalar(sa.text("SELECT UTC_TIMESTAMP(6)")))
-    return _as_utc(session.scalar(sa.select(sa.func.current_timestamp())))
+    if session.get_bind().dialect.name not in {"mysql", "mariadb"}:
+        raise SuspensionPersistenceTransactionError(
+            "SUSPENSION_DATABASE_DIALECT_UNSUPPORTED"
+        )
+    return _as_utc(session.scalar(sa.text("SELECT UTC_TIMESTAMP(6)")))
 
 
 def _as_utc(value: object) -> datetime:
     if not isinstance(value, datetime):
-        raise SuspensionPersistenceTransactionError(
-            "SUSPENSION_DATABASE_CLOCK_INVALID"
-        )
+        raise SuspensionPersistenceTransactionError("SUSPENSION_DATABASE_CLOCK_INVALID")
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)

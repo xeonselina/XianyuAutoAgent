@@ -9,7 +9,6 @@ import pytest
 from sqlalchemy import select
 
 from inventory_control import (
-    ControlBase,
     SmsChallenge,
     Tenant,
     TenantUserSession,
@@ -34,30 +33,15 @@ from inventory_control.sms import (
     calculate_code_hmac,
     verify_code_hmac,
 )
-from tests.support.test_database import (
-    clear_guarded_mysql_test_rows,
-    guarded_mysql_control_database,
-)
-
 
 NOW = datetime(2026, 8, 22, 8, 0, tzinfo=timezone.utc)
 ROOT_KEY = RootKey(version=7, material=bytes(range(32)))
 OTHER_ROOT_KEY = RootKey(version=8, material=bytes(range(32)))
 
 
-@pytest.fixture(scope="module")
-def control_database_schema():
-    with guarded_mysql_control_database(ControlBase.metadata) as database:
-        yield database
-
-
 @pytest.fixture
-def control_database(control_database_schema):
-    clear_guarded_mysql_test_rows(
-        control_database_schema.engine,
-        ControlBase.metadata,
-    )
-    return control_database_schema
+def control_database(mysql_control_database):
+    return mysql_control_database
 
 
 class RecordingSmsProvider:
@@ -259,16 +243,18 @@ def test_sms_hmac_fixed_vector_locks_purpose_separated_context_protocol():
     )
 
     assert digest.hex() == (
-        "bb824ec2bce85ab4a9fa0446134796b2"
-        "5c0813347b41606a249b5688d94df404"
+        "bb824ec2bce85ab4a9fa0446134796b2" "5c0813347b41606a249b5688d94df404"
     )
     changed_purpose = replace(context, purpose=SmsPurpose.REGISTER)
-    assert calculate_code_hmac(
-        root_key=ROOT_KEY,
-        challenge_id="12345678-1234-4567-89ab-123456789abc",
-        context=changed_purpose,
-        plaintext_code="042731",
-    ) != digest
+    assert (
+        calculate_code_hmac(
+            root_key=ROOT_KEY,
+            challenge_id="12345678-1234-4567-89ab-123456789abc",
+            context=changed_purpose,
+            plaintext_code="042731",
+        )
+        != digest
+    )
 
 
 def test_sms_hmac_verifier_never_accepts_invalid_inputs_as_zero_mac():
@@ -470,9 +456,7 @@ def test_fifth_wrong_attempt_atomically_locks_challenge(control_database):
         with control_database.new_session() as session:
             row = session.get(SmsChallenge, prepared.challenge_id)
             assert row.wrong_attempt_count == attempt
-            assert row.verification_state == (
-                "locked" if attempt == 5 else "active"
-            )
+            assert row.verification_state == ("locked" if attempt == 5 else "active")
 
     with control_database.transaction() as session:
         result = service.verify_and_consume(
@@ -542,7 +526,9 @@ def test_committed_reservation_blocks_parallel_send_and_failed_send_frees_quota(
     first = _prepare(control_database, service, policy=policy)
 
     with pytest.raises(SmsSendRejected) as caught:
-        _prepare(control_database, service, policy=policy, now=NOW + timedelta(seconds=1))
+        _prepare(
+            control_database, service, policy=policy, now=NOW + timedelta(seconds=1)
+        )
     assert caught.value.reason_code == "SMS_SEND_IN_PROGRESS"
 
     _record(

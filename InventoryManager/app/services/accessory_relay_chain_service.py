@@ -20,7 +20,7 @@ from typing import Optional, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from app.models.accessory_inventory import (
     AccessoryType,
@@ -39,6 +39,7 @@ from app.services.accessory_inventory_service import (
     AccessoryInventoryRepository,
     AccessoryInventoryService,
 )
+from inventory_control.transactions import require_caller_transaction
 
 
 _ACTIVE_RELAY_STATUSES = frozenset(("agreed", "shipped", "completed"))
@@ -200,33 +201,40 @@ class AccessoryRelayChainService:
         peeked_rental = self._session.get(Rental, rental_id)
         if peeked_rental is None or peeked_rental.parent_rental_id is not None:
             raise AccessoryRelayChainConflictError()
-        current_links = tuple(
-            self._session.execute(
-                select(RentalAccessoryUnitLink).where(
-                    RentalAccessoryUnitLink.rental_id == rental_id,
-                    RentalAccessoryUnitLink.accessory_type_id.in_(type_ids),
+        current_links = (
+            tuple(
+                self._session.execute(
+                    select(RentalAccessoryUnitLink).where(
+                        RentalAccessoryUnitLink.rental_id == rental_id,
+                        RentalAccessoryUnitLink.accessory_type_id.in_(type_ids),
+                    )
                 )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
-        ) if type_ids else ()
+            if type_ids
+            else ()
+        )
         unit_to_type = {
-            link.accessory_unit_id: link.accessory_type_id
-            for link in current_links
+            link.accessory_unit_id: link.accessory_type_id for link in current_links
         }
-        future_links = tuple(
-            self._session.execute(
-                select(RentalAccessoryUnitLink).where(
-                    RentalAccessoryUnitLink.accessory_unit_id.in_(
-                        tuple(sorted(unit_to_type))
-                    ),
-                    RentalAccessoryUnitLink.rental_id != rental_id,
-                    RentalAccessoryUnitLink.reservation_end_at > occurred_at,
+        future_links = (
+            tuple(
+                self._session.execute(
+                    select(RentalAccessoryUnitLink).where(
+                        RentalAccessoryUnitLink.accessory_unit_id.in_(
+                            tuple(sorted(unit_to_type))
+                        ),
+                        RentalAccessoryUnitLink.rental_id != rental_id,
+                        RentalAccessoryUnitLink.reservation_end_at > occurred_at,
+                    )
                 )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
-        ) if unit_to_type else ()
+            if unit_to_type
+            else ()
+        )
         affected_by_type: dict[int, set[int]] = {
             type_id: {rental_id} for type_id in type_ids
         }
@@ -376,8 +384,7 @@ class AccessoryRelayChainService:
         relay_case = case_by_id.get(relay_case_id)
         if (
             relay_case is None
-            or relay_case.predecessor_rental_id
-            != peeked_case.predecessor_rental_id
+            or relay_case.predecessor_rental_id != peeked_case.predecessor_rental_id
             or relay_case.successor_rental_id != peeked_case.successor_rental_id
         ):
             raise AccessoryRelayChainConflictError()
@@ -387,9 +394,7 @@ class AccessoryRelayChainService:
             relay_cases=relay_cases,
             rental_by_id=rental_by_id,
         )
-        managed_rental_ids = tuple(
-            edge.successor_rental_id for edge in chain_cases
-        )
+        managed_rental_ids = tuple(edge.successor_rental_id for edge in chain_cases)
         scope_rental_ids = tuple(
             sorted(
                 {
@@ -417,8 +422,7 @@ class AccessoryRelayChainService:
             .all()
         )
         if any(
-            edge.id in executed_case_ids
-            and edge.status not in _EXECUTED_RELAY_STATUSES
+            edge.id in executed_case_ids and edge.status not in _EXECUTED_RELAY_STATUSES
             for edge in chain_cases
         ):
             raise AccessoryRelayChainConflictError()
@@ -431,18 +435,14 @@ class AccessoryRelayChainService:
                 set(
                     self._session.execute(
                         select(RentalAccessoryRequest.accessory_type_id).where(
-                            RentalAccessoryRequest.rental_id.in_(
-                                scope_rental_ids
-                            )
+                            RentalAccessoryRequest.rental_id.in_(scope_rental_ids)
                         )
                     ).scalars()
                 )
                 | set(
                     self._session.execute(
                         select(RentalAccessoryUnitLink.accessory_type_id).where(
-                            RentalAccessoryUnitLink.rental_id.in_(
-                                scope_rental_ids
-                            )
+                            RentalAccessoryUnitLink.rental_id.in_(scope_rental_ids)
                         )
                     ).scalars()
                 )
@@ -462,9 +462,8 @@ class AccessoryRelayChainService:
             .all()
         )
         type_by_id = {item.id: item for item in accessory_types}
-        if (
-            set(type_by_id) != set(type_ids)
-            or any(item.tracking_mode != "logical_unit" for item in accessory_types)
+        if set(type_by_id) != set(type_ids) or any(
+            item.tracking_mode != "logical_unit" for item in accessory_types
         ):
             raise AccessoryRelayChainConflictError()
 
@@ -539,9 +538,7 @@ class AccessoryRelayChainService:
             rental_id: set() for rental_id in scope_rental_ids
         }
         for request in requests:
-            request_types_by_rental[request.rental_id].add(
-                request.accessory_type_id
-            )
+            request_types_by_rental[request.rental_id].add(request.accessory_type_id)
 
         planned_by_rental = self._derive_plan(
             device=device,
@@ -580,9 +577,7 @@ class AccessoryRelayChainService:
         linked_count = 0
         unlinked_count = 0
         shortage_keys: set[tuple[int, int]] = set()
-        case_by_successor = {
-            edge.successor_rental_id: edge for edge in chain_cases
-        }
+        case_by_successor = {edge.successor_rental_id: edge for edge in chain_cases}
         clean_actor_id = actor_id.strip() if actor_id is not None else None
 
         for rental in chain_rentals[1:]:
@@ -611,15 +606,10 @@ class AccessoryRelayChainService:
                         raise AccessoryRelayChainConflictError()
                     # A unit actually dispatched to this successor cannot be
                     # silently replaced by a newly derived travelling unit.
-                    if (
-                        existing_unit.current_holder_rental_id is not None
-                        and not (
-                            existing.source_relay_case_id is not None
-                            and existing_unit.current_holder_rental_id
-                            != rental.id
-                            and existing.source_relay_case_id
-                            not in executed_case_ids
-                        )
+                    if existing_unit.current_holder_rental_id is not None and not (
+                        existing.source_relay_case_id is not None
+                        and existing_unit.current_holder_rental_id != rental.id
+                        and existing.source_relay_case_id not in executed_case_ids
                     ):
                         raise AccessoryRelayChainConflictError()
                     self._session.add(
@@ -628,9 +618,7 @@ class AccessoryRelayChainService:
                             event_type="unlinked",
                             device_id=device.id,
                             rental_id=rental.id,
-                            relay_case_id=(
-                                existing.source_relay_case_id or edge.id
-                            ),
+                            relay_case_id=(existing.source_relay_case_id or edge.id),
                             actor_type=actor_type.strip(),
                             actor_id=clean_actor_id,
                             operation_key=operation_key,
@@ -660,9 +648,7 @@ class AccessoryRelayChainService:
                     existing.accessory_unit_id = desired.unit.id
                     existing.reservation_start_at = desired.reservation_start_at
                     existing.reservation_end_at = desired.reservation_end_at
-                    existing.source_relay_case_id = (
-                        desired.source_relay_case_id
-                    )
+                    existing.source_relay_case_id = desired.source_relay_case_id
                 self._session.add(
                     self._event(
                         unit=desired.unit,
@@ -685,12 +671,7 @@ class AccessoryRelayChainService:
             raise AccessoryRelayChainPersistenceError() from None
 
         shortage_codes = tuple(
-            sorted(
-                {
-                    type_by_id[type_id].name
-                    for _, type_id in shortage_keys
-                }
-            )
+            sorted({type_by_id[type_id].name for _, type_id in shortage_keys})
         )
         return AccessoryRelayChainPlanResult(
             linked_count=linked_count,
@@ -739,8 +720,7 @@ class AccessoryRelayChainService:
         peeked_link = self._session.execute(
             select(RentalAccessoryUnitLink).where(
                 RentalAccessoryUnitLink.rental_id == rental_id,
-                RentalAccessoryUnitLink.accessory_type_id
-                == accessory_type_id,
+                RentalAccessoryUnitLink.accessory_type_id == accessory_type_id,
             )
         ).scalar_one_or_none()
         if (
@@ -770,10 +750,8 @@ class AccessoryRelayChainService:
                 }
             )
         )
-        if (
-            expected_affected_rental_ids is not None
-            and affected_rental_ids
-            != tuple(sorted(set(expected_affected_rental_ids)))
+        if expected_affected_rental_ids is not None and affected_rental_ids != tuple(
+            sorted(set(expected_affected_rental_ids))
         ):
             raise AccessoryRelayChainConflictError()
         peeked_rentals = tuple(
@@ -785,9 +763,7 @@ class AccessoryRelayChainService:
         )
         if len(peeked_rentals) != len(affected_rental_ids):
             raise AccessoryRelayChainConflictError()
-        device_ids = tuple(
-            sorted({item.device_id for item in peeked_rentals})
-        )
+        device_ids = tuple(sorted({item.device_id for item in peeked_rentals}))
         devices = tuple(
             self._session.execute(
                 select(Device)
@@ -859,12 +835,8 @@ class AccessoryRelayChainService:
             self._session.execute(
                 select(RentalRelayCase)
                 .where(
-                    RentalRelayCase.predecessor_rental_id.in_(
-                        affected_rental_ids
-                    ),
-                    RentalRelayCase.successor_rental_id.in_(
-                        affected_rental_ids
-                    ),
+                    RentalRelayCase.predecessor_rental_id.in_(affected_rental_ids),
+                    RentalRelayCase.successor_rental_id.in_(affected_rental_ids),
                 )
                 .order_by(RentalRelayCase.id.asc())
                 .with_for_update()
@@ -877,10 +849,7 @@ class AccessoryRelayChainService:
             .where(AccessoryType.id == accessory_type_id)
             .with_for_update()
         ).scalar_one_or_none()
-        if (
-            accessory_type is None
-            or accessory_type.tracking_mode != "logical_unit"
-        ):
+        if accessory_type is None or accessory_type.tracking_mode != "logical_unit":
             raise AccessoryRelayChainConflictError()
 
         units = tuple(
@@ -902,11 +871,8 @@ class AccessoryRelayChainService:
             self._session.execute(
                 select(RentalAccessoryRequest)
                 .where(
-                    RentalAccessoryRequest.rental_id.in_(
-                        affected_rental_ids
-                    ),
-                    RentalAccessoryRequest.accessory_type_id
-                    == accessory_type_id,
+                    RentalAccessoryRequest.rental_id.in_(affected_rental_ids),
+                    RentalAccessoryRequest.accessory_type_id == accessory_type_id,
                 )
                 .order_by(RentalAccessoryRequest.rental_id.asc())
                 .with_for_update()
@@ -951,17 +917,8 @@ class AccessoryRelayChainService:
         if (
             current_link is None
             or current_link.accessory_unit_id != inspected_unit.id
-            or tuple(
-                sorted(
-                    (link.rental_id, link.id) for link in future_links
-                )
-            )
-            != tuple(
-                sorted(
-                    (link.rental_id, link.id)
-                    for link in peeked_future_links
-                )
-            )
+            or tuple(sorted((link.rental_id, link.id) for link in future_links))
+            != tuple(sorted((link.rental_id, link.id) for link in peeked_future_links))
             or inspected_unit.current_holder_rental_id != rental_id
         ):
             raise AccessoryRelayChainConflictError()
@@ -1003,8 +960,7 @@ class AccessoryRelayChainService:
             future_device = device_by_id.get(future_rental.device_id)
             future_warehouse = (
                 warehouse_by_id.get(future_device.warehouse_id)
-                if future_device is not None
-                and future_device.warehouse_id is not None
+                if future_device is not None and future_device.warehouse_id is not None
                 else None
             )
             if (
@@ -1036,9 +992,7 @@ class AccessoryRelayChainService:
                 desired_units[link.id] = candidate
                 occupied[candidate.id].append(window)
 
-        mutation_rental_ids = tuple(
-            sorted(link.rental_id for link in managed_links)
-        )
+        mutation_rental_ids = tuple(sorted(link.rental_id for link in managed_links))
         if (
             mutation_rental_ids
             and self._inventory_repository.fulfillment_execution_is_frozen(
@@ -1270,10 +1224,8 @@ class AccessoryRelayChainService:
             self._session.execute(
                 select(RentalAccessoryUnitLink.accessory_type_id)
                 .where(
-                    RentalAccessoryUnitLink.rental_id
-                    == relay_case.successor_rental_id,
-                    RentalAccessoryUnitLink.source_relay_case_id
-                    == relay_case.id,
+                    RentalAccessoryUnitLink.rental_id == relay_case.successor_rental_id,
+                    RentalAccessoryUnitLink.source_relay_case_id == relay_case.id,
                 )
                 .order_by(RentalAccessoryUnitLink.accessory_type_id.asc())
             )
@@ -1438,13 +1390,10 @@ class AccessoryRelayChainService:
     ) -> None:
         if (
             any(
-                isinstance(value, bool)
-                or not isinstance(value, int)
-                or value <= 0
+                isinstance(value, bool) or not isinstance(value, int) or value <= 0
                 for value in (rental_id, accessory_type_id, warehouse_id)
             )
-            or outcome
-            not in {"received_normal", "received_damaged", "missing"}
+            or outcome not in {"received_normal", "received_damaged", "missing"}
             or not isinstance(occurred_at, datetime)
             or not isinstance(actor_type, str)
             or not actor_type.strip()
@@ -1469,9 +1418,7 @@ class AccessoryRelayChainService:
         chain_cases: Sequence[RentalRelayCase],
         chain_rentals: Sequence[Rental],
         request_types_by_rental: dict[int, set[int]],
-        current_link_by_key: dict[
-            tuple[int, int], RentalAccessoryUnitLink
-        ],
+        current_link_by_key: dict[tuple[int, int], RentalAccessoryUnitLink],
         units_by_type: dict[int, list[AccessoryUnit]],
         all_unit_links: Sequence[RentalAccessoryUnitLink],
         managed_rental_ids: set[int],
@@ -1503,9 +1450,7 @@ class AccessoryRelayChainService:
         del anchor_window
 
         external_links = tuple(
-            link
-            for link in all_unit_links
-            if link.rental_id not in managed_rental_ids
+            link for link in all_unit_links if link.rental_id not in managed_rental_ids
         )
         for index, edge in enumerate(chain_cases):
             predecessor = chain_rentals[index]
@@ -1521,9 +1466,7 @@ class AccessoryRelayChainService:
                         reservation_end_at=window[1],
                     )
 
-            for type_id in sorted(
-                request_types_by_rental.get(successor.id, set())
-            ):
+            for type_id in sorted(request_types_by_rental.get(successor.id, set())):
                 if type_id in desired:
                     continue
                 existing = current_link_by_key.get((successor.id, type_id))
@@ -1540,10 +1483,9 @@ class AccessoryRelayChainService:
                     ),
                     None,
                 )
-                ordered_candidates = (
-                    ([preferred] if preferred is not None else [])
-                    + [unit for unit in candidates if unit is not preferred]
-                )
+                ordered_candidates = ([preferred] if preferred is not None else []) + [
+                    unit for unit in candidates if unit is not preferred
+                ]
                 unit = next(
                     (
                         candidate
@@ -1586,9 +1528,7 @@ class AccessoryRelayChainService:
         ):
             return False
         unit_external_links = tuple(
-            link
-            for link in external_links
-            if link.accessory_unit_id == unit.id
+            link for link in external_links if link.accessory_unit_id == unit.id
         )
         if any(
             link.reservation_start_at < reservation_end_at
@@ -1613,9 +1553,11 @@ class AccessoryRelayChainService:
             for link in unit_external_links
             if link.rental_id == unit.current_holder_rental_id
         )
-        return bool(holder_links) and max(
-            link.reservation_end_at for link in holder_links
-        ) <= reservation_start_at
+        return (
+            bool(holder_links)
+            and max(link.reservation_end_at for link in holder_links)
+            <= reservation_start_at
+        )
 
     @staticmethod
     def _derive_downstream_chain(
@@ -1632,9 +1574,7 @@ class AccessoryRelayChainService:
             case_by_predecessor[edge.predecessor_rental_id] = edge
 
         chain_cases: list[RentalRelayCase] = []
-        chain_rentals: list[Rental] = [
-            rental_by_id[relay_case.predecessor_rental_id]
-        ]
+        chain_rentals: list[Rental] = [rental_by_id[relay_case.predecessor_rental_id]]
         edge: Optional[RentalRelayCase] = relay_case
         seen_rental_ids = {relay_case.predecessor_rental_id}
         while edge is not None:
@@ -1689,8 +1629,7 @@ class AccessoryRelayChainService:
             return existing is None and desired is None
         return (
             existing.accessory_unit_id == desired.unit.id
-            and existing.source_relay_case_id
-            == desired.source_relay_case_id
+            and existing.source_relay_case_id == desired.source_relay_case_id
             and existing.reservation_start_at == desired.reservation_start_at
             and existing.reservation_end_at == desired.reservation_end_at
         )
@@ -1735,16 +1674,11 @@ class AccessoryRelayChainService:
         )
 
     def _require_explicit_transaction(self) -> None:
-        nested_transaction = self._session.get_nested_transaction()
-        transaction = nested_transaction or self._session.get_transaction()
-        if (
-            transaction is None
-            or (
-                nested_transaction is None
-                and transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-            )
-        ):
-            raise AccessoryRelayChainTransactionRequiredError()
+        require_caller_transaction(
+            self._session,
+            AccessoryRelayChainTransactionRequiredError,
+            accept_nested=True,
+        )
 
     @staticmethod
     def _validate_common_inputs(

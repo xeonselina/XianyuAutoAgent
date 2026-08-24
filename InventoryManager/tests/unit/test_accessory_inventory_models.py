@@ -1,9 +1,8 @@
 from datetime import datetime, timedelta
 
 import pytest
-from sqlalchemy.exc import IntegrityError
 
-from app import create_app, db
+from app import db
 from app.models.accessory_inventory import (
     AccessoryType,
     AccessoryUnit,
@@ -14,18 +13,7 @@ from app.models.accessory_inventory import (
 from app.models.device import Device
 from app.models.rental import Rental
 from app.models.warehouse import Warehouse
-
-
-@pytest.fixture
-def application():
-    app = create_app("testing")
-    with app.app_context():
-        db.create_all()
-        try:
-            yield app
-        finally:
-            db.session.remove()
-            db.drop_all()
+from tests.support.test_database import DATABASE_CONSTRAINT_ERRORS
 
 
 def _facts():
@@ -126,7 +114,7 @@ def test_one_rental_cannot_link_two_units_of_same_type(application):
         ]
     )
 
-    with pytest.raises(IntegrityError):
+    with pytest.raises(DATABASE_CONSTRAINT_ERRORS):
         db.session.commit()
     db.session.rollback()
 
@@ -150,7 +138,7 @@ def test_event_idempotency_is_global_within_tenant_database(application):
         ]
     )
 
-    with pytest.raises(IntegrityError):
+    with pytest.raises(DATABASE_CONSTRAINT_ERRORS):
         db.session.commit()
     db.session.rollback()
 
@@ -165,6 +153,6 @@ def test_invalid_unit_condition_is_rejected(application):
         )
     )
 
-    with pytest.raises(IntegrityError):
+    with pytest.raises(DATABASE_CONSTRAINT_ERRORS):
         db.session.commit()
     db.session.rollback()

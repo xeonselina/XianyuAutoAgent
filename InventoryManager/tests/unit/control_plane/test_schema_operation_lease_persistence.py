@@ -117,6 +117,7 @@ def test_database_clock_is_read_only_after_the_locking_select(
     sa.event.listen(control_database.engine, "before_cursor_execute", capture)
     try:
         with control_database.transaction() as session:
+
             def clock(_session):
                 assert any(
                     statement.lstrip().startswith("select")
@@ -147,7 +148,7 @@ def test_database_clock_is_read_only_after_the_locking_select(
     ("dialect_name", "expected_sql"),
     (
         ("mysql", "SELECT UTC_TIMESTAMP(6)"),
-        ("sqlite", "SELECT CURRENT_TIMESTAMP AS current_timestamp_1"),
+        ("mariadb", "SELECT UTC_TIMESTAMP(6)"),
     ),
 )
 def test_default_database_clock_keeps_microseconds_and_is_dialect_safe(
@@ -177,6 +178,7 @@ def test_public_final_fence_locks_then_validates_without_mutation(
     sa.event.listen(control_database.engine, "before_cursor_execute", capture)
     try:
         with control_database.transaction() as session:
+
             def clock(_session):
                 assert any(
                     statement.lstrip().startswith("select")
@@ -205,19 +207,20 @@ def test_public_final_fence_locks_then_validates_without_mutation(
             capture,
         )
 
-    assert not any(
-        statement.lstrip().startswith("update") for statement in statements
+    assert not any(statement.lstrip().startswith("update") for statement in statements)
+    assert (
+        require_live_schema_operation_fence(
+            current,
+            claim_id=CLAIM_A,
+            owner_id="schema-worker-a",
+            purpose=SchemaOperationPurpose.PROVISIONING,
+            generation=claimed.lease.generation,
+            fencing_token=claimed.lease.fencing_token,
+            expected_row_version=claimed.lease.row_version,
+            database_now=NOW + timedelta(seconds=2),
+        )
+        == claimed.lease
     )
-    assert require_live_schema_operation_fence(
-        current,
-        claim_id=CLAIM_A,
-        owner_id="schema-worker-a",
-        purpose=SchemaOperationPurpose.PROVISIONING,
-        generation=claimed.lease.generation,
-        fencing_token=claimed.lease.fencing_token,
-        expected_row_version=claimed.lease.row_version,
-        database_now=NOW + timedelta(seconds=2),
-    ) == claimed.lease
 
     with control_database.transaction() as session:
         with pytest.raises(SchemaOperationLeaseFenceConflict):
@@ -258,8 +261,7 @@ def test_service_touches_only_the_singleton_lease_table(control_database):
     ]
     assert data_statements
     assert all(
-        "platform_schema_operation_leases" in statement
-        for statement in data_statements
+        "platform_schema_operation_leases" in statement for statement in data_statements
     )
     assert not any(
         forbidden in statement

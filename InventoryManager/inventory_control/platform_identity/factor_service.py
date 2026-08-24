@@ -79,8 +79,7 @@ class VerifiedPlatformFactor:
 
     def __repr__(self) -> str:
         return (
-            f"VerifiedPlatformFactor(method={self.method!r}, "
-            "<credential-redacted>)"
+            f"VerifiedPlatformFactor(method={self.method!r}, " "<credential-redacted>)"
         )
 
 
@@ -149,8 +148,7 @@ class PlatformCurrentFactorService:
         if factor_method == "totp":
             root_version = session.scalar(
                 sa.select(PlatformAdminTotpCredential.root_key_version).where(
-                    PlatformAdminTotpCredential.platform_admin_id
-                    == platform_admin_id,
+                    PlatformAdminTotpCredential.platform_admin_id == platform_admin_id,
                     PlatformAdminTotpCredential.status == "confirmed",
                 )
             )
@@ -211,9 +209,7 @@ class PlatformTotpService:
                 sa.select(PlatformAdminTotpCredential)
                 .where(
                     PlatformAdminTotpCredential.platform_admin_id == admin.id,
-                    PlatformAdminTotpCredential.status.in_(
-                        ("pending", "confirmed")
-                    ),
+                    PlatformAdminTotpCredential.status.in_(("pending", "confirmed")),
                 )
                 .order_by(PlatformAdminTotpCredential.generation)
                 .with_for_update()
@@ -372,8 +368,7 @@ class PlatformTotpService:
                 PlatformAdminTotpCredential.status == "confirmed",
                 sa.or_(
                     PlatformAdminTotpCredential.last_accepted_time_step.is_(None),
-                    PlatformAdminTotpCredential.last_accepted_time_step
-                    < accepted_step,
+                    PlatformAdminTotpCredential.last_accepted_time_step < accepted_step,
                 ),
             )
             .values(
@@ -422,12 +417,10 @@ class PlatformTotpService:
         current = [
             row
             for row in credentials
-            if row.status == "confirmed"
-            and row.generation == admin.totp_generation
+            if row.status == "confirmed" and row.generation == admin.totp_generation
         ]
         if len(current) != 1 or any(
-            row.status == "confirmed" and row not in current
-            for row in credentials
+            row.status == "confirmed" and row not in current for row in credentials
         ):
             raise PlatformFactorRejected()
         for row in credentials:
@@ -436,10 +429,13 @@ class PlatformTotpService:
                 row.retired_at = current_time
                 row.row_version += 1
 
-        generation = max(
-            (row.generation for row in credentials),
-            default=admin.totp_generation,
-        ) + 1
+        generation = (
+            max(
+                (row.generation for row in credentials),
+                default=admin.totp_generation,
+            )
+            + 1
+        )
         seed = self._seed_generator()
         if not isinstance(seed, bytes) or len(seed) < 16:
             raise RuntimeError("TOTP seed generator returned an invalid value")
@@ -496,8 +492,7 @@ class PlatformTotpService:
             session.scalars(
                 sa.select(PlatformAdminTotpCredential)
                 .where(
-                    PlatformAdminTotpCredential.platform_admin_id
-                    == platform_admin_id
+                    PlatformAdminTotpCredential.platform_admin_id == platform_admin_id
                 )
                 .order_by(PlatformAdminTotpCredential.generation)
                 .with_for_update()
@@ -701,8 +696,7 @@ class PlatformRecoveryCodeService:
             sa.select(PlatformAdminRecoveryCode)
             .where(
                 PlatformAdminRecoveryCode.platform_admin_id == admin.id,
-                PlatformAdminRecoveryCode.generation
-                == admin.recovery_code_generation,
+                PlatformAdminRecoveryCode.generation == admin.recovery_code_generation,
                 PlatformAdminRecoveryCode.token_digest_sha256 == digest,
             )
             .with_for_update()
@@ -714,6 +708,10 @@ class PlatformRecoveryCodeService:
             or not verify_recovery_code(presented_code, row.token_digest_sha256)
         ):
             raise PlatformFactorRejected()
+        # ``created_at`` is second-precision in the deployed schema while
+        # ``consumed_at`` retains microseconds. MySQL rounds the former, so a
+        # same-second consume may otherwise appear to precede creation.
+        consumed_at = max(current_time, _as_utc(row.created_at))
         changed = session.execute(
             sa.update(PlatformAdminRecoveryCode)
             .where(
@@ -729,7 +727,7 @@ class PlatformRecoveryCodeService:
             )
             .values(
                 state="consumed",
-                consumed_at=current_time,
+                consumed_at=consumed_at,
                 row_version=row.row_version + 1,
             )
             .execution_options(synchronize_session=False)
@@ -783,8 +781,7 @@ def activate_admin_if_ready(
     active_recovery = session.scalar(
         sa.select(sa.func.count(PlatformAdminRecoveryCode.id)).where(
             PlatformAdminRecoveryCode.platform_admin_id == admin.id,
-            PlatformAdminRecoveryCode.generation
-            == admin.recovery_code_generation,
+            PlatformAdminRecoveryCode.generation == admin.recovery_code_generation,
             PlatformAdminRecoveryCode.state == "active",
         )
     )

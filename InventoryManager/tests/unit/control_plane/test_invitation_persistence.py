@@ -8,7 +8,6 @@ from uuid import UUID
 import pytest
 import sqlalchemy as sa
 
-from inventory_control import ControlBase
 from inventory_control.crypto.root_key import RootKey
 from inventory_control.invitations import (
     AdminInvitationPermissionProof,
@@ -43,11 +42,6 @@ from inventory_control.sms import (
     SmsPolicy,
     TrustedSourceBucket,
 )
-from tests.support.test_database import (
-    clear_guarded_mysql_test_rows,
-    guarded_mysql_control_database,
-)
-
 
 NOW = datetime(2026, 8, 22, 12, 0, 0, 654321, tzinfo=timezone.utc)
 TENANT_A = UUID("41000000-0000-4000-8000-000000000001")
@@ -80,16 +74,9 @@ class GateReader:
         )
 
 
-@pytest.fixture(scope="module")
-def database_schema():
-    with guarded_mysql_control_database(ControlBase.metadata) as database:
-        yield database
-
-
 @pytest.fixture
-def database(database_schema):
-    clear_guarded_mysql_test_rows(database_schema.engine, ControlBase.metadata)
-    value = database_schema
+def database(mysql_control_database):
+    value = mysql_control_database
     with value.transaction() as session:
         for tenant_id in (TENANT_A, TENANT_B):
             session.add(
@@ -215,17 +202,18 @@ def _issue_admin_challenge(database, sms):
             outcome=SmsDeliveryOutcome.SENT,
             now=NOW,
         )
-    return InvitationChallengeSubmission(
-        challenge_uuid=UUID(prepared.challenge_id),
-        plaintext_code="123456",
-        root_key=ROOT_KEY,
-        actor_session_uuid=ACTOR_SESSION,
-    ), actor_phone
+    return (
+        InvitationChallengeSubmission(
+            challenge_uuid=UUID(prepared.challenge_id),
+            plaintext_code="123456",
+            root_key=ROOT_KEY,
+            actor_session_uuid=ACTOR_SESSION,
+        ),
+        actor_phone,
+    )
 
 
-def test_admin_invitation_challenge_is_sent_to_actor_not_target(
-    database, service, sms
-):
+def test_admin_invitation_challenge_is_sent_to_actor_not_target(database, service, sms):
     challenge, actor_phone = _issue_admin_challenge(database, sms)
     with database.transaction() as session:
         result = service.create_or_resend(
@@ -249,9 +237,7 @@ def test_admin_invitation_challenge_is_sent_to_actor_not_target(
         assert row.verification_state == "consumed"
 
 
-def test_admin_invitation_rejects_target_phone_challenge(
-    database, service, sms
-):
+def test_admin_invitation_rejects_target_phone_challenge(database, service, sms):
     target_phone = CanonicalSmsPhone.from_input(PHONE)
     with database.transaction() as session:
         prepared = sms.prepare_delivery(
@@ -298,9 +284,7 @@ def test_admin_invitation_rejects_target_phone_challenge(
             )
 
 
-def test_admin_invitation_accepts_only_exact_internal_d48_proof(
-    database, service
-):
+def test_admin_invitation_accepts_only_exact_internal_d48_proof(database, service):
     proof = AdminInvitationPermissionProof(
         tenant_uuid=TENANT_A,
         actor_user_uuid=USER,
@@ -326,9 +310,7 @@ def test_admin_invitation_accepts_only_exact_internal_d48_proof(
     assert result.role is InvitationRole.ADMIN
 
 
-def test_admin_invitation_rejects_d48_proof_for_another_target(
-    database, service
-):
+def test_admin_invitation_rejects_d48_proof_for_another_target(database, service):
     rebound = AdminInvitationPermissionProof(
         tenant_uuid=TENANT_A,
         actor_user_uuid=USER,
@@ -440,9 +422,10 @@ def test_initial_create_is_seven_days_and_exact_replay_stores_only_digest(
         row = session.get(TenantInvitation, str(INVITATION_A))
         assert row.token_hash == TOKEN_A.digest_sha256
         assert TOKEN_A.value.encode() not in bytes(row.token_hash)
-        assert session.scalar(
-            sa.select(sa.func.count()).select_from(TenantInvitation)
-        ) == 1
+        assert (
+            session.scalar(sa.select(sa.func.count()).select_from(TenantInvitation))
+            == 1
+        )
 
 
 def test_resend_rotates_generation_without_a_second_reservation_and_blocks_aba(
@@ -466,11 +449,14 @@ def test_resend_rotates_generation_without_a_second_reservation_and_blocks_aba(
             token=TOKEN_C,
         )
     with database.new_session() as session:
-        assert session.scalar(
-            sa.select(sa.func.count())
-            .select_from(TenantInvitation)
-            .where(TenantInvitation.status == "pending")
-        ) == 1
+        assert (
+            session.scalar(
+                sa.select(sa.func.count())
+                .select_from(TenantInvitation)
+                .where(TenantInvitation.status == "pending")
+            )
+            == 1
+        )
 
 
 def test_resend_at_full_capacity_does_not_allocate_another_seat(database, service):
@@ -686,11 +672,14 @@ def test_acceptance_exact_replay_uses_membership_source_and_loser_cannot_win(
             membership=UUID("45000000-0000-4000-8000-000000000002"),
         )
     with database.new_session() as session:
-        assert session.scalar(
-            sa.select(sa.func.count())
-            .select_from(TenantMembership)
-            .where(TenantMembership.status != "released")
-        ) == 1
+        assert (
+            session.scalar(
+                sa.select(sa.func.count())
+                .select_from(TenantMembership)
+                .where(TenantMembership.status != "released")
+            )
+            == 1
+        )
 
 
 def test_wrong_otp_can_commit_attempt_counter_without_invitation_mutation(
@@ -890,6 +879,7 @@ def test_admin_creation_fails_closed_without_action_challenge(database, service)
     with pytest.raises(InvitationCredentialError):
         _create(database, service, role=InvitationRole.ADMIN)
     with database.new_session() as session:
-        assert session.scalar(
-            sa.select(sa.func.count()).select_from(TenantInvitation)
-        ) == 0
+        assert (
+            session.scalar(sa.select(sa.func.count()).select_from(TenantInvitation))
+            == 0
+        )

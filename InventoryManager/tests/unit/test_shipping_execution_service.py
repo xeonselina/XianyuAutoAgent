@@ -7,7 +7,7 @@ from uuid import UUID
 import pytest
 from sqlalchemy import select
 
-from app import create_app, db
+from app import db
 from app.models.accessory_inventory import (
     AccessoryType,
     AccessoryUnit,
@@ -55,18 +55,6 @@ BACKGROUND_JOB_UUID = "66666666-6666-4666-8666-666666666666"
 SHIPMENT_UUID = "77777777-7777-4777-8777-777777777777"
 TENANT_UUID = "99999999-9999-4999-8999-999999999999"
 NOW = datetime(2026, 8, 22, 9, 0, 0)
-
-
-@pytest.fixture
-def application():
-    app = create_app("testing")
-    with app.app_context():
-        db.create_all()
-        try:
-            yield app
-        finally:
-            db.session.remove()
-            db.drop_all()
 
 
 @pytest.fixture
@@ -221,9 +209,7 @@ def shipment_command(facts, **changes):
             "address_detail": "客户路 2 号",
         },
         "express_type_id": 2,
-        "scheduled_dispatch_at": datetime(
-            2026, 9, 1, 9, 0, tzinfo=timezone.utc
-        ),
+        "scheduled_dispatch_at": datetime(2026, 9, 1, 9, 0, tzinfo=timezone.utc),
     }
     command.update(changes)
     return command
@@ -299,9 +285,7 @@ def test_prepare_shipment_requires_explicit_caller_transaction(session):
     facts = seed_inventory(session)
 
     with pytest.raises(ShippingTransactionRequiredError):
-        ShippingExecutionService(session).prepare_shipment(
-            **shipment_command(facts)
-        )
+        ShippingExecutionService(session).prepare_shipment(**shipment_command(facts))
 
 
 def test_prepare_shipment_snapshots_exact_facts_hash_and_idempotent_replay(
@@ -327,14 +311,8 @@ def test_prepare_shipment_snapshots_exact_facts_hash_and_idempotent_replay(
         assert persisted.origin_warehouse_uuid == facts["warehouse_uuid"]
         assert persisted.integration_uuid == INTEGRATION_UUID
         assert persisted.provider_account_uuid == ACCOUNT_UUID
-        assert (
-            persisted.integration_secret_revision_uuid
-            == INTEGRATION_REVISION_UUID
-        )
-        assert (
-            persisted.provider_account_secret_revision_uuid
-            == ACCOUNT_REVISION_UUID
-        )
+        assert persisted.integration_secret_revision_uuid == INTEGRATION_REVISION_UUID
+        assert persisted.provider_account_secret_revision_uuid == ACCOUNT_REVISION_UUID
         assert persisted.sender_snapshot == {
             "contact_name": "仓库联系人",
             "contact_phone": "13800138000",
@@ -423,9 +401,7 @@ def test_prepare_shipment_rejects_new_shipment_for_relay_successor(session):
         )
 
     with session.begin(), pytest.raises(ShippingStateConflictError):
-        ShippingExecutionService(session).prepare_shipment(
-            **shipment_command(facts)
-        )
+        ShippingExecutionService(session).prepare_shipment(**shipment_command(facts))
 
 
 def test_prepare_shipment_rejects_stale_device_warehouse_snapshot(session):
@@ -473,9 +449,7 @@ def test_prepare_shipment_blocks_request_without_same_type_unit_link(session):
     add_unfulfilled_accessory_request(session, facts)
 
     with session.begin(), pytest.raises(ShippingAccessoryUnfulfilledError) as caught:
-        ShippingExecutionService(session).prepare_shipment(
-            **shipment_command(facts)
-        )
+        ShippingExecutionService(session).prepare_shipment(**shipment_command(facts))
 
     assert caught.value.code == "SHIPPING_ACCESSORY_UNFULFILLED"
     assert session.execute(select(OutboundShipment)).scalars().all() == []
@@ -716,10 +690,13 @@ def test_print_submission_rechecks_accessory_facts_at_effect_boundary(session):
             submitted_at=NOW,
         )
 
-    assert session.get(
-        WaybillPrintJob,
-        pair.first_label.print_job_id,
-    ).status == "prepared"
+    assert (
+        session.get(
+            WaybillPrintJob,
+            pair.first_label.print_job_id,
+        ).status
+        == "prepared"
+    )
 
 
 @pytest.mark.parametrize(
@@ -727,11 +704,7 @@ def test_print_submission_rechecks_accessory_facts_at_effect_boundary(session):
     [
         {"provider_context_changes": {"binding_revision": 0}},
         {"receiver_snapshot": {"phone": "bad"}},
-        {
-            "provider_context_changes": {
-                "masked_account_hint": "unmasked-account"
-            }
-        },
+        {"provider_context_changes": {"masked_account_hint": "unmasked-account"}},
         {"shipment_uuid": "客户姓名"},
         {"receiver_snapshot": {"bad": float("nan")}},
         {
@@ -968,10 +941,13 @@ def test_unknown_create_blocks_blind_retry_until_explicit_reconciliation(session
             finished_at=NOW,
         )
         assert result.status == "unknown"
-        assert session.get(
-            OutboundShipment,
-            shipment.shipment_id,
-        ).status == "needs_review"
+        assert (
+            session.get(
+                OutboundShipment,
+                shipment.shipment_id,
+            ).status
+            == "needs_review"
+        )
 
     with session.begin(), pytest.raises(ShippingUnknownOutcomeError):
         service.prepare_provider_attempt(
@@ -1155,12 +1131,8 @@ def test_prepare_paired_print_jobs_copies_exact_two_label_context_and_replays(
     service = ShippingExecutionService(session)
 
     with session.begin():
-        created = service.prepare_paired_print_jobs(
-            **print_command(facts, shipment_id)
-        )
-        replay = service.prepare_paired_print_jobs(
-            **print_command(facts, shipment_id)
-        )
+        created = service.prepare_paired_print_jobs(**print_command(facts, shipment_id))
+        replay = service.prepare_paired_print_jobs(**print_command(facts, shipment_id))
         rows = tuple(
             session.execute(
                 select(WaybillPrintJob).order_by(WaybillPrintJob.idempotency_key)
@@ -1265,10 +1237,13 @@ def test_print_replay_preserves_snapshotted_printer_after_rebind(session):
             submitted_at=NOW,
         )
     with session.begin():
-        assert session.get(
-            WaybillPrintJob,
-            first.first_label.print_job_id,
-        ).status == "prepared"
+        assert (
+            session.get(
+                WaybillPrintJob,
+                first.first_label.print_job_id,
+            ).status
+            == "prepared"
+        )
 
 
 def test_print_public_refs_never_expose_internal_accessory_uuid(session):

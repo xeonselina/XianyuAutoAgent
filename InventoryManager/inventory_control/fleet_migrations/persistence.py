@@ -20,7 +20,7 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.models.fleet_migrations import TenantFleetMigration
 from inventory_control.models.foundation import (
@@ -32,6 +32,7 @@ from inventory_control.schema_operations import (
     SchemaOperationLeasePersistenceService,
     SchemaOperationPurpose,
 )
+from inventory_control.transactions import require_caller_transaction
 
 from .domain import (
     FleetMigrationError,
@@ -87,9 +88,10 @@ class FleetSchemaOperationFence:
     def __post_init__(self) -> None:
         if not isinstance(self.claim_id, UUID) or self.claim_id.int == 0:
             raise TypeError("claim_id must be a non-zero UUID")
-        if not isinstance(self.owner_id, str) or _OWNER.fullmatch(
-            self.owner_id
-        ) is None:
+        if (
+            not isinstance(self.owner_id, str)
+            or _OWNER.fullmatch(self.owner_id) is None
+        ):
             raise ValueError("owner_id is invalid")
         for name in ("generation", "fencing_token", "row_version"):
             value = getattr(self, name)
@@ -342,10 +344,7 @@ class FleetMigrationPersistenceService:
         try:
             snapshot = self._session.scalar(
                 sa.select(TenantFleetMigration)
-                .where(
-                    TenantFleetMigration.migration_uuid
-                    == str(migration_id)
-                )
+                .where(TenantFleetMigration.migration_uuid == str(migration_id))
                 .execution_options(autoflush=False, populate_existing=True)
             )
         except SQLAlchemyError:
@@ -463,8 +462,7 @@ class FleetMigrationPersistenceService:
             raise FleetMigrationPersistenceError()
         expected_after = (
             after.target
-            if transition.route_disposition
-            is FleetRouteDisposition.ROUTABLE_CURRENT
+            if transition.route_disposition is FleetRouteDisposition.ROUTABLE_CURRENT
             else after.source
         )
         identity_version = identity.row_version
@@ -496,9 +494,7 @@ class FleetMigrationPersistenceService:
                         schema_operation_generation=fence.generation,
                         schema_operation_fencing_token=fence.fencing_token,
                         schema_operation_row_version=fence.row_version,
-                        last_observed_tenant_uuid=str(
-                            observation.identity.tenant_uuid
-                        ),
+                        last_observed_tenant_uuid=str(observation.identity.tenant_uuid),
                         last_observed_database_uuid=str(
                             observation.identity.database_uuid
                         ),
@@ -525,20 +521,14 @@ class FleetMigrationPersistenceService:
                 identity_changed = self._session.execute(
                     sa.update(DatabaseIdentityControlRecord)
                     .where(
-                        DatabaseIdentityControlRecord.tenant_id
-                        == identity.tenant_id,
+                        DatabaseIdentityControlRecord.tenant_id == identity.tenant_id,
                         DatabaseIdentityControlRecord.database_uuid
                         == identity.database_uuid,
-                        DatabaseIdentityControlRecord.row_version
-                        == identity_version,
+                        DatabaseIdentityControlRecord.row_version == identity_version,
                     )
                     .values(
-                        expected_schema_generation=(
-                            expected_after.schema_generation
-                        ),
-                        expected_schema_revision=(
-                            expected_after.schema_revision
-                        ),
+                        expected_schema_generation=(expected_after.schema_generation),
+                        expected_schema_revision=(expected_after.schema_revision),
                         expected_schema_sha256=expected_after.schema_sha256,
                         observed_schema_generation=(
                             observation.identity.schema_generation
@@ -568,8 +558,7 @@ class FleetMigrationPersistenceService:
                         sa.update(TenantDatabase)
                         .where(
                             TenantDatabase.tenant_id == route.tenant_id,
-                            TenantDatabase.database_uuid
-                            == route.database_uuid,
+                            TenantDatabase.database_uuid == route.database_uuid,
                             TenantDatabase.row_version == route_version,
                             TenantDatabase.status == "ready",
                         )
@@ -651,10 +640,8 @@ class FleetMigrationPersistenceService:
             identity = self._session.scalar(
                 sa.select(DatabaseIdentityControlRecord)
                 .where(
-                    DatabaseIdentityControlRecord.tenant_id
-                    == str(tenant_uuid),
-                    DatabaseIdentityControlRecord.database_uuid
-                    == str(database_uuid),
+                    DatabaseIdentityControlRecord.tenant_id == str(tenant_uuid),
+                    DatabaseIdentityControlRecord.database_uuid == str(database_uuid),
                 )
                 .with_for_update()
                 .execution_options(autoflush=False, populate_existing=True)
@@ -674,10 +661,8 @@ class FleetMigrationPersistenceService:
             return self._session.scalar(
                 sa.select(TenantFleetMigration)
                 .where(
-                    TenantFleetMigration.tenant_id
-                    == str(source.tenant_uuid),
-                    TenantFleetMigration.database_uuid
-                    == str(source.database_uuid),
+                    TenantFleetMigration.tenant_id == str(source.tenant_uuid),
+                    TenantFleetMigration.database_uuid == str(source.database_uuid),
                     TenantFleetMigration.target_schema_generation
                     == target.schema_generation,
                 )
@@ -694,10 +679,7 @@ class FleetMigrationPersistenceService:
         try:
             return self._session.scalar(
                 sa.select(TenantFleetMigration)
-                .where(
-                    TenantFleetMigration.migration_uuid
-                    == str(migration_uuid)
-                )
+                .where(TenantFleetMigration.migration_uuid == str(migration_uuid))
                 .with_for_update()
                 .execution_options(autoflush=False, populate_existing=True)
             )
@@ -729,8 +711,7 @@ class FleetMigrationPersistenceService:
             or tenant.status in {"provisioning", "deleted"}
             or route.status != "ready"
             or route.schema_version != expected.schema_revision
-            or identity.expected_schema_generation
-            != expected.schema_generation
+            or identity.expected_schema_generation != expected.schema_generation
             or not _positive(identity.row_version)
             or not _positive(route.row_version)
         ):
@@ -787,8 +768,7 @@ class FleetMigrationPersistenceService:
             sa.update(DatabaseIdentityControlRecord)
             .where(
                 DatabaseIdentityControlRecord.tenant_id == identity.tenant_id,
-                DatabaseIdentityControlRecord.database_uuid
-                == identity.database_uuid,
+                DatabaseIdentityControlRecord.database_uuid == identity.database_uuid,
                 DatabaseIdentityControlRecord.row_version == before,
             )
             .values(
@@ -804,19 +784,11 @@ class FleetMigrationPersistenceService:
             raise FleetMigrationFenceConflict()
 
     def _prepare(self) -> None:
-        transaction = self._session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            raise FleetMigrationTransactionError()
-        dirty = any(
-            self._session.is_modified(instance, include_collections=True)
-            for instance in self._session.dirty
+        require_caller_transaction(
+            self._session,
+            FleetMigrationTransactionError,
+            clean=True,
         )
-        if self._session.new or self._session.deleted or dirty:
-            raise FleetMigrationTransactionError()
-        _materialize_sqlite_outer_transaction(self._session)
 
     def _now(self) -> datetime:
         try:
@@ -901,9 +873,7 @@ def _domain_target(row: TenantFleetMigration) -> FleetMigrationTarget:
                 raise ValueError("incomplete observation")
             observed = FleetSchemaIdentity(
                 tenant_uuid=_canonical_uuid(row.last_observed_tenant_uuid),
-                database_uuid=_canonical_uuid(
-                    row.last_observed_database_uuid
-                ),
+                database_uuid=_canonical_uuid(row.last_observed_database_uuid),
                 schema_generation=row.last_observed_schema_generation,
                 schema_revision=row.last_observed_schema_revision,
                 schema_sha256=bytes(row.last_observed_schema_sha256),
@@ -931,7 +901,11 @@ def _domain_target(row: TenantFleetMigration) -> FleetMigrationTarget:
 def _expected_control_identity(
     target: FleetMigrationTarget,
 ) -> FleetSchemaIdentity:
-    return target.target if target.state is FleetMigrationState.SUCCEEDED else target.source
+    return (
+        target.target
+        if target.state is FleetMigrationState.SUCCEEDED
+        else target.source
+    )
 
 
 def _stored_disposition(row: TenantFleetMigration) -> FleetRouteDisposition:
@@ -977,10 +951,7 @@ def _require_fresh_observation(
         _optional_utc(row.last_observed_at),
         _optional_utc(identity.last_verified_at),
     )
-    if any(
-        floor is not None and observation.observed_at < floor
-        for floor in floors
-    ):
+    if any(floor is not None and observation.observed_at < floor for floor in floors):
         raise FleetMigrationObservationRejected()
 
 
@@ -1095,17 +1066,13 @@ def _canonical_uuid(value: object) -> UUID:
 
 
 def _positive(value: object) -> bool:
-    return bool(
-        not isinstance(value, bool)
-        and isinstance(value, int)
-        and value >= 1
-    )
+    return bool(not isinstance(value, bool) and isinstance(value, int) and value >= 1)
 
 
 def _read_database_utc_now(session: Session) -> datetime:
-    if session.get_bind().dialect.name in {"mysql", "mariadb"}:
-        return _as_utc(session.scalar(sa.text("SELECT UTC_TIMESTAMP(6)")))
-    return _as_utc(session.scalar(sa.select(sa.func.current_timestamp())))
+    if session.get_bind().dialect.name not in {"mysql", "mariadb"}:
+        raise FleetMigrationPersistenceError()
+    return _as_utc(session.scalar(sa.text("SELECT UTC_TIMESTAMP(6)")))
 
 
 def _as_utc(value: object) -> datetime:
@@ -1121,19 +1088,14 @@ def _optional_utc(value: object | None) -> datetime | None:
 
 
 def _utc_text(value: datetime) -> str:
-    return _as_utc(value).isoformat(timespec="microseconds").replace(
-        "+00:00",
-        "Z",
+    return (
+        _as_utc(value)
+        .isoformat(timespec="microseconds")
+        .replace(
+            "+00:00",
+            "Z",
+        )
     )
-
-
-def _materialize_sqlite_outer_transaction(session: Session) -> None:
-    connection = session.connection()
-    if connection.dialect.name != "sqlite":
-        return
-    driver_connection = getattr(connection.connection, "driver_connection", None)
-    if driver_connection is not None and not driver_connection.in_transaction:
-        connection.exec_driver_sql("BEGIN IMMEDIATE")
 
 
 __all__ = [

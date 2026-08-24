@@ -8,8 +8,6 @@ cross-schema smoke to a non-locking ``SELECT ... LIMIT 0``.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from dataclasses import dataclass
 from enum import Enum
@@ -17,6 +15,8 @@ from typing import Callable, Final, Mapping, Protocol, runtime_checkable
 
 import sqlalchemy as sa
 from sqlalchemy.exc import DBAPIError
+
+from inventory_control.evidence import canonical_json_sha256
 
 
 _TOKEN: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_$-]{0,63}$", re.ASCII)
@@ -52,13 +52,17 @@ class DefaultMySqlAccountProfile(str, Enum):
 class DefaultMySqlGrantConnection(Protocol):
     dialect: object
 
-    def execute(self, statement: object) -> object: ...
+    def execute(self, statement: object) -> object:
+        ...
 
-    def in_transaction(self) -> bool: ...
+    def in_transaction(self) -> bool:
+        ...
 
-    def rollback(self) -> None: ...
+    def rollback(self) -> None:
+        ...
 
-    def close(self) -> None: ...
+    def close(self) -> None:
+        ...
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
@@ -125,8 +129,7 @@ class DefaultMySqlCrossSchemaDenialObservation:
 
     def __repr__(self) -> str:
         return (
-            "DefaultMySqlCrossSchemaDenialObservation("
-            f"digest={self.digest.hex()!r})"
+            "DefaultMySqlCrossSchemaDenialObservation(" f"digest={self.digest.hex()!r})"
         )
 
 
@@ -155,17 +158,14 @@ class DefaultMySqlTenantGrantMatrixObservation:
                     self.cross_schema_negative_digest.hex()
                 ),
                 "dml_grants_digest": self.dml_grants_digest.hex(),
-                "platform_read_grants_digest": (
-                    self.platform_read_grants_digest.hex()
-                ),
+                "platform_read_grants_digest": (self.platform_read_grants_digest.hex()),
                 "version": 1,
             }
         )
 
     def __repr__(self) -> str:
         return (
-            "DefaultMySqlTenantGrantMatrixObservation("
-            f"digest={self.digest.hex()!r})"
+            "DefaultMySqlTenantGrantMatrixObservation(" f"digest={self.digest.hex()!r})"
         )
 
 
@@ -433,9 +433,7 @@ class DefaultMySqlTenantGrantMatrixVerifier:
         self,
         *,
         dml_connection_factory: Callable[[], DefaultMySqlGrantConnection],
-        platform_read_connection_factory: Callable[
-            [], DefaultMySqlGrantConnection
-        ],
+        platform_read_connection_factory: Callable[[], DefaultMySqlGrantConnection],
         dml_username: str,
         platform_read_username: str,
         database_name: str,
@@ -496,10 +494,7 @@ class DefaultMySqlTenantGrantMatrixVerifier:
         factory: Callable[[], DefaultMySqlGrantConnection],
         profile: DefaultMySqlAccountProfile,
         username: str,
-    ) -> tuple[
-        DefaultMySqlGrantObservation,
-        DefaultMySqlCrossSchemaDenialObservation,
-    ]:
+    ) -> tuple[DefaultMySqlGrantObservation, DefaultMySqlCrossSchemaDenialObservation,]:
         try:
             connection = factory()
         except Exception:
@@ -680,14 +675,7 @@ def _username(value: object) -> bool:
 
 
 def _digest_document(value: Mapping[str, object]) -> bytes:
-    return hashlib.sha256(
-        json.dumps(
-            value,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-        ).encode("ascii")
-    ).digest()
+    return canonical_json_sha256(value, allow_nan=True)
 
 
 __all__ = [

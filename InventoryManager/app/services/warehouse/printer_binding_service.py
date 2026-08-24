@@ -7,10 +7,11 @@ from datetime import datetime, timezone
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 from sqlalchemy.orm.scoping import scoped_session
 
 from app.models.warehouse import Warehouse, WarehousePrinter
+from inventory_control.transactions import require_caller_transaction
 
 
 class WarehousePrinterBindingError(RuntimeError):
@@ -147,19 +148,14 @@ class WarehousePrinterBindingService:
             or binding.provider != "kuaimai"
             or binding.status != "active"
             or binding.last_verified_at is None
-            or (
-                expected_sn is not None
-                and binding.printer_sn != expected_sn
-            )
+            or (expected_sn is not None and binding.printer_sn != expected_sn)
         ):
             raise WarehousePrinterBindingUnavailableError()
         return _binding_ref(binding, warehouse)
 
     def _lock_ready_warehouse(self, warehouse_id: int) -> Warehouse:
         warehouse = self._session.scalar(
-            sa.select(Warehouse)
-            .where(Warehouse.id == warehouse_id)
-            .with_for_update()
+            sa.select(Warehouse).where(Warehouse.id == warehouse_id).with_for_update()
         )
         if (
             warehouse is None
@@ -184,12 +180,10 @@ class WarehousePrinterBindingService:
         )
 
     def _require_transaction(self) -> None:
-        transaction = self._session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            raise WarehousePrinterBindingTransactionError()
+        require_caller_transaction(
+            self._session,
+            WarehousePrinterBindingTransactionError,
+        )
 
 
 def _binding_ref(

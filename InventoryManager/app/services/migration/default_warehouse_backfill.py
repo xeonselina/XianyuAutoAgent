@@ -14,11 +14,12 @@ from uuid import UUID, uuid5
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from app.models.database_identity import TenantDatabaseIdentity
 from app.models.device import Device
 from app.models.warehouse import Warehouse
+from inventory_control.transactions import require_caller_transaction
 
 
 _BASELINE_ID: Final = re.compile(
@@ -79,9 +80,7 @@ class DefaultWarehouseProfile:
     address_detail: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
-        values = {
-            name: getattr(self, name) for name in _READY_FIELD_LIMITS
-        }
+        values = {name: getattr(self, name) for name in _READY_FIELD_LIMITS}
         if all(value is None for value in values.values()):
             return
         if any(value is None for value in values.values()):
@@ -126,13 +125,10 @@ class DefaultWarehouseBackfillResult:
             or self.setup_state not in {"pending", "ready"}
             or not isinstance(self.warehouse_created, bool)
             or any(
-                not isinstance(item, int)
-                or isinstance(item, bool)
-                or item <= 0
+                not isinstance(item, int) or isinstance(item, bool) or item <= 0
                 for item in self.assigned_device_ids
             )
-            or tuple(sorted(set(self.assigned_device_ids)))
-            != self.assigned_device_ids
+            or tuple(sorted(set(self.assigned_device_ids))) != self.assigned_device_ids
             or not isinstance(self.preserved_assigned_device_count, int)
             or isinstance(self.preserved_assigned_device_count, bool)
             or self.preserved_assigned_device_count < 0
@@ -181,7 +177,12 @@ class DefaultWarehouseBackfillService:
         if not isinstance(profile, DefaultWarehouseProfile):
             raise DefaultWarehouseBackfillInputError()
 
-        _prepare_session(session)
+        require_caller_transaction(
+            session,
+            DefaultWarehouseBackfillTransactionError,
+            invalid_session_error=DefaultWarehouseBackfillInputError,
+            clean=True,
+        )
         identities = _lock_identity(session)
         identity = _verified_identity(
             identities,
@@ -205,8 +206,7 @@ class DefaultWarehouseBackfillService:
                 devices = _lock_devices(session)
                 _verify_existing_device_assignments(
                     devices,
-                    warehouse_ids={item.id for item in warehouses}
-                    | {warehouse.id},
+                    warehouse_ids={item.id for item in warehouses} | {warehouse.id},
                 )
                 assigned = []
                 preserved = 0
@@ -336,8 +336,7 @@ def _select_default_warehouse(
         or warehouse.is_default is not True
         or warehouse.default_slot != 1
         or any(
-            getattr(warehouse, name) != value
-            for name, value in expected_values.items()
+            getattr(warehouse, name) != value for name, value in expected_values.items()
         )
     ):
         raise DefaultWarehouseConflictError()
@@ -370,35 +369,11 @@ def _verify_existing_device_assignments(
     if any(
         device.id is None
         or (
-            device.warehouse_id is not None
-            and device.warehouse_id not in warehouse_ids
+            device.warehouse_id is not None and device.warehouse_id not in warehouse_ids
         )
         for device in devices
     ):
         raise DefaultWarehouseConflictError()
-
-
-def _prepare_session(session: Session) -> None:
-    if not isinstance(session, Session):
-        raise DefaultWarehouseBackfillInputError()
-    transaction = session.get_transaction()
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-    ):
-        raise DefaultWarehouseBackfillTransactionError()
-    dirty = any(
-        session.is_modified(instance, include_collections=True)
-        for instance in session.dirty
-    )
-    if session.new or session.deleted or dirty:
-        raise DefaultWarehouseBackfillTransactionError()
-    connection = session.connection()
-    if connection.dialect.name != "sqlite":
-        return
-    driver_connection = getattr(connection.connection, "driver_connection", None)
-    if driver_connection is not None and not driver_connection.in_transaction:
-        connection.exec_driver_sql("BEGIN IMMEDIATE")
 
 
 def _required_uuid(value: object) -> UUID:
@@ -408,11 +383,7 @@ def _required_uuid(value: object) -> UUID:
 
 
 def _positive_generation(value: object) -> int:
-    if (
-        not isinstance(value, int)
-        or isinstance(value, bool)
-        or value <= 0
-    ):
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         raise DefaultWarehouseBackfillInputError()
     return value
 

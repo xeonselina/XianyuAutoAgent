@@ -10,7 +10,7 @@ from typing import Callable, Mapping, Protocol
 from uuid import UUID
 
 import sqlalchemy as sa
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from app.models.shipping_execution import (
     OutboundShipment,
@@ -47,6 +47,7 @@ from inventory_control.jobs import (
 from inventory_control.jobs.service import ControlJobService
 from inventory_control.models.foundation import Tenant
 from inventory_control.models.jobs import BackgroundJob
+from inventory_control.transactions import require_caller_transaction
 
 
 SF_CREATE_WAYBILL_JOB_TYPE = "sf_create_waybill"
@@ -116,14 +117,16 @@ class SfWaybillTenantStore(Protocol):
     def load_snapshot(
         self,
         prepared: PreparedSfWaybillJob,
-    ) -> SfWaybillSubmissionSnapshot: ...
+    ) -> SfWaybillSubmissionSnapshot:
+        ...
 
     def mark_submitting(
         self,
         prepared: PreparedSfWaybillJob,
         *,
         started_at: datetime,
-    ) -> None: ...
+    ) -> None:
+        ...
 
     def record_result(
         self,
@@ -131,7 +134,8 @@ class SfWaybillTenantStore(Protocol):
         *,
         result: SfWaybillProviderResult,
         finished_at: datetime,
-    ) -> StoredSfWaybillResult: ...
+    ) -> StoredSfWaybillResult:
+        ...
 
 
 class SfWaybillCredentialSource(Protocol):
@@ -140,14 +144,16 @@ class SfWaybillCredentialSource(Protocol):
         *,
         job: PreparedSfWaybillJob,
         snapshot: SfWaybillSubmissionSnapshot,
-    ) -> SfCreateWaybillRequest: ...
+    ) -> SfCreateWaybillRequest:
+        ...
 
 
 class SfWaybillDispatcher(Protocol):
     def dispatch(
         self,
         request: SfCreateWaybillRequest,
-    ) -> SfWaybillProviderResult: ...
+    ) -> SfWaybillProviderResult:
+        ...
 
 
 TenantTransactionProvider = Callable[
@@ -437,9 +443,7 @@ class SfCreateWaybillJobHandler:
             return JobOutcome(
                 OutcomeDisposition.REVIEW,
                 safe_result=safe_result,
-                reason_code=(
-                    final_authority.reason_code or "tenant_gate_denied"
-                ),
+                reason_code=(final_authority.reason_code or "tenant_gate_denied"),
             )
         if result.outcome is ProviderOutcome.UNKNOWN:
             return JobOutcome(
@@ -559,12 +563,7 @@ def _prepared(value: object) -> PreparedSfWaybillJob:
 
 
 def _require_transaction(session: Session) -> None:
-    transaction = session.get_transaction() if isinstance(session, Session) else None
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-    ):
-        raise SfWaybillWorkerInputError()
+    require_caller_transaction(session, SfWaybillWorkerInputError)
 
 
 def _positive(value: object) -> int:

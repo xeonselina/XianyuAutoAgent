@@ -117,9 +117,7 @@ class PlatformAdminSessionService:
         absolute_seconds = _timeout_seconds(absolute_timeout, "absolute_timeout")
         if idle_seconds > absolute_seconds:
             raise ValueError("idle_timeout must not exceed absolute_timeout")
-        max_factor_age_seconds = _timeout_seconds(
-            factor_max_age, "factor_max_age"
-        )
+        max_factor_age_seconds = _timeout_seconds(factor_max_age, "factor_max_age")
         if isinstance(policy_version, bool) or policy_version < 1:
             raise ValueError("policy_version must be positive")
         _validate_optional_summary(device_name, "device_name", 100)
@@ -174,13 +172,9 @@ class PlatformAdminSessionService:
             totp_credential_id=(
                 factor.factor_record_id if factor.method == "totp" else None
             ),
-            totp_time_step=(
-                factor.totp_time_step if factor.method == "totp" else None
-            ),
+            totp_time_step=(factor.totp_time_step if factor.method == "totp" else None),
             recovery_code_id=(
-                factor.factor_record_id
-                if factor.method == "recovery_code"
-                else None
+                factor.factor_record_id if factor.method == "recovery_code" else None
             ),
             policy_version=policy_version,
             csrf_generation=1,
@@ -239,8 +233,7 @@ class PlatformAdminSessionService:
             sa.select(PlatformAdminSession)
             .where(
                 PlatformAdminSession.id == summary.id,
-                PlatformAdminSession.platform_admin_id
-                == summary.platform_admin_id,
+                PlatformAdminSession.platform_admin_id == summary.platform_admin_id,
             )
             .with_for_update()
         )
@@ -248,9 +241,7 @@ class PlatformAdminSessionService:
             token_has_shape
             and row is not None
             and admin is not None
-            and verify_platform_session_token(
-                presented_token, row.token_digest_sha256
-            )
+            and verify_platform_session_token(presented_token, row.token_digest_sha256)
             and self._is_current(row, admin, current_time)
         ):
             raise PlatformSessionAuthenticationError()
@@ -285,8 +276,7 @@ class PlatformAdminSessionService:
             sa.select(PlatformAdminSession)
             .where(
                 PlatformAdminSession.id == auth.session_id,
-                PlatformAdminSession.platform_admin_id
-                == auth.platform_admin_id,
+                PlatformAdminSession.platform_admin_id == auth.platform_admin_id,
             )
             .with_for_update()
         )
@@ -302,9 +292,7 @@ class PlatformAdminSessionService:
         if not (
             snapshot_matches
             and self._is_current(row, admin, current_time)
-            and verify_platform_csrf_token(
-                presented_csrf, row.csrf_digest_sha256
-            )
+            and verify_platform_csrf_token(presented_csrf, row.csrf_digest_sha256)
         ):
             raise PlatformCsrfAuthenticationError()
 
@@ -441,7 +429,10 @@ class PlatformAdminSessionService:
                 and recovery_code.state == "consumed"
                 and recovery_code.consumed_at is not None
                 and _as_utc(recovery_code.consumed_at)
-                == _as_utc(factor.verified_at)
+                == max(
+                    _as_utc(factor.verified_at),
+                    _as_utc(recovery_code.created_at),
+                )
             )
         return False
 

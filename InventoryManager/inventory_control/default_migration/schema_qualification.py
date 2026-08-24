@@ -1,16 +1,13 @@
-"""Explicit-connection Alembic qualification for isolated migration targets.
+"""Explicit-connection Alembic qualification for the authorized MySQL target.
 
 The runner never accepts or discovers a DSN.  Before any Alembic command it
-proves that the caller-bound connection is either a file-backed SQLite
-database under an explicit scratch root, or the single explicitly authorized
-real-test MySQL schema.  Production and in-memory/ambiguous targets therefore
+proves that the caller-bound connection selects the single explicitly
+authorized MySQL 8 test schema.  Production and ambiguous targets therefore
 cannot reach the migration command through this adapter.
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +23,7 @@ from alembic.script import ScriptDirectory
 from sqlalchemy.engine import Connection
 from sqlalchemy.schema import MetaData
 
+from inventory_control.evidence import canonical_json_sha256
 
 _REVISION: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]{0,127}$")
 _MYSQL_VERSION: Final = re.compile(r"^8\.0\.(?P<patch>[0-9]+)(?:[-+].*)?$")
@@ -55,35 +53,18 @@ class DefaultSchemaQualificationMigrationError(DefaultSchemaQualificationError):
 class DefaultSchemaQualificationTarget:
     """Non-secret mutation boundary selected by an operator/test harness."""
 
-    sqlite_scratch_root: Path | None = None
     mysql_database_name: str | None = None
     real_test_database_authorized: bool = False
 
     def __post_init__(self) -> None:
-        sqlite = self.sqlite_scratch_root
-        mysql = self.mysql_database_name
-        if (sqlite is None) == (mysql is None):
-            raise DefaultSchemaQualificationInputError()
-        if sqlite is not None:
-            if (
-                not isinstance(sqlite, Path)
-                or not sqlite.is_absolute()
-                or not sqlite.exists()
-                or not sqlite.is_dir()
-                or self.real_test_database_authorized
-            ):
-                raise DefaultSchemaQualificationInputError()
-            object.__setattr__(self, "sqlite_scratch_root", sqlite.resolve())
-            return
         if (
-            mysql != _REAL_TEST_DATABASE
+            self.mysql_database_name != _REAL_TEST_DATABASE
             or self.real_test_database_authorized is not True
         ):
             raise DefaultSchemaQualificationInputError()
 
     def __repr__(self) -> str:
-        kind = "sqlite_scratch" if self.sqlite_scratch_root else "real_test_mysql"
-        return f"DefaultSchemaQualificationTarget(kind={kind!r})"
+        return "DefaultSchemaQualificationTarget(kind='real_test_mysql')"
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
@@ -102,7 +83,7 @@ class DefaultSchemaQualificationReceipt:
                 self.baseline_revision is not None
                 and not _revision(self.baseline_revision)
             )
-            or self.dialect not in {"sqlite", "mysql"}
+            or self.dialect != "mysql"
             or not _digest(self.migration_round_trip_digest)
             or not _digest(self.metadata_model_match_digest)
             or not _digest(self.target_identity_digest)
@@ -115,12 +96,8 @@ class DefaultSchemaQualificationReceipt:
             {
                 "baseline_revision": self.baseline_revision,
                 "dialect": self.dialect,
-                "metadata_model_match_digest": (
-                    self.metadata_model_match_digest.hex()
-                ),
-                "migration_round_trip_digest": (
-                    self.migration_round_trip_digest.hex()
-                ),
+                "metadata_model_match_digest": (self.metadata_model_match_digest.hex()),
+                "migration_round_trip_digest": (self.migration_round_trip_digest.hex()),
                 "schema_head": self.schema_head,
                 "target_identity_digest": self.target_identity_digest.hex(),
                 "version": 1,
@@ -142,7 +119,7 @@ class DefaultSchemaApplyReceipt:
     def __post_init__(self) -> None:
         if (
             not _revision(self.schema_head)
-            or self.dialect not in {"sqlite", "mysql"}
+            or self.dialect != "mysql"
             or not _digest(self.migration_apply_digest)
             or not _digest(self.metadata_model_match_digest)
             or not _digest(self.target_identity_digest)
@@ -154,9 +131,7 @@ class DefaultSchemaApplyReceipt:
         return _canonical_digest(
             {
                 "dialect": self.dialect,
-                "metadata_model_match_digest": (
-                    self.metadata_model_match_digest.hex()
-                ),
+                "metadata_model_match_digest": (self.metadata_model_match_digest.hex()),
                 "migration_apply_digest": self.migration_apply_digest.hex(),
                 "schema_head": self.schema_head,
                 "target_identity_digest": self.target_identity_digest.hex(),
@@ -188,10 +163,7 @@ class ExplicitConnectionAlembicQualificationRunner:
             or not (location / "env.py").is_file()
             or not isinstance(target_metadata, MetaData)
             or not _revision(schema_head)
-            or (
-                baseline_revision is not None
-                and not _revision(baseline_revision)
-            )
+            or (baseline_revision is not None and not _revision(baseline_revision))
             or baseline_revision == schema_head
         ):
             raise DefaultSchemaQualificationInputError()
@@ -340,36 +312,24 @@ def _require_target(
     target: DefaultSchemaQualificationTarget,
 ) -> tuple[str, bytes]:
     dialect = connection.dialect.name
-    if dialect == "sqlite":
-        if target.sqlite_scratch_root is None:
-            raise DefaultSchemaQualificationTargetError()
-        rows = tuple(connection.exec_driver_sql("PRAGMA database_list").mappings())
-        main = [row for row in rows if row.get("name") == "main"]
-        if len(main) != 1 or not isinstance(main[0].get("file"), str):
-            raise DefaultSchemaQualificationTargetError()
-        raw_path = main[0]["file"]
-        if not raw_path:
-            raise DefaultSchemaQualificationTargetError()
-        path = Path(raw_path).resolve()
-        if not path.is_relative_to(target.sqlite_scratch_root):
-            raise DefaultSchemaQualificationTargetError()
-        return dialect, _canonical_digest(
-            {"dialect": dialect, "file": str(path), "version": 1}
-        )
     if dialect == "mysql":
         if (
             target.mysql_database_name != _REAL_TEST_DATABASE
             or not target.real_test_database_authorized
         ):
             raise DefaultSchemaQualificationTargetError()
-        row = connection.execute(
-            sa.text(
-                "SELECT DATABASE() AS database_name, "
-                "CAST(@@version AS CHAR) AS server_version, "
-                "CAST(@@version_comment AS CHAR) AS version_comment, "
-                "CAST(@@server_uuid AS CHAR) AS server_uuid"
+        row = (
+            connection.execute(
+                sa.text(
+                    "SELECT DATABASE() AS database_name, "
+                    "CAST(@@version AS CHAR) AS server_version, "
+                    "CAST(@@version_comment AS CHAR) AS version_comment, "
+                    "CAST(@@server_uuid AS CHAR) AS server_uuid"
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
         if set(row) != {
             "database_name",
             "server_version",
@@ -379,7 +339,9 @@ def _require_target(
             raise DefaultSchemaQualificationTargetError()
         version = row["server_version"]
         comment = row["version_comment"]
-        selected = _MYSQL_VERSION.fullmatch(version) if isinstance(version, str) else None
+        selected = (
+            _MYSQL_VERSION.fullmatch(version) if isinstance(version, str) else None
+        )
         if (
             row["database_name"] != _REAL_TEST_DATABASE
             or selected is None
@@ -435,14 +397,7 @@ def _digest(value: object) -> bool:
 
 
 def _canonical_digest(value: object) -> bytes:
-    return hashlib.sha256(
-        json.dumps(
-            value,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-        ).encode("ascii")
-    ).digest()
+    return canonical_json_sha256(value, allow_nan=True)
 
 
 __all__ = [

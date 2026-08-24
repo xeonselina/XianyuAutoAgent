@@ -7,7 +7,6 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.session import SessionTransactionOrigin
 
 from inventory_control.domain import TenantRole
 from inventory_control.models import (
@@ -16,6 +15,7 @@ from inventory_control.models import (
     TenantUserSession,
     User,
 )
+from inventory_control.transactions import require_caller_transaction
 from .membership_contracts import (
     AdminPermissionChangeProof,
     LastActiveAdminError,
@@ -60,12 +60,8 @@ class TenantMembershipService:
         self._prepare(session)
         tenant_id = _uuid_text(tenant_uuid, "tenant_uuid")
         actor_user_id = _uuid_text(actor_user_uuid, "actor_user_uuid")
-        actor_membership_id = _uuid_text(
-            actor_membership_uuid, "actor_membership_uuid"
-        )
-        actor_session_id = _uuid_text(
-            actor_session_uuid, "actor_session_uuid"
-        )
+        actor_membership_id = _uuid_text(actor_membership_uuid, "actor_membership_uuid")
+        actor_session_id = _uuid_text(actor_session_uuid, "actor_session_uuid")
         target_membership_id = _uuid_text(
             target_membership_uuid, "target_membership_uuid"
         )
@@ -95,24 +91,14 @@ class TenantMembershipService:
         target_user = next(
             row for row in locked.users if row.id == target_summary.user_id
         )
-        actor_user = next(
-            row for row in locked.users if row.id == actor_user_id
-        )
+        actor_user = next(row for row in locked.users if row.id == actor_user_id)
 
         actor = next(
-            (
-                row
-                for row in locked.memberships
-                if row.id == actor_membership_id
-            ),
+            (row for row in locked.memberships if row.id == actor_membership_id),
             None,
         )
         target = next(
-            (
-                row
-                for row in locked.memberships
-                if row.id == target_membership_id
-            ),
+            (row for row in locked.memberships if row.id == target_membership_id),
             None,
         )
         if (
@@ -226,25 +212,13 @@ class TenantMembershipService:
 
     @staticmethod
     def _prepare(session: Session) -> None:
-        if not isinstance(session, Session):
-            raise MembershipMutationInputError()
-        transaction = session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-            or session.new
-            or session.deleted
-            or any(
-                session.is_modified(row, include_collections=True)
-                for row in session.dirty
-            )
-        ):
-            raise MembershipMutationInputError()
-        connection = session.connection()
-        if connection.dialect.name == "sqlite":
-            driver = getattr(connection.connection, "driver_connection", None)
-            if driver is not None and not driver.in_transaction:
-                connection.exec_driver_sql("BEGIN IMMEDIATE")
+        require_caller_transaction(
+            session,
+            MembershipMutationInputError,
+            invalid_session_error=MembershipMutationInputError,
+            clean=True,
+        )
+
 
 def _require_admin_proof(
     proof: AdminPermissionChangeProof | None,
@@ -323,9 +297,7 @@ def _result(
 def _require_action_shape(
     action: MembershipMutationAction, target_role: TenantRole | None
 ) -> None:
-    if (action is MembershipMutationAction.CHANGE_ROLE) != (
-        target_role is not None
-    ):
+    if (action is MembershipMutationAction.CHANGE_ROLE) != (target_role is not None):
         raise MembershipMutationInputError()
 
 

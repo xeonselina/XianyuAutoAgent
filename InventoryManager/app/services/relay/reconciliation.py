@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import sqlalchemy as sa
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from app.models.rental_relay_case import RentalRelayCase
 from app.models.shipping_execution import (
@@ -37,11 +37,10 @@ from inventory_control.jobs import (
 )
 from inventory_control.models.foundation import Tenant
 from inventory_control.models.jobs import BackgroundJob
+from inventory_control.transactions import require_caller_transaction
 
 
-RELAY_EXTERNAL_RECONCILIATION_JOB_TYPE: Final = (
-    "relay_external_stage_reconcile"
-)
+RELAY_EXTERNAL_RECONCILIATION_JOB_TYPE: Final = "relay_external_stage_reconcile"
 RELAY_EXTERNAL_RECONCILIATION_RESOURCE_KEY: Final = (
     "relay:external-stage-reconciliation"
 )
@@ -74,13 +73,11 @@ class RelayExternalReconciliationService:
                 sa.select(ProviderOperationAttempt.id)
                 .join(
                     OutboundShipment,
-                    OutboundShipment.id
-                    == ProviderOperationAttempt.shipment_id,
+                    OutboundShipment.id == ProviderOperationAttempt.shipment_id,
                 )
                 .join(
                     RentalRelayCase,
-                    RentalRelayCase.successor_rental_id
-                    == OutboundShipment.rental_id,
+                    RentalRelayCase.successor_rental_id == OutboundShipment.rental_id,
                 )
                 .where(
                     OutboundShipment.provider == "sf",
@@ -125,12 +122,11 @@ class RelayExternalReconciliationStore(Protocol):
     def reconcile(
         self,
         prepared: PreparedRelayExternalReconciliationJob,
-    ) -> RelayExternalProjectionReceipt | None: ...
+    ) -> RelayExternalProjectionReceipt | None:
+        ...
 
 
-TenantTransactionProvider = Callable[
-    [TenantContext], AbstractContextManager[Session]
-]
+TenantTransactionProvider = Callable[[TenantContext], AbstractContextManager[Session]]
 
 
 class SqlAlchemyRelayExternalReconciliationStore:
@@ -225,9 +221,7 @@ def _scheduled_payload(
 
 def _parse_job(job: BackgroundJob) -> PreparedRelayExternalReconciliationJob:
     expected_payload = {"contract_version", "tenant_timezone"}
-    expected_key_prefix = (
-        f"scheduler:{RELAY_EXTERNAL_RECONCILIATION_JOB_TYPE}:"
-    )
+    expected_key_prefix = f"scheduler:{RELAY_EXTERNAL_RECONCILIATION_JOB_TYPE}:"
     if (
         not isinstance(job, BackgroundJob)
         or job.job_type != RELAY_EXTERNAL_RECONCILIATION_JOB_TYPE
@@ -253,12 +247,7 @@ def _parse_job(job: BackgroundJob) -> PreparedRelayExternalReconciliationJob:
 
 
 def _require_explicit_transaction(session: Session) -> None:
-    transaction = session.get_transaction() if isinstance(session, Session) else None
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-    ):
-        raise RelayExternalProjectionError()
+    require_caller_transaction(session, RelayExternalProjectionError)
 
 
 def _positive(value: object) -> int:

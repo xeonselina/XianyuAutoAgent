@@ -3,24 +3,12 @@ from datetime import date
 import pytest
 from sqlalchemy import event
 
-from app import create_app, db
+from app import db
 from app.models.device import Device
 from app.models.inspection_record import InspectionRecord
 from app.models.rental import Rental
 from app.models.warehouse import DeviceWarehouseMovement, Warehouse
 from app.services.inspection_service import InspectionService
-
-
-@pytest.fixture
-def application():
-    app = create_app("testing")
-    with app.app_context():
-        db.create_all()
-        try:
-            yield app
-        finally:
-            db.session.remove()
-            db.drop_all()
 
 
 def _warehouse(name, *, default=False):

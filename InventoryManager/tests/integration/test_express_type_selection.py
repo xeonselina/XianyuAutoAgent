@@ -5,29 +5,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from app import create_app, db
+from app import db
 from app.models.device import Device
 from app.models.rental import Rental
 from app.services.shipping.sf_express_service import SFExpressService
 
 
 @pytest.fixture
-def app():
-    return create_app("testing")
-
-
-@pytest.fixture
 def client(app):
     return app.test_client()
-
-
-@pytest.fixture
-def db_session(app):
-    with app.app_context():
-        db.create_all()
-        yield db.session
-        db.session.rollback()
-        db.drop_all()
 
 
 @pytest.fixture
@@ -142,7 +128,7 @@ def test_update_express_type_is_locked_after_waybill_creation(
 def test_successful_scheduling_locks_express_type(
     client, db_session, rental, monkeypatch
 ):
-    accessory = Device(name='预约发货附件', is_accessory=True)
+    accessory = Device(name="预约发货附件", is_accessory=True)
     db_session.add(accessory)
     db_session.flush()
     child = Rental(
@@ -150,7 +136,7 @@ def test_successful_scheduling_locks_express_type(
         start_date=rental.start_date,
         end_date=rental.end_date,
         customer_name=rental.customer_name,
-        status='not_shipped',
+        status="not_shipped",
         parent_rental_id=rental.id,
     )
     db_session.add(child)
@@ -187,9 +173,9 @@ def test_successful_scheduling_locks_express_type(
     db_session.refresh(rental)
     db_session.refresh(child)
     assert rental.ship_out_tracking_no == "SF-CREATED"
-    assert rental.status == 'scheduled_for_shipping'
+    assert rental.status == "scheduled_for_shipping"
     assert rental.scheduled_ship_time == datetime(2026, 8, 22, 18)
-    assert child.status == 'scheduled_for_shipping'
+    assert child.status == "scheduled_for_shipping"
     assert rental.express_type_id == 2
 
 

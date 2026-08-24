@@ -44,6 +44,12 @@
 - `execute(..., idempotency_key)`：第三方写操作使用稳定幂等键或本地去重记录。
 - 按租户限流、熔断、重试和指标标签；禁止高基数标签放入指标系统。
 
+Xianyu adapter 额外遵循 D73 的店铺归属：
+
+- 一个 `provider=xianyu` integration 就是一个闲管家账号/闲鱼店铺 connection；同一租户可有多个 connection，不再引入与 `tenant_integrations` 平行的 Xianyu account/revision 表。connection `name` 只作显示标签，所有授权、order identity、cursor、job 和执行账本都使用 immutable integration UUID。
+- rental/alert 的 Xianyu order identity 为 `(integration_uuid, order_no)`。从告警建单继承 integration；多 active connection 的手工录单/订单详情查询必须选择店铺。legacy rental 无可信来源时保持 NULL 并拒绝 provider 动作，不能把后来验证的新 revision 解释为旧订单的历史来源。
+- 新订单详情查询、发货通知或其他 Xianyu 外部动作只从 rental 已保存的 connection 解析 current verified revision，并在提交 provider 前持久化 exact integration/revision 与幂等执行身份。connection inactive、跨 tenant、缺归属或 revision 未验证均 fail closed；已提交执行不因凭证轮换跟随 current pointer，也不回退同租户其他店铺。
+
 SF adapter 额外经过 `WarehouseProviderResolver`：
 
 - 新时效查询和创建新运单只能输入可信 tenant context 与服务端解析出的 warehouse/device/rental；`WarehouseProviderResolver` 必须先 current-read 复核 tenant/subscription 为 `active`，且无 recovery/suspension/deletion 门禁，再读取当前 active `warehouse_provider_bindings` 和匹配的 active claim，并从控制面加载当前 provider account 与 API connection。expired tenant 在任何 binding/config lookup 前返回 `TENANT_EXPIRED`，`suspending/suspended/resuming` 返回 `TENANT_SUSPENDED`；客户端传入的月结卡号、account UUID、sender 或 origin 只能被忽略/拒绝。
@@ -89,9 +95,9 @@ D09 已确认使用控制库 `background_jobs` + 单个独立后台进程。该�
 - 租户库授权事务不能与控制库 enqueue 伪装成分布式原子事务。顺丰 create intent 在租户 attempt 中先固化预分配 job UUID、tenant access version、requesting user 和 request/correlation identity；provider-free producer 只按该 UUID 向控制库 enqueue，控制事务提交后再回写 tenant `job_enqueued_at`。若控制提交后的响应或 tenant 回写丢失，下一次 producer 必须精确重放同一 control job 并补写确认，不能生成新 UUID、猜测 actor/access version 或调用 provider。
 - 顺丰批量发货的可信 HTTP 入口只接受 client 预分配 request UUID、最多 100 个 tenant-local rental ID 和带时区的整秒预约时间；服务端按首次出现顺序去重，以 `(request UUID, rental ID)` 派生稳定 shipment/job UUID，并在一个 tenant transaction 中为每个 rental 固化实际仓、exact credential revisions、sender/receiver、cargo、express type、预约时间和 actor/access/request provenance。tenant commit 后才在独立 control transaction 逐项 enqueue exact job UUID，再以短 tenant transaction 回写 acknowledgement；control 响应或 ack 丢失时，HTTP 重放或 30 秒 provider-free producer 只能复用相同 job。provider worker 逐项调用并在各自短事务保存结果，不能等整批结束统一 commit；unknown/crash-after-submit 先按本地 PII-free order id 查询 provider/账本状态，不能盲目再次创建运单。
 - 顺丰追踪任务按历史 waybill ledger 的 integration/account credential 与查询手机号后四位分组，每组再按 provider 上限分批；不得把不同仓库/账号的运单塞进同一个全局 credential 批次，也不得从当前仓库绑定覆盖历史运单上下文。
-- 闲鱼调度器为每个 active tenant 按 180 秒周期产生一个 `xianyu_alert_sync` 任务，并使用稳定 tenant/integration + time-bucket 幂等键；租户采用确定性错峰，不能让所有租户在同一秒请求第三方。一个租户若有多个 active 闲鱼 connection，由同一租户任务按 connection 记录独立结果并在最后更新聚合 revision。
-- 闲鱼 provider 网络调用不得持有租户数据库事务或连接；worker 先读取必要配置并释放连接，调用第三方后再用短事务 upsert 告警摘要、各 connection 状态、`snapshot_revision`、`last_attempt_at` 和 `last_successful_sync_at`。单个 connection 失败不得清空上一次成功告警，也不得覆盖其他 connection 的成功结果。
-- Admin/Operator 手动刷新提交高优先级 `xianyu_alert_sync_now`；若同租户已有 scheduled/manual sync 在途，则返回同一 job ID 而不是再次调用第三方。接口先返回 `202 + job_id/snapshot_revision`，页面显示“同步中”并读取任务结果；provider 限流时展示可重试时间。服务端仍实施按租户有界频率，不能依赖按钮禁用防刷。
+- 闲鱼调度器为每个 active tenant 按 180 秒周期产生一个 `xianyu_alert_sync` 任务，并使用稳定 tenant/connection-set + time-bucket 幂等键；租户采用确定性错峰，不能让所有租户在同一秒请求第三方。一个租户的同一任务冻结当时全部 active 闲鱼 connection/revision 集合，按 connection 记录独立结果并在最后更新聚合 revision。
+- 闲鱼 provider 网络调用不得持有租户数据库事务或连接；worker 先读取必要配置并释放连接，调用第三方后再用短事务按 `(integration_uuid, order_no)` upsert 告警摘要、各 connection 状态、`snapshot_revision`、`last_attempt_at` 和 `last_successful_sync_at`。单个 connection 失败不得清空上一次成功告警，也不得覆盖其他 connection 的成功结果；同号订单也不得跨店铺合并。
+- Admin/Operator 手动刷新提交覆盖全部 active 店铺的高优先级 `xianyu_alert_sync_now`；Core 不增加逐店铺 provider refresh。若同租户已有 scheduled/manual sync 在途，则返回同一 job ID 而不是再次调用第三方。接口先返回 `202 + job_id/snapshot_revision`，页面显示“同步中”并读取任务结果；provider 限流时展示可重试时间。服务端仍实施按租户有界频率，不能依赖按钮禁用防刷。
 - 页面自动刷新只调用租户库摘要 API 或随 `gantt view` 读取 count/revision，不调用闲鱼。仅页面可见时每 3 分钟读取一次，重新可见时可立即读一次本地摘要；多个标签页增加的是轻量租户库读取，不会成倍增加第三方同步。响应携带 `snapshot_revision`、`last_successful_sync_at`、`sync_status` 和是否已超过两个调度周期的 `stale` 标记，不使用 localStorage 或跨请求内存缓存保存告警事实。
 - 同一后台进程使用 MySQL 8 的行锁/租约机制安全领取任务；超时租约可被回收，同一幂等键只能有一个有效执行记录。
 - 任务按 priority/type 调度，避免大导出阻塞发货；规模增长后可以在保持 job contract 不变的情况下换成专用队列。

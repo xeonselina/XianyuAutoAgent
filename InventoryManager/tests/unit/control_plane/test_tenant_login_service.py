@@ -6,7 +6,6 @@ import pytest
 from sqlalchemy import func, select
 
 from inventory_control import (
-    ControlBase,
     SmsChallenge,
     Tenant,
     TenantAuthSecurityEvent,
@@ -31,11 +30,6 @@ from inventory_control.sms import (
     SmsPolicy,
     TrustedSourceBucket,
 )
-from tests.support.test_database import (
-    clear_guarded_mysql_test_rows,
-    guarded_mysql_control_database,
-)
-
 
 NOW = datetime(2026, 8, 22, 10, 0, tzinfo=timezone.utc)
 ROOT_KEY = RootKey(version=3, material=bytes(range(32)))
@@ -46,16 +40,9 @@ SESSION_POLICY = TenantBrowserSessionPolicy(
 )
 
 
-@pytest.fixture(scope="module")
-def database_schema():
-    with guarded_mysql_control_database(ControlBase.metadata) as database:
-        yield database
-
-
 @pytest.fixture
-def database(database_schema):
-    clear_guarded_mysql_test_rows(database_schema.engine, ControlBase.metadata)
-    return database_schema
+def database(mysql_control_database):
+    return mysql_control_database
 
 
 @pytest.fixture
@@ -93,9 +80,13 @@ def _gate(_session, _tenant, _now):
 def _services():
     sms = SmsChallengeService(code_generator=lambda: "123456")
     sessions = SessionService(gate_current_read=_gate)
-    return sms, sessions, TenantLoginService(
-        sms_challenge_service=sms,
-        session_service=sessions,
+    return (
+        sms,
+        sessions,
+        TenantLoginService(
+            sms_challenge_service=sms,
+            session_service=sessions,
+        ),
     )
 
 
@@ -214,9 +205,7 @@ def test_same_login_challenge_cannot_issue_a_second_session(
     assert replay.accepted is False
     with database.new_session() as session:
         assert session.scalar(select(func.count(TenantUserSession.id))) == 1
-        assert session.scalar(
-            select(func.count(TenantAuthSecurityEvent.id))
-        ) == 1
+        assert session.scalar(select(func.count(TenantAuthSecurityEvent.id))) == 1
 
 
 def test_successful_login_rotates_only_same_user_presented_session(
@@ -300,6 +289,4 @@ def test_wrong_code_commits_attempt_without_session_or_phone_verification(
         assert session.get(SmsChallenge, challenge_id).wrong_attempt_count == 1
         assert session.get(User, user_id).phone_verified_at is None
         assert session.scalar(select(func.count(TenantUserSession.id))) == 0
-        assert session.scalar(
-            select(func.count(TenantAuthSecurityEvent.id))
-        ) == 0
+        assert session.scalar(select(func.count(TenantAuthSecurityEvent.id))) == 0

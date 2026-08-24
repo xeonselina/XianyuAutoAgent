@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from inventory_control import ControlBase
 from inventory_control.models.operations import PlatformOperationalSignal
 from inventory_control.operations import (
     OperationalEffectiveStatus,
@@ -15,25 +14,13 @@ from inventory_control.operations import (
     OperationalSignalPolicy,
     OperationalSignalService,
 )
-from tests.support.test_database import (
-    clear_guarded_mysql_test_rows,
-    guarded_mysql_control_database,
-)
-
 
 NOW = datetime(2026, 8, 22, 12, 0, tzinfo=timezone.utc)
 
 
-@pytest.fixture(scope="module")
-def database_schema():
-    with guarded_mysql_control_database(ControlBase.metadata) as database:
-        yield database
-
-
 @pytest.fixture
-def database(database_schema):
-    clear_guarded_mysql_test_rows(database_schema.engine, ControlBase.metadata)
-    return database_schema
+def database(mysql_control_database):
+    return mysql_control_database
 
 
 def _signals(*, freshness=timedelta(seconds=30)):
@@ -106,9 +93,7 @@ def test_missing_signal_is_reported_without_blocking_initialized_signal(database
 
     assert result.evaluated_signals == 1
     assert result.healthy_signals == 1
-    assert result.missing_signals == (
-        OperationalSignalKey.BACKUP_VERIFIED_FRESHNESS,
-    )
+    assert result.missing_signals == (OperationalSignalKey.BACKUP_VERIFIED_FRESHNESS,)
 
 
 def test_freshness_replay_at_same_database_time_is_idempotent(database):

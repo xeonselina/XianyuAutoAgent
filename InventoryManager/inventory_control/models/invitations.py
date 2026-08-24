@@ -9,6 +9,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from inventory_control.sql_defaults import MicrosecondCurrentTimestamp
+
 from .base import ControlBase
 
 
@@ -34,9 +36,7 @@ class TenantInvitation(ControlBase):
             "pending_user_id",
             name="uq_tenant_invitations_pending_tenant_user",
         ),
-        sa.UniqueConstraint(
-            "token_hash", name="uq_tenant_invitations_token_hash"
-        ),
+        sa.UniqueConstraint("token_hash", name="uq_tenant_invitations_token_hash"),
         sa.CheckConstraint("phone_region_iso2 = 'CN'", name="phone_region_cn"),
         sa.CheckConstraint(
             "phone_e164 LIKE '+86%' AND length(phone_e164) = 14",
@@ -46,18 +46,14 @@ class TenantInvitation(ControlBase):
             "phone_normalization_version >= 1",
             name="phone_normalization_version_positive",
         ),
-        sa.CheckConstraint(
-            "role_key IN ('admin', 'operator')", name="role_key_valid"
-        ),
+        sa.CheckConstraint("role_key IN ('admin', 'operator')", name="role_key_valid"),
         sa.CheckConstraint(
             "status IN ('pending', 'accepted', 'revoked', 'expired', 'superseded')",
             name="status_valid",
         ),
         sa.CheckConstraint("token_generation >= 1", name="token_generation_positive"),
         sa.CheckConstraint("row_version >= 1", name="row_version_positive"),
-        sa.CheckConstraint(
-            "length(token_hash) = 32", name="token_hash_length"
-        ),
+        sa.CheckConstraint("length(token_hash) = 32", name="token_hash_length"),
         sa.CheckConstraint(
             "((status = 'pending' AND user_id IS NOT NULL) OR "
             "(status <> 'pending' AND user_id IS NULL))",
@@ -110,9 +106,7 @@ class TenantInvitation(ControlBase):
         sa.String(2), nullable=False, server_default=sa.text("'CN'")
     )
     phone_e164: Mapped[str] = mapped_column(sa.String(16), nullable=False)
-    phone_normalization_version: Mapped[int] = mapped_column(
-        sa.Integer, nullable=False
-    )
+    phone_normalization_version: Mapped[int] = mapped_column(sa.Integer, nullable=False)
     role_key: Mapped[str] = mapped_column(sa.String(16), nullable=False)
     token_hash: Mapped[bytes] = mapped_column(SHA256_DIGEST_TYPE, nullable=False)
     token_generation: Mapped[int] = mapped_column(
@@ -147,12 +141,12 @@ class TenantInvitation(ControlBase):
     created_at: Mapped[datetime] = mapped_column(
         INVITATION_TIMESTAMP_TYPE,
         nullable=False,
-        server_default=sa.text("CURRENT_TIMESTAMP"),
+        server_default=MicrosecondCurrentTimestamp(),
     )
     updated_at: Mapped[datetime] = mapped_column(
         INVITATION_TIMESTAMP_TYPE,
         nullable=False,
-        server_default=sa.text("CURRENT_TIMESTAMP"),
+        server_default=MicrosecondCurrentTimestamp(),
     )
 
     user = relationship("User")

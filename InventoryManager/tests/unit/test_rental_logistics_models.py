@@ -1,25 +1,13 @@
 from datetime import date, datetime
 
 import pytest
-from sqlalchemy.exc import IntegrityError
 
-from app import create_app, db
+from app import db
 from app.models.device import Device
 from app.models.rental import Rental
 from app.models.rental_relay_case import RentalRelayCase
 from app.models.warehouse import Warehouse
-
-
-@pytest.fixture
-def application():
-    app = create_app("testing")
-    with app.app_context():
-        db.create_all()
-        try:
-            yield app
-        finally:
-            db.session.remove()
-            db.drop_all()
+from tests.support.test_database import DATABASE_CONSTRAINT_ERRORS
 
 
 def _ready_default():
@@ -82,7 +70,7 @@ def test_logistics_days_database_constraint_rejects_invalid_values(
     rental.logistics_days = invalid_days
     db.session.add_all([warehouse, device, rental])
 
-    with pytest.raises(IntegrityError):
+    with pytest.raises(DATABASE_CONSTRAINT_ERRORS):
         db.session.commit()
     db.session.rollback()
 
@@ -95,7 +83,7 @@ def test_partial_or_reversed_planned_window_is_rejected(application):
     rental.planned_return_date = date(2026, 9, 9)
     db.session.add_all([warehouse, device, rental])
 
-    with pytest.raises(IntegrityError):
+    with pytest.raises(DATABASE_CONSTRAINT_ERRORS):
         db.session.commit()
     db.session.rollback()
 

@@ -15,8 +15,6 @@ transaction.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -30,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from inventory_control.crypto import RootKey, RootKeyRing
 from inventory_control.database import read_database_utc_value
+from inventory_control.evidence import canonical_json_sha256
 from inventory_control.models.foundation import Tenant
 from inventory_control.models.platform_identity import (
     PlatformAdmin,
@@ -138,7 +137,8 @@ class AdjustmentGateCurrentRead(Protocol):
         session: Session,
         tenant: Tenant,
         database_now: datetime,
-    ) -> SubscriptionAdjustmentGate: ...
+    ) -> SubscriptionAdjustmentGate:
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,13 +246,10 @@ class PlatformSubscriptionAdjustmentService:
                 "an explicit caller-owned transaction is required"
             )
         _require_clean_unit_of_work(session)
-        _materialize_sqlite_outer_transaction(session)
 
         tenant_id = str(_uuid(tenant_uuid, "tenant_uuid"))
         actor_id = str(_uuid(platform_actor_uuid, "platform_actor_uuid"))
-        platform_session_id = str(
-            _uuid(platform_session_uuid, "platform_session_uuid")
-        )
+        platform_session_id = str(_uuid(platform_session_uuid, "platform_session_uuid"))
         action_id = str(_uuid(action_uuid, "action_uuid"))
         key = _bounded_required(idempotency_key, "idempotency_key", 128)
         expected_revision = _positive_integer(
@@ -331,9 +328,7 @@ class PlatformSubscriptionAdjustmentService:
                 "tenant subscription is unavailable"
             )
         if subscription.row_version != expected_revision:
-            raise SubscriptionAdjustmentConflictError(
-                "subscription revision changed"
-            )
+            raise SubscriptionAdjustmentConflictError("subscription revision changed")
 
         before_expires_at = _as_database_utc(subscription.expires_at)
         calculation = calculate_service_period_adjustment(
@@ -341,9 +336,7 @@ class PlatformSubscriptionAdjustmentService:
             current_expires_at=before_expires_at,
             database_now=database_now,
         )
-        before_status = service_period_effective_status(
-            before_expires_at, database_now
-        )
+        before_status = service_period_effective_status(before_expires_at, database_now)
         after_status = service_period_effective_status(
             calculation.new_expires_at,
             database_now,
@@ -552,7 +545,7 @@ def _as_database_utc(value: object) -> datetime:
             "database clock did not return a datetime"
         )
     if value.tzinfo is None:
-        # Control MySQL is required to run in UTC; SQLite drops tzinfo in tests.
+        # MySQL and MariaDB control databases are required to run in UTC.
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
 
@@ -566,25 +559,6 @@ def _require_clean_unit_of_work(session: Session) -> None:
         raise SubscriptionAdjustmentTransactionError(
             "adjustment requires a clean caller unit of work"
         )
-
-
-def _materialize_sqlite_outer_transaction(session: Session) -> None:
-    """Defeat sqlite3's legacy delayed-BEGIN behavior before any SAVEPOINT.
-
-    Python's sqlite3 driver can leave ``Session.begin()`` as a SQLAlchemy-only
-    transaction until the first DML statement.  If that first statement occurs
-    inside ``begin_nested()``, releasing the SAVEPOINT may become durable and a
-    later caller rollback cannot restore the factor.  An explicit outer BEGIN
-    preserves production-equivalent rollback semantics in SQLite tests.  MySQL
-    and other dialects are untouched.
-    """
-
-    connection = session.connection()
-    if connection.dialect.name != "sqlite":
-        return
-    driver_connection = getattr(connection.connection, "driver_connection", None)
-    if driver_connection is not None and not driver_connection.in_transaction:
-        connection.exec_driver_sql("BEGIN IMMEDIATE")
 
 
 def _uuid(value: str | UUID, field_name: str) -> UUID:
@@ -631,7 +605,10 @@ def _safe_note(value: object) -> str | None:
 def _safe_offline_reference(value: object) -> str | None:
     if value is None:
         return None
-    if not isinstance(value, str) or _OFFLINE_REFERENCE_PATTERN.fullmatch(value) is None:
+    if (
+        not isinstance(value, str)
+        or _OFFLINE_REFERENCE_PATTERN.fullmatch(value) is None
+    ):
         raise ValueError("offline_reference is invalid")
     return value
 
@@ -650,8 +627,10 @@ def _factor_method(
         raise ValueError("factor_method is invalid")
     if root_key is not None and root_key_ring is not None:
         raise ValueError("only one root key source may be supplied")
-    if value == "totp" and not isinstance(root_key, RootKey) and not isinstance(
-        root_key_ring, RootKeyRing
+    if (
+        value == "totp"
+        and not isinstance(root_key, RootKey)
+        and not isinstance(root_key_ring, RootKeyRing)
     ):
         raise ValueError("a root key source is required for TOTP")
     return value
@@ -698,13 +677,11 @@ def subscription_adjustment_request_digest(
         "reason_code": reason_code,
         "tenant_uuid": tenant_uuid,
     }
-    canonical = json.dumps(
+    return canonical_json_sha256(
         payload,
         ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8")
-    return hashlib.sha256(canonical).digest()
+        allow_nan=True,
+    )
 
 
 __all__ = [
@@ -780,8 +757,7 @@ def _existing_result(
         or event.canonicalization_version != ADJUSTMENT_CANONICALIZATION_VERSION
         or event.platform_actor_id != actor_uuid
         or event.platform_session_id != platform_session_uuid
-        or event.expected_subscription_row_version
-        != expected_subscription_row_version
+        or event.expected_subscription_row_version != expected_subscription_row_version
         or event.signed_delta_days != expected_delta
         or event.reason_code != reason_code
         or event.note != note
@@ -791,9 +767,7 @@ def _existing_result(
         or event.factor_method not in {"totp", "recovery_code"}
         or event.factor_accepted_at is None
     ):
-        raise SubscriptionAdjustmentConflictError(
-            "adjustment idempotency conflict"
-        )
+        raise SubscriptionAdjustmentConflictError("adjustment idempotency conflict")
     return SubscriptionAdjustmentResult(
         tenant_uuid=tenant_uuid,
         subscription_uuid=event.subscription_id,
@@ -849,9 +823,7 @@ def validate_subscription_adjustment_gate_status(
     ):
         raise SubscriptionAdjustmentGateError("lifecycle gate denies adjustment")
     if tenant_status not in _ALLOWED_TENANT_STATUSES:
-        raise SubscriptionAdjustmentGateError(
-            "tenant state does not permit adjustment"
-        )
+        raise SubscriptionAdjustmentGateError("tenant state does not permit adjustment")
     if tenant_status == "suspended":
         if (
             gate.suspension_state != "active"
@@ -884,9 +856,7 @@ def _lock_and_validate_platform_session(
     database_now: datetime,
 ) -> tuple[PlatformAdmin, PlatformAdminSession]:
     admin = session.scalar(
-        sa.select(PlatformAdmin)
-        .where(PlatformAdmin.id == actor_uuid)
-        .with_for_update()
+        sa.select(PlatformAdmin).where(PlatformAdmin.id == actor_uuid).with_for_update()
     )
     platform_session = session.scalar(
         sa.select(PlatformAdminSession)

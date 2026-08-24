@@ -5,7 +5,6 @@ from datetime import datetime, timedelta, timezone
 import pytest
 import sqlalchemy as sa
 
-from inventory_control import ControlBase
 from inventory_control.models import (
     PlatformAlertLifecycleEvent,
     PlatformOperationalSignal,
@@ -26,11 +25,6 @@ from inventory_control.operations import (
     OperationalSignalService,
     OperationalTransactionRequiredError,
 )
-from tests.support.test_database import (
-    clear_guarded_mysql_test_rows,
-    guarded_mysql_control_database,
-)
-
 
 NOW = datetime(2026, 8, 22, 12, 0, tzinfo=timezone.utc)
 
@@ -63,19 +57,9 @@ def _service(**policy_overrides):
     )
 
 
-@pytest.fixture(scope="module")
-def control_database_schema():
-    with guarded_mysql_control_database(ControlBase.metadata) as database:
-        yield database
-
-
 @pytest.fixture
-def control_database(control_database_schema):
-    clear_guarded_mysql_test_rows(
-        control_database_schema.engine,
-        ControlBase.metadata,
-    )
-    return control_database_schema
+def control_database(mysql_control_database):
+    return mysql_control_database
 
 
 def _failure(
@@ -303,17 +287,13 @@ def test_freshness_expiry_becomes_unknown_and_never_reuses_last_green(
         first_heartbeat = service.record_worker_heartbeat(
             session, observed_at=NOW + timedelta(seconds=21)
         )
-    assert (
-        first_heartbeat.signal.effective_status
-        is OperationalEffectiveStatus.UNKNOWN
-    )
+    assert first_heartbeat.signal.effective_status is OperationalEffectiveStatus.UNKNOWN
     with control_database.transaction() as session:
         second_heartbeat = service.record_worker_heartbeat(
             session, observed_at=NOW + timedelta(seconds=22)
         )
     assert (
-        second_heartbeat.signal.effective_status
-        is OperationalEffectiveStatus.HEALTHY
+        second_heartbeat.signal.effective_status is OperationalEffectiveStatus.HEALTHY
     )
     assert second_heartbeat.lifecycle_event.event_type is AlertLifecycleKind.RECOVERY
 

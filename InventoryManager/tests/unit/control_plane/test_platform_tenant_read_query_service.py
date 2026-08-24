@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 
-from app import create_app, db
+from app import db
 from app.models.device import Device
 from app.models.rental import Rental
 from app.models.warehouse import Warehouse
@@ -16,18 +16,6 @@ from app.services.platform_tenant_read.query_service import (
     PlatformTenantRentalQueryInputError,
     PlatformTenantRentalQueryService,
 )
-
-
-@pytest.fixture
-def application():
-    app = create_app("testing")
-    with app.app_context():
-        db.create_all()
-        try:
-            yield app
-        finally:
-            db.session.remove()
-            db.drop_all()
 
 
 def _seed_rentals() -> None:
@@ -124,22 +112,22 @@ def test_list_rentals_is_one_bounded_select_and_returns_masked_main_rows(
 
 
 def test_list_rentals_paginates_deterministically(application) -> None:
+    rentals = []
     for index in range(3):
         device = Device(name=f"设备 {index}", model="x200u")
-        db.session.add(
-            Rental(
-                device=device,
-                start_date=date(2026, 9, index + 1),
-                end_date=date(2026, 9, index + 2),
-                customer_name=f"客户 {index}",
-                status="not_shipped",
-            )
+        rental = Rental(
+            device=device,
+            start_date=date(2026, 9, index + 1),
+            end_date=date(2026, 9, index + 2),
+            customer_name=f"客户 {index}",
+            status="not_shipped",
         )
+        db.session.add(rental)
+        rentals.append(rental)
     db.session.commit()
+    expected_ids = tuple(sorted((item.id for item in rentals), reverse=True))
 
-    service = PlatformTenantRentalQueryService(
-        maximum_execution_time_ms=1_000
-    )
+    service = PlatformTenantRentalQueryService(maximum_execution_time_ms=1_000)
     with Session(db.engine) as session, session.begin():
         first = service.list_rentals(
             session,
@@ -155,8 +143,8 @@ def test_list_rentals_paginates_deterministically(application) -> None:
 
     assert first["has_more"] is True
     assert second["has_more"] is False
-    assert [row["rental_id"] for row in first["items"]] == [3, 2]
-    assert [row["rental_id"] for row in second["items"]] == [1]
+    assert [row["rental_id"] for row in first["items"]] == list(expected_ids[:2])
+    assert [row["rental_id"] for row in second["items"]] == list(expected_ids[2:])
 
 
 def test_device_and_warehouse_lists_are_bounded_non_pii_projections(
@@ -190,9 +178,7 @@ def test_device_and_warehouse_lists_are_bounded_non_pii_projections(
     def capture(_connection, _cursor, statement, *_args):
         executed.append(statement)
 
-    service = PlatformTenantBusinessQueryService(
-        maximum_execution_time_ms=1_000
-    )
+    service = PlatformTenantBusinessQueryService(maximum_execution_time_ms=1_000)
     event.listen(db.engine, "before_cursor_execute", capture)
     try:
         with Session(db.engine) as session, session.begin():
@@ -267,9 +253,7 @@ def test_device_and_warehouse_lists_are_bounded_non_pii_projections(
     ],
 )
 def test_business_lists_reject_unknown_filters(application, method, kwargs) -> None:
-    service = PlatformTenantBusinessQueryService(
-        maximum_execution_time_ms=1_000
-    )
+    service = PlatformTenantBusinessQueryService(maximum_execution_time_ms=1_000)
     with Session(db.engine) as session, session.begin():
         with pytest.raises(PlatformTenantRentalQueryInputError):
             getattr(service, method)(

@@ -12,7 +12,7 @@ from typing import Callable
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine, make_url
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from config import TestingConfig
 
@@ -22,9 +22,7 @@ REAL_TEST_DATABASE_OPT_IN = "ALLOW_REAL_TEST_DATABASE"
 GLOBAL_DBA_TEST_ACCOUNT_OPT_IN = "ALLOW_GLOBAL_DBA_TEST_ACCOUNT"
 TEST_SCHEMA_INVENTORY_ROW_LIMIT = 20_000
 TEST_GENERATION_ROW_LIMIT = 128
-TEST_SCHEMA_ADVISORY_LOCK_NAME = (
-    "inventory_management_test:pytest:metadata:v1"
-)
+TEST_SCHEMA_ADVISORY_LOCK_NAME = "inventory_management_test:pytest:metadata:v1"
 TEST_CURRENT_ROLE_SQL = "SELECT COALESCE(CURRENT_ROLE(), 'NONE')"
 TEST_DATABASE_PROFILE_SQL = "SELECT VERSION(), @@version_comment"
 TEST_MARIADB_PUBLIC_GRANTS_SQL = "SHOW GRANTS FOR PUBLIC"
@@ -34,6 +32,7 @@ TEST_SCHEMA_ACQUIRE_LOCK_SQL = (
 TEST_SCHEMA_RELEASE_LOCK_SQL = (
     "SELECT RELEASE_LOCK('inventory_management_test:pytest:metadata:v1')"
 )
+DATABASE_CONSTRAINT_ERRORS = (IntegrityError, OperationalError)
 
 
 class RedactedTestDatabaseUrl(str):
@@ -49,6 +48,8 @@ def alembic_config_database_url(value: str) -> str:
     if not isinstance(value, str) or not value:
         raise TypeError("database URL 必须是非空字符串")
     return value.replace("%", "%%")
+
+
 TEST_SCHEMA_INVENTORY_SQL = (
     "SELECT TABLE_NAME, TABLE_TYPE, ENGINE, TABLE_COLLATION "
     "FROM INFORMATION_SCHEMA.TABLES "
@@ -221,9 +222,7 @@ class DatabaseWriteDisposition(str, Enum):
 class ProductionReadCapability(str, Enum):
     """Closed, versioned production observation surface."""
 
-    SCHEMA_METADATA_AND_GENERATIONS_V1 = (
-        "schema_metadata_and_generations.v1"
-    )
+    SCHEMA_METADATA_AND_GENERATIONS_V1 = "schema_metadata_and_generations.v1"
 
 
 class DatabaseObservationProfile(str, Enum):
@@ -285,17 +284,13 @@ def assert_test_database_url(url: str):
     if os.environ.get("TESTING", "").lower() != "true":
         raise RuntimeError("必须设置 TESTING=true")
     if os.environ.get(REAL_TEST_DATABASE_OPT_IN, "").lower() != "true":
-        raise RuntimeError(
-            "必须显式设置 ALLOW_REAL_TEST_DATABASE=true"
-        )
+        raise RuntimeError("必须显式设置 ALLOW_REAL_TEST_DATABASE=true")
 
     parsed = make_url(url)
     if parsed.get_backend_name() != "mysql":
         raise RuntimeError("TEST_DATABASE_URL 必须使用 MySQL")
     if parsed.database != WRITABLE_TEST_DATABASE_NAME:
-        raise RuntimeError(
-            "测试写入只允许数据库 inventory_management_test"
-        )
+        raise RuntimeError("测试写入只允许数据库 inventory_management_test")
     _assert_safe_mysql_url_query(parsed)
     return parsed
 
@@ -304,15 +299,11 @@ def assert_current_user_has_test_only_grants(connection, database_name: str):
     """Confirm schema-only grants or one explicitly approved manual DBA."""
     if database_name != WRITABLE_TEST_DATABASE_NAME:
         raise RuntimeError("测试授权检查只允许 inventory_management_test")
-    selected_database = connection.exec_driver_sql(
-        "SELECT DATABASE()"
-    ).scalar_one()
+    selected_database = connection.exec_driver_sql("SELECT DATABASE()").scalar_one()
     if selected_database != WRITABLE_TEST_DATABASE_NAME:
         raise RuntimeError("测试连接未选择 inventory_management_test")
     _assert_no_active_database_roles(connection, production=False)
-    profile, _version, _comment = _detect_database_observation_profile(
-        connection
-    )
+    profile, _version, _comment = _detect_database_observation_profile(connection)
     _assert_mariadb_public_has_usage_only(connection, profile)
     grants = _read_current_user_grants(connection)
     if not grants:
@@ -351,23 +342,17 @@ def _is_global_dba_grant(grant: object) -> bool:
 
 
 def _global_dba_test_account_enabled() -> bool:
-    return (
-        os.environ.get(GLOBAL_DBA_TEST_ACCOUNT_OPT_IN, "").lower() == "true"
-    )
+    return os.environ.get(GLOBAL_DBA_TEST_ACCOUNT_OPT_IN, "").lower() == "true"
 
 
 def _assert_no_active_database_roles(connection, *, production: bool) -> None:
     """Reject effective privileges that direct SHOW GRANTS cannot expand."""
 
     try:
-        current_role = connection.exec_driver_sql(
-            TEST_CURRENT_ROLE_SQL
-        ).scalar_one()
+        current_role = connection.exec_driver_sql(TEST_CURRENT_ROLE_SQL).scalar_one()
     except Exception as exc:
         message = (
-            "无法验证生产数据库账号 active roles"
-            if production
-            else "无法验证测试数据库账号 active roles"
+            "无法验证生产数据库账号 active roles" if production else "无法验证测试数据库账号 active roles"
         )
         raise RuntimeError(message) from exc
     if not isinstance(current_role, str) or current_role.upper() != "NONE":
@@ -528,6 +513,37 @@ def preflight_test_database_write(
         connection.close()
 
 
+def observe_test_database_schema(
+    url,
+    connector: Callable[[object], object],
+) -> DatabaseSchemaPreflight:
+    """Return a read-only actual-schema identity before a guarded migration.
+
+    This is the observation half of the ``migrate`` disposition.  It never
+    authorizes a write: callers must pin the returned digest and enter
+    :func:`guarded_mysql_test_schema_migration` before applying DDL or DML.
+    Keeping observation and authorization on the shared guard avoids using
+    ``metadata_rebuild`` merely to obtain a digest for an in-place migration.
+    """
+
+    if not callable(connector):
+        raise TypeError("connector 必须可调用")
+    parsed = assert_test_database_url(url)
+    connection = connector(parsed)
+    try:
+        assert_current_user_has_test_only_grants(
+            connection,
+            parsed.database,
+        )
+        return _observe_test_database_schema(
+            connection,
+            parsed.database,
+            DatabaseWriteDisposition.FAIL_CLOSED,
+        )
+    finally:
+        connection.close()
+
+
 def _database_write_disposition(
     disposition: str | DatabaseWriteDisposition | None,
 ) -> DatabaseWriteDisposition:
@@ -537,8 +553,7 @@ def _database_write_disposition(
         return DatabaseWriteDisposition(disposition)
     except (TypeError, ValueError):
         raise RuntimeError(
-            "测试数据库 disposition 必须是 "
-            "fail_closed、metadata_rebuild 或 migrate"
+            "测试数据库 disposition 必须是 " "fail_closed、metadata_rebuild 或 migrate"
         ) from None
 
 
@@ -555,9 +570,7 @@ def _validate_expected_preflight_digest(
         disposition is DatabaseWriteDisposition.MIGRATE
         and expected_preflight_digest is None
     ):
-        raise RuntimeError(
-            "migrate disposition 必须钉住 actual schema preflight digest"
-        )
+        raise RuntimeError("migrate disposition 必须钉住 actual schema preflight digest")
 
 
 def _observe_test_database_schema(
@@ -565,41 +578,31 @@ def _observe_test_database_schema(
     database_name: str,
     disposition: DatabaseWriteDisposition,
 ) -> DatabaseSchemaPreflight:
-    database_profile, database_version, database_version_comment = (
-        _detect_database_observation_profile(connection)
-    )
+    (
+        database_profile,
+        database_version,
+        database_version_comment,
+    ) = _detect_database_observation_profile(connection)
     tables = _read_fixed_schema_rows(connection, TEST_SCHEMA_INVENTORY_SQL)
-    columns = _read_fixed_schema_rows(
-        connection, TEST_SCHEMA_COLUMN_INVENTORY_SQL
-    )
-    indexes = _read_fixed_schema_rows(
-        connection, TEST_SCHEMA_INDEX_INVENTORY_SQL
-    )
+    columns = _read_fixed_schema_rows(connection, TEST_SCHEMA_COLUMN_INVENTORY_SQL)
+    indexes = _read_fixed_schema_rows(connection, TEST_SCHEMA_INDEX_INVENTORY_SQL)
     constraints = _read_fixed_schema_rows(
         connection, TEST_SCHEMA_CONSTRAINT_INVENTORY_SQL
     )
     foreign_keys = _read_fixed_schema_rows(
         connection, TEST_SCHEMA_FOREIGN_KEY_INVENTORY_SQL
     )
-    checks = _read_fixed_schema_rows(
-        connection, TEST_SCHEMA_CHECK_INVENTORY_SQL
-    )
+    checks = _read_fixed_schema_rows(connection, TEST_SCHEMA_CHECK_INVENTORY_SQL)
     partitions = _read_fixed_schema_rows(
         connection, TEST_SCHEMA_PARTITION_INVENTORY_SQL
     )
     views = _read_fixed_schema_rows(connection, TEST_SCHEMA_VIEW_INVENTORY_SQL)
-    triggers = _read_fixed_schema_rows(
-        connection, TEST_SCHEMA_TRIGGER_INVENTORY_SQL
-    )
-    routines = _read_fixed_schema_rows(
-        connection, TEST_SCHEMA_ROUTINE_INVENTORY_SQL
-    )
+    triggers = _read_fixed_schema_rows(connection, TEST_SCHEMA_TRIGGER_INVENTORY_SQL)
+    routines = _read_fixed_schema_rows(connection, TEST_SCHEMA_ROUTINE_INVENTORY_SQL)
     parameters = _read_fixed_schema_rows(
         connection, TEST_SCHEMA_PARAMETER_INVENTORY_SQL
     )
-    events = _read_fixed_schema_rows(
-        connection, TEST_SCHEMA_EVENT_INVENTORY_SQL
-    )
+    events = _read_fixed_schema_rows(connection, TEST_SCHEMA_EVENT_INVENTORY_SQL)
 
     table_names = [row[0] for row in tables]
     if any(not isinstance(name, str) or not name for name in table_names):
@@ -615,21 +618,15 @@ def _observe_test_database_schema(
     inventory_names_unique = len(set(table_names)) == len(table_names)
     if not inventory_names_unique:
         drift_reasons.append("duplicate_table_inventory")
-    unknown_column_tables = sorted(
-        set(column_names_by_table) - set(table_names)
-    )
+    unknown_column_tables = sorted(set(column_names_by_table) - set(table_names))
     if unknown_column_tables:
         drift_reasons.append("columns_without_table_inventory")
 
     alembic_versions: tuple[object, ...] = ()
     identity_generations: tuple[tuple[object, ...], ...] = ()
     if tables:
-        alembic_tables = [
-            row for row in tables if row[0] == "alembic_version"
-        ]
-        identity_tables = [
-            row for row in tables if row[0] == "database_identity"
-        ]
+        alembic_tables = [row for row in tables if row[0] == "alembic_version"]
+        identity_tables = [row for row in tables if row[0] == "database_identity"]
         if not alembic_tables:
             drift_reasons.append("missing_alembic_generation")
         elif (
@@ -657,9 +654,7 @@ def _observe_test_database_schema(
             and str(identity_tables[0][2]).upper() == "INNODB"
         )
         if generation_tables_are_safe:
-            if "version_num" not in column_names_by_table.get(
-                "alembic_version", set()
-            ):
+            if "version_num" not in column_names_by_table.get("alembic_version", set()):
                 drift_reasons.append("invalid_alembic_generation_inventory")
             else:
                 alembic_rows = _read_fixed_schema_rows(
@@ -673,9 +668,7 @@ def _observe_test_database_schema(
                 ):
                     drift_reasons.append("invalid_alembic_generation")
 
-            identity_columns = column_names_by_table.get(
-                "database_identity", set()
-            )
+            identity_columns = column_names_by_table.get("database_identity", set())
             if not {"singleton_key", "schema_generation"} <= identity_columns:
                 drift_reasons.append("invalid_identity_generation_inventory")
             else:
@@ -882,20 +875,14 @@ def assert_production_read_database_url(url: str):
     return parsed
 
 
-def assert_current_user_has_production_read_only_grants(
-    connection, database_name: str
-):
+def assert_current_user_has_production_read_only_grants(connection, database_name: str):
     """Reject a production probe account with any non-read database grant."""
 
-    selected_database = connection.exec_driver_sql(
-        "SELECT DATABASE()"
-    ).scalar_one()
+    selected_database = connection.exec_driver_sql("SELECT DATABASE()").scalar_one()
     if selected_database != database_name:
         raise RuntimeError("生产只读连接的实际数据库与目标不一致")
     _assert_no_active_database_roles(connection, production=True)
-    profile, _version, _comment = _detect_database_observation_profile(
-        connection
-    )
+    profile, _version, _comment = _detect_database_observation_profile(connection)
     _assert_mariadb_public_has_usage_only(connection, profile)
     grants = _read_current_user_grants(connection)
     if not grants:
@@ -1016,9 +1003,8 @@ def guarded_mysql_test_metadata(
     engine,
     metadata,
     *,
-    disposition: str | DatabaseWriteDisposition = (
-        DatabaseWriteDisposition.METADATA_REBUILD
-    ),
+    disposition: str
+    | DatabaseWriteDisposition = (DatabaseWriteDisposition.METADATA_REBUILD),
 ):
     """Own one locked MySQL metadata lifecycle for an isolated test schema.
 
@@ -1107,6 +1093,75 @@ def guarded_mysql_test_metadata(
                 )
                 _revalidate_test_schema_before_ddl(connection, post_teardown)
                 _assert_metadata_tables_absent(metadata, post_teardown)
+    finally:
+        try:
+            if connection is not None and lock_acquired:
+                _release_test_schema_advisory_lock(connection)
+        finally:
+            try:
+                if connection is not None:
+                    connection.close()
+            finally:
+                if statement_guard_installed:
+                    event.remove(
+                        engine,
+                        "before_cursor_execute",
+                        _guard_test_statement,
+                    )
+
+
+@contextmanager
+def guarded_mysql_test_schema_migration(
+    engine,
+    *,
+    expected_preflight_digest: str,
+):
+    """Hold the shared schema lock for one digest-pinned in-place migration.
+
+    Unlike the metadata lifecycle helper, this guard never drops or creates
+    tables itself.  It re-observes the full schema inventory after acquiring
+    the connection-scoped advisory lock, refuses source drift, then yields the
+    same selected connection to the caller's migration composition.
+    """
+
+    parsed = assert_test_database_url(engine.url)
+    dialect_name = getattr(getattr(engine, "dialect", None), "name", None)
+    if dialect_name != "mysql":
+        raise RuntimeError("真实测试数据库 migration guard 只支持 MySQL")
+    _validate_expected_preflight_digest(
+        DatabaseWriteDisposition.MIGRATE,
+        expected_preflight_digest,
+    )
+
+    statement_guard_installed = False
+    if _global_dba_test_account_enabled():
+        if not isinstance(engine, Engine):
+            raise TypeError("全局 DBA 测试模式必须使用真实 SQLAlchemy Engine")
+        event.listen(engine, "before_cursor_execute", _guard_test_statement)
+        statement_guard_installed = True
+    connection = None
+    lock_acquired = False
+    try:
+        connection = engine.connect()
+        assert_current_user_has_test_only_grants(
+            connection,
+            parsed.database,
+        )
+        _acquire_test_schema_advisory_lock(connection)
+        lock_acquired = True
+        preflight = _observe_test_database_schema(
+            connection,
+            parsed.database,
+            DatabaseWriteDisposition.MIGRATE,
+        )
+        if preflight.preflight_digest != expected_preflight_digest:
+            raise DatabaseWriteRefused(
+                "测试数据库 actual schema 与钉住的 preflight digest 不一致",
+                preflight,
+            )
+        # End metadata read locks without releasing connection-scoped GET_LOCK.
+        connection.commit()
+        yield connection, preflight
     finally:
         try:
             if connection is not None and lock_acquired:
@@ -1262,13 +1317,9 @@ def clear_guarded_mysql_test_rows(engine, metadata) -> None:
                     connection,
                     parsed.database,
                 )
-                selected = connection.exec_driver_sql(
-                    "SELECT DATABASE()"
-                ).scalar_one()
+                selected = connection.exec_driver_sql("SELECT DATABASE()").scalar_one()
                 if selected != WRITABLE_TEST_DATABASE_NAME:
-                    raise RuntimeError(
-                        "测试连接未选择 inventory_management_test"
-                    )
+                    raise RuntimeError("测试连接未选择 inventory_management_test")
                 connection.exec_driver_sql("SET FOREIGN_KEY_CHECKS = 0")
                 try:
                     for table in reversed(metadata.sorted_tables):
@@ -1278,9 +1329,7 @@ def clear_guarded_mysql_test_rows(engine, metadata) -> None:
                     connection.rollback()
                     raise
                 finally:
-                    connection.exec_driver_sql(
-                        "SET FOREIGN_KEY_CHECKS = 1"
-                    )
+                    connection.exec_driver_sql("SET FOREIGN_KEY_CHECKS = 1")
                     connection.commit()
             return
         except OperationalError as error:
@@ -1301,9 +1350,7 @@ def _drop_metadata_tables_for_rebuild(connection, metadata) -> None:
     separate ``DROP FOREIGN KEY`` against that partial state.
     """
 
-    table_names = tuple(
-        sorted(_metadata_table_names(metadata), reverse=True)
-    )
+    table_names = tuple(sorted(_metadata_table_names(metadata), reverse=True))
     preparer = connection.dialect.identifier_preparer
     connection.exec_driver_sql("SET FOREIGN_KEY_CHECKS = 0")
     try:
@@ -1342,8 +1389,7 @@ def _guard_test_statement(
     if upper.startswith(("SELECT ", "SHOW ", "EXPLAIN ", "DESCRIBE ")):
         return
     schemas = {
-        match.group(1)
-        for match in re.finditer(r"`([^`]+)`\s*\.\s*`[^`]+`", statement)
+        match.group(1) for match in re.finditer(r"`([^`]+)`\s*\.\s*`[^`]+`", statement)
     }
     if any(schema != WRITABLE_TEST_DATABASE_NAME for schema in schemas):
         raise RuntimeError("测试数据库拒绝显式跨 schema 写入")
@@ -1490,9 +1536,7 @@ def build_mysql_test_config():
     parsed = assert_test_database_url(raw_url)
 
     class MySQLTestingConfig(TestingConfig):
-        SQLALCHEMY_DATABASE_URI = parsed.render_as_string(
-            hide_password=False
-        )
+        SQLALCHEMY_DATABASE_URI = parsed.render_as_string(hide_password=False)
         SQLALCHEMY_ENGINE_OPTIONS = {
             "pool_pre_ping": True,
             "pool_recycle": 300,

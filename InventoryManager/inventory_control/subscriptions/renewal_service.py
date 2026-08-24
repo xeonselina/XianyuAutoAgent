@@ -8,8 +8,6 @@ The caller owns commit/rollback and must enter with a clean unit of work.
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Protocol
@@ -20,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from inventory_control.database import read_database_utc_value
+from inventory_control.evidence import canonical_json_sha256
 from inventory_control.models.foundation import Tenant
 from inventory_control.models.identity import TenantMembership
 from inventory_control.models.redemption import RedemptionCode
@@ -75,7 +74,8 @@ class RenewalGateCurrentRead(Protocol):
         tenant: Tenant,
         current_recovery_run_uuid: UUID,
         database_now: datetime,
-    ) -> SubscriptionRenewalGate: ...
+    ) -> SubscriptionRenewalGate:
+        ...
 
 
 DatabaseClock = Callable[[Session], datetime]
@@ -133,7 +133,6 @@ class SubscriptionRenewalService:
                 "an explicit caller-owned transaction is required"
             )
         _require_clean_unit_of_work(session)
-        _materialize_sqlite_outer_transaction(session)
 
         tenant_id = str(_uuid(tenant_uuid, "tenant_uuid"))
         membership_id = str(_uuid(membership_uuid, "membership_uuid"))
@@ -244,18 +243,14 @@ class SubscriptionRenewalService:
             .with_for_update()
         )
         if subscription is None or subscription.row_version != subscription_revision:
-            raise SubscriptionRenewalConflictError(
-                "subscription revision changed"
-            )
+            raise SubscriptionRenewalConflictError("subscription revision changed")
 
         before_expires_at = _as_database_utc(subscription.expires_at)
         before_status = _effective_status(before_expires_at, database_now)
         try:
             service_duration = timedelta(seconds=code.service_duration_seconds)
         except OverflowError:
-            raise SubscriptionRenewalCodeError(
-                "code terms are invalid"
-            ) from None
+            raise SubscriptionRenewalCodeError("code terms are invalid") from None
         calculation = calculate_renewal(
             current_expires_at=before_expires_at,
             database_now=database_now,
@@ -273,8 +268,7 @@ class SubscriptionRenewalService:
                         RedemptionCode.id == code.id,
                         RedemptionCode.status == "active",
                         RedemptionCode.row_version == code_revision,
-                        RedemptionCode.created_under_recovery_run_uuid
-                        == str(run_uuid),
+                        RedemptionCode.created_under_recovery_run_uuid == str(run_uuid),
                     )
                     .values(
                         status="redeemed",
@@ -286,9 +280,7 @@ class SubscriptionRenewalService:
                     .execution_options(synchronize_session=False)
                 )
                 if code_changed.rowcount != 1:
-                    raise SubscriptionRenewalConflictError(
-                        "code redemption conflicted"
-                    )
+                    raise SubscriptionRenewalConflictError("code redemption conflicted")
 
                 subscription_changed = session.execute(
                     sa.update(Subscription)
@@ -331,9 +323,7 @@ class SubscriptionRenewalService:
                         .execution_options(synchronize_session=False)
                     )
                     if tenant_changed.rowcount != 1:
-                        raise SubscriptionRenewalConflictError(
-                            "tenant state changed"
-                        )
+                        raise SubscriptionRenewalConflictError("tenant state changed")
 
                 event = SubscriptionEvent(
                     tenant_id=tenant_id,
@@ -456,14 +446,7 @@ def _request_digest(**values: object) -> bytes:
         key: value.hex() if isinstance(value, bytes) else value
         for key, value in values.items()
     }
-    canonical = json.dumps(
-        encoded,
-        ensure_ascii=True,
-        separators=(",", ":"),
-        sort_keys=True,
-        allow_nan=False,
-    ).encode("ascii")
-    return hashlib.sha256(canonical).digest()
+    return canonical_json_sha256(encoded)
 
 
 def _require_clean_unit_of_work(session: Session) -> None:
@@ -475,15 +458,6 @@ def _require_clean_unit_of_work(session: Session) -> None:
         raise SubscriptionRenewalTransactionError(
             "renewal requires a clean caller unit of work"
         )
-
-
-def _materialize_sqlite_outer_transaction(session: Session) -> None:
-    connection = session.connection()
-    if connection.dialect.name != "sqlite":
-        return
-    driver_connection = getattr(connection.connection, "driver_connection", None)
-    if driver_connection is not None and not driver_connection.in_transaction:
-        connection.exec_driver_sql("BEGIN IMMEDIATE")
 
 
 def _require_gate(
@@ -594,8 +568,7 @@ def _existing_result(
         or event.idempotency_key != idempotency_key
         or bytes(event.request_digest) != request_digest
         or event.canonicalization_version != RENEWAL_CANONICALIZATION_VERSION
-        or event.expected_subscription_row_version
-        != expected_subscription_row_version
+        or event.expected_subscription_row_version != expected_subscription_row_version
         or event.before_expires_at is None
         or event.before_status is None
         or event.exact_duration_seconds is None

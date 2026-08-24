@@ -13,22 +13,8 @@ NOW = datetime(2026, 8, 23, 0, 0, tzinfo=timezone.utc)
 
 
 @pytest.fixture
-def app():
-    from app import create_app
-
-    return create_app("testing")
-
-
-@pytest.fixture
-def session(app):
-    from app import db
-
-    with app.app_context():
-        db.create_all()
-        value = db.session()
-        yield value
-        value.rollback()
-        db.drop_all()
+def session(db_session):
+    return db_session()
 
 
 def _refs():
@@ -112,8 +98,7 @@ def test_multi_connection_result_is_independent_and_revision_is_aggregate(sessio
         )
     }
     alerts = {
-        alert.order_no: alert
-        for alert in session.scalars(sa.select(XianyuOrderAlert))
+        alert.order_no: alert for alert in session.scalars(sa.select(XianyuOrderAlert))
     }
     assert aggregate.current_job_uuid is None
     assert aggregate.last_applied_job_uuid == JOB
@@ -152,9 +137,7 @@ def test_failed_result_preserves_last_successful_provider_cursor(session):
     with session.begin():
         XianyuSyncPersistenceService(session).mark_started(
             job_uuid=JOB,
-            connections=(
-                XianyuConnectionRef(SUCCESS_CONNECTION, SUCCESS_REVISION),
-            ),
+            connections=(XianyuConnectionRef(SUCCESS_CONNECTION, SUCCESS_REVISION),),
             attempted_at=NOW,
         )
     with session.begin():
@@ -202,9 +185,7 @@ def test_credential_revision_change_clears_old_provider_cursor(session):
     with session.begin():
         XianyuSyncPersistenceService(session).mark_started(
             job_uuid=JOB,
-            connections=(
-                XianyuConnectionRef(SUCCESS_CONNECTION, rotated_revision),
-            ),
+            connections=(XianyuConnectionRef(SUCCESS_CONNECTION, rotated_revision),),
             attempted_at=NOW,
         )
     with session.begin():
@@ -322,9 +303,7 @@ def test_started_revision_cannot_change_when_result_is_applied(session):
     with session.begin():
         XianyuSyncPersistenceService(session).mark_started(
             job_uuid=JOB,
-            connections=(
-                XianyuConnectionRef(SUCCESS_CONNECTION, SUCCESS_REVISION),
-            ),
+            connections=(XianyuConnectionRef(SUCCESS_CONNECTION, SUCCESS_REVISION),),
             attempted_at=NOW,
         )
     with pytest.raises(XianyuSyncConflict, match="revision"):
@@ -334,9 +313,7 @@ def test_started_revision_cannot_change_when_result_is_applied(session):
                 results=(
                     XianyuConnectionSyncResult(
                         integration_uuid=SUCCESS_CONNECTION,
-                        secret_revision_uuid=(
-                            "30000000-0000-4000-8000-000000000099"
-                        ),
+                        secret_revision_uuid=("30000000-0000-4000-8000-000000000099"),
                         status="succeeded",
                     ),
                 ),
@@ -354,9 +331,7 @@ def test_service_requires_caller_owned_transaction(session):
     with pytest.raises(RuntimeError, match="explicit tenant transaction"):
         XianyuSyncPersistenceService(session).mark_started(
             job_uuid=JOB,
-            connections=(
-                XianyuConnectionRef(SUCCESS_CONNECTION, SUCCESS_REVISION),
-            ),
+            connections=(XianyuConnectionRef(SUCCESS_CONNECTION, SUCCESS_REVISION),),
             attempted_at=NOW,
         )
 

@@ -12,8 +12,8 @@ REVISION = "a1000000-0000-4000-8000-000000000004"
 ROTATED_REVISION = "a1000000-0000-4000-8000-000000000005"
 
 
-def test_sqlalchemy_store_carries_same_revision_cursor_and_applies_result():
-    from app import create_app, db
+def test_sqlalchemy_store_carries_same_revision_cursor_and_applies_result(app):
+    from app import db
     from app.models.xianyu_order_alert import XianyuConnectionSyncState
     from app.services.xianyu_sync import (
         PreparedXianyuSyncJob,
@@ -23,9 +23,7 @@ def test_sqlalchemy_store_carries_same_revision_cursor_and_applies_result():
     )
     from inventory_control.jobs import XianyuConnectionRevision
 
-    app = create_app("testing")
     with app.app_context():
-        db.create_all()
 
         @contextmanager
         def transaction(_prepared):
@@ -84,11 +82,10 @@ def test_sqlalchemy_store_carries_same_revision_cursor_and_applies_result():
             state = session.get(XianyuConnectionSyncState, INTEGRATION)
             assert state.provider_cursor == "cursor-after"
             assert state.snapshot_revision == 3
-        db.drop_all()
 
 
-def test_sqlalchemy_store_does_not_return_cursor_across_revision_rotation():
-    from app import create_app, db
+def test_sqlalchemy_store_does_not_return_cursor_across_revision_rotation(app):
+    from app import db
     from app.models.xianyu_order_alert import XianyuConnectionSyncState
     from app.services.xianyu_sync import (
         PreparedXianyuSyncJob,
@@ -96,9 +93,7 @@ def test_sqlalchemy_store_does_not_return_cursor_across_revision_rotation():
     )
     from inventory_control.jobs import XianyuConnectionRevision
 
-    app = create_app("testing")
     with app.app_context():
-        db.create_all()
 
         @contextmanager
         def transaction(_prepared):
@@ -145,4 +140,3 @@ def test_sqlalchemy_store_does_not_return_cursor_across_revision_rotation():
             state = session.get(XianyuConnectionSyncState, INTEGRATION)
             assert state.secret_revision_uuid == ROTATED_REVISION
             assert state.provider_cursor is None
-        db.drop_all()

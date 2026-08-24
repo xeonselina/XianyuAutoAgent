@@ -10,7 +10,7 @@ from typing import Callable, Final, Protocol
 from uuid import UUID
 
 import sqlalchemy as sa
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from app.models.shipping_execution import (
     OutboundShipment,
@@ -50,12 +50,11 @@ from inventory_control.jobs import (
 )
 from inventory_control.models.foundation import Tenant
 from inventory_control.models.jobs import BackgroundJob
+from inventory_control.transactions import require_caller_transaction
 
 
 SF_WAYBILL_RECONCILIATION_JOB_TYPE: Final = "sf_waybill_reconcile_unknown"
-SF_WAYBILL_RECONCILIATION_RESOURCE_KEY: Final = (
-    "sf:waybill-unknown-reconciliation"
-)
+SF_WAYBILL_RECONCILIATION_RESOURCE_KEY: Final = "sf:waybill-unknown-reconciliation"
 SF_WAYBILL_RECONCILIATION_INTERVAL: Final = timedelta(seconds=30)
 
 
@@ -110,7 +109,8 @@ class SfWaybillReconciliationStore(Protocol):
         prepared: PreparedSfWaybillReconciliationJob,
         *,
         started_at: datetime,
-    ) -> SfWaybillReconciliationSnapshot | None: ...
+    ) -> SfWaybillReconciliationSnapshot | None:
+        ...
 
     def record_result(
         self,
@@ -119,7 +119,8 @@ class SfWaybillReconciliationStore(Protocol):
         snapshot: SfWaybillReconciliationSnapshot,
         result: SfWaybillQueryResult,
         finished_at: datetime,
-    ) -> StoredSfWaybillReconciliation: ...
+    ) -> StoredSfWaybillReconciliation:
+        ...
 
 
 class SfWaybillQueryCredentialSource(Protocol):
@@ -128,16 +129,16 @@ class SfWaybillQueryCredentialSource(Protocol):
         *,
         job: PreparedSfWaybillReconciliationJob,
         snapshot: SfWaybillReconciliationSnapshot,
-    ) -> SfWaybillQueryRequest: ...
+    ) -> SfWaybillQueryRequest:
+        ...
 
 
 class SfWaybillQueryProvider(Protocol):
-    def dispatch(self, request: SfWaybillQueryRequest) -> SfWaybillQueryResult: ...
+    def dispatch(self, request: SfWaybillQueryRequest) -> SfWaybillQueryResult:
+        ...
 
 
-TenantTransactionProvider = Callable[
-    [TenantContext], AbstractContextManager[Session]
-]
+TenantTransactionProvider = Callable[[TenantContext], AbstractContextManager[Session]]
 
 
 class SqlAlchemySfWaybillReconciliationStore:
@@ -192,9 +193,7 @@ class SqlAlchemySfWaybillReconciliationStore:
                 or attempt.binding_revision != shipment.binding_revision
             ):
                 raise SfWaybillReconciliationConflict()
-            ShippingExecutionService(
-                session
-            ).begin_unknown_provider_reconciliation(
+            ShippingExecutionService(session).begin_unknown_provider_reconciliation(
                 attempt_id=attempt.id,
                 started_at=current_time,
             )
@@ -409,9 +408,7 @@ class SfWaybillReconciliationJobHandler:
             return JobOutcome(
                 OutcomeDisposition.REVIEW,
                 safe_result=safe_result,
-                reason_code=(
-                    final_authority.reason_code or "tenant_gate_denied"
-                ),
+                reason_code=(final_authority.reason_code or "tenant_gate_denied"),
             )
         if result.resolution is UnknownResolution.STILL_UNKNOWN:
             return JobOutcome(
@@ -490,12 +487,7 @@ def _prepared(value: object) -> PreparedSfWaybillReconciliationJob:
 
 
 def _require_transaction(session: Session) -> None:
-    transaction = session.get_transaction() if isinstance(session, Session) else None
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-    ):
-        raise SfWaybillReconciliationInputError()
+    require_caller_transaction(session, SfWaybillReconciliationInputError)
 
 
 def _positive(value: object) -> int:

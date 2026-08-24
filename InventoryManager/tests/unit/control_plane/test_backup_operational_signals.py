@@ -18,7 +18,6 @@ from inventory_control.backups.acknowledgements import (
     acknowledgement_request_digest,
     evaluate_acknowledgement_freshness,
 )
-from inventory_control.models import ControlBase
 from inventory_control.models.operations import (
     PlatformAlertLifecycleEvent,
     PlatformOperationalSignal,
@@ -37,11 +36,6 @@ from inventory_control.operations.service import (
     OperationalSignalPolicy,
     OperationalSignalService,
 )
-from tests.support.test_database import (
-    clear_guarded_mysql_test_rows,
-    guarded_mysql_control_database,
-)
-
 
 UTC = timezone.utc
 NOW = datetime(2026, 8, 22, 12, 0, 0, 654321, tzinfo=UTC)
@@ -78,19 +72,9 @@ def _adapter() -> BackupFreshnessSignalAdapter:
     )
 
 
-@pytest.fixture(scope="module")
-def control_database_schema():
-    with guarded_mysql_control_database(ControlBase.metadata) as database:
-        yield database
-
-
 @pytest.fixture
-def control_database(control_database_schema):
-    clear_guarded_mysql_test_rows(
-        control_database_schema.engine,
-        ControlBase.metadata,
-    )
-    return control_database_schema
+def control_database(mysql_control_database):
+    return mysql_control_database
 
 
 def _accepted_ack(
@@ -299,17 +283,13 @@ def test_adapter_does_not_commit_and_outer_rollback_removes_both_signals(
     with control_database.new_session() as session:
         assert (
             session.scalar(
-                sa.select(sa.func.count()).select_from(
-                    PlatformOperationalSignal
-                )
+                sa.select(sa.func.count()).select_from(PlatformOperationalSignal)
             )
             == 0
         )
         assert (
             session.scalar(
-                sa.select(sa.func.count()).select_from(
-                    PlatformAlertLifecycleEvent
-                )
+                sa.select(sa.func.count()).select_from(PlatformAlertLifecycleEvent)
             )
             == 0
         )

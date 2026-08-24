@@ -21,7 +21,7 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.crypto.root_key import RootKey
 from inventory_control.models.foundation import Tenant
@@ -37,6 +37,7 @@ from inventory_control.sms import (
     SmsPurpose,
 )
 from inventory_control.subscriptions.seats import CORE_MEMBER_SEAT_CAP
+from inventory_control.transactions import require_caller_transaction
 
 from .state import InvitationRole
 from .tokens import (
@@ -130,7 +131,8 @@ class InvitationJoinGateCurrentRead(Protocol):
         *,
         tenant: Tenant,
         database_now: datetime,
-    ) -> InvitationJoinGateFacts: ...
+    ) -> InvitationJoinGateFacts:
+        ...
 
 
 DatabaseClock = Callable[[Session], datetime]
@@ -167,7 +169,8 @@ class AdminInvitationAuthorizer(Protocol):
 
     def __call__(
         self, session: Session, *, database_now: datetime
-    ) -> AdminInvitationPermissionProof: ...
+    ) -> AdminInvitationPermissionProof:
+        ...
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -272,9 +275,7 @@ class InvitationPersistenceService:
 
         self._prepare(session)
         tenant_id = str(_uuid(tenant_uuid, "tenant_uuid"))
-        invitation_id = str(
-            _uuid(proposed_invitation_uuid, "proposed_invitation_uuid")
-        )
+        invitation_id = str(_uuid(proposed_invitation_uuid, "proposed_invitation_uuid"))
         user_id = str(_uuid(proposed_user_uuid, "proposed_user_uuid"))
         phone = CanonicalSmsPhone.from_input(raw_phone)
         selected_role = _role(role)
@@ -522,9 +523,7 @@ class InvitationPersistenceService:
 
         self._prepare(session)
         invitation_id = str(_uuid(invitation_uuid, "invitation_uuid"))
-        membership_id = str(
-            _uuid(proposed_membership_uuid, "proposed_membership_uuid")
-        )
+        membership_id = str(_uuid(proposed_membership_uuid, "proposed_membership_uuid"))
         generation = _positive(submitted_generation, "submitted_generation")
         expected_revision = _positive(
             expected_invitation_row_version,
@@ -538,8 +537,9 @@ class InvitationPersistenceService:
             raise TypeError("challenge must be an InvitationChallengeSubmission")
 
         summary = session.execute(
-            sa.select(TenantInvitation.phone_e164)
-            .where(TenantInvitation.id == invitation_id)
+            sa.select(TenantInvitation.phone_e164).where(
+                TenantInvitation.id == invitation_id
+            )
         ).one_or_none()
         if summary is None:
             raise InvitationCredentialError()
@@ -580,12 +580,9 @@ class InvitationPersistenceService:
             token = InvitationToken(submitted_token)
         except InvitationTokenError:
             raise InvitationCredentialError() from None
-        if (
-            target.token_generation != generation
-            or not hmac.compare_digest(
-                token.digest_sha256,
-                bytes(target.token_hash),
-            )
+        if target.token_generation != generation or not hmac.compare_digest(
+            token.digest_sha256,
+            bytes(target.token_hash),
         ):
             raise InvitationCredentialError()
 
@@ -637,8 +634,7 @@ class InvitationPersistenceService:
             expected_pending = sum(
                 1
                 for row in pending
-                if row.tenant_id == tenant_id
-                and _as_utc(row.expires_at) > now
+                if row.tenant_id == tenant_id and _as_utc(row.expires_at) > now
             )
             if pending_count < expected_pending:
                 raise InvitationConflictError()
@@ -751,8 +747,9 @@ class InvitationPersistenceService:
             "expected_invitation_row_version",
         )
         summary = session.execute(
-            sa.select(TenantInvitation.phone_e164)
-            .where(TenantInvitation.id == invitation_id)
+            sa.select(TenantInvitation.phone_e164).where(
+                TenantInvitation.id == invitation_id
+            )
         ).one_or_none()
         if summary is None:
             raise InvitationConflictError()
@@ -814,20 +811,11 @@ class InvitationPersistenceService:
         return _terminal_result(target, idempotent=False)
 
     def _prepare(self, session: Session) -> None:
-        if not isinstance(session, Session):
-            raise InvitationTransactionError()
-        transaction = session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            raise InvitationTransactionError()
-        if session.new or session.deleted or any(
-            session.is_modified(row, include_collections=True)
-            for row in session.dirty
-        ):
-            raise InvitationTransactionError()
-        _materialize_sqlite_outer_transaction(session)
+        require_caller_transaction(
+            session,
+            InvitationTransactionError,
+            clean=True,
+        )
 
     def _now(self, session: Session) -> datetime:
         return _as_utc(self._database_clock(session))
@@ -850,9 +838,7 @@ class InvitationPersistenceService:
                             id=proposed_user_uuid,
                             phone_region_iso2="CN",
                             phone_e164=phone.e164,
-                            phone_normalization_version=(
-                                phone.normalization_version
-                            ),
+                            phone_normalization_version=(phone.normalization_version),
                             phone_metadata_version=phone.metadata_version,
                             status="unverified",
                             auth_version=1,
@@ -958,9 +944,7 @@ class InvitationPersistenceService:
                 sa.select(SmsChallenge)
                 .where(
                     SmsChallenge.canonical_phone_e164.in_(selected_phones),
-                    SmsChallenge.purpose.in_(
-                        ("accept_invitation", "admin_invitation")
-                    ),
+                    SmsChallenge.purpose.in_(("accept_invitation", "admin_invitation")),
                     sa.or_(*predicates),
                 )
                 .order_by(SmsChallenge.id)
@@ -993,9 +977,8 @@ class InvitationPersistenceService:
             _phone_from_user(user)
         except ValueError:
             raise InvitationIdentityError() from None
-        if (
-            user.status not in {"unverified", "active"}
-            or any(row.status != "released" for row in memberships)
+        if user.status not in {"unverified", "active"} or any(
+            row.status != "released" for row in memberships
         ):
             raise InvitationIdentityError()
 
@@ -1129,8 +1112,7 @@ def _require_admin_invitation_proof(
         or proof.tenant_uuid != tenant_uuid
         or proof.invitation_uuid != invitation_uuid
         or proof.target_phone_e164 != target_phone.e164
-        or proof.expected_tenant_access_version
-        != expected_tenant_access_version
+        or proof.expected_tenant_access_version != expected_tenant_access_version
     ):
         raise InvitationCredentialError()
 
@@ -1333,9 +1315,7 @@ def _terminalize(
     invitation.status = status
     invitation.user_id = None
     invitation.accepted_at = database_now if status == "accepted" else None
-    invitation.superseded_at = (
-        database_now if status == "superseded" else None
-    )
+    invitation.superseded_at = database_now if status == "superseded" else None
     invitation.terminal_reason_code = reason
     invitation.row_version += 1
     invitation.updated_at = database_now
@@ -1411,18 +1391,9 @@ def _read_database_utc_now(session: Session) -> datetime:
 
 
 def _database_utc_now_statement(dialect_name: str):
-    if dialect_name in {"mysql", "mariadb"}:
-        return sa.text("SELECT UTC_TIMESTAMP(6)")
-    return sa.select(sa.func.current_timestamp())
-
-
-def _materialize_sqlite_outer_transaction(session: Session) -> None:
-    connection = session.connection()
-    if connection.dialect.name != "sqlite":
-        return
-    driver_connection = getattr(connection.connection, "driver_connection", None)
-    if driver_connection is not None and not driver_connection.in_transaction:
-        connection.exec_driver_sql("BEGIN IMMEDIATE")
+    if dialect_name not in {"mysql", "mariadb"}:
+        raise InvitationTransactionError()
+    return sa.text("SELECT UTC_TIMESTAMP(6)")
 
 
 def _as_utc(value: object) -> datetime:

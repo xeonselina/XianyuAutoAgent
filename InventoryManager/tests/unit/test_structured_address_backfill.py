@@ -7,7 +7,7 @@ from uuid import UUID
 import pytest
 import sqlalchemy as sa
 
-from app import create_app, db
+from app import db
 from app.models.database_identity import TenantDatabaseIdentity
 from app.models.device import Device
 from app.models.rental import Rental
@@ -40,9 +40,7 @@ def _manifest() -> DefaultTenantMigrationManifest:
         database_uuid=DATABASE_UUID,
         source_schema_name="inventory_management",
         baseline_migration_id="initial-baseline-v1",
-        core_plan_revision_uuid=UUID(
-            "51000000-0000-4000-8000-000000000003"
-        ),
+        core_plan_revision_uuid=UUID("51000000-0000-4000-8000-000000000003"),
         control_schema_head="202608220026",
         tenant_schema_head="20260824_legacy_history",
         source_snapshot_digest=_digest("source"),
@@ -54,24 +52,17 @@ def _manifest() -> DefaultTenantMigrationManifest:
 
 
 @pytest.fixture
-def application():
-    app = create_app("testing")
-    with app.app_context():
-        db.create_all()
-        db.session.add(
-            TenantDatabaseIdentity(
-                singleton_key=1,
-                tenant_id=str(TENANT_UUID),
-                database_uuid=str(DATABASE_UUID),
-                schema_generation=SCHEMA_GENERATION,
-            )
+def application(app):
+    db.session.add(
+        TenantDatabaseIdentity(
+            singleton_key=1,
+            tenant_id=str(TENANT_UUID),
+            database_uuid=str(DATABASE_UUID),
+            schema_generation=SCHEMA_GENERATION,
         )
-        db.session.commit()
-        try:
-            yield app
-        finally:
-            db.session.remove()
-            db.drop_all()
+    )
+    db.session.commit()
+    yield app
 
 
 def _rental(device, *, destination, parent=None):
@@ -105,7 +96,9 @@ def _plan(manifest, *rentals):
     return StructuredAddressBackfillPlan(
         parent_manifest_digest=manifest.digest,
         migration_idempotency_key=manifest.migration_idempotency_key,
-        entries=tuple(sorted((_entry(item) for item in rentals), key=lambda x: x.rental_id)),
+        entries=tuple(
+            sorted((_entry(item) for item in rentals), key=lambda x: x.rental_id)
+        ),
     )
 
 
@@ -264,9 +257,7 @@ def test_entry_requires_all_reviewed_fields_and_never_inferrs(application) -> No
         StructuredRentalAddressEntry(
             rental_id=1,
             expected_parent_rental_id=None,
-            expected_legacy_destination_digest=legacy_destination_digest(
-                "北京市朝阳区某路"
-            ),
+            expected_legacy_destination_digest=legacy_destination_digest("北京市朝阳区某路"),
             province="北京市",
             city="北京市",
             district="",

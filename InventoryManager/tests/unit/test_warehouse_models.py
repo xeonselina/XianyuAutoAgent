@@ -1,21 +1,9 @@
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app import create_app, db
+from app import db
 from app.models.device import Device
 from app.models.warehouse import Warehouse, WarehousePrinter
-
-
-@pytest.fixture
-def application():
-    app = create_app("testing")
-    with app.app_context():
-        db.create_all()
-        try:
-            yield app
-        finally:
-            db.session.remove()
-            db.drop_all()
 
 
 def ready_default(name="默认仓库"):

@@ -9,7 +9,6 @@ from uuid import UUID, uuid4
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.session import SessionTransactionOrigin
 
 from inventory_control.models import (
     MemberSeatGuard,
@@ -25,6 +24,7 @@ from inventory_control.models import (
     User,
 )
 from inventory_control.sms import CanonicalSmsPhone
+from inventory_control.transactions import require_caller_transaction
 
 
 class PhoneChangeError(RuntimeError):
@@ -208,9 +208,7 @@ class TenantPhoneChangeService:
                 .execution_options(populate_existing=True)
             )
         )
-        tenant_ids = tuple(
-            sorted({tenant_id, *(row.tenant_id for row in invitations)})
-        )
+        tenant_ids = tuple(sorted({tenant_id, *(row.tenant_id for row in invitations)}))
         tenants = tuple(
             session.scalars(
                 sa.select(Tenant)
@@ -241,11 +239,7 @@ class TenantPhoneChangeService:
         memberships = tuple(
             session.scalars(
                 sa.select(TenantMembership)
-                .where(
-                    TenantMembership.user_id.in_(
-                        (current_user_id, candidate_id)
-                    )
-                )
+                .where(TenantMembership.user_id.in_((current_user_id, candidate_id)))
                 .order_by(TenantMembership.id)
                 .with_for_update()
                 .execution_options(populate_existing=True)
@@ -280,11 +274,8 @@ class TenantPhoneChangeService:
                 sa.select(TenantSensitiveActionIntent)
                 .where(
                     sa.or_(
-                        TenantSensitiveActionIntent.id.in_(
-                            related_intent_id_set
-                        ),
-                        TenantSensitiveActionIntent.actor_user_id
-                        == candidate_id,
+                        TenantSensitiveActionIntent.id.in_(related_intent_id_set),
+                        TenantSensitiveActionIntent.actor_user_id == candidate_id,
                     )
                 )
                 .order_by(TenantSensitiveActionIntent.id)
@@ -309,11 +300,7 @@ class TenantPhoneChangeService:
         sessions = tuple(
             session.scalars(
                 sa.select(TenantUserSession)
-                .where(
-                    TenantUserSession.user_id.in_(
-                        (current_user_id, candidate_id)
-                    )
-                )
+                .where(TenantUserSession.user_id.in_((current_user_id, candidate_id)))
                 .order_by(TenantUserSession.id)
                 .with_for_update()
                 .execution_options(populate_existing=True)
@@ -434,7 +421,9 @@ class TenantPhoneChangeService:
                 invitation.row_version += 1
                 invitation.updated_at = now
         superseded = sum(
-            1 for row in scope.invitations if row.terminal_reason_code == "phone_claimed"
+            1
+            for row in scope.invitations
+            if row.terminal_reason_code == "phone_claimed"
         )
 
         for challenge in scope.challenges:
@@ -463,12 +452,13 @@ class TenantPhoneChangeService:
         current.updated_at = now
         revoked = 0
         for browser_session in scope.sessions:
-            if browser_session.user_id == current.id and browser_session.revoked_at is None:
+            if (
+                browser_session.user_id == current.id
+                and browser_session.revoked_at is None
+            ):
                 browser_session.revoked_at = now
                 browser_session.revoked_reason_code = "phone_changed"
-                browser_session.revoked_by_session_id = str(
-                    proof.actor_session_uuid
-                )
+                browser_session.revoked_by_session_id = str(proof.actor_session_uuid)
                 revoked += 1
         session.add(
             TenantAuthSecurityEvent(
@@ -478,9 +468,7 @@ class TenantPhoneChangeService:
                 target_session_id=None,
                 target_resource_type="tenant_user",
                 target_resource_id=current.id,
-                expected_target_revision=(
-                    f"auth:{proof.expected_auth_version}"
-                ),
+                expected_target_revision=(f"auth:{proof.expected_auth_version}"),
                 intent_id=str(proof.change_uuid),
                 action_subtype="identity.phone_change",
                 idempotency_reference=f"phone-change:{proof.change_uuid}",
@@ -579,24 +567,12 @@ def _current_membership(
 
 
 def _prepare(session: Session) -> None:
-    _require_session(session)
-    transaction = session.get_transaction()
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        or session.new
-        or session.deleted
-        or any(
-            session.is_modified(row, include_collections=True)
-            for row in session.dirty
-        )
-    ):
-        raise PhoneChangeInputError()
-    connection = session.connection()
-    if connection.dialect.name == "sqlite":
-        driver = getattr(connection.connection, "driver_connection", None)
-        if driver is not None and not driver.in_transaction:
-            connection.exec_driver_sql("BEGIN IMMEDIATE")
+    require_caller_transaction(
+        session,
+        PhoneChangeInputError,
+        invalid_session_error=PhoneChangeInputError,
+        clean=True,
+    )
 
 
 def _require_session(session: object) -> None:

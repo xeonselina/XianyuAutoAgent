@@ -8,13 +8,14 @@ from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.crypto import CryptoCodecV1, EncryptedEnvelope, RootKey
 from inventory_control.models import (
     TenantProviderAccountSecretEnvelopeEvent,
     TenantProviderAccountSecretRevision,
 )
+from inventory_control.transactions import require_caller_transaction
 
 from .provider_account_credentials import (
     ProviderAccountSecretCryptoContext,
@@ -83,8 +84,7 @@ class TenantProviderAccountEnvelopeService:
         existing = self._session.scalar(
             sa.select(TenantProviderAccountSecretEnvelopeEvent)
             .where(
-                TenantProviderAccountSecretEnvelopeEvent.idempotency_key
-                == request_key
+                TenantProviderAccountSecretEnvelopeEvent.idempotency_key == request_key
             )
             .with_for_update()
         )
@@ -137,9 +137,7 @@ class TenantProviderAccountEnvelopeService:
             before_ciphertext_digest=hashlib.sha256(
                 bytes(revision.account_secret_ciphertext)
             ).digest(),
-            after_ciphertext_digest=hashlib.sha256(
-                new_envelope.ciphertext
-            ).digest(),
+            after_ciphertext_digest=hashlib.sha256(new_envelope.ciphertext).digest(),
             rotation_run_uuid=run_id,
             rotation_action_uuid=action_id,
             idempotency_key=request_key,
@@ -193,12 +191,10 @@ class TenantProviderAccountEnvelopeService:
         return _ref(event)
 
     def _require_transaction(self) -> None:
-        transaction = self._session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            raise ProviderAccountTransactionError()
+        require_caller_transaction(
+            self._session,
+            ProviderAccountTransactionError,
+        )
 
 
 def _context(revision, *, root_key_version=None):
@@ -218,9 +214,7 @@ def _context(revision, *, root_key_version=None):
         fingerprint_root_key_version=revision.fingerprint_root_key_version,
         expected_claim_generation=revision.expected_claim_generation,
         root_key_version=(
-            revision.root_key_version
-            if root_key_version is None
-            else root_key_version
+            revision.root_key_version if root_key_version is None else root_key_version
         ),
         crypto_version=revision.crypto_version,
         aad_version=revision.aad_version,
@@ -247,16 +241,20 @@ def _request_digest(
     old_root_version,
     new_root_version,
 ):
-    return hashlib.sha256(b"".join((
-        b"inventory-manager/provider-account-envelope-rotation/v1\x00",
-        CryptoCodecV1.uuid_bytes(revision_id),
-        CryptoCodecV1.uuid_bytes(run_id),
-        CryptoCodecV1.uuid_bytes(action_id),
-        CryptoCodecV1.ascii_text(request_key),
-        CryptoCodecV1.uint64(expected_version),
-        CryptoCodecV1.uint64(old_root_version),
-        CryptoCodecV1.uint64(new_root_version),
-    ))).digest()
+    return hashlib.sha256(
+        b"".join(
+            (
+                b"inventory-manager/provider-account-envelope-rotation/v1\x00",
+                CryptoCodecV1.uuid_bytes(revision_id),
+                CryptoCodecV1.uuid_bytes(run_id),
+                CryptoCodecV1.uuid_bytes(action_id),
+                CryptoCodecV1.ascii_text(request_key),
+                CryptoCodecV1.uint64(expected_version),
+                CryptoCodecV1.uint64(old_root_version),
+                CryptoCodecV1.uint64(new_root_version),
+            )
+        )
+    ).digest()
 
 
 def _replay(event, *, revision_id, request_digest, new_root_version):

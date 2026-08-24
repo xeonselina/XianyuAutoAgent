@@ -20,7 +20,7 @@ from uuid import UUID, uuid4
 import sqlalchemy as sa
 from sqlalchemy.dialects.mysql import insert as mysql_insert
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.crypto import (
     CryptoConfigurationError,
@@ -31,6 +31,7 @@ from inventory_control.models.provider_claims import (
     ProviderAccountClaim,
     ProviderAccountClaimEvent,
 )
+from inventory_control.transactions import require_caller_transaction
 
 from .sf_claim import (
     SfAccountClaim,
@@ -185,7 +186,7 @@ class SfClaimPersistenceService:
             fingerprint=selected_fingerprint,
             database_now=now,
         )
-        if self._session.get_bind().dialect.name == "mysql":
+        if self._session.get_bind().dialect.name in {"mysql", "mariadb"}:
             # InnoDB may roll back an entire transaction (and destroy its
             # SAVEPOINT) when two plain INSERTs race on the same unique key.
             # A no-op upsert makes the unique index serialize first creation
@@ -374,14 +375,11 @@ class SfClaimPersistenceService:
     release_by_deletion = release_claim_by_deletion
 
     def _prepare(self) -> None:
-        transaction = self._session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            raise SfClaimTransactionError()
-        _require_clean_unit_of_work(self._session)
-        _materialize_sqlite_outer_transaction(self._session)
+        require_caller_transaction(
+            self._session,
+            SfClaimTransactionError,
+            clean=True,
+        )
 
     def _now(self) -> datetime:
         return _as_utc(self._database_clock(self._session))
@@ -407,8 +405,7 @@ class SfClaimPersistenceService:
         return self._session.scalar(
             sa.select(ProviderAccountClaim).where(
                 ProviderAccountClaim.provider == fingerprint.provider,
-                ProviderAccountClaim.account_fingerprint
-                == fingerprint.digest,
+                ProviderAccountClaim.account_fingerprint == fingerprint.digest,
             )
         )
 
@@ -519,12 +516,8 @@ class SfClaimPersistenceService:
                 previous_owner, "provider_account_uuid"
             ),
             previous_tenant_id=_owner_value(previous_owner, "tenant_uuid"),
-            previous_warehouse_uuid=_owner_value(
-                previous_owner, "warehouse_uuid"
-            ),
-            new_provider_account_id=_owner_value(
-                new_owner, "provider_account_uuid"
-            ),
+            previous_warehouse_uuid=_owner_value(previous_owner, "warehouse_uuid"),
+            new_provider_account_id=_owner_value(new_owner, "provider_account_uuid"),
             new_tenant_id=_owner_value(new_owner, "tenant_uuid"),
             new_warehouse_uuid=_owner_value(new_owner, "warehouse_uuid"),
             actor_type=event.actor_type,
@@ -534,9 +527,7 @@ class SfClaimPersistenceService:
             source_action_uuid=str(event.action_uuid),
             request_digest=bytes(request_digest),
             deletion_request_uuid=provenance["deletion_request_uuid"],
-            deletion_execution_generation=provenance[
-                "deletion_execution_generation"
-            ],
+            deletion_execution_generation=provenance["deletion_execution_generation"],
             tombstone_sequence=provenance["tombstone_sequence"],
             tombstone_record_hash=provenance["tombstone_record_hash"],
             transition_digest=transition_digest,
@@ -552,8 +543,7 @@ class SfClaimPersistenceService:
             .where(
                 ProviderAccountClaim.id == row.id,
                 ProviderAccountClaim.provider == before.fingerprint.provider,
-                ProviderAccountClaim.account_fingerprint
-                == before.fingerprint.digest,
+                ProviderAccountClaim.account_fingerprint == before.fingerprint.digest,
                 ProviderAccountClaim.claim_generation == before.generation,
                 ProviderAccountClaim.row_version == before.row_version,
                 ProviderAccountClaim.event_sequence == before.event_sequence,
@@ -564,9 +554,7 @@ class SfClaimPersistenceService:
                     after.owner, "provider_account_uuid"
                 ),
                 current_tenant_id=_owner_value(after.owner, "tenant_uuid"),
-                current_warehouse_uuid=_owner_value(
-                    after.owner, "warehouse_uuid"
-                ),
+                current_warehouse_uuid=_owner_value(after.owner, "warehouse_uuid"),
                 claim_status=after.state.value,
                 claim_generation=after.generation,
                 reservation_action_uuid=_optional_uuid_text(
@@ -614,9 +602,7 @@ class SfClaimPersistenceService:
             or event.event_sequence != current.event_sequence
             or event.to_status != current.state.value
             or not _stored_owner_matches_current(event, current.owner)
-            or event.source_action_uuid != _optional_uuid_text(
-                current.last_action_uuid
-            )
+            or event.source_action_uuid != _optional_uuid_text(current.last_action_uuid)
             or not hmac.compare_digest(
                 bytes(event.request_digest), bytes(request_digest)
             )
@@ -685,11 +671,8 @@ def _domain_claim(
             fingerprint.provider != expected_fingerprint.provider
             or fingerprint.fingerprint_version
             != expected_fingerprint.fingerprint_version
-            or fingerprint.root_key_version
-            != expected_fingerprint.root_key_version
-            or not hmac.compare_digest(
-                fingerprint.digest, expected_fingerprint.digest
-            )
+            or fingerprint.root_key_version != expected_fingerprint.root_key_version
+            or not hmac.compare_digest(fingerprint.digest, expected_fingerprint.digest)
         ):
             raise ValueError("fingerprint metadata changed")
 
@@ -748,9 +731,7 @@ def _verify_transition(
     event: SfClaimEvent,
 ) -> None:
     expected_event_owner = (
-        after.owner
-        if event.event_kind is SfClaimEventKind.RESERVED
-        else before.owner
+        after.owner if event.event_kind is SfClaimEventKind.RESERVED else before.owner
     )
     if (
         after.claim_uuid != before.claim_uuid
@@ -767,8 +748,7 @@ def _verify_transition(
         or event.record_hash != after.event_head_hash
         or expected_event_owner is None
         or event.tenant_uuid != expected_event_owner.tenant_uuid
-        or event.provider_account_uuid
-        != expected_event_owner.provider_account_uuid
+        or event.provider_account_uuid != expected_event_owner.provider_account_uuid
         or event.warehouse_uuid != expected_event_owner.warehouse_uuid
     ):
         raise SfClaimPersistenceError()
@@ -872,9 +852,7 @@ def _transition_digest(
         "proof": proof_payload,
     }
     return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
-            "ascii"
-        )
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("ascii")
     ).digest()
 
 
@@ -932,9 +910,7 @@ def _result(
         row_version=transition.claim.row_version,
         event_sequence=transition.claim.event_sequence,
         transition_event_uuid=event_uuid,
-        event_kind=(
-            None if transition.event is None else transition.event.event_kind
-        ),
+        event_kind=(None if transition.event is None else transition.event.event_kind),
         idempotent_replay=transition.idempotent_replay,
     )
 
@@ -972,33 +948,13 @@ def _as_utc(value: object) -> datetime:
     if not isinstance(value, datetime):
         raise SfClaimPersistenceError()
     if value.tzinfo is None:
-        # Control MySQL is required to run in UTC; SQLite loses tzinfo in tests.
+        # MySQL and MariaDB control databases are required to run in UTC.
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
 
 
 def _read_database_utc_now(session: Session) -> datetime:
     return _as_utc(read_database_utc_value(session))
-
-
-def _require_clean_unit_of_work(session: Session) -> None:
-    dirty = any(
-        session.is_modified(instance, include_collections=True)
-        for instance in session.dirty
-    )
-    if session.new or session.deleted or dirty:
-        raise SfClaimTransactionError()
-
-
-def _materialize_sqlite_outer_transaction(session: Session) -> None:
-    """Ensure a nested write remains reversible by the SQLite outer rollback."""
-
-    connection = session.connection()
-    if connection.dialect.name != "sqlite":
-        return
-    driver_connection = getattr(connection.connection, "driver_connection", None)
-    if driver_connection is not None and not driver_connection.in_transaction:
-        connection.exec_driver_sql("BEGIN IMMEDIATE")
 
 
 __all__ = [

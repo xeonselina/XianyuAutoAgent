@@ -5,7 +5,7 @@ from uuid import UUID
 
 import pytest
 
-from app import create_app, db
+from app import db
 from app.models.warehouse import Warehouse, WarehouseProviderBinding
 from app.services.warehouse import (
     WarehouseProviderBindingConflictError,
@@ -27,33 +27,26 @@ NOW = datetime(2026, 8, 23, 4, 0, tzinfo=timezone.utc)
 
 
 @pytest.fixture
-def application():
-    app = create_app("testing")
-    with app.app_context():
-        db.create_all()
-        warehouse = Warehouse(
-            warehouse_uuid=str(WAREHOUSE_UUID),
-            status="active",
-            setup_state="pending",
-            is_default=True,
-            default_slot=1,
-        )
-        warehouse.mark_ready(
-            name="Default",
-            contact_name="Admin",
-            contact_phone="13800138000",
-            province="广东省",
-            city="深圳市",
-            district="南山区",
-            address_detail="测试地址",
-        )
-        db.session.add(warehouse)
-        db.session.commit()
-        try:
-            yield app
-        finally:
-            db.session.remove()
-            db.drop_all()
+def application(app):
+    warehouse = Warehouse(
+        warehouse_uuid=str(WAREHOUSE_UUID),
+        status="active",
+        setup_state="pending",
+        is_default=True,
+        default_slot=1,
+    )
+    warehouse.mark_ready(
+        name="Default",
+        contact_name="Admin",
+        contact_phone="13800138000",
+        province="广东省",
+        city="深圳市",
+        district="南山区",
+        address_detail="测试地址",
+    )
+    db.session.add(warehouse)
+    db.session.commit()
+    yield app
 
 
 def _bind(*, account=ACCOUNT_A, revision=1, expected_account=None, expected=None):
@@ -67,6 +60,16 @@ def _bind(*, account=ACCOUNT_A, revision=1, expected_account=None, expected=None
             expected_provider_account_uuid=expected_account,
             expected_binding_revision=expected,
         )
+
+
+def _binding_row():
+    warehouse_id = db.session.scalar(
+        db.select(Warehouse.id).where(Warehouse.warehouse_uuid == str(WAREHOUSE_UUID))
+    )
+    return db.session.get(
+        WarehouseProviderBinding,
+        {"warehouse_id": warehouse_id, "provider": "sf"},
+    )
 
 
 def test_bind_replay_replace_and_unbind_are_monotonic(application):
@@ -91,9 +94,7 @@ def test_bind_replay_replace_and_unbind_are_monotonic(application):
             occurred_at=NOW,
         )
     with db.session.begin():
-        unbind_replay = WarehouseProviderBindingService(
-            db.session
-        ).unbind_sf_account(
+        unbind_replay = WarehouseProviderBindingService(db.session).unbind_sf_account(
             warehouse_uuid=WAREHOUSE_UUID,
             provider_account_uuid=ACCOUNT_B,
             expected_binding_revision=2,
@@ -123,19 +124,14 @@ def test_stale_replace_does_not_change_active_binding(application):
             expected=1,
         )
 
-    row = db.session.get(
-        WarehouseProviderBinding,
-        {"warehouse_id": 1, "provider": "sf"},
-    )
+    row = _binding_row()
     assert row.provider_account_uuid == str(ACCOUNT_A)
     assert row.binding_revision == 1
 
 
 def test_binding_plan_is_monotonic_and_reuses_current_revision(application):
     with db.session.begin():
-        initial = WarehouseProviderBindingService(
-            db.session
-        ).plan_sf_account_binding(
+        initial = WarehouseProviderBindingService(db.session).plan_sf_account_binding(
             warehouse_uuid=WAREHOUSE_UUID,
             provider_account_uuid=ACCOUNT_A,
         )
@@ -145,9 +141,7 @@ def test_binding_plan_is_monotonic_and_reuses_current_revision(application):
 
     _bind()
     with db.session.begin():
-        same = WarehouseProviderBindingService(
-            db.session
-        ).plan_sf_account_binding(
+        same = WarehouseProviderBindingService(db.session).plan_sf_account_binding(
             warehouse_uuid=WAREHOUSE_UUID,
             provider_account_uuid=ACCOUNT_A,
         )
@@ -190,10 +184,7 @@ def test_sqlalchemy_worker_applier_uses_exact_local_cas(application):
     assert first.binding_revision == 1
     assert first.idempotent_replay is False
     assert replay.idempotent_replay is True
-    row = db.session.get(
-        WarehouseProviderBinding,
-        {"warehouse_id": 1, "provider": "sf"},
-    )
+    row = _binding_row()
     assert row.provider_account_uuid == str(ACCOUNT_A)
 
 

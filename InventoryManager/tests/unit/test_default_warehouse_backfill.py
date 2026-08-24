@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import pytest
 import sqlalchemy as sa
 from sqlalchemy import event
 
-from app import create_app, db
+from app import db
 from app.models.database_identity import TenantDatabaseIdentity
 from app.models.device import Device
 from app.models.warehouse import Warehouse
@@ -18,6 +17,7 @@ from app.services.migration.default_warehouse_backfill import (
     DefaultWarehouseConflictError,
     DefaultWarehouseIdentityMismatchError,
     DefaultWarehouseProfile,
+    _select_default_warehouse,
     derive_default_warehouse_uuid,
 )
 
@@ -26,18 +26,6 @@ TENANT_UUID = uuid5(NAMESPACE_URL, "default-warehouse-backfill/tenant")
 DATABASE_UUID = uuid5(NAMESPACE_URL, "default-warehouse-backfill/database")
 SCHEMA_GENERATION = 8
 BASELINE_ID = "initial-baseline-v1"
-
-
-@pytest.fixture
-def application():
-    app = create_app("testing")
-    with app.app_context():
-        db.create_all()
-        try:
-            yield app
-        finally:
-            db.session.remove()
-            db.drop_all()
 
 
 def _seed_identity(
@@ -256,7 +244,7 @@ def test_changed_profile_or_baseline_conflicts_without_rewriting_default(
     assert db.session.scalar(sa.select(sa.func.count()).select_from(Warehouse)) == 1
 
 
-def test_existing_different_default_and_multiple_defaults_fail_closed(application):
+def test_existing_different_default_fails_closed(application):
     _seed_identity()
     db.session.add(
         Warehouse(
@@ -271,44 +259,35 @@ def test_existing_different_default_and_multiple_defaults_fail_closed(applicatio
     with pytest.raises(DefaultWarehouseConflictError):
         _backfill(DefaultWarehouseProfile())
 
-    db.session.query(Warehouse).delete()
-    db.session.commit()
+
+def test_multiple_defaults_fail_closed_without_constructing_invalid_sql_state():
     expected_uuid = derive_default_warehouse_uuid(
         database_uuid=DATABASE_UUID,
         baseline_migration_id=BASELINE_ID,
     )
-    connection = db.session.connection()
-    connection.exec_driver_sql("PRAGMA ignore_check_constraints = ON")
-    now = datetime.utcnow()
-    connection.execute(
-        sa.insert(Warehouse.__table__),
-        (
-            {
-                "warehouse_uuid": str(expected_uuid),
-                "status": "active",
-                "setup_state": "pending",
-                "is_default": True,
-                "default_slot": 1,
-                "created_at": now,
-                "updated_at": now,
-            },
-            {
-                "warehouse_uuid": str(uuid4()),
-                "status": "active",
-                "setup_state": "pending",
-                "is_default": True,
-                "default_slot": None,
-                "created_at": now,
-                "updated_at": now,
-            },
+    warehouses = (
+        Warehouse(
+            warehouse_uuid=str(expected_uuid),
+            status="active",
+            setup_state="pending",
+            is_default=True,
+            default_slot=1,
+        ),
+        Warehouse(
+            warehouse_uuid=str(uuid4()),
+            status="active",
+            setup_state="pending",
+            is_default=True,
+            default_slot=None,
         ),
     )
-    db.session.commit()
-    db.session.execute(sa.text("PRAGMA ignore_check_constraints = OFF"))
-    db.session.commit()
 
     with pytest.raises(DefaultWarehouseConflictError):
-        _backfill(DefaultWarehouseProfile())
+        _select_default_warehouse(
+            warehouses,
+            expected_uuid=expected_uuid,
+            profile=DefaultWarehouseProfile(),
+        )
 
 
 def test_lock_order_is_identity_then_warehouses_then_devices(application):

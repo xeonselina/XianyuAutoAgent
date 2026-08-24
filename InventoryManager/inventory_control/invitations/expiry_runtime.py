@@ -9,7 +9,7 @@ from typing import Callable
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from inventory_control.database import ControlDatabase, read_database_utc_value
+from inventory_control.database import ControlDatabase, read_database_utc_datetime
 from inventory_control.jobs import DurableJobCapability, JobProcessTrigger
 from inventory_control.models.invitations import TenantInvitation
 
@@ -55,7 +55,7 @@ class InvitationExpirySweep:
             raise TypeError("database_clock must be callable")
         self._database = database
         self._invitations = invitations
-        self._database_clock = database_clock or _read_database_utc_now
+        self._database_clock = database_clock or read_database_utc_datetime
 
     def run_once(self, *, max_candidates: int) -> InvitationExpirySweepResult:
         _validate_max_candidates(max_candidates)
@@ -110,9 +110,7 @@ def build_invitation_expiry_capability(
 ) -> DurableJobCapability:
     """Register bounded invitation cleanup in the shared job process."""
 
-    if not isinstance(scan_interval, timedelta) or scan_interval < timedelta(
-        seconds=1
-    ):
+    if not isinstance(scan_interval, timedelta) or scan_interval < timedelta(seconds=1):
         raise ValueError("scan_interval must be at least one second")
     _validate_max_candidates(max_candidates)
     sweep = InvitationExpirySweep(
@@ -126,24 +124,14 @@ def build_invitation_expiry_capability(
             JobProcessTrigger(
                 name="invitation-expiry-sweep",
                 interval=scan_interval,
-                callback=lambda _now: sweep.run_once(
-                    max_candidates=max_candidates
-                ),
+                callback=lambda _now: sweep.run_once(max_candidates=max_candidates),
             ),
         ),
     )
 
 
-def _read_database_utc_now(session: Session) -> datetime:
-    return _as_utc(read_database_utc_value(session))
-
-
 def _validate_max_candidates(value: int) -> None:
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, int)
-        or not 1 <= value <= 1000
-    ):
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 1000:
         raise ValueError("max_candidates must be between 1 and 1000")
 
 

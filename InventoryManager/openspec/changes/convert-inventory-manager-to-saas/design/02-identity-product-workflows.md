@@ -278,4 +278,13 @@ SaaS Core 删除以下完整功能链路，而不只是隐藏前端按钮：
 - 在外单元可以为预计真实回仓后的不重叠未来订单建立 link，但不能计入当前可用量。普通 rental 明确进入 `shipped` 时，事务必须复验其每个 link 的单元 `current_holder_rental_id IS NULL` 且可用，随后把 holder 更新为该 rental 并写 `dispatched`；如果仍由其他 rental 持有则阻断发货。唯一例外是同一主设备已 `agreed` 的接力，由 relay case `shipped` 执行前述 holder 转移，打印面单或只创建顺丰运单都不能改变 holder。
 - 普通订单存在未满足附件需求时禁止顺丰下单、批量发货和两联打印；候选待确认和接力线下补寄例外只不阻断 rental 保存或 relay case 状态，本身不伪造“已备足”。补充库存、取消需求、重新关联或登记真实补寄后，界面根据事实自动消除不足提示。
 - 验货清单取“当前 rental 的 request”与“当前 rental 的逻辑单元 link/持有事实”并集，因此本单未勾选但随设备带来的附件也必须验收。操作者只看附件类型和数量，不看内部单元 UUID。确认实收时清空 `current_holder_rental_id`，把单元自动归入实际验货仓，并追加幂等 `inspected/warehouse_moved` 事件；正常件恢复可用，损坏件进入验货仓 maintenance。未收到时不转仓、不清空 holder，进入 lost/异常核对且不得恢复可用；多出或无法对应时只记盘点差异，等待 Admin 显式调整。事务同时锁定未来 link，保留仍可达的同设备 agreed 接力链，其余 request 按各自主设备当前仓重新关联或转为不足并列出受影响订单，不自动修改任何 rental 物流字段。
+
+### 7.8 Multiple Xianyu shops per tenant
+
+- 一个租户可以维护多个 `provider=xianyu` connection；每个 connection 同时代表一个闲管家账号及其对应的一个闲鱼店铺。沿用通用 tenant integration 创建、D48 凭证提交、immutable revision、验证和停用流程，不新增 Xianyu 专用账号 aggregate，也不设置套餐数量上限。
+- 告警列表把全部 active 店铺的本地摘要聚合在一个页面，逐条显示店铺标签并允许筛选。店铺标签只供展示；告警、忽略、建单和后续 provider 动作均以 immutable integration UUID 为权威。忽略一条告警只能作用于该店铺的该订单，不能以裸 `order_no` 影响其他店铺。
+- 从告警创建 rental 时自动复制其 `integration_uuid`；手工输入/查询闲鱼订单时，只有一个 active 店铺可自动选择，有多个 active 店铺必须先选择。订单的租户内 provider identity 是 `(xianyu_integration_uuid, xianyu_order_no)`，不能因两个店铺出现相同文本订单号而合并、覆盖或选用第一条。
+- 默认租户迁移或其他 legacy 来源无法可靠证明店铺时，rental 的 `xianyu_integration_uuid` 保持 NULL，旧订单号仍可本地查询展示。Admin/Operator 必须在首次订单详情查询、闲鱼发货或其他外部动作前显式选择正确店铺；系统不得从当前唯一连接、后来提交的凭证、告警相似值或旧全局配置自动回填。选择/更正写入租户审计；一旦已有 Xianyu provider intent/execution，店铺归属不可原地改写。
+- 新的订单详情查询或发货先按 rental 保存的 connection current-read 复核同租户、active 状态和 current verified revision，再把 integration UUID、exact credential revision UUID、actor/access/request provenance 和稳定幂等身份固化进 durable job/execution；HTTP 请求不得直接调用闲鱼。凭证轮换不改变店铺归属，已提交动作不跟随 current pointer；connection 停用后历史仍显示原店铺，但新的 provider 动作 fail closed，也不能回退其他 active 店铺。
+- scheduled 与手动刷新继续按 D18 使用一个租户级任务覆盖当时全部 active 店铺；用户不逐店铺触发 provider refresh。每个 connection 独立保存游标、成功/失败和上次成功告警，单店失败不清空其他店铺或把聚合状态伪装成全成功。
 - 现有手机支架/三脚架设备和未完成 child rentals 的迁移规则见 Phase 2：每份旧库存生成一个逻辑单元，未完成 child rental 转换成 request 并尽可能关联可核对单元，不再生成数量 allocation 或 custody chain/leg。

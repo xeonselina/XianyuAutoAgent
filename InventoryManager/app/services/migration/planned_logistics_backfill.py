@@ -6,12 +6,12 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import Final
 
 import sqlalchemy as sa
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from app.models.database_identity import TenantDatabaseIdentity
 from app.models.rental import Rental
@@ -21,10 +21,11 @@ from app.services.scheduling.overlap_policy import (
     ScheduleValidationError,
 )
 from inventory_control.default_migration import DefaultTenantMigrationManifest
+from inventory_control.transactions import require_caller_transaction
 
-
-PLANNED_LOGISTICS_BACKFILL_POLICY_REVISION: Final = 1
+PLANNED_LOGISTICS_BACKFILL_POLICY_REVISION: Final = 2
 _SAFE_KEY: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/+-]{0,127}")
+_RENTAL_STATUSES: Final = frozenset(ACTIVE_RENTAL_STATUSES | {"completed", "cancelled"})
 
 
 class PlannedLogisticsBackfillError(RuntimeError):
@@ -54,6 +55,56 @@ class PlannedLogisticsBackfillPersistenceError(PlannedLogisticsBackfillError):
     code = "PLANNED_LOGISTICS_BACKFILL_PERSISTENCE_FAILED"
 
 
+def legacy_logistics_source_digest(
+    *,
+    ship_out_time: datetime | None,
+    ship_in_time: datetime | None,
+    scheduled_ship_time: datetime | None,
+) -> bytes:
+    values = {
+        "scheduled_ship_time": scheduled_ship_time,
+        "ship_in_time": ship_in_time,
+        "ship_out_time": ship_out_time,
+    }
+    if any(
+        value is not None and not isinstance(value, datetime)
+        for value in values.values()
+    ):
+        raise PlannedLogisticsBackfillInputError()
+    return hashlib.sha256(
+        json.dumps(
+            {
+                key: None if value is None else value.isoformat(timespec="microseconds")
+                for key, value in values.items()
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("ascii")
+    ).digest()
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PlannedLogisticsChildSourceFact:
+    rental_id: int
+    expected_device_id: int
+    expected_start_date: date
+    expected_end_date: date
+    expected_status: str
+
+    def __post_init__(self) -> None:
+        for value in (self.rental_id, self.expected_device_id):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise PlannedLogisticsBackfillInputError()
+        if (
+            not isinstance(self.expected_start_date, date)
+            or not isinstance(self.expected_end_date, date)
+            or self.expected_start_date > self.expected_end_date
+            or self.expected_status not in _RENTAL_STATUSES
+        ):
+            raise PlannedLogisticsBackfillInputError()
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class PlannedLogisticsBackfillEntry:
     rental_id: int
@@ -63,6 +114,9 @@ class PlannedLogisticsBackfillEntry:
     expected_status: str
     logistics_days: int
     expected_child_rental_ids: tuple[int, ...] = ()
+    child_fact_authority: str = "strict_match"
+    expected_child_source_facts: tuple[PlannedLogisticsChildSourceFact, ...] = ()
+    expected_legacy_logistics_digest: bytes | None = None
 
     def __post_init__(self) -> None:
         for value in (self.rental_id, self.expected_device_id):
@@ -84,6 +138,29 @@ class PlannedLogisticsBackfillEntry:
             or self.expected_child_rental_ids
             != tuple(sorted(set(self.expected_child_rental_ids)))
             or self.rental_id in self.expected_child_rental_ids
+            or self.child_fact_authority not in {"strict_match", "main_rental"}
+            or not isinstance(self.expected_child_source_facts, tuple)
+            or not all(
+                isinstance(item, PlannedLogisticsChildSourceFact)
+                for item in self.expected_child_source_facts
+            )
+            or (
+                self.expected_legacy_logistics_digest is not None
+                and (
+                    not isinstance(self.expected_legacy_logistics_digest, bytes)
+                    or len(self.expected_legacy_logistics_digest) != 32
+                )
+            )
+        ):
+            raise PlannedLogisticsBackfillInputError()
+        source_ids = tuple(item.rental_id for item in self.expected_child_source_facts)
+        if (
+            source_ids != tuple(sorted(set(source_ids)))
+            or (self.child_fact_authority == "strict_match" and source_ids)
+            or (
+                self.child_fact_authority == "main_rental"
+                and source_ids != self.expected_child_rental_ids
+            )
         ):
             raise PlannedLogisticsBackfillInputError()
 
@@ -101,13 +178,11 @@ class PlannedLogisticsBackfillPlan:
             or len(self.parent_manifest_digest) != 32
             or not isinstance(self.migration_idempotency_key, str)
             or _SAFE_KEY.fullmatch(self.migration_idempotency_key) is None
-            or self.policy_revision
-            != PLANNED_LOGISTICS_BACKFILL_POLICY_REVISION
+            or self.policy_revision != PLANNED_LOGISTICS_BACKFILL_POLICY_REVISION
             or not isinstance(self.entries, tuple)
             or not self.entries
             or not all(
-                isinstance(item, PlannedLogisticsBackfillEntry)
-                for item in self.entries
+                isinstance(item, PlannedLogisticsBackfillEntry) for item in self.entries
             )
         ):
             raise PlannedLogisticsBackfillInputError()
@@ -115,9 +190,7 @@ class PlannedLogisticsBackfillPlan:
         if rental_ids != tuple(sorted(set(rental_ids))):
             raise PlannedLogisticsBackfillInputError()
         child_ids = tuple(
-            child
-            for entry in self.entries
-            for child in entry.expected_child_rental_ids
+            child for entry in self.entries for child in entry.expected_child_rental_ids
         )
         if len(child_ids) != len(set(child_ids)) or set(rental_ids) & set(child_ids):
             raise PlannedLogisticsBackfillInputError()
@@ -134,11 +207,29 @@ class PlannedLogisticsBackfillPlan:
                         "expected_child_rental_ids": list(
                             item.expected_child_rental_ids
                         ),
+                        "child_fact_authority": item.child_fact_authority,
+                        "expected_child_source_facts": [
+                            {
+                                "expected_device_id": child.expected_device_id,
+                                "expected_end_date": (
+                                    child.expected_end_date.isoformat()
+                                ),
+                                "expected_start_date": (
+                                    child.expected_start_date.isoformat()
+                                ),
+                                "expected_status": child.expected_status,
+                                "rental_id": child.rental_id,
+                            }
+                            for child in item.expected_child_source_facts
+                        ],
                         "expected_device_id": item.expected_device_id,
-                        "expected_end_date": item.expected_end_date.isoformat(),
-                        "expected_start_date": (
-                            item.expected_start_date.isoformat()
+                        "expected_legacy_logistics_digest": (
+                            None
+                            if item.expected_legacy_logistics_digest is None
+                            else item.expected_legacy_logistics_digest.hex()
                         ),
+                        "expected_end_date": item.expected_end_date.isoformat(),
+                        "expected_start_date": (item.expected_start_date.isoformat()),
                         "expected_status": item.expected_status,
                         "logistics_days": item.logistics_days,
                         "rental_id": item.rental_id,
@@ -182,12 +273,14 @@ class PlannedLogisticsBackfillService:
             not isinstance(manifest, DefaultTenantMigrationManifest)
             or not isinstance(plan, PlannedLogisticsBackfillPlan)
             or plan.parent_manifest_digest != manifest.digest
-            or plan.migration_idempotency_key
-            != manifest.migration_idempotency_key
+            or plan.migration_idempotency_key != manifest.migration_idempotency_key
         ):
             raise PlannedLogisticsBackfillInputError()
         generation = _positive(expected_schema_generation)
-        _require_explicit_transaction(session)
+        require_caller_transaction(
+            session,
+            PlannedLogisticsBackfillTransactionError,
+        )
         try:
             identities = tuple(
                 session.scalars(
@@ -210,10 +303,7 @@ class PlannedLogisticsBackfillService:
 
             expected_ids = tuple(
                 sorted(
-                    {
-                        entry.rental_id
-                        for entry in plan.entries
-                    }
+                    {entry.rental_id for entry in plan.entries}
                     | {
                         child
                         for entry in plan.entries
@@ -267,6 +357,15 @@ class PlannedLogisticsBackfillService:
                     or main.status != entry.expected_status
                     or children_by_parent[entry.rental_id]
                     != entry.expected_child_rental_ids
+                    or (
+                        entry.expected_legacy_logistics_digest is not None
+                        and legacy_logistics_source_digest(
+                            ship_out_time=main.ship_out_time,
+                            ship_in_time=main.ship_in_time,
+                            scheduled_ship_time=main.scheduled_ship_time,
+                        )
+                        != entry.expected_legacy_logistics_digest
+                    )
                 ):
                     raise PlannedLogisticsBackfillConflictError()
                 try:
@@ -281,14 +380,30 @@ class PlannedLogisticsBackfillService:
                 group = (main,) + tuple(
                     by_id[item] for item in entry.expected_child_rental_ids
                 )
+                child_source_by_id = {
+                    item.rental_id: item for item in entry.expected_child_source_facts
+                }
                 for rental in group:
-                    if rental is not main and (
-                        rental.parent_rental_id != main.id
-                        or rental.start_date != main.start_date
-                        or rental.end_date != main.end_date
-                        or rental.status != main.status
-                    ):
-                        raise PlannedLogisticsBackfillConflictError()
+                    if rental is not main:
+                        if rental.parent_rental_id != main.id:
+                            raise PlannedLogisticsBackfillConflictError()
+                        if entry.child_fact_authority == "strict_match":
+                            if (
+                                rental.start_date != main.start_date
+                                or rental.end_date != main.end_date
+                                or rental.status != main.status
+                            ):
+                                raise PlannedLogisticsBackfillConflictError()
+                        else:
+                            expected_source = child_source_by_id[rental.id]
+                            if (
+                                rental.device_id != expected_source.expected_device_id
+                                or rental.start_date
+                                != expected_source.expected_start_date
+                                or rental.end_date != expected_source.expected_end_date
+                                or rental.status != expected_source.expected_status
+                            ):
+                                raise PlannedLogisticsBackfillConflictError()
                     expected = (
                         entry.logistics_days,
                         window.planned_ship_out_date,
@@ -340,17 +455,6 @@ class PlannedLogisticsBackfillService:
         )
 
 
-def _require_explicit_transaction(session: Session) -> None:
-    if not isinstance(session, Session):
-        raise PlannedLogisticsBackfillTransactionError()
-    transaction = session.get_transaction()
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-    ):
-        raise PlannedLogisticsBackfillTransactionError()
-
-
 def _positive(value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise PlannedLogisticsBackfillInputError()
@@ -358,6 +462,7 @@ def _positive(value: object) -> int:
 
 
 __all__ = [
+    "PlannedLogisticsChildSourceFact",
     "PLANNED_LOGISTICS_BACKFILL_POLICY_REVISION",
     "PlannedLogisticsBackfillConflictError",
     "PlannedLogisticsBackfillEntry",
@@ -369,4 +474,5 @@ __all__ = [
     "PlannedLogisticsBackfillResult",
     "PlannedLogisticsBackfillService",
     "PlannedLogisticsBackfillTransactionError",
+    "legacy_logistics_source_digest",
 ]

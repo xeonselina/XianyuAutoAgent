@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from inventory_control import (
-    ControlBase,
     DisasterRecoveryRun,
     Tenant,
     TenantDatabase,
@@ -21,25 +20,13 @@ from inventory_control.jobs import (
 from inventory_control.models.jobs import BackgroundJob
 from inventory_control.models.subscriptions import PlanRevision, Subscription
 from inventory_control.recovery import RecoveryAuthorityService
-from tests.support.test_database import (
-    clear_guarded_mysql_test_rows,
-    guarded_mysql_control_database,
-)
-
 
 NOW = datetime(2026, 8, 22, 0, 0, tzinfo=timezone.utc)
 
 
-@pytest.fixture(scope="module")
-def database_schema():
-    with guarded_mysql_control_database(ControlBase.metadata) as database:
-        yield database
-
-
 @pytest.fixture
-def database(database_schema):
-    clear_guarded_mysql_test_rows(database_schema.engine, ControlBase.metadata)
-    return database_schema
+def database(mysql_control_database):
+    return mysql_control_database
 
 
 def seed(database, *, access_version=1, tenant_status="active", route_status="ready"):
@@ -143,10 +130,28 @@ def test_worker_and_scheduler_share_current_active_authority(database):
 @pytest.mark.parametrize(
     "mutation, expected_reason",
     [
-        (lambda tenant, route, subscription, job: setattr(job, "tenant_access_version", 2), "STALE_TENANT_ACCESS_VERSION"),
-        (lambda tenant, route, subscription, job: setattr(route, "status", "failed"), "tenant_route_not_ready"),
-        (lambda tenant, route, subscription, job: setattr(subscription, "expires_at", NOW), "TENANT_EXPIRED"),
-        (lambda tenant, route, subscription, job: setattr(tenant, "status", "suspended"), "TENANT_SUSPENDED"),
+        (
+            lambda tenant, route, subscription, job: setattr(
+                job, "tenant_access_version", 2
+            ),
+            "STALE_TENANT_ACCESS_VERSION",
+        ),
+        (
+            lambda tenant, route, subscription, job: setattr(route, "status", "failed"),
+            "tenant_route_not_ready",
+        ),
+        (
+            lambda tenant, route, subscription, job: setattr(
+                subscription, "expires_at", NOW
+            ),
+            "TENANT_EXPIRED",
+        ),
+        (
+            lambda tenant, route, subscription, job: setattr(
+                tenant, "status", "suspended"
+            ),
+            "TENANT_SUSPENDED",
+        ),
     ],
 )
 def test_worker_fails_closed_on_stale_or_ineligible_control_facts(
@@ -249,9 +254,7 @@ def test_blocking_deletion_aggregate_denies_drifted_active_projection(database):
                 published_dml_generation=1,
                 latest_dml_generation=1,
                 recovery_dispositions_required=False,
-                reviewed_by_platform_admin_id=(
-                    "31000000-0000-4000-8000-000000000016"
-                ),
+                reviewed_by_platform_admin_id=("31000000-0000-4000-8000-000000000016"),
                 pre_freeze_tenant_status="active",
                 requested_at=NOW,
                 reviewed_at=NOW,
@@ -336,9 +339,7 @@ def test_higher_lifecycle_state_wins_over_expired_subscription_projection(
 ):
     tenant_id, job_id = seed(database, tenant_status=tenant_status)
     with database.transaction() as session:
-        subscription = session.query(Subscription).filter_by(
-            tenant_id=tenant_id
-        ).one()
+        subscription = session.query(Subscription).filter_by(tenant_id=tenant_id).one()
         subscription.status = "expired"
         subscription.expires_at = NOW
 
@@ -374,21 +375,21 @@ def test_worker_can_use_the_persisted_current_recovery_hold_probe(database):
         tenant = session.get(Tenant, tenant_id)
         route = session.get(TenantDatabase, tenant_id)
         run = DisasterRecoveryRun(
-                kind="initial_baseline",
-                policy_version=1,
-                status="completed",
-                expected_survivor_count=1,
-                actual_survivor_count=1,
-                sealed_coverage_digest=b"s" * 32,
-                final_coverage_digest=b"f" * 32,
-                host_installation_fingerprint="a" * 64,
-                deployment_marker_fingerprint="b" * 64,
-                started_at=NOW,
-                reviewing_at=NOW,
-                completed_at=NOW,
-                created_at=NOW,
-                updated_at=NOW,
-            )
+            kind="initial_baseline",
+            policy_version=1,
+            status="completed",
+            expected_survivor_count=1,
+            actual_survivor_count=1,
+            sealed_coverage_digest=b"s" * 32,
+            final_coverage_digest=b"f" * 32,
+            host_installation_fingerprint="a" * 64,
+            deployment_marker_fingerprint="b" * 64,
+            started_at=NOW,
+            reviewing_at=NOW,
+            completed_at=NOW,
+            created_at=NOW,
+            updated_at=NOW,
+        )
         session.add(run)
         session.flush()
         session.add(
@@ -423,9 +424,7 @@ def test_worker_can_use_the_persisted_current_recovery_hold_probe(database):
             phase="after_claim",
             now=NOW,
         )
-        hold = session.query(TenantRecoveryHold).filter_by(
-            tenant_id=tenant_id
-        ).one()
+        hold = session.query(TenantRecoveryHold).filter_by(tenant_id=tenant_id).one()
         hold.state = "held"
     with database.transaction() as session:
         denied = DurableWorkerAuthority(gate).evaluate(

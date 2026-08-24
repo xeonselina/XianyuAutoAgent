@@ -20,7 +20,7 @@ from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.models.foundation import (
     DatabaseIdentityControlRecord,
@@ -30,6 +30,7 @@ from inventory_control.models.foundation import (
 from inventory_control.models.identity import TenantMembership, User
 from inventory_control.models.invitations import TenantInvitation
 from inventory_control.models.redemption import RedemptionCode
+from inventory_control.transactions import require_caller_transaction
 from inventory_control.models.registration import (
     RedemptionCodeReplacement,
     RegistrationIntegrityIncident,
@@ -124,8 +125,7 @@ class RegistrationAuthorityFacts:
         if self.released_hold_revision is not None:
             _positive(self.released_hold_revision, "released_hold_revision")
         if self.released_hold_ready and (
-            self.released_hold_uuid is None
-            or self.released_hold_revision is None
+            self.released_hold_uuid is None or self.released_hold_revision is None
         ):
             raise ValueError("released hold readiness requires its anchors")
         for value, name in (
@@ -147,7 +147,8 @@ class RegistrationAuthorityCurrentRead(Protocol):
         tenant_uuid: UUID,
         expected_recovery_run_uuid: UUID,
         database_now: datetime,
-    ) -> RegistrationAuthorityFacts: ...
+    ) -> RegistrationAuthorityFacts:
+        ...
 
 
 class RegistrationReleasedHoldBaselineWrite(Protocol):
@@ -163,13 +164,15 @@ class RegistrationReleasedHoldBaselineWrite(Protocol):
         expected_recovery_run_uuid: UUID,
         expected_dml_login_state_version: int,
         database_now: datetime,
-    ) -> RegistrationAuthorityFacts: ...
+    ) -> RegistrationAuthorityFacts:
+        ...
 
 
 class RegistrationFinalFenceCurrentRead(Protocol):
     """Revalidate the publication fence inside this exact control transaction."""
 
-    def __call__(self, *, control_transaction: Session) -> None: ...
+    def __call__(self, *, control_transaction: Session) -> None:
+        ...
 
 
 DatabaseClock = Callable[[Session], datetime]
@@ -277,7 +280,8 @@ class RegistrationProvisioningCurrentRead(Protocol):
         worker_lease_token: str,
         schema_operation_fence: RegistrationSchemaOperationFence,
         database_now: datetime,
-    ) -> ProvisionedRegistrationFacts: ...
+    ) -> ProvisionedRegistrationFacts:
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -382,9 +386,7 @@ class RegistrationPersistenceService:
         released_hold_baseline_write: (
             RegistrationReleasedHoldBaselineWrite | None
         ) = None,
-        provisioning_current_read: (
-            RegistrationProvisioningCurrentRead | None
-        ) = None,
+        provisioning_current_read: RegistrationProvisioningCurrentRead | None = None,
         database_clock: DatabaseClock | None = None,
     ) -> None:
         if not callable(authority_current_read):
@@ -423,12 +425,8 @@ class RegistrationPersistenceService:
         challenge_id = str(_uuid(challenge_uuid, "challenge_uuid"))
         user_id = str(_uuid(user_uuid, "user_uuid"))
         attempt_id = str(_uuid(attempt_uuid, "attempt_uuid"))
-        tenant_id = str(
-            _uuid(provisional_tenant_uuid, "provisional_tenant_uuid")
-        )
-        database_id = str(
-            _uuid(provisional_database_uuid, "provisional_database_uuid")
-        )
+        tenant_id = str(_uuid(provisional_tenant_uuid, "provisional_tenant_uuid"))
+        database_id = str(_uuid(provisional_database_uuid, "provisional_database_uuid"))
         run_uuid = _uuid(
             current_recovery_run_uuid,
             "current_recovery_run_uuid",
@@ -562,12 +560,9 @@ class RegistrationPersistenceService:
                         RedemptionCode.id == code.id,
                         RedemptionCode.status == "active",
                         RedemptionCode.row_version == code_revision,
-                        RedemptionCode.created_under_recovery_run_uuid
-                        == str(run_uuid),
+                        RedemptionCode.created_under_recovery_run_uuid == str(run_uuid),
                         RedemptionCode.reserved_user_uuid.is_(None),
-                        RedemptionCode.reserved_registration_attempt_uuid.is_(
-                            None
-                        ),
+                        RedemptionCode.reserved_registration_attempt_uuid.is_(None),
                     )
                     .values(
                         status="reserved",
@@ -733,8 +728,7 @@ class RegistrationPersistenceService:
         conditions = [
             TenantRegistrationAttempt.id == attempt.id,
             TenantRegistrationAttempt.row_version == attempt_revision,
-            TenantRegistrationAttempt.provisioning_execution_generation
-            == generation,
+            TenantRegistrationAttempt.provisioning_execution_generation == generation,
             TenantRegistrationAttempt.status == attempt.status,
         ]
         for column, previous in (
@@ -969,31 +963,21 @@ class RegistrationPersistenceService:
             provisioning_execution_generation=generation,
             expected_attempt_row_version=attempt_revision,
             worker_lease_owner=provisioned.lease_owner,
-            worker_lease_token_digest=_worker_token_digest(
-                provisioned.lease_token
-            ),
-            worker_lease_expires_at=_as_database_utc(
-                attempt.lease_expires_at
-            ),
+            worker_lease_token_digest=_worker_token_digest(provisioned.lease_token),
+            worker_lease_expires_at=_as_database_utc(attempt.lease_expires_at),
             outcome="ready",
             safe_error_code=None,
             result_request_digest=request_digest,
-            schema_operation_claim_uuid=str(
-                schema_operation_fence.claim_uuid
-            ),
+            schema_operation_claim_uuid=str(schema_operation_fence.claim_uuid),
             schema_operation_owner_id=schema_operation_fence.owner_id,
             schema_operation_generation=schema_operation_fence.generation,
-            schema_operation_fencing_token=(
-                schema_operation_fence.fencing_token
-            ),
+            schema_operation_fencing_token=(schema_operation_fence.fencing_token),
             schema_operation_row_version=schema_operation_fence.row_version,
             schema_generation=observed.schema_generation,
             schema_digest=observed.schema_digest,
             database_identity_digest=observed.database_identity_digest,
             route_version=observed.route_version,
-            initial_credential_generation=(
-                observed.initial_credential_generation
-            ),
+            initial_credential_generation=(observed.initial_credential_generation),
             dml_login_state_version=observed.dml_login_state_version,
             default_warehouse_uuid=str(observed.default_warehouse_uuid),
             default_warehouse_digest=observed.default_warehouse_digest,
@@ -1010,8 +994,7 @@ class RegistrationPersistenceService:
                     .where(
                         TenantRegistrationAttempt.id == attempt.id,
                         TenantRegistrationAttempt.status == "provisioning",
-                        TenantRegistrationAttempt.row_version
-                        == attempt_revision,
+                        TenantRegistrationAttempt.row_version == attempt_revision,
                         TenantRegistrationAttempt.provisioning_execution_generation
                         == generation,
                         TenantRegistrationAttempt.lease_owner
@@ -1194,9 +1177,7 @@ class RegistrationPersistenceService:
             expected_attempt_row_version=attempt_revision,
             worker_lease_owner=owner,
             worker_lease_token_digest=_worker_token_digest(token),
-            worker_lease_expires_at=_as_database_utc(
-                attempt.lease_expires_at
-            ),
+            worker_lease_expires_at=_as_database_utc(attempt.lease_expires_at),
             outcome="failed",
             safe_error_code=reason,
             result_request_digest=request_digest,
@@ -1211,8 +1192,7 @@ class RegistrationPersistenceService:
                     .where(
                         TenantRegistrationAttempt.id == attempt.id,
                         TenantRegistrationAttempt.status == "provisioning",
-                        TenantRegistrationAttempt.row_version
-                        == attempt_revision,
+                        TenantRegistrationAttempt.row_version == attempt_revision,
                         TenantRegistrationAttempt.provisioning_execution_generation
                         == generation,
                         TenantRegistrationAttempt.lease_owner == owner,
@@ -1360,8 +1340,7 @@ class RegistrationPersistenceService:
 
         self._require_user_available(user, blocking_memberships)
         if (
-            attempt.status
-            not in {"failed", "identity_conflict", "security_blocked"}
+            attempt.status not in {"failed", "identity_conflict", "security_blocked"}
             or attempt.row_version != attempt_revision
             or attempt.provisioning_execution_generation != generation
             or attempt.lease_owner is not None
@@ -1560,9 +1539,7 @@ class RegistrationPersistenceService:
             lock=True,
             replacements=replacements,
             incidents=incidents,
-            require_persisted_baseline=(
-                self._released_hold_baseline_write is not None
-            ),
+            require_persisted_baseline=(self._released_hold_baseline_write is not None),
         )
         if anchors.complete:
             return anchors.result(created=False)
@@ -1639,9 +1616,7 @@ class RegistrationPersistenceService:
             tenant_uuid=UUID(tenant.id),
             expected_run_uuid=run_uuid,
             database_now=authority_observed_at,
-            require_released_hold=(
-                self._released_hold_baseline_write is None
-            ),
+            require_released_hold=(self._released_hold_baseline_write is None),
             allow_historical_replay=True,
         )
         route, identity = self._lock_route_and_identity(
@@ -1740,9 +1715,7 @@ class RegistrationPersistenceService:
         self._require_authority_facts(
             authority,
             expected_run_uuid=run_uuid,
-            require_released_hold=(
-                self._released_hold_baseline_write is None
-            ),
+            require_released_hold=(self._released_hold_baseline_write is None),
         )
         try:
             fence_result = fence_current_read(control_transaction=session)
@@ -1829,9 +1802,7 @@ class RegistrationPersistenceService:
                 database_uuid=provisioned.database_uuid,
                 registration_commit_uuid=plan.registration_commit_uuid,
                 expected_run_uuid=run_uuid,
-                expected_dml_login_state_version=(
-                    provisioned.dml_login_state_version
-                ),
+                expected_dml_login_state_version=(provisioned.dml_login_state_version),
                 database_now=now,
             )
             # The baseline writer may itself acquire recovery authority rows.
@@ -1874,8 +1845,7 @@ class RegistrationPersistenceService:
                         .where(
                             TenantRegistrationAttempt.id == attempt.id,
                             TenantRegistrationAttempt.status == "ready",
-                            TenantRegistrationAttempt.row_version
-                            == attempt_revision,
+                            TenantRegistrationAttempt.row_version == attempt_revision,
                             TenantRegistrationAttempt.provisioning_execution_generation
                             == provisioned.provisioning_generation,
                             TenantRegistrationAttempt.lease_owner
@@ -1981,13 +1951,9 @@ class RegistrationPersistenceService:
                     ),
                     published_slug_digest=_sha256_text(plan.published_slug),
                     schema_generation=provisioned.schema_generation,
-                    database_identity_digest=(
-                        provisioned.database_identity_digest
-                    ),
+                    database_identity_digest=(provisioned.database_identity_digest),
                     released_hold_uuid=str(authority.released_hold_uuid),
-                    released_hold_revision_at_commit=(
-                        authority.released_hold_revision
-                    ),
+                    released_hold_revision_at_commit=(authority.released_hold_revision),
                     initial_route_version=provisioned.route_version,
                     initial_credential_generation=(
                         provisioned.initial_credential_generation
@@ -2036,18 +2002,14 @@ class RegistrationPersistenceService:
                         RedemptionCode.status == "reserved",
                         RedemptionCode.row_version == code_revision,
                         RedemptionCode.reserved_user_uuid == user.id,
-                        RedemptionCode.reserved_registration_attempt_uuid
-                        == attempt.id,
-                        RedemptionCode.created_under_recovery_run_uuid
-                        == str(run_uuid),
+                        RedemptionCode.reserved_registration_attempt_uuid == attempt.id,
+                        RedemptionCode.created_under_recovery_run_uuid == str(run_uuid),
                     )
                     .values(
                         status="redeemed",
                         redeemed_tenant_uuid=tenant.id,
                         redeemed_registration_attempt_uuid=attempt.id,
-                        registration_commit_uuid=str(
-                            plan.registration_commit_uuid
-                        ),
+                        registration_commit_uuid=str(plan.registration_commit_uuid),
                         redeemed_at=now,
                         row_version=code_revision + 1,
                         updated_at=now,
@@ -2062,8 +2024,7 @@ class RegistrationPersistenceService:
                     .where(
                         TenantRegistrationAttempt.id == attempt.id,
                         TenantRegistrationAttempt.status == "committing",
-                        TenantRegistrationAttempt.row_version
-                        == committing_revision,
+                        TenantRegistrationAttempt.row_version == committing_revision,
                         TenantRegistrationAttempt.provisioning_execution_generation
                         == provisioned.provisioning_generation,
                         TenantRegistrationAttempt.lease_owner
@@ -2073,9 +2034,7 @@ class RegistrationPersistenceService:
                     )
                     .values(
                         status="active",
-                        registration_commit_uuid=str(
-                            plan.registration_commit_uuid
-                        ),
+                        registration_commit_uuid=str(plan.registration_commit_uuid),
                         lease_owner=None,
                         lease_token=None,
                         lease_expires_at=None,
@@ -2160,16 +2119,7 @@ class RegistrationPersistenceService:
         return completed.result(created=True)
 
     def _prepare(self, session: Session) -> None:
-        if not isinstance(session, Session):
-            raise RegistrationTransactionError()
-        transaction = session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            raise RegistrationTransactionError()
-        _require_clean_unit_of_work(session)
-        _materialize_sqlite_outer_transaction(session)
+        _require_clean_caller_transaction(session)
 
     def _now(self, session: Session) -> datetime:
         return _as_database_utc(self._database_clock(session))
@@ -2200,8 +2150,7 @@ class RegistrationPersistenceService:
             session.scalars(
                 sa.select(TenantRegistrationProvisioningProof)
                 .where(
-                    TenantRegistrationProvisioningProof.attempt_uuid
-                    == attempt_uuid,
+                    TenantRegistrationProvisioningProof.attempt_uuid == attempt_uuid,
                     TenantRegistrationProvisioningProof.provisioning_execution_generation
                     == provisioning_generation,
                 )
@@ -2217,10 +2166,7 @@ class RegistrationPersistenceService:
     ) -> RedemptionCodeReplacement | None:
         return session.scalar(
             sa.select(RedemptionCodeReplacement)
-            .where(
-                RedemptionCodeReplacement.source_attempt_uuid
-                == attempt_uuid
-            )
+            .where(RedemptionCodeReplacement.source_attempt_uuid == attempt_uuid)
             .with_for_update()
         )
 
@@ -2247,10 +2193,8 @@ class RegistrationPersistenceService:
                 sa.select(RedemptionCodeReplacement)
                 .where(
                     sa.or_(
-                        RedemptionCodeReplacement.source_attempt_uuid
-                        == attempt_uuid,
-                        RedemptionCodeReplacement.source_code_uuid
-                        == code_uuid,
+                        RedemptionCodeReplacement.source_attempt_uuid == attempt_uuid,
+                        RedemptionCodeReplacement.source_code_uuid == code_uuid,
                     )
                 )
                 .order_by(RedemptionCodeReplacement.id)
@@ -2260,10 +2204,7 @@ class RegistrationPersistenceService:
         incidents = tuple(
             session.scalars(
                 sa.select(RegistrationIntegrityIncident)
-                .where(
-                    RegistrationIntegrityIncident.attempt_uuid
-                    == attempt_uuid
-                )
+                .where(RegistrationIntegrityIncident.attempt_uuid == attempt_uuid)
                 .order_by(RegistrationIntegrityIncident.id)
                 .with_for_update()
             )
@@ -2291,8 +2232,7 @@ class RegistrationPersistenceService:
         lease = session.scalar(
             sa.select(PlatformSchemaOperationLease)
             .where(
-                PlatformSchemaOperationLease.lease_key
-                == _SCHEMA_OPERATION_LEASE_KEY
+                PlatformSchemaOperationLease.lease_key == _SCHEMA_OPERATION_LEASE_KEY
             )
             .with_for_update()
             .execution_options(populate_existing=True)
@@ -2402,7 +2342,7 @@ class RegistrationPersistenceService:
         ):
             raise RegistrationFenceError()
         try:
-            _require_clean_unit_of_work(session)
+            _require_clean_caller_transaction(session)
         except RegistrationTransactionError:
             raise RegistrationFenceError() from None
         return facts
@@ -2438,10 +2378,8 @@ class RegistrationPersistenceService:
             or proof.route_version != expected.route_version
             or proof.initial_credential_generation
             != expected.initial_credential_generation
-            or proof.dml_login_state_version
-            != expected.dml_login_state_version
-            or proof.default_warehouse_uuid
-            != str(expected.default_warehouse_uuid)
+            or proof.dml_login_state_version != expected.dml_login_state_version
+            or proof.default_warehouse_uuid != str(expected.default_warehouse_uuid)
             or proof.default_warehouse_digest is None
             or not hmac.compare_digest(
                 bytes(proof.default_warehouse_digest),
@@ -2615,9 +2553,7 @@ class RegistrationPersistenceService:
                     database_uuid=database_uuid,
                     registration_commit_uuid=registration_commit_uuid,
                     expected_recovery_run_uuid=expected_run_uuid,
-                    expected_dml_login_state_version=(
-                        expected_dml_login_state_version
-                    ),
+                    expected_dml_login_state_version=(expected_dml_login_state_version),
                     database_now=database_now,
                 )
                 if (
@@ -2649,8 +2585,7 @@ class RegistrationPersistenceService:
                     sa.or_(
                         TenantRegistrationAttempt.id == attempt_id,
                         TenantRegistrationAttempt.redemption_code_id == code_id,
-                        TenantRegistrationAttempt.idempotency_key
-                        == idempotency_key,
+                        TenantRegistrationAttempt.idempotency_key == idempotency_key,
                     )
                 )
                 .order_by(TenantRegistrationAttempt.id)
@@ -2724,8 +2659,7 @@ class RegistrationPersistenceService:
             or challenge.tenant_id is not None
             or challenge.actor_session_id is not None
             or challenge.canonical_phone_e164 != user.phone_e164
-            or challenge.phone_normalization_version
-            != user.phone_normalization_version
+            or challenge.phone_normalization_version != user.phone_normalization_version
             or challenge.phone_metadata_version != user.phone_metadata_version
             or challenge.authoritative_revision != expected_revision
             or consumed_at is None
@@ -2837,14 +2771,11 @@ class RegistrationPersistenceService:
             or not _positive_metadata_version(route.dml_derivation_version)
             or route.dml_desired_login_state != "active"
             or route.dml_observed_login_state != "active"
-            or route.dml_login_state_version
-            != provisioned.dml_login_state_version
+            or route.dml_login_state_version != provisioned.dml_login_state_version
             or route.dml_desired_state_recovery_run_id is not None
             or not isinstance(route.platform_read_username, str)
             or not route.platform_read_username.strip()
-            or not _positive_metadata_version(
-                route.platform_read_credential_generation
-            )
+            or not _positive_metadata_version(route.platform_read_credential_generation)
             or not _positive_metadata_version(route.platform_read_root_key_version)
             or not _positive_metadata_version(route.platform_read_derivation_version)
             or route.platform_read_route_version != provisioned.route_version
@@ -2853,10 +2784,8 @@ class RegistrationPersistenceService:
             or not route.schema_version.strip()
             or identity.tenant_id != tenant.id
             or identity.database_uuid != route.database_uuid
-            or identity.expected_schema_generation
-            != provisioned.schema_generation
-            or identity.observed_schema_generation
-            != provisioned.schema_generation
+            or identity.expected_schema_generation != provisioned.schema_generation
+            or identity.observed_schema_generation != provisioned.schema_generation
             or tenant.status != "provisioning"
             or tenant.name is not None
             or tenant.slug is not None
@@ -2924,9 +2853,7 @@ class RegistrationPersistenceService:
             lock=True,
             replacements=replacements,
             incidents=incidents,
-            require_persisted_baseline=(
-                self._released_hold_baseline_write is not None
-            ),
+            require_persisted_baseline=(self._released_hold_baseline_write is not None),
         )
 
     def _lock_final_anchors_by_attempt(
@@ -2977,9 +2904,7 @@ class RegistrationPersistenceService:
             lock=True,
             replacements=replacements,
             incidents=incidents,
-            require_persisted_baseline=(
-                self._released_hold_baseline_write is not None
-            ),
+            require_persisted_baseline=(self._released_hold_baseline_write is not None),
         )
 
     def _integrity_block(
@@ -3012,24 +2937,16 @@ class RegistrationPersistenceService:
                 provisional_tenant_uuid=attempt.provisional_tenant_uuid,
                 provisional_database_uuid=attempt.provisional_database_uuid,
                 detected_attempt_status=attempt.status,
-                detected_replacement_uuid=(
-                    attempt.superseded_by_replacement_uuid
-                ),
-                provisioning_generation=(
-                    attempt.provisioning_execution_generation
-                ),
+                detected_replacement_uuid=(attempt.superseded_by_replacement_uuid),
+                provisioning_generation=(attempt.provisioning_execution_generation),
                 presence_bitmap=anchors.presence_bitmap,
                 presence_digest=anchors.presence_digest,
-                current_recovery_run_uuid=str(
-                    authority.current_recovery_run_uuid
-                ),
+                current_recovery_run_uuid=str(authority.current_recovery_run_uuid),
                 marker_generation=authority.marker_generation,
                 state="open",
                 resolution_source=None,
                 evidence_policy_version=REGISTRATION_INTEGRITY_POLICY_VERSION,
-                safe_evidence_reference=(
-                    f"registration-finalization/v1:{attempt.id}"
-                ),
+                safe_evidence_reference=(f"registration-finalization/v1:{attempt.id}"),
                 decision_digest=None,
                 platform_audit_uuid=None,
                 row_version=1,
@@ -3207,8 +3124,7 @@ def _read_anchor_evidence(
         )
         event_predicate = sa.or_(
             SubscriptionEvent.id == str(plan.subscription_event_uuid),
-            SubscriptionEvent.source_uuid
-            == str(plan.registration_commit_uuid),
+            SubscriptionEvent.source_uuid == str(plan.registration_commit_uuid),
             SubscriptionEvent.idempotency_key == plan.idempotency_key,
             SubscriptionEvent.consumed_code_uuid == code.id,
         )
@@ -3246,28 +3162,30 @@ def _read_anchor_evidence(
     subscription_present = bool(
         session.scalar(sa.select(sa.exists().where(subscription_predicate)))
     )
-    event_present = bool(
-        session.scalar(sa.select(sa.exists().where(event_predicate)))
-    )
+    event_present = bool(session.scalar(sa.select(sa.exists().where(event_predicate))))
 
-    baseline_statement = sa.select(TenantRecoveryHold).where(
-        sa.or_(
-            TenantRecoveryHold.created_from_registration_commit_uuid
-            == str(plan.registration_commit_uuid),
-            sa.and_(
-                TenantRecoveryHold.tenant_id == tenant.id,
-                TenantRecoveryHold.database_uuid == route.database_uuid,
-                TenantRecoveryHold.created_from_registration_commit_uuid.is_not(
-                    None
+    baseline_statement = (
+        sa.select(TenantRecoveryHold)
+        .where(
+            sa.or_(
+                TenantRecoveryHold.created_from_registration_commit_uuid
+                == str(plan.registration_commit_uuid),
+                sa.and_(
+                    TenantRecoveryHold.tenant_id == tenant.id,
+                    TenantRecoveryHold.database_uuid == route.database_uuid,
+                    TenantRecoveryHold.created_from_registration_commit_uuid.is_not(
+                        None
+                    ),
                 ),
-            ),
-            *(
-                (TenantRecoveryHold.id == commit.released_hold_uuid,)
-                if commit is not None
-                else ()
-            ),
+                *(
+                    (TenantRecoveryHold.id == commit.released_hold_uuid,)
+                    if commit is not None
+                    else ()
+                ),
+            )
         )
-    ).order_by(TenantRecoveryHold.id)
+        .order_by(TenantRecoveryHold.id)
+    )
     if lock:
         baseline_statement = baseline_statement.with_for_update()
     baseline_holds = tuple(session.scalars(baseline_statement))
@@ -3276,12 +3194,10 @@ def _read_anchor_evidence(
     flags = {
         "commit": bool(commits),
         "attempt": bool(
-            attempt.status == "active"
-            or attempt.registration_commit_uuid is not None
+            attempt.status == "active" or attempt.registration_commit_uuid is not None
         ),
         "code": bool(
-            code.status == "redeemed"
-            or code.registration_commit_uuid is not None
+            code.status == "redeemed" or code.registration_commit_uuid is not None
         ),
         "tenant_publication": bool(
             tenant.status != "provisioning"
@@ -3302,9 +3218,7 @@ def _read_anchor_evidence(
         "replacement": bool(replacements),
         "integrity_incident": bool(incidents),
     }
-    bitmap = sum(
-        (1 << index) for index, value in enumerate(flags.values()) if value
-    )
+    bitmap = sum((1 << index) for index, value in enumerate(flags.values()) if value)
     presence_digest = _canonical_digest(
         attempt_uuid=attempt.id,
         code_uuid=code.id,
@@ -3316,13 +3230,9 @@ def _read_anchor_evidence(
         membership_uuid=membership.id if membership is not None else None,
         subscription_uuid=subscription.id if subscription is not None else None,
         event_uuid=event.id if event is not None else None,
-        route_activation_commit_uuid=(
-            route.activated_by_registration_commit_uuid
-        ),
+        route_activation_commit_uuid=(route.activated_by_registration_commit_uuid),
         route_activation_version=route.activation_route_version,
-        route_activation_credential_generation=(
-            route.activation_credential_generation
-        ),
+        route_activation_credential_generation=(route.activation_credential_generation),
         baseline_holds=[
             {
                 "id": hold.id,
@@ -3332,9 +3242,7 @@ def _read_anchor_evidence(
             for hold in baseline_holds
         ],
         replacement_ids=[item.id for item in replacements],
-        incident_states=[
-            {"id": item.id, "state": item.state} for item in incidents
-        ],
+        incident_states=[{"id": item.id, "state": item.state} for item in incidents],
     )
     baseline_matches_commit = bool(
         commit is not None
@@ -3419,8 +3327,7 @@ def _read_anchor_evidence(
         )
         and event.exact_duration_seconds == commit.service_duration_seconds
         and code.plan_revision_uuid == commit.plan_revision_uuid
-        and code.entitlements_schema_version
-        == commit.entitlements_schema_version
+        and code.entitlements_schema_version == commit.entitlements_schema_version
         and hmac.compare_digest(
             bytes(code.entitlements_digest),
             bytes(commit.entitlements_digest),
@@ -3449,8 +3356,7 @@ def _read_anchor_evidence(
             _sha256_text(plan.published_slug),
         )
         and event.idempotency_key == plan.idempotency_key
-        and event.canonicalization_version
-        == REGISTRATION_FINALIZATION_VERSION
+        and event.canonicalization_version == REGISTRATION_FINALIZATION_VERSION
         and hmac.compare_digest(
             bytes(event.request_digest),
             _final_request_digest(
@@ -3460,9 +3366,7 @@ def _read_anchor_evidence(
                 provisioned=provisioned,
                 proof=proof,
                 plan=plan,
-                expected_attempt_row_version=(
-                    expected_attempt_row_version
-                ),
+                expected_attempt_row_version=(expected_attempt_row_version),
                 expected_code_row_version=expected_code_row_version,
             ),
         )
@@ -3540,8 +3444,7 @@ def _require_exact_provisional_replay_state(
     if (
         attempt.status not in {"ready", "committing"}
         or attempt.row_version != expected_attempt_row_version
-        or attempt.provisioning_execution_generation
-        != expected_provisioning_generation
+        or attempt.provisioning_execution_generation != expected_provisioning_generation
         or attempt.registration_commit_uuid is not None
         or attempt.superseded_by_replacement_uuid is not None
         or tenant.status != "provisioning"
@@ -3553,8 +3456,7 @@ def _require_exact_provisional_replay_state(
         or route.activation_route_version is not None
         or route.activation_credential_generation is not None
         or route.route_version != proof.route_version
-        or route.dml_credential_generation
-        != proof.initial_credential_generation
+        or route.dml_credential_generation != proof.initial_credential_generation
         or route.dml_login_state_version != proof.dml_login_state_version
         or code.status != "reserved"
         or code.row_version != expected_code_row_version
@@ -3581,10 +3483,13 @@ def _validated_code_snapshot(code: RedemptionCode):
         )
     except InvalidEntitlementSnapshotError:
         raise RegistrationCodeError() from None
-    if not hmac.compare_digest(
-        snapshot.digest_sha256,
-        bytes(code.entitlements_digest),
-    ) or code.service_duration_seconds < 1:
+    if (
+        not hmac.compare_digest(
+            snapshot.digest_sha256,
+            bytes(code.entitlements_digest),
+        )
+        or code.service_duration_seconds < 1
+    ):
         raise RegistrationCodeError()
     return snapshot
 
@@ -4092,12 +3997,12 @@ def _read_database_utc_now(session: Session) -> datetime:
 
 
 def _database_utc_now_statement(dialect_name: str):
-    if dialect_name == "mysql":
-        # MySQL CURRENT_TIMESTAMP follows the connection/session timezone and
-        # defaults to second precision.  Registration fences require one
-        # server UTC clock with microsecond fidelity.
-        return sa.text("SELECT UTC_TIMESTAMP(6)")
-    return sa.select(sa.func.current_timestamp())
+    if dialect_name not in {"mysql", "mariadb"}:
+        raise RegistrationTransactionError()
+    # CURRENT_TIMESTAMP follows the connection/session timezone and defaults
+    # to second precision. Registration fences require one server UTC clock
+    # with microsecond fidelity.
+    return sa.text("SELECT UTC_TIMESTAMP(6)")
 
 
 def _as_database_utc(value: object) -> datetime:
@@ -4183,19 +4088,10 @@ def _sha256_text(value: str) -> bytes:
     return hashlib.sha256(value.encode("utf-8")).digest()
 
 
-def _require_clean_unit_of_work(session: Session) -> None:
-    dirty = any(
-        session.is_modified(instance, include_collections=True)
-        for instance in session.dirty
+def _require_clean_caller_transaction(session: Session) -> None:
+    require_caller_transaction(
+        session,
+        RegistrationTransactionError,
+        invalid_session_error=RegistrationTransactionError,
+        clean=True,
     )
-    if session.new or session.deleted or dirty:
-        raise RegistrationTransactionError()
-
-
-def _materialize_sqlite_outer_transaction(session: Session) -> None:
-    connection = session.connection()
-    if connection.dialect.name != "sqlite":
-        return
-    driver_connection = getattr(connection.connection, "driver_connection", None)
-    if driver_connection is not None and not driver_connection.in_transaction:
-        connection.exec_driver_sql("BEGIN IMMEDIATE")

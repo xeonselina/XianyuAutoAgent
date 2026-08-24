@@ -7,7 +7,7 @@ from uuid import UUID
 import pytest
 import sqlalchemy as sa
 
-from app import create_app, db
+from app import db
 from app.models.database_identity import TenantDatabaseIdentity
 from app.models.device import Device
 from app.models.rental import Rental
@@ -39,9 +39,7 @@ def _manifest() -> DefaultTenantMigrationManifest:
         database_uuid=DATABASE_UUID,
         source_schema_name="inventory_management",
         baseline_migration_id="initial-baseline-v1",
-        core_plan_revision_uuid=UUID(
-            "50000000-0000-4000-8000-000000000003"
-        ),
+        core_plan_revision_uuid=UUID("50000000-0000-4000-8000-000000000003"),
         control_schema_head="202608220026",
         tenant_schema_head="20260824_legacy_history",
         source_snapshot_digest=_digest("source"),
@@ -53,24 +51,17 @@ def _manifest() -> DefaultTenantMigrationManifest:
 
 
 @pytest.fixture
-def application():
-    app = create_app("testing")
-    with app.app_context():
-        db.create_all()
-        db.session.add(
-            TenantDatabaseIdentity(
-                singleton_key=1,
-                tenant_id=str(TENANT_UUID),
-                database_uuid=str(DATABASE_UUID),
-                schema_generation=SCHEMA_GENERATION,
-            )
+def application(app):
+    db.session.add(
+        TenantDatabaseIdentity(
+            singleton_key=1,
+            tenant_id=str(TENANT_UUID),
+            database_uuid=str(DATABASE_UUID),
+            schema_generation=SCHEMA_GENERATION,
         )
-        db.session.commit()
-        try:
-            yield app
-        finally:
-            db.session.remove()
-            db.drop_all()
+    )
+    db.session.commit()
+    yield app
 
 
 def _rental(device, *, parent=None, status="not_shipped"):
@@ -96,9 +87,7 @@ def _plan(manifest, main, *, children=(), days=2):
                 expected_end_date=main.end_date,
                 expected_status=main.status,
                 logistics_days=days,
-                expected_child_rental_ids=tuple(
-                    sorted(item.id for item in children)
-                ),
+                expected_child_rental_ids=tuple(sorted(item.id for item in children)),
             ),
         ),
     )

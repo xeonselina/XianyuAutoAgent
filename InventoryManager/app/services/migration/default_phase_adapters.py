@@ -12,13 +12,12 @@ credential revision or provider/printing authority.
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass, field
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Protocol, TypeVar
 
 from sqlalchemy.orm import Session
 
+from inventory_control.evidence import canonical_json_sha256
 from inventory_control.default_migration import (
     DefaultMigrationBundleEvidence,
     DefaultMigrationPhaseStep,
@@ -91,87 +90,20 @@ from .structured_address_backfill import (
 SessionFactory = Callable[[], Session]
 
 
-class _WarehouseService(Protocol):
-    def backfill(self, session: Session, **kwargs: Any) -> Any: ...
-
-
 class _BackfillService(Protocol):
-    def backfill(self, session: Session, **kwargs: Any) -> Any: ...
+    def backfill(self, session: Session, **kwargs: Any) -> Any:
+        ...
 
 
-class _RegistrationService(Protocol):
-    def write_tenant_database_identity(
-        self,
-        session: Session,
-        **kwargs: Any,
-    ) -> Any: ...
-
-    def write_control_registration(
-        self,
-        session: Session,
-        **kwargs: Any,
-    ) -> Any: ...
+_EvidenceT = TypeVar("_EvidenceT", covariant=True)
 
 
-class _EmptyHistoricalSnapshotVerifier(Protocol):
-    def verify(self, session: Session, **kwargs: Any) -> Any: ...
-
-
-class _LegacyUnattributedHistoryService(Protocol):
-    def backfill(self, session: Session, **kwargs: Any) -> Any: ...
-
-
-class _ApplicationEnforcementVerifier(Protocol):
+class _PhaseVerifier(Protocol[_EvidenceT]):
     def verify(
         self,
         invocation: DefaultMigrationStepInvocation,
-    ) -> DefaultApplicationEnforcementEvidence: ...
-
-
-class _ApplicationEnforcementService(Protocol):
-    def publish(self, session: Session, **kwargs: Any) -> Any: ...
-
-
-class _DatabaseJobsEnforcementVerifier(Protocol):
-    def verify(
-        self,
-        invocation: DefaultMigrationStepInvocation,
-    ) -> DefaultDatabaseJobsEnforcementEvidence: ...
-
-
-class _ContractEnforcementVerifier(Protocol):
-    def verify(
-        self,
-        invocation: DefaultMigrationStepInvocation,
-    ) -> DefaultContractEnforcementEvidence: ...
-
-
-class _ControlExpandVerifier(Protocol):
-    def verify(
-        self,
-        invocation: DefaultMigrationStepInvocation,
-    ) -> DefaultControlExpandEvidence: ...
-
-
-class _TenantExpandVerifier(Protocol):
-    def verify(
-        self,
-        invocation: DefaultMigrationStepInvocation,
-    ) -> DefaultTenantExpandEvidence: ...
-
-
-class _SourceBaselineVerifier(Protocol):
-    def verify(
-        self,
-        invocation: DefaultMigrationStepInvocation,
-    ) -> DefaultSourceBaselineEvidence: ...
-
-
-class _SourcePreflightVerifier(Protocol):
-    def verify(
-        self,
-        invocation: DefaultMigrationStepInvocation,
-    ) -> DefaultSourceMigrationPreflightEvidence: ...
+    ) -> _EvidenceT:
+        ...
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
@@ -182,7 +114,7 @@ class DefaultMigrationRegistrationBundle:
     control_session_factory: SessionFactory = field(repr=False)
     identity_inputs: DefaultTenantIdentityInputs = field(repr=False)
     route: DefaultTenantRouteRegistration
-    registration_service: _RegistrationService = field(
+    registration_service: DefaultTenantInPlaceRegistrationService = field(
         default_factory=DefaultTenantInPlaceRegistrationService,
         repr=False,
     )
@@ -260,9 +192,7 @@ class DefaultTenantInPlaceRegistrationStep:
                     "admin_membership_uuid": str(
                         control_registration.admin_membership_uuid
                     ),
-                    "admin_user_uuid": str(
-                        control_registration.admin_user_uuid
-                    ),
+                    "admin_user_uuid": str(control_registration.admin_user_uuid),
                     "database_uuid": str(control_registration.database_uuid),
                     "identity_created_at": (
                         tenant_identity.identity_created_at.isoformat()
@@ -285,10 +215,8 @@ def build_default_migration_expand_executor(
     """Compose schema expansion then crash-resumable in-place registration."""
 
     if (
-        getattr(control_schema_expand_step, "name", None)
-        != "control_schema_expand"
-        or getattr(tenant_schema_expand_step, "name", None)
-        != "tenant_schema_expand"
+        getattr(control_schema_expand_step, "name", None) != "control_schema_expand"
+        or getattr(tenant_schema_expand_step, "name", None) != "tenant_schema_expand"
     ):
         raise MigrationEvidenceError(
             "explicit control and tenant schema expand steps are required"
@@ -305,17 +233,14 @@ def build_default_migration_expand_executor(
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
 class DefaultMigrationExpandInfrastructureBundle:
-    control_verifier: _ControlExpandVerifier = field(repr=False)
-    tenant_verifier: _TenantExpandVerifier = field(repr=False)
+    control_verifier: _PhaseVerifier[DefaultControlExpandEvidence] = field(repr=False)
+    tenant_verifier: _PhaseVerifier[DefaultTenantExpandEvidence] = field(repr=False)
 
     def __post_init__(self) -> None:
-        if (
-            not callable(getattr(self.control_verifier, "verify", None))
-            or not callable(getattr(self.tenant_verifier, "verify", None))
+        if not callable(getattr(self.control_verifier, "verify", None)) or not callable(
+            getattr(self.tenant_verifier, "verify", None)
         ):
-            raise MigrationEvidenceError(
-                "expand infrastructure bundle is invalid"
-            )
+            raise MigrationEvidenceError("expand infrastructure bundle is invalid")
 
     def __repr__(self) -> str:
         return (
@@ -326,7 +251,7 @@ class DefaultMigrationExpandInfrastructureBundle:
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
 class DefaultMigrationSourceBaselineBundle:
-    verifier: _SourceBaselineVerifier = field(repr=False)
+    verifier: _PhaseVerifier[DefaultSourceBaselineEvidence] = field(repr=False)
 
     def __post_init__(self) -> None:
         if not callable(getattr(self.verifier, "verify", None)):
@@ -338,7 +263,9 @@ class DefaultMigrationSourceBaselineBundle:
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
 class DefaultMigrationSourcePreflightBundle:
-    verifier: _SourcePreflightVerifier = field(repr=False)
+    verifier: _PhaseVerifier[DefaultSourceMigrationPreflightEvidence] = field(
+        repr=False
+    )
 
     def __post_init__(self) -> None:
         if not callable(getattr(self.verifier, "verify", None)):
@@ -488,9 +415,7 @@ def build_verified_default_migration_expand_executor(
         control_schema_expand_step=DefaultControlSchemaExpandStep(
             infrastructure_bundle
         ),
-        tenant_schema_expand_step=DefaultTenantSchemaExpandStep(
-            infrastructure_bundle
-        ),
+        tenant_schema_expand_step=DefaultTenantSchemaExpandStep(infrastructure_bundle),
         registration_bundle=registration_bundle,
     )
     return OrderedDefaultMigrationPhaseExecutor(
@@ -517,7 +442,7 @@ class ResolvedDefaultMigrationBackfillBundle:
     logical_accessory_plan: LogicalAccessoryBackfillPlan
     integration_metadata_plan: IntegrationMetadataBackfillPlan
     express_type_service: _BackfillService = field(repr=False)
-    warehouse_service: _WarehouseService = field(
+    warehouse_service: _BackfillService = field(
         default_factory=DefaultWarehouseBackfillService,
         repr=False,
     )
@@ -606,9 +531,7 @@ class _WarehouseBackfillStep:
                 session,
                 tenant_uuid=manifest.tenant_uuid,
                 database_uuid=manifest.database_uuid,
-                expected_schema_generation=(
-                    self.bundle.expected_schema_generation
-                ),
+                expected_schema_generation=(self.bundle.expected_schema_generation),
                 baseline_migration_id=manifest.baseline_migration_id,
                 profile=self.bundle.warehouse_profile,
             ),
@@ -663,9 +586,7 @@ class _PlannedLogisticsBackfillStep:
             lambda session: self.bundle.planned_logistics_service.backfill(
                 session,
                 manifest=manifest,
-                expected_schema_generation=(
-                    self.bundle.expected_schema_generation
-                ),
+                expected_schema_generation=(self.bundle.expected_schema_generation),
                 plan=self.bundle.planned_logistics_plan,
             ),
         )
@@ -687,9 +608,7 @@ class _StructuredAddressBackfillStep:
             lambda session: self.bundle.structured_address_service.backfill(
                 session,
                 manifest=manifest,
-                expected_schema_generation=(
-                    self.bundle.expected_schema_generation
-                ),
+                expected_schema_generation=(self.bundle.expected_schema_generation),
                 plan=self.bundle.structured_address_plan,
             ),
         )
@@ -711,9 +630,7 @@ class _LogicalAccessoryBackfillStep:
             lambda session: self.bundle.logical_accessory_service.backfill(
                 session,
                 manifest=manifest,
-                expected_schema_generation=(
-                    self.bundle.expected_schema_generation
-                ),
+                expected_schema_generation=(self.bundle.expected_schema_generation),
                 plan=self.bundle.logical_accessory_plan,
             ),
         )
@@ -792,7 +709,7 @@ class VerifiedEmptyHistoricalSnapshotsStep:
 
     tenant_session_factory: SessionFactory = field(repr=False)
     expected_schema_generation: int
-    verifier: _EmptyHistoricalSnapshotVerifier = field(
+    verifier: EmptyHistoricalSnapshotVerifier = field(
         default_factory=EmptyHistoricalSnapshotVerifier,
         repr=False,
     )
@@ -820,9 +737,7 @@ class VerifiedEmptyHistoricalSnapshotsStep:
             lambda session: self.verifier.verify(
                 session,
                 manifest=invocation.phase_invocation.manifest,
-                expected_schema_generation=(
-                    self.expected_schema_generation
-                ),
+                expected_schema_generation=(self.expected_schema_generation),
             ),
         )
         if result.verification_passed is not True or any(
@@ -854,10 +769,8 @@ class VerifiedLegacyUnattributedHistoricalSnapshotsStep:
     expected_schema_generation: int
     historical_boundary: DefaultHistoricalSnapshotBoundaryEvidence
     approved_historical_boundary_digest: bytes
-    approved_policy_revision: int = (
-        LEGACY_UNATTRIBUTED_HISTORY_POLICY_REVISION
-    )
-    service: _LegacyUnattributedHistoryService = field(
+    approved_policy_revision: int = LEGACY_UNATTRIBUTED_HISTORY_POLICY_REVISION
+    service: LegacyUnattributedHistoryBackfillService = field(
         default_factory=LegacyUnattributedHistoryBackfillService,
         repr=False,
     )
@@ -903,9 +816,7 @@ class VerifiedLegacyUnattributedHistoricalSnapshotsStep:
             lambda session: self.service.backfill(
                 session,
                 manifest=manifest,
-                expected_schema_generation=(
-                    self.expected_schema_generation
-                ),
+                expected_schema_generation=(self.expected_schema_generation),
                 historical_boundary=self.historical_boundary,
             ),
         )
@@ -975,8 +886,7 @@ def _require_historical_snapshot_step(
     approval_revision = getattr(step, "approved_policy_revision", None)
     if (
         isinstance(step, VerifiedEmptyHistoricalSnapshotsStep)
-        or getattr(step, "approved_historical_boundary_digest", None)
-        != boundary.digest
+        or getattr(step, "approved_historical_boundary_digest", None) != boundary.digest
         or isinstance(approval_revision, bool)
         or not isinstance(approval_revision, int)
         or approval_revision < 1
@@ -992,8 +902,8 @@ class DefaultMigrationApplicationEnforcementBundle:
 
     control_session_factory: SessionFactory = field(repr=False)
     journal_store: MigrationJournalFileStore = field(repr=False)
-    verifier: _ApplicationEnforcementVerifier = field(repr=False)
-    service: _ApplicationEnforcementService = field(
+    verifier: _PhaseVerifier[DefaultApplicationEnforcementEvidence] = field(repr=False)
+    service: DefaultTenantApplicationEnforcementService = field(
         default_factory=DefaultTenantApplicationEnforcementService,
         repr=False,
     )
@@ -1005,9 +915,7 @@ class DefaultMigrationApplicationEnforcementBundle:
             or not callable(getattr(self.verifier, "verify", None))
             or not callable(getattr(self.service, "publish", None))
         ):
-            raise MigrationEvidenceError(
-                "application enforcement bundle is invalid"
-            )
+            raise MigrationEvidenceError("application enforcement bundle is invalid")
 
     def __repr__(self) -> str:
         return (
@@ -1053,9 +961,7 @@ def build_default_migration_application_enforce_executor(
     bundle: DefaultMigrationApplicationEnforcementBundle,
 ) -> OrderedDefaultMigrationPhaseExecutor:
     if not isinstance(bundle, DefaultMigrationApplicationEnforcementBundle):
-        raise MigrationEvidenceError(
-            "application enforcement bundle is invalid"
-        )
+        raise MigrationEvidenceError("application enforcement bundle is invalid")
     return OrderedDefaultMigrationPhaseExecutor(
         phase=MigrationPhase.APPLICATION_ENFORCE,
         steps=(DefaultTenantApplicationEnforcementStep(bundle),),
@@ -1064,19 +970,14 @@ def build_default_migration_application_enforce_executor(
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
 class DefaultMigrationDatabaseJobsEnforcementBundle:
-    verifier: _DatabaseJobsEnforcementVerifier = field(repr=False)
+    verifier: _PhaseVerifier[DefaultDatabaseJobsEnforcementEvidence] = field(repr=False)
 
     def __post_init__(self) -> None:
         if not callable(getattr(self.verifier, "verify", None)):
-            raise MigrationEvidenceError(
-                "database/jobs enforcement bundle is invalid"
-            )
+            raise MigrationEvidenceError("database/jobs enforcement bundle is invalid")
 
     def __repr__(self) -> str:
-        return (
-            "DefaultMigrationDatabaseJobsEnforcementBundle("
-            "verifier='<bound>')"
-        )
+        return "DefaultMigrationDatabaseJobsEnforcementBundle(" "verifier='<bound>')"
 
 
 @dataclass(frozen=True, slots=True)
@@ -1107,9 +1008,7 @@ def build_default_migration_database_jobs_enforce_executor(
     bundle: DefaultMigrationDatabaseJobsEnforcementBundle,
 ) -> OrderedDefaultMigrationPhaseExecutor:
     if not isinstance(bundle, DefaultMigrationDatabaseJobsEnforcementBundle):
-        raise MigrationEvidenceError(
-            "database/jobs enforcement bundle is invalid"
-        )
+        raise MigrationEvidenceError("database/jobs enforcement bundle is invalid")
     return OrderedDefaultMigrationPhaseExecutor(
         phase=MigrationPhase.DATABASE_JOBS_ENFORCE,
         steps=(DefaultDatabaseJobsEnforcementStep(bundle),),
@@ -1118,7 +1017,7 @@ def build_default_migration_database_jobs_enforce_executor(
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
 class DefaultMigrationContractEnforcementBundle:
-    verifier: _ContractEnforcementVerifier = field(repr=False)
+    verifier: _PhaseVerifier[DefaultContractEnforcementEvidence] = field(repr=False)
 
     def __post_init__(self) -> None:
         if not callable(getattr(self.verifier, "verify", None)):
@@ -1139,9 +1038,7 @@ class DefaultContractEnforcementStep:
     ) -> DefaultMigrationStepResult:
         evidence = self.bundle.verifier.verify(invocation)
         if not isinstance(evidence, DefaultContractEnforcementEvidence):
-            raise MigrationEvidenceError(
-                "contract verifier returned invalid evidence"
-            )
+            raise MigrationEvidenceError("contract verifier returned invalid evidence")
         evidence.require_manifest(invocation.phase_invocation.manifest)
         return _result(
             invocation,
@@ -1193,17 +1090,12 @@ def _result(
 
 
 def _canonical_digest(value: Any) -> bytes:
-    try:
-        encoded = json.dumps(
-            value,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-            allow_nan=False,
-        ).encode("ascii")
-    except (TypeError, ValueError, UnicodeEncodeError):
-        raise MigrationEvidenceError("migration step evidence is invalid") from None
-    return hashlib.sha256(encoded).digest()
+    return canonical_json_sha256(
+        value,
+        invalid_error=lambda: MigrationEvidenceError(
+            "migration step evidence is invalid"
+        ),
+    )
 
 
 def _digest(value: object) -> bytes:

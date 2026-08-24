@@ -13,7 +13,7 @@
 
 | 模块 | 原章节 | 权威内容 |
 |---|---:|---|
-| [决策协议与记录](design/00-decisions.md) | 0 | D01–D67 决策表、确认记录、取代关系和决策流程 |
+| [决策协议与记录](design/00-decisions.md) | 0 | D01–D73 决策表、确认记录、取代关系和决策流程 |
 | [基础架构与数据模型](design/01-foundations-data-model.md) | 1–5 | 背景、目标、Docker 架构、租户解析、数据库隔离、控制库与租户库模型 |
 | [身份、控制面与产品工作流](design/02-identity-product-workflows.md) | 6–7 | 登录、会话、RBAC、平台管理员、邀请、注册续期、仓库、附件和前端/API 工作流 |
 | [集成、密钥、任务与文件](design/03-integrations-jobs-files.md) | 8–10 | 根密钥、Secret、顺丰/短信等 provider、后台任务、面单/PDF/导出边界 |
@@ -43,7 +43,7 @@
 - subscription、suspension、deletion 的有效状态归约，只以 [04-lifecycle-performance.md](design/04-lifecycle-performance.md) 为准。
 - 迁移顺序和必须覆盖的普通测试清单，只以 [05-security-migration-testing.md](design/05-security-migration-testing.md) 为准。
 - 备份、恢复 epoch、recovery hold 和运行监控，只以 [06-operations-recovery.md](design/06-operations-recovery.md) 为准。
-- D01–D67 的 Core 方案决策均已确认；D64 已取消迁移项目的阶段 Approval Gate、候选签字/receipt/evidence digest 和 hard release gate，D65–D67 已把人工 DBA 与 SQL-backed 测试目标简化为显式串行复用现有 `inventory_management_test`，且 SQLite 不再作为正向数据库 backend。[07-alternatives-open-questions.md](design/07-alternatives-open-questions.md) 只保留被否决方案和 Core 之外未来另立决策的能力。
+- D01–D73 的 Core 方案决策均已确认；D64 已取消迁移项目的阶段 Approval Gate、候选签字/receipt/evidence digest 和 hard release gate，D71 明确 SQL-backed 只支持 MySQL 8/MariaDB，D72 采用深度行为等价收缩，D73 明确一个租户可关联多个闲管家账号/闲鱼店铺且订单保留 connection 归属。[07-alternatives-open-questions.md](design/07-alternatives-open-questions.md) 只保留被否决方案和 Core 之外未来另立决策的能力。
 
 ## 当前审批状态
 

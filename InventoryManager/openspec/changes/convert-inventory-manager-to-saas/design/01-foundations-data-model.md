@@ -185,7 +185,7 @@ D57 同样是身份模型的不变量，而不是客服流程：Core 不增加 t
 | `subscription_events` | immutable event UUID、tenant/subscription UUID、event type、`source_type(registration/redemption/platform_adjustment/migration_grant)`, immutable source/action UUID、nullable consumed code UUID、nullable before/after plan revision + entitlement digest、nullable exact service duration/signed `delta_days`, calculation base/DB effective time、before/after expiry 与 effective status、expected subscription revision、idempotency key/request digest/canonicalization version、platform actor/session、nullable action-scoped factor method/accepted-at evidence、`reason_code`, bounded safe note、nullable bounded offline reference、timestamps | 注册、续期、人工调整均写不可变账本；D60 的 `migration_grant` 只允许默认租户 initial baseline 使用，精确固化 Core plan revision、`member_seats=10`、36,500 天和数据库生效时间，并以 tenant/database/baseline migration identity 唯一，重跑不得重复加时。registration 事件的 source UUID 必须是同一事务创建的 `tenant_registration_commits` UUID，并参与其 entity-link digest，不能用泛化 action ID 冒充。注册/续期事件还必须固化实际 consumed code 的 immutable effective terms；replacement code 与普通 bearer 使用完全相同的 reducer，不能回查 source code/current plan 后重新计算权益或时长。D53 的成功事件明确区分 days-adjusted 与 expire-now；立即到期不伪装成巨大负数，失败请求只进入平台审计。D53 的 factor 防重放游标或 recovery-code 消费、subscription 变更、事件和平台审计必须在同一控制库事务提交，绝不保存 TOTP/恢复码明文；factor evidence 只描述本 action 的 method/time，不复制或更新 session `mfa_verified_at`。旧事件不能修改或删除，纠错只能追加反向事件。`(platform_actor_id,idempotency_key)` 与 source/action UUID 对 D53 成功动作唯一，同 action 丢响应重试返回原结果而不再次消费因子。refund reason 也只保存受限备注和可空线下参考号；本表及关联 API 不增加 amount/currency/payment channel/status/paid-at/proof/attachment，不写 `billing_events`，线下参考号和事件均不证明退款完成。支付 source 与 `billing_events` 留待未来 Commercial SaaS 变更新增 |
 | `tenant_deletion_requests` | immutable request UUID、tenant/database UUID、requested_by、unique `request_challenge_id`, requested/reviewed/frozen timestamps、`execute_not_before` UTC、reviewed_by、status、nullable cancelled_by/`cancel_challenge_id`/cancelled_at、pre-freeze status references、execution generation、executor fencing token/lease owner/expiry、committed tenant access version、attempt/error summary、row version | 受控状态机：pending_review/rejected/cooling_off/cancelled/committing/awaiting_offsite_ack/dropping/completed/failed；同一 tenant 最多一个非终态申请且所有边界用行锁/CAS。申请 challenge 与创建原子消费；取消 challenge 与基于 request UUID/revision 的取消 CAS 原子消费。D58 normalization 对 request、executor generation 和 lease 分别封存；恢复出的 lease 必须过期并推进 fencing generation，只有 current run/access/generation 全部复核后的新 executor 才可继续单调删除。冷静期合法取消若需要把 DML 从 locked 恢复为 active，同样使用未发布 candidate generation，不能解锁旧 published 账号。不能保存验证码明文；完成后删除或最小化其中的手机号、名称和自由文本，只由 tombstone 与不可级联删除的 recovery-hold 终态承担永久防复活/处置证据 |
 | `tenant_deletion_tombstones` | immutable deletion/request UUID、tenant UUID、database UUID、ledger sequence、effective/executed timestamps、previous/record hash、checkpoint root-key version/MAC、NAS ack metadata | 独立于 `tenants` 外键生命周期，永久、只追加且不含 schema 名、用户名、手机号、公司名、客户资料、Secret 或业务内容；checkpoint 认证 key 从现有平台根密钥按独立用途派生，不新增一把人工管理的根密钥。restore/provisioning 在创建账号或开放访问前必须先按 tenant/database UUID 应用最新 ledger |
-| `tenant_integrations` | `id(UUIDv4)`, immutable `tenant_id`, immutable `provider`, `name`, nullable `current_secret_revision_id`, non-secret `config_json`, `status`, `last_verified_at`, `row_version`, timestamps | 表达 provider API connection 的稳定身份和当前凭证指针，本行不保存凭证明文或密文。`current_secret_revision_id` 只能指向同一 integration/tenant/provider 下状态为 `current` 的 `tenant_integration_secret_revisions`；凭证验证成功后的最终控制事务以 expected row/revision CAS 切换该指针并把前一版单调置为 `superseded`，绝不覆盖旧 ciphertext/nonce/密码学版本。Core UI 默认只要求配置一组 SF connection，但允许为特殊月结账号新增 connection；新 provider 动作只解析 current pointer，历史 shipment/operation 必须解析其固化的精确 revision UUID |
+| `tenant_integrations` | `id(UUIDv4)`, immutable `tenant_id`, immutable `provider`, `name`, nullable `current_secret_revision_id`, non-secret `config_json`, `status`, `last_verified_at`, `row_version`, timestamps | 表达 provider API connection 的稳定身份和当前凭证指针，本行不保存凭证明文或密文。`current_secret_revision_id` 只能指向同一 integration/tenant/provider 下状态为 `current` 的 `tenant_integration_secret_revisions`；凭证验证成功后的最终控制事务以 expected row/revision CAS 切换该指针并把前一版单调置为 `superseded`，绝不覆盖旧 ciphertext/nonce/密码学版本。Core UI 默认只要求配置一组 SF connection，但允许为特殊月结账号新增 connection；对 Xianyu，一个 connection 精确代表一个闲管家账号及其对应闲鱼店铺，同一租户允许多行且不另建平行账号表，`name` 只是租户可读店铺标签、不能替代不可变 integration UUID。新 provider 动作只解析该 connection 的 current pointer，历史 operation 必须解析其固化的精确 revision UUID |
 | `tenant_integration_secret_revisions` | immutable revision UUID、`tenant_integration_id`, immutable `tenant_id`/`provider`, monotonic `revision_no`, immutable `crypto_context_uuid`, immutable credential schema/bundle version + authenticated semantics digest、`credentials_ciphertext`, `credentials_nonce(12 bytes)`, `root_key_version`, `crypto_version`, `aad_version`, monotonic `envelope_generation`, `envelope_row_version`, nullable last envelope-rotation event UUID、`status(pending_validation/current/superseded/revoked)`, stored generated nullable `current_integration_id`, immutable creation intent/action/actor provenance、verification attempt/result digest、activated/superseded/revoked timestamps、created_at | UNIQUE `(tenant_integration_id,revision_no)` 和 UNIQUE `current_integration_id`，其中生成列只在 status=`current` 时等于 integration UUID，保证每个 connection 最多一版 current。每一版完整 provider credential bundle 使用本 revision 独立记录级 HKDF 上下文和 AES-256-GCM 认证加密，不保存逐条 DEK；revision UUID/number、业务明文语义、integration/tenant/provider 归属和创建 provenance 不可改写，只有 lifecycle status/timestamps 可单调推进。普通凭证更新必须创建新 revision、新 crypto context 与随机 nonce并完成 provider 验证，绝不能覆盖旧 revision 的 ciphertext；验证失败不改变 current pointer，成功时指针切换、旧版 supersede 与审计/outbox 在同一控制事务提交。平台根密钥/加密协议换代是唯一 envelope 维护例外：在全局写屏障下保持同一业务 revision/语义/UUID，按旧 root version 解密后用新 root version 和新 nonce 重加密，递增 envelope generation、CAS envelope row version 并追加不可变 envelope event，绝不能把它伪装成凭证内容更新。`superseded` 只禁止用于新动作，不表示可删除：pointer 前进或普通轮换本身不清理旧 revision；只要任何 shipment/provider attempt/waybill/print job 固化其 UUID，就必须允许获授权的历史查询、取消或对账按该 UUID 解析，绝不能回退到 current。只有所有引用均已终结并超过已批准保留边界时普通 cleanup 才可删除；D26 则必须在匹配站外 tombstone ack、全部 global claim release、provider operation 隔离/终结完成且租户 schema 连同历史引用进入删除范围后，才按 deletion generation 清理，不能仅凭 tenant 为 expired/suspended 或 revision 非 current 就删除 |
 | `tenant_integration_secret_envelope_events` | immutable event UUID、`tenant_integration_secret_revision_id`, monotonic `envelope_generation`, from/to root-key/crypto/AAD versions、before/after ciphertext authenticated digest、rotation run/action UUID、safe outcome、created_at | UNIQUE `(tenant_integration_secret_revision_id,envelope_generation)`；只追加记录根密钥或加密协议换代，不保存明文、nonce、密文或 Secret。envelope CAS 与对应成功事件必须在同一控制事务提交，事件链证明 shipment 固化的业务 revision UUID 未改变而其当前可解密封装已合法迁移；普通 credential update、provider 验证或 current pointer 切换不得写此事件来规避创建新业务 revision |
 | `tenant_provider_defaults` | `tenant_id`, `provider`, `integration_id`, `updated_by`, timestamps | `(tenant_id, provider)` 唯一并指向该租户同 provider 的 active connection；仅作为新建 provider account 时的默认选择，运行时始终使用 account 已显式保存的 `integration_id`。切换默认值不批量改写既有账号、运单或任务 |
@@ -215,12 +215,12 @@ D57 同样是身份模型的不变量，而不是客服流程：Core 不增加 t
 | `accessory_unit_events` | immutable event UUID、`unit_id`, `event_type(created/linked/unlinked/dispatched/relay_handoff/inspected/warehouse_moved/maintenance/lost/restored/retired)`, optional main device/rental/relay case、from/to warehouse/holder、actor、reason/note、idempotency key、timestamp | 只追加事实账本，不再建立 custody chain/leg 或复制 relay 状态；热路径读取 unit 当前事实和 link，不靠重放事件决定可用性。任一 link 插入、替换或删除都必须在同一事务写幂等 `linked/unlinked` 事件 |
 | `rental_relay_cases` 扩展 | optional `accessory_note`, `updated_by`, timestamps | Admin/Operator 可填写低频附件补寄安排、快递单号或处理结果；纯内部字段，不能复用客户可见 `customer_note`，不得进入顺丰主运单 payload、第一/第二联或公开 API。保存/修改写审计并做长度限制与输出转义；备注本身不把未分配需求伪装成已备足 |
 | `device_warehouse_movements` | 只追加记录设备从哪个仓到哪个仓、来源（`inspection`/`manual_change`）、可选备注、关联业务、操作者和时间，避免直接改字段后丢失历史；Core 不创建调拨单或在途状态 |
-| `rentals` 与物流记录 | 主租赁保存 `preferred_warehouse_id`、`customer_note`、客户结构化收货地址、`logistics_days`、`planned_ship_out_date`、`planned_return_date`、`actual_shipped_at`、`actual_returned_at`，以及最近一次估算的 origin warehouse、provider/rule version、estimated days、evaluated time 与地址摘要快照；`start_date/end_date` 是主设备客户使用期硬冲突事实，计划寄出/回仓日期用于甘特物流警告、接力和逻辑附件单元的 link 窗口，不能再用一个泛化 `occupancy_*` 字段同时表达两种约束。计划与实际物流事件不得继续混用旧 `ship_out_time/ship_in_time`；一张主租赁只有一个包裹/运单，附件选择由通用 request 行表达 |
+| `rentals` 与物流记录 | 主租赁保存 `preferred_warehouse_id`、`customer_note`、客户结构化收货地址、`logistics_days`、`planned_ship_out_date`、`planned_return_date`、`actual_shipped_at`、`actual_returned_at`，以及最近一次估算的 origin warehouse、provider/rule version、estimated days、evaluated time 与地址摘要快照；可空 `xianyu_integration_uuid` 保存该闲鱼订单所属店铺 connection，与 `xianyu_order_no` 共同构成租户内 provider identity。该 UUID 是跨 control/tenant schema 的不可变技术引用，不建立可绕过租户路由授权的跨库 FK；每次 provider 动作仍须 current-read control ownership/status/revision。`start_date/end_date` 是主设备客户使用期硬冲突事实，计划寄出/回仓日期用于甘特物流警告、接力和逻辑附件单元的 link 窗口，不能再用一个泛化 `occupancy_*` 字段同时表达两种约束。计划与实际物流事件不得继续混用旧 `ship_out_time/ship_in_time`；一张主租赁只有一个包裹/运单，附件选择由通用 request 行表达 |
 | `outbound_shipments` | immutable shipment UUID、provider、rental、origin warehouse UUID、integration/provider account UUID、exact `integration_secret_revision_uuid`/`provider_account_secret_revision_uuid`, binding revision、sender/receiver 结构化快照、服务端生成的 cargo snapshot、UTC scheduled dispatch time、tracking check phone last4、express type、无 PII provider order id、request hash、waybill、状态与时间 | 顺丰创建前先持久化，唯一 provider order id 作为幂等身份；只保存月结号掩码/指纹和两类控制库 secret revision 的不可变 UUID，不保存明文。创建事务从 resolver 固化当时的精确 revision UUID，并从锁定的主设备生成单件、非 PII cargo snapshot；预约时间、cargo、sender/receiver 与 express type 一同进入 request hash，worker 不得在重试时重新读取可变 rental/device 资料。重试、查询、取消和对账只能使用这两个 revision，不得重新解析 integration/account current pointer。跨 schema 不依赖会被 D26 绕过的 FK，但 control cleanup 必须把任一存在 shipment 引用的 revision 视为 retained；显式取消重建才为新 shipment 重新解析当前仓库绑定和 current revisions |
 | `provider_operation_attempts` | shipment/job、operation、idempotency key、attempt no、exact `integration_secret_revision_uuid`/`provider_account_secret_revision_uuid`, binding revision、nullable immutable job intent provenance（预分配 `background_job_uuid`、tenant access version、requesting user UUID、request/correlation ID）、nullable `job_enqueued_at`、safe provider code、response hash、状态/耗时/timestamps | 不保存请求/响应原文、secret、完整地址或 PDF token；每个 attempt 显式复制 shipment/job 已固化的两类 secret revision UUID，不能只写模糊 revision number 或跟随 current pointers。新 create intent 的 job provenance 必须全有或全无，job UUID 全表唯一；控制库提交后才回写 `job_enqueued_at`，响应丢失按同一 UUID 重放。历史引用存在期间任一 revision 都不得由轮换/清理删除；支持在超时/崩溃后用同一凭证版本查询、对账和可重入恢复 |
 | `waybill_print_jobs` | 记录 rental/waybill、第一联账号/仓库来源、exact integration/account secret revision UUID、第二联使用的仓库及寄回资料、printer、操作者和任务状态快照 | 自动 retry 和同一运单第一联重新获取/打印复用原 job/shipment 的精确 credential revisions；用户显式取消旧运单并重建后才创建使用当前设备仓库/current revisions 的新 shipment/job。寄回资料不进入顺丰请求 |
 | `inspection_record` | 增加 `warehouse_id` 和操作者；首次创建验货记录与更新 `devices.warehouse_id` 在同一事务完成，编辑历史验货记录不得再次移动设备 |
-| 统计、接力、闲鱼告警/同步状态 | 保持业务结构；动态接力候选与甘特提示共用 `ScheduleOverlapPolicy`，只比较同一主设备相邻有效订单；已有持久接力 case 保留运营状态；`xianyu_order_sync_state.id=1` 在每个租户库中可继续成立 |
+| 统计、接力、闲鱼告警/同步状态 | 动态接力候选与甘特提示共用 `ScheduleOverlapPolicy`，只比较同一主设备相邻有效订单；已有持久接力 case 保留运营状态。`xianyu_order_sync_state.id=1` 继续作为每租户聚合状态，`xianyu_connection_sync_states` 按 integration UUID 保存各店铺状态；告警保存 integration UUID/显示标签快照，唯一身份从全租户 `order_no` 改为 `(integration_uuid, order_no)`，公开动作使用 tenant-local alert ID 或该完整组合，不能只凭订单号忽略另一店铺记录。迁移前 nullable integration 的旧告警/订单保持不可归属状态，不自动绑定后来验证的 connection |
 | `audit_logs` | 增加 `actor_type`, `actor_id/user_id`, nullable trusted `session_id`, `request_id`；tenant id 由数据库身份和日志上下文提供，session ID 只能来自已验证的 AuthContext，不能接受客户端提交值 |
 | `database_identity` | 每个租户库新增一行不可变身份，包含 `tenant_id`, `database_uuid`, `created_at`, `schema_generation` |
 | Alembic version | 每个租户库独立维护版本；控制库记录期望/观测版本与最后迁移结果 |
@@ -241,3 +241,51 @@ D57 同样是身份模型的不变量，而不是客服流程：Core 不增加 t
 - 上述换代的每一步先写入 `tenant_database_account_rotations` 持久状态，再取得独立 lease transaction 的 fencing token 和 MySQL advisory lock，执行可幂等 MySQL 动作；进程崩溃后按 `rotation_id` 续跑或补偿。普通轮换在 inherited desired state=locked 时，新账号始终 locked 并停在 `prepared_locked`，不能为了测试把它发布或开放；D58 release、D52 resolve、D26 delete-cancel 的解锁屏障则创建专用下一代 candidate，在应用 route 仍 deny 时临时解锁做正向连接与跨 schema 拒绝测试，最终 tenant-first CAS 通过后才发布。CAS 前崩溃或 token/version 失配时，reconciler 先重锁/撤销 candidate，旧 published 账号保持 locked。旧账号确认撤销前记录不得结束；该表不是凭证库，不允许增加任何密码字段。
 - 单租户旧 schema 恢复必须先在控制库创建 `tenant_restore_events`，安装 current-run hold、提升 access/login/quarantine generation，并证明所有 DML identity 已锁与 job/outbox/provider 已隔离；此后才允许 migration/provisioning 账号把来源 manifest 导入不可路由的目标。导入完成不等于开放，仍须数据库身份/权限 smoke、coverage 核验和单租户 release action；任何失败只留下 held/locked 的可审计状态，不把旧任务或 provider 动作带回运行态。
 - 根密钥轮换同时保留旧/新版本，并逐租户执行上述账号切换；与信封加密不同，它必须实际轮换每个 MySQL 用户，不能只重包裹密钥，因此只在泄露、算法升级或批准的维护窗口执行。
+
+## 6. Unified implementation structure and code-size governance (D70)
+
+业务复杂度继续由明确的领域模型、control-plane/tenant-plane 隔离和必要状态机表达；D70 收缩的是重复实现，不删除已确认行为、审计事实、迁移边界或安全门禁。
+
+### 6.1 Standard domain package
+
+每个领域包收敛到同一骨架，缺少对应职责时可以省略文件，但不得另造同义层级：
+
+```text
+<domain>/
+  domain.py       # immutable values, aggregate state and transition vocabulary
+  service.py      # use cases and transaction orchestration
+  repository.py   # persistence port plus one SQL implementation boundary
+  http.py         # optional HTTP adapter only
+  worker.py       # optional background adapter only
+  composition.py  # dependency wiring only
+```
+
+跨领域基础能力只保留一套 shared kernel：`errors`、`transactions`、`evidence`、`state_machine`、`idempotency` 和 `jobs`。现有兼容 import 可以短期保留薄别名，但新代码直接引用定义模块；大型 `__init__.py` 不再作为实现或集中重导出位置。HTTP 和 worker 只是适配器，不得复制 service 的授权、事务、幂等或状态规则。
+
+### 6.2 One authoritative state machine per aggregate
+
+- 每个 aggregate 只能有一个表驱动的 transition 定义，包含允许的来源/目标、guard、事件和终态语义。
+- service 调用权威 transition；repository 只负责 CAS、持久化与冲突报告；HTTP/worker 只完成输入输出适配。
+- 数据库 CHECK/UNIQUE、迁移校验和负向测试继续作为纵深防御，但不能发展成互相不一致的第二业务状态机。
+- 状态、错误码、事务 ownership、digest/canonicalization 和幂等结果不得在多个领域内复制同义实现。
+
+### 6.3 Convergence order
+
+1. 当前 D69 代表性非空迁移先复用现有五阶段 command、phase executor、journal、backfill bundle 和 enforcement adapter 完成纵向闭环；除必要的薄接线外不新增生产层。
+2. 检查点确认后先收敛 shared kernel，并把大范围 `__init__.py` 重导出改为直接依赖；每次替换一类原语并保持调用者行为不变。
+3. 再统一 HTTP runtime 与 worker/job framework，删除领域内重复的请求包装、错误转换、lease/outbox/attempt 驱动代码。
+4. 最后统一 state machine、repository/CAS 和测试 fixture，把参数差异数据化，删除已经由共享 contract 覆盖的复制测试，同时保留领域专属正反用例。
+
+三轮收敛完成前，除关闭当前 D69 迁移命令、修复回归或解除既有任务阻塞外，不继续增加新的产品能力。
+
+### 6.4 Measurable budgets and acceptance
+
+基线固定为 2026-08-24 的只读审计：`main...saas-main` 为 891 个文件、266,306 行新增和 5,032 行删除；`inventory_control` 与 `app` 生产 Python 合计约 141,966 行，另有约 94,675 行测试新增。目标不是一次性重写，而是在行为等价的聚焦切片中达到：
+
+- 生产 Python 减少 25%–35%，约 35,000–50,000 行；
+- 测试减少 20%–30%，约 20,000–30,000 行；
+- `main...saas-main` 总新增差异收敛到约 190,000–210,000 行；
+- 普通纵向切片新增生产代码控制在 300–500 行；复杂 provider 或状态机切片预计超过 800 行时，先扩展共享原语或在证据中说明不可复用原因；
+- 每个收敛切片记录变更前后 production/test LOC、删除的重复点、保留的 contract 和聚焦测试结果。
+
+验收按有效行为和结构统一性判断；拆文件、重命名、把手写代码改成生成代码、删除测试、降低覆盖或合并不相干领域均不计作收缩。每轮先以小范围调用者完成替换和验证，再删除旧入口，避免形成长期双轨框架。

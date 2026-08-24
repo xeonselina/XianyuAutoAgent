@@ -9,11 +9,9 @@ Logical unit and link UUIDs are deliberately confined to this module and the
 ORM repository.  Public result objects contain only accessory type metadata
 and realtime aggregate counts; errors contain stable codes and generic text.
 
-MySQL enforces the contention boundary through ``SELECT .. FOR UPDATE`` on
-candidate units ordered by accessory type and unit UUID.  SQLite ignores row
-locks, so SQLite tests cover ordering, overlap selection, idempotency, and
-transactional rollback only.  A MySQL contention test remains required before
-this repository is used as the final production reservation implementation.
+MySQL 8 and MariaDB enforce the contention boundary through
+``SELECT .. FOR UPDATE`` on candidate units ordered by accessory type and unit
+UUID.  SQL-backed tests use the same locking implementation.
 """
 
 from __future__ import annotations
@@ -26,7 +24,7 @@ from typing import Iterable, Optional, Sequence
 
 from sqlalchemy import and_, case, exists, func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from app.models.accessory_inventory import (
     AccessoryType,
@@ -45,6 +43,7 @@ from app.models.shipping_execution import (
     WaybillPrintJob,
 )
 from app.models.warehouse import Warehouse
+from inventory_control.transactions import require_caller_transaction
 
 
 _FROZEN_PROVIDER_ATTEMPT_STATUSES = (
@@ -133,9 +132,7 @@ class AccessoryInspectionConflictError(AccessoryInventoryError):
     public_message = "accessory inspection facts do not agree"
 
 
-class AccessoryInspectionChainRecalculationRequiredError(
-    AccessoryInventoryError
-):
+class AccessoryInspectionChainRecalculationRequiredError(AccessoryInventoryError):
     code = "ACCESSORY_INSPECTION_CHAIN_RECALCULATION_REQUIRED"
     public_message = "accessory links require atomic recalculation"
 
@@ -195,17 +192,12 @@ class AccessoryInventoryRepository:
     """SQLAlchemy persistence boundary for one already-routed tenant DB.
 
     ``lock_reservation_units`` is the concurrency seam.  Its deterministic
-    ordering is testable on SQLite even though SQLite does not implement row
-    locks.  On MySQL the emitted ``FOR UPDATE`` serializes contenders before
-    overlap rows are reread using a locking/current read.
+    ordering plus ``FOR UPDATE`` serializes contenders before overlap rows are
+    reread using a locking/current read.
     """
 
     def __init__(self, session: Session) -> None:
         self.session = session
-
-    @property
-    def row_locking_supported(self) -> bool:
-        return self.session.get_bind().dialect.name != "sqlite"
 
     def get_accessory_type(self, accessory_type_id: int) -> Optional[AccessoryType]:
         return self.session.get(AccessoryType, accessory_type_id)
@@ -222,9 +214,7 @@ class AccessoryInventoryRepository:
 
     def lock_warehouse(self, warehouse_id: int) -> Optional[Warehouse]:
         return self.session.execute(
-            select(Warehouse)
-            .where(Warehouse.id == warehouse_id)
-            .with_for_update()
+            select(Warehouse).where(Warehouse.id == warehouse_id).with_for_update()
         ).scalar_one_or_none()
 
     def get_rental(self, rental_id: int) -> Optional[Rental]:
@@ -295,7 +285,7 @@ class AccessoryInventoryRepository:
             select(OutboundShipment)
             .where(OutboundShipment.rental_id.in_(rental_ids))
             .order_by(OutboundShipment.rental_id.asc(), OutboundShipment.id.asc())
-            .with_for_update(nowait=self.row_locking_supported)
+            .with_for_update(nowait=True)
         )
         shipments = tuple(self.session.execute(shipment_statement).scalars().all())
         if not shipments:
@@ -310,7 +300,7 @@ class AccessoryInventoryRepository:
                     ProviderOperationAttempt.shipment_id.asc(),
                     ProviderOperationAttempt.id.asc(),
                 )
-                .with_for_update(nowait=self.row_locking_supported)
+                .with_for_update(nowait=True)
             )
             .scalars()
             .all()
@@ -320,7 +310,7 @@ class AccessoryInventoryRepository:
                 select(WaybillPrintJob)
                 .where(WaybillPrintJob.shipment_id.in_(shipment_ids))
                 .order_by(WaybillPrintJob.shipment_id.asc(), WaybillPrintJob.id.asc())
-                .with_for_update(nowait=self.row_locking_supported)
+                .with_for_update(nowait=True)
             )
             .scalars()
             .all()
@@ -343,15 +333,11 @@ class AccessoryInventoryRepository:
                 attempt.status in _UNSETTLED_PROVIDER_ATTEMPT_STATUSES
                 for attempt in shipment_attempts
             ) or any(
-                job.status in _UNSETTLED_PRINT_JOB_STATUSES
-                for job in shipment_jobs
+                job.status in _UNSETTLED_PRINT_JOB_STATUSES for job in shipment_jobs
             ):
                 return True
             if shipment.status in _FROZEN_SHIPMENT_STATUSES:
-                if (
-                    allow_stable_submitted_shipment
-                    and shipment.status == "submitted"
-                ):
+                if allow_stable_submitted_shipment and shipment.status == "submitted":
                     continue
                 return True
             if shipment.status == "cancelled":
@@ -368,8 +354,7 @@ class AccessoryInventoryRepository:
                     attempt.status in _FROZEN_PROVIDER_ATTEMPT_STATUSES
                     for attempt in shipment_attempts
                 ) or any(
-                    job.status in _FROZEN_PRINT_JOB_STATUSES
-                    for job in shipment_jobs
+                    job.status in _FROZEN_PRINT_JOB_STATUSES for job in shipment_jobs
                 ):
                     return True
                 if shipment.status == "failed" and not any(
@@ -439,10 +424,8 @@ class AccessoryInventoryRepository:
                 select(RentalAccessoryUnitLink)
                 .where(
                     RentalAccessoryUnitLink.accessory_unit_id.in_(unit_ids),
-                    RentalAccessoryUnitLink.reservation_start_at
-                    < reservation_end_at,
-                    RentalAccessoryUnitLink.reservation_end_at
-                    > reservation_start_at,
+                    RentalAccessoryUnitLink.reservation_start_at < reservation_end_at,
+                    RentalAccessoryUnitLink.reservation_end_at > reservation_start_at,
                 )
                 .order_by(
                     RentalAccessoryUnitLink.accessory_type_id.asc(),
@@ -500,8 +483,7 @@ class AccessoryInventoryRepository:
                     RentalAccessoryUnitLink.rental_id.in_(
                         tuple(sorted(set(rental_ids)))
                     ),
-                    RentalAccessoryUnitLink.accessory_type_id
-                    == accessory_type_id,
+                    RentalAccessoryUnitLink.accessory_type_id == accessory_type_id,
                 )
                 .order_by(
                     RentalAccessoryUnitLink.rental_id.asc(),
@@ -618,10 +600,8 @@ class AccessoryInventoryRepository:
             exists()
             .where(
                 RentalAccessoryUnitLink.accessory_unit_id == AccessoryUnit.id,
-                RentalAccessoryUnitLink.reservation_start_at
-                < reservation_end_at,
-                RentalAccessoryUnitLink.reservation_end_at
-                > reservation_start_at,
+                RentalAccessoryUnitLink.reservation_start_at < reservation_end_at,
+                RentalAccessoryUnitLink.reservation_end_at > reservation_start_at,
             )
             .correlate(AccessoryUnit)
         )
@@ -778,9 +758,7 @@ class AccessoryInventoryService:
         if existing_request is not None or existing_link is not None:
             raise AccessoryReservationConflictError()
 
-        unavailable_ids = {
-            link.accessory_unit_id for link in overlapping_links
-        }
+        unavailable_ids = {link.accessory_unit_id for link in overlapping_links}
         unit = next(
             (candidate for candidate in units if candidate.id not in unavailable_ids),
             None,
@@ -1004,10 +982,7 @@ class AccessoryInventoryService:
             or predecessor.id == successor.id
             or predecessor.device_id != device.id
             or successor.device_id != device.id
-            or (
-                relay_case.predecessor_rental_id
-                != peeked_case.predecessor_rental_id
-            )
+            or (relay_case.predecessor_rental_id != peeked_case.predecessor_rental_id)
             or relay_case.successor_rental_id != peeked_case.successor_rental_id
         ):
             raise AccessoryRelayHandoffConflictError()
@@ -1316,11 +1291,7 @@ class AccessoryInventoryService:
             rental_id=rental_id,
             accessory_type_id=accessory_type_id,
         )
-        if (
-            unit is None
-            or link is None
-            or link.accessory_unit_id != unit.id
-        ):
+        if unit is None or link is None or link.accessory_unit_id != unit.id:
             raise AccessoryInspectionConflictError()
 
         inspected_key = self._event_key(
@@ -1345,9 +1316,7 @@ class AccessoryInventoryService:
         if prior_events:
             if len(prior_events) != len(expected_keys):
                 raise AccessoryIdempotencyConflictError()
-            events_by_key = {
-                event.idempotency_key: event for event in prior_events
-            }
+            events_by_key = {event.idempotency_key: event for event in prior_events}
             if outcome == "missing":
                 prior = events_by_key.get(condition_key)
                 if (
@@ -1761,16 +1730,11 @@ class AccessoryInventoryService:
         )
 
     def _require_explicit_transaction(self) -> None:
-        nested_transaction = self._session.get_nested_transaction()
-        transaction = nested_transaction or self._session.get_transaction()
-        if (
-            transaction is None
-            or (
-                nested_transaction is None
-                and transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-            )
-        ):
-            raise AccessoryTransactionRequiredError()
+        require_caller_transaction(
+            self._session,
+            AccessoryTransactionRequiredError,
+            accept_nested=True,
+        )
 
     @staticmethod
     def _validate_window(start_at: datetime, end_at: datetime) -> None:

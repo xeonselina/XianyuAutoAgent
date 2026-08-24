@@ -1,10 +1,9 @@
 from dataclasses import asdict
 from datetime import date, datetime, time, timedelta, timezone
-import os
 
 import pytest
 
-from app import create_app, db
+from app import db
 from app.models.accessory_inventory import (
     AccessoryType,
     AccessoryUnit,
@@ -30,37 +29,10 @@ from app.services.relay.mutation_service import (
     RelayStatusMutationService,
 )
 from sqlalchemy.exc import SQLAlchemyError
-from tests.support.test_database import (
-    build_mysql_test_config,
-    clear_guarded_mysql_test_rows,
-    guarded_mysql_test_metadata,
-)
 
 
 UNIT_A = "a0000000-0000-4000-8000-000000000001"
 UNIT_B = "b0000000-0000-4000-8000-000000000002"
-
-
-@pytest.fixture(scope="module")
-def mysql_application():
-    if not os.environ.get("TEST_DATABASE_URL"):
-        pytest.fail("TEST_DATABASE_URL is required for database tests")
-    app = create_app(build_mysql_test_config())
-    with app.app_context():
-        with guarded_mysql_test_metadata(db.engine, db.metadata):
-            yield app
-        db.session.remove()
-
-
-@pytest.fixture
-def application(mysql_application):
-    with mysql_application.app_context():
-        clear_guarded_mysql_test_rows(db.engine, db.metadata)
-        try:
-            yield mysql_application
-        finally:
-            db.session.rollback()
-            db.session.remove()
 
 
 def _window(rental):
@@ -422,14 +394,20 @@ def test_inspection_keeps_request_as_shortage_when_no_local_candidate(
     assert result.affected_rental_ids == (future_rental.id,)
     assert result.shortage_rental_ids == (future_rental.id,)
     assert units[0].warehouse_id == inspection_warehouse.id
-    assert RentalAccessoryRequest.query.filter_by(
-        rental_id=future_rental.id,
-        accessory_type_id=accessory_type.id,
-    ).count() == 1
-    assert RentalAccessoryUnitLink.query.filter_by(
-        rental_id=future_rental.id,
-        accessory_type_id=accessory_type.id,
-    ).count() == 0
+    assert (
+        RentalAccessoryRequest.query.filter_by(
+            rental_id=future_rental.id,
+            accessory_type_id=accessory_type.id,
+        ).count()
+        == 1
+    )
+    assert (
+        RentalAccessoryUnitLink.query.filter_by(
+            rental_id=future_rental.id,
+            accessory_type_id=accessory_type.id,
+        ).count()
+        == 0
+    )
 
 
 def test_inspection_rolls_back_when_future_fulfillment_is_frozen(application):
@@ -593,9 +571,7 @@ def test_agreed_chain_creates_neutral_links_through_requestless_rentals(
 
 
 def test_late_upstream_agreement_replaces_entire_downstream_plan(application):
-    _, accessory_type, _, rentals, units, cases = _seed_chain(
-        a_to_b="pending"
-    )
+    _, accessory_type, _, rentals, units, cases = _seed_chain(a_to_b="pending")
     _add_request(rentals[1], accessory_type)
     _add_request(rentals[2], accessory_type)
     _add_link(rentals[1], accessory_type, units[1])
@@ -671,9 +647,7 @@ def test_shortage_keeps_request_without_link_and_does_not_block_relay(
     )
     # The only unit is physically held but has no usable planned link in this
     # test's local-allocation path.
-    anchor_link = RentalAccessoryUnitLink.query.filter_by(
-        rental_id=rentals[0].id
-    ).one()
+    anchor_link = RentalAccessoryUnitLink.query.filter_by(rental_id=rentals[0].id).one()
     db.session.delete(anchor_link)
     _add_request(rentals[1], accessory_type)
     db.session.commit()
@@ -689,9 +663,7 @@ def test_shortage_keeps_request_without_link_and_does_not_block_relay(
         "shortage_count": 1,
         "shortage_type_codes": ("tripod",),
     }
-    assert RentalAccessoryRequest.query.filter_by(
-        rental_id=rentals[1].id
-    ).count() == 1
+    assert RentalAccessoryRequest.query.filter_by(rental_id=rentals[1].id).count() == 1
     assert RentalAccessoryUnitLink.query.count() == 0
     assert UNIT_A not in repr(result)
     assert units[0].current_holder_rental_id == rentals[0].id
@@ -715,10 +687,13 @@ def test_recompute_rejects_replacing_a_unit_already_dispatched_to_successor(
     assert caught.value.code == "ACCESSORY_RELAY_CHAIN_REVIEW_REQUIRED"
     assert UNIT_A not in str(caught.value)
     assert UNIT_B not in str(caught.value)
-    assert RentalAccessoryUnitLink.query.filter_by(
-        rental_id=rentals[1].id,
-        accessory_unit_id=UNIT_B,
-    ).count() == 1
+    assert (
+        RentalAccessoryUnitLink.query.filter_by(
+            rental_id=rentals[1].id,
+            accessory_unit_id=UNIT_B,
+        ).count()
+        == 1
+    )
     assert AccessoryUnitEvent.query.count() == 0
 
 
@@ -743,10 +718,13 @@ def test_handoff_moves_all_carried_units_and_replays_idempotently(application):
     }
     assert units[0].current_holder_rental_id == rentals[1].id
     assert units[0].row_version == 2
-    assert AccessoryUnitEvent.query.filter_by(
-        event_type="relay_handoff",
-        relay_case_id=cases[0].id,
-    ).count() == 1
+    assert (
+        AccessoryUnitEvent.query.filter_by(
+            event_type="relay_handoff",
+            relay_case_id=cases[0].id,
+        ).count()
+        == 1
+    )
 
     db.session.commit()
     with session.begin():
@@ -758,10 +736,13 @@ def test_handoff_moves_all_carried_units_and_replays_idempotently(application):
         )
     assert replay == result
     assert units[0].row_version == 2
-    assert AccessoryUnitEvent.query.filter_by(
-        event_type="relay_handoff",
-        relay_case_id=cases[0].id,
-    ).count() == 1
+    assert (
+        AccessoryUnitEvent.query.filter_by(
+            event_type="relay_handoff",
+            relay_case_id=cases[0].id,
+        ).count()
+        == 1
+    )
 
 
 def test_recompute_refuses_to_downgrade_an_executed_handoff(application):
@@ -824,10 +805,13 @@ def test_relay_status_service_composes_agreement_and_handoff_atomically(
     assert successor_link.accessory_unit_id == UNIT_A
     assert successor_link.source_relay_case_id == cases[0].id
     assert agreed.accessory_chain["linked_count"] == 1
-    assert RentalRelayBinding.query.filter_by(
-        predecessor_rental_id=rentals[0].id,
-        successor_rental_id=rentals[1].id,
-    ).count() == 1
+    assert (
+        RentalRelayBinding.query.filter_by(
+            predecessor_rental_id=rentals[0].id,
+            successor_rental_id=rentals[1].id,
+        ).count()
+        == 1
+    )
 
     shipped = RelayCaseService.update_case(
         rentals[0].id,
@@ -840,10 +824,13 @@ def test_relay_status_service_composes_agreement_and_handoff_atomically(
     assert units[0].current_holder_rental_id == rentals[1].id
     assert rentals[1].status == "shipped"
     assert shipped_rental_ids == [rentals[1].id]
-    assert AccessoryUnitEvent.query.filter_by(
-        event_type="relay_handoff",
-        relay_case_id=cases[0].id,
-    ).count() == 1
+    assert (
+        AccessoryUnitEvent.query.filter_by(
+            event_type="relay_handoff",
+            relay_case_id=cases[0].id,
+        ).count()
+        == 1
+    )
 
 
 def test_relay_status_service_rolls_back_shipping_when_holder_is_out_of_order(
@@ -887,9 +874,7 @@ def test_relay_status_service_rolls_back_shipping_when_holder_is_out_of_order(
     assert rentals[1].status == "not_shipped"
     assert rentals[1].ship_out_tracking_no is None
     assert units[0].current_holder_rental_id == rentals[2].id
-    assert AccessoryUnitEvent.query.filter_by(
-        event_type="relay_handoff"
-    ).count() == 0
+    assert AccessoryUnitEvent.query.filter_by(event_type="relay_handoff").count() == 0
     assert provider_called == []
 
 
@@ -996,9 +981,7 @@ def test_tenant_projection_executes_full_chain_in_order_and_replays_earlier_edge
         )
     assert replay.accessory_chain["handed_off_count"] == 1
     assert units[0].current_holder_rental_id == rentals[2].id
-    assert AccessoryUnitEvent.query.filter_by(
-        event_type="relay_handoff"
-    ).count() == 2
+    assert AccessoryUnitEvent.query.filter_by(event_type="relay_handoff").count() == 2
     session.rollback()
 
     with session.begin():
@@ -1012,13 +995,14 @@ def test_tenant_projection_executes_full_chain_in_order_and_replays_earlier_edge
         )
     assert completed.relay_case.status == "completed"
     assert units[0].current_holder_rental_id == rentals[2].id
-    assert AccessoryUnitEvent.query.filter_by(
-        event_type="relay_handoff"
-    ).count() == 2
-    assert AuditLog.query.filter(
-        AuditLog.action == "relay_case_status_changed",
-        AuditLog.details["external_projection"].as_boolean().is_(True),
-    ).count() == 3
+    assert AccessoryUnitEvent.query.filter_by(event_type="relay_handoff").count() == 2
+    assert (
+        AuditLog.query.filter(
+            AuditLog.action == "relay_case_status_changed",
+            AuditLog.details["external_projection"].as_boolean().is_(True),
+        ).count()
+        == 3
+    )
     assert accessory_type.id is not None
 
 
@@ -1069,6 +1053,4 @@ def test_tenant_projection_rolls_back_handoff_when_audit_persistence_fails(
     assert rentals[1].status == "not_shipped"
     assert rentals[1].ship_out_tracking_no is None
     assert units[0].current_holder_rental_id == rentals[0].id
-    assert AccessoryUnitEvent.query.filter_by(
-        event_type="relay_handoff"
-    ).count() == 0
+    assert AccessoryUnitEvent.query.filter_by(event_type="relay_handoff").count() == 0

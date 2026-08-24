@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass
 from datetime import datetime
 from types import MappingProxyType
@@ -12,7 +10,7 @@ from uuid import uuid5
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from app.models.audit_log import AuditLog
 from app.models.database_identity import TenantDatabaseIdentity
@@ -33,14 +31,14 @@ from inventory_control.default_migration.historical_boundary import (
     DefaultHistoricalBoundaryError,
     HistoricalSnapshotDisposition,
 )
+from inventory_control.evidence import canonical_json_sha256
+from inventory_control.transactions import require_caller_transaction
 
 
 LEGACY_UNATTRIBUTED_HISTORY_POLICY_REVISION: Final = 1
 _SHIPMENT_UUID_DOMAIN: Final = "legacy-unattributed-shipment:rental:"
 _PRINT_UUID_DOMAIN: Final = "legacy-unattributed-print:audit:"
-_LIFECYCLE_STATUSES: Final = frozenset(
-    {"shipped", "returned", "completed"}
-)
+_LIFECYCLE_STATUSES: Final = frozenset({"shipped", "returned", "completed"})
 _VALID_RENTAL_STATUSES: Final = frozenset(
     {
         "not_shipped",
@@ -64,33 +62,23 @@ class LegacyUnattributedHistoryInputError(LegacyUnattributedHistoryError):
     code = "LEGACY_UNATTRIBUTED_HISTORY_INPUT_INVALID"
 
 
-class LegacyUnattributedHistoryTransactionError(
-    LegacyUnattributedHistoryError
-):
+class LegacyUnattributedHistoryTransactionError(LegacyUnattributedHistoryError):
     code = "LEGACY_UNATTRIBUTED_HISTORY_TRANSACTION_INVALID"
 
 
-class LegacyUnattributedHistoryIdentityError(
-    LegacyUnattributedHistoryError
-):
+class LegacyUnattributedHistoryIdentityError(LegacyUnattributedHistoryError):
     code = "LEGACY_UNATTRIBUTED_HISTORY_IDENTITY_MISMATCH"
 
 
-class LegacyUnattributedHistoryBoundaryError(
-    LegacyUnattributedHistoryError
-):
+class LegacyUnattributedHistoryBoundaryError(LegacyUnattributedHistoryError):
     code = "LEGACY_UNATTRIBUTED_HISTORY_BOUNDARY_MISMATCH"
 
 
-class LegacyUnattributedHistoryConflictError(
-    LegacyUnattributedHistoryError
-):
+class LegacyUnattributedHistoryConflictError(LegacyUnattributedHistoryError):
     code = "LEGACY_UNATTRIBUTED_HISTORY_CONFLICT"
 
 
-class LegacyUnattributedHistoryPersistenceError(
-    LegacyUnattributedHistoryError
-):
+class LegacyUnattributedHistoryPersistenceError(LegacyUnattributedHistoryError):
     code = "LEGACY_UNATTRIBUTED_HISTORY_PERSISTENCE_FAILED"
 
 
@@ -110,8 +98,7 @@ class LegacyUnattributedHistoryResult:
             or not _digest(self.result_digest)
             or not isinstance(self.counts, tuple)
             or tuple(sorted(self.counts)) != self.counts
-            or len({key for key, _count in self.counts})
-            != len(self.counts)
+            or len({key for key, _count in self.counts}) != len(self.counts)
             or any(
                 not isinstance(key, str)
                 or not key
@@ -166,7 +153,12 @@ class LegacyUnattributedHistoryBackfillService:
         except DefaultHistoricalBoundaryError:
             raise LegacyUnattributedHistoryBoundaryError() from None
 
-        _require_explicit_transaction(session)
+        require_caller_transaction(
+            session,
+            LegacyUnattributedHistoryTransactionError,
+            invalid_session_error=LegacyUnattributedHistoryInputError,
+            clean=True,
+        )
         try:
             _verify_identity(
                 session,
@@ -244,14 +236,10 @@ class LegacyUnattributedHistoryBackfillService:
                 "counts": list(counts),
                 "database_uuid": str(manifest.database_uuid),
                 "manifest_digest": manifest.digest.hex(),
-                "policy_revision": (
-                    LEGACY_UNATTRIBUTED_HISTORY_POLICY_REVISION
-                ),
+                "policy_revision": (LEGACY_UNATTRIBUTED_HISTORY_POLICY_REVISION),
                 "prints": print_rows,
                 "shipments": shipment_rows,
-                "source_snapshot_digest": (
-                    manifest.source_snapshot_digest.hex()
-                ),
+                "source_snapshot_digest": (manifest.source_snapshot_digest.hex()),
                 "tenant_uuid": str(manifest.tenant_uuid),
             }
         )
@@ -263,24 +251,6 @@ class LegacyUnattributedHistoryBackfillService:
             idempotent_replay=created == 0,
             verification_passed=True,
         )
-
-
-def _require_explicit_transaction(session: Session) -> None:
-    if not isinstance(session, Session):
-        raise LegacyUnattributedHistoryInputError()
-    transaction = session.get_transaction()
-    dirty = any(
-        session.is_modified(instance, include_collections=True)
-        for instance in session.dirty
-    )
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        or session.new
-        or session.deleted
-        or dirty
-    ):
-        raise LegacyUnattributedHistoryTransactionError()
 
 
 def _verify_identity(
@@ -422,7 +392,9 @@ def _shipment_values(
         "shipped_at": _datetime_text(shipped_at),
     }
     return {
-        "id": str(uuid5(manifest.database_uuid, _SHIPMENT_UUID_DOMAIN + str(rental.id))),
+        "id": str(
+            uuid5(manifest.database_uuid, _SHIPMENT_UUID_DOMAIN + str(rental.id))
+        ),
         "snapshot_kind": LEGACY_UNATTRIBUTED_KIND,
         "source_rental_id": rental.id,
         "rental_id": rental.id,
@@ -463,10 +435,7 @@ def _shipment_matches(
     row: LegacyUnattributedShipmentSnapshot,
     expected: Mapping[str, object],
 ) -> bool:
-    return all(
-        getattr(row, key) == value
-        for key, value in expected.items()
-    )
+    return all(getattr(row, key) == value for key, value in expected.items())
 
 
 def _print_matches(
@@ -500,14 +469,10 @@ def _verify_persisted_counts(
 ) -> None:
     counts = {
         "legacy_shipments": session.scalar(
-            sa.select(sa.func.count()).select_from(
-                LegacyUnattributedShipmentSnapshot
-            )
+            sa.select(sa.func.count()).select_from(LegacyUnattributedShipmentSnapshot)
         ),
         "legacy_prints": session.scalar(
-            sa.select(sa.func.count()).select_from(
-                LegacyUnattributedPrintSnapshot
-            )
+            sa.select(sa.func.count()).select_from(LegacyUnattributedPrintSnapshot)
         ),
         "outbound_shipments": session.scalar(
             sa.select(sa.func.count()).select_from(OutboundShipment)
@@ -550,17 +515,11 @@ def _datetime_text(value: datetime | None) -> str | None:
 
 
 def _canonical_digest(value: object) -> bytes:
-    try:
-        encoded = json.dumps(
-            value,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-            allow_nan=False,
-        ).encode("utf-8")
-    except (TypeError, ValueError, UnicodeEncodeError):
-        raise LegacyUnattributedHistoryConflictError() from None
-    return hashlib.sha256(encoded).digest()
+    return canonical_json_sha256(
+        value,
+        ensure_ascii=False,
+        invalid_error=LegacyUnattributedHistoryConflictError,
+    )
 
 
 def _digest(value: object) -> bool:

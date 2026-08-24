@@ -18,9 +18,10 @@ from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.crypto import CryptoCodecV1, EncryptedEnvelope, RootKey
+from inventory_control.evidence import require_sha256_digest
 from inventory_control.models.foundation import Tenant
 from inventory_control.models.integrations import (
     TenantIntegration,
@@ -28,6 +29,7 @@ from inventory_control.models.integrations import (
     TenantIntegrationSecretRevision,
     TenantProviderDefault,
 )
+from inventory_control.transactions import require_caller_transaction
 
 from .credentials import (
     AAD_VERSION,
@@ -238,8 +240,7 @@ class TenantIntegrationService:
         existing = self._session.scalar(
             sa.select(TenantIntegrationSecretRevision)
             .where(
-                TenantIntegrationSecretRevision.request_idempotency_key
-                == request_key
+                TenantIntegrationSecretRevision.request_idempotency_key == request_key
             )
             .with_for_update()
         )
@@ -252,7 +253,8 @@ class TenantIntegrationService:
         if (
             integration.row_version != expected_row
             or integration.current_secret_revision_id != expected_current
-            or integration.status not in (
+            or integration.status
+            not in (
                 "unconfigured",
                 "pending",
                 "active",
@@ -264,8 +266,7 @@ class TenantIntegrationService:
 
         latest = self._session.scalar(
             sa.select(sa.func.max(TenantIntegrationSecretRevision.revision_no)).where(
-                TenantIntegrationSecretRevision.tenant_integration_id
-                == integration.id
+                TenantIntegrationSecretRevision.tenant_integration_id == integration.id
             )
         )
         revision_no = int(latest or 0) + 1
@@ -375,8 +376,7 @@ class TenantIntegrationService:
             .where(
                 TenantIntegrationSecretRevision.id == revision_id,
                 TenantIntegrationSecretRevision.status == "pending_validation",
-                TenantIntegrationSecretRevision.verification_status
-                == "not_attempted",
+                TenantIntegrationSecretRevision.verification_status == "not_attempted",
                 TenantIntegrationSecretRevision.row_version == expected_row,
             )
             .values(
@@ -406,7 +406,10 @@ class TenantIntegrationService:
         revision_id = _uuid(revision_uuid)
         attempt_id = _uuid(attempt_uuid)
         selected = _validation_outcome(outcome)
-        result_digest = _digest32(provider_result_digest)
+        result_digest = require_sha256_digest(
+            provider_result_digest,
+            IntegrationInputError,
+        )
         result_code = _safe_code(safe_code)
         occurred_at = _datetime(completed_at or _utc_now())
         revision = self._lock_revision(revision_id)
@@ -454,7 +457,10 @@ class TenantIntegrationService:
             selected = ProviderValidationReconciliation(resolution)
         except (TypeError, ValueError):
             raise IntegrationInputError() from None
-        result_digest = _digest32(provider_result_digest)
+        result_digest = require_sha256_digest(
+            provider_result_digest,
+            IntegrationInputError,
+        )
         result_code = _safe_code(safe_code)
         occurred_at = _datetime(completed_at or _utc_now())
         revision = self._lock_revision(revision_id)
@@ -590,9 +596,7 @@ class TenantIntegrationService:
         )
         existing = self._session.scalar(
             sa.select(TenantIntegrationSecretEnvelopeEvent)
-            .where(
-                TenantIntegrationSecretEnvelopeEvent.idempotency_key == request_key
-            )
+            .where(TenantIntegrationSecretEnvelopeEvent.idempotency_key == request_key)
             .with_for_update()
         )
         if existing is not None:
@@ -631,9 +635,7 @@ class TenantIntegrationService:
             before_ciphertext_digest=hashlib.sha256(
                 bytes(revision.credentials_ciphertext)
             ).digest(),
-            after_ciphertext_digest=hashlib.sha256(
-                new_envelope.ciphertext
-            ).digest(),
+            after_ciphertext_digest=hashlib.sha256(new_envelope.ciphertext).digest(),
             rotation_run_uuid=run_id,
             rotation_action_uuid=action_id,
             idempotency_key=request_key,
@@ -671,8 +673,7 @@ class TenantIntegrationService:
         except IntegrityError:
             existing = self._session.scalar(
                 sa.select(TenantIntegrationSecretEnvelopeEvent).where(
-                    TenantIntegrationSecretEnvelopeEvent.idempotency_key
-                    == request_key
+                    TenantIntegrationSecretEnvelopeEvent.idempotency_key == request_key
                 )
             )
             if (
@@ -858,8 +859,7 @@ class TenantIntegrationService:
             if (
                 revision.expected_current_secret_revision_id is None
                 and integration.current_secret_revision_id is None
-                and integration.row_version
-                == revision.expected_integration_row_version
+                and integration.row_version == revision.expected_integration_row_version
             ):
                 integration_changed = self._session.execute(
                     sa.update(TenantIntegration)
@@ -1058,12 +1058,10 @@ class TenantIntegrationService:
             raise IntegrationPersistenceError() from None
 
     def _require_transaction(self) -> None:
-        transaction = self._session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            raise IntegrationTransactionRequiredError()
+        require_caller_transaction(
+            self._session,
+            IntegrationTransactionRequiredError,
+        )
 
 
 def _crypto_context(
@@ -1081,9 +1079,7 @@ def _crypto_context(
         credential_bundle_version=revision.credential_bundle_version,
         canonical_semantics_digest=bytes(revision.canonical_semantics_digest),
         root_key_version=(
-            revision.root_key_version
-            if root_key_version is None
-            else root_key_version
+            revision.root_key_version if root_key_version is None else root_key_version
         ),
         crypto_version=revision.crypto_version,
         aad_version=revision.aad_version,
@@ -1207,12 +1203,6 @@ def _safe_code(value: str) -> str:
     if not isinstance(value, str) or _SAFE_CODE.fullmatch(value) is None:
         raise IntegrationInputError()
     return value
-
-
-def _digest32(value: bytes) -> bytes:
-    if not isinstance(value, bytes) or len(value) != 32:
-        raise IntegrationInputError()
-    return bytes(value)
 
 
 def _datetime(value: datetime) -> datetime:

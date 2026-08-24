@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 import sqlalchemy as sa
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.models import (
     ProviderAccountClaim,
@@ -16,6 +16,7 @@ from inventory_control.models import (
     TenantProviderAccount,
     TenantProviderAccountSecretRevision,
 )
+from inventory_control.transactions import require_caller_transaction
 
 
 class ProviderContextError(RuntimeError):
@@ -196,12 +197,10 @@ class SfProviderContextResolver:
         )
 
     def _require_transaction(self) -> None:
-        transaction = self._session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            raise ProviderContextTransactionError()
+        require_caller_transaction(
+            self._session,
+            ProviderContextTransactionError,
+        )
 
 
 def _current_facts_match(

@@ -6,7 +6,7 @@ from uuid import UUID
 
 import pytest
 
-from app import create_app, db
+from app import db
 from app.models.device import Device
 from app.models.rental import Rental
 from app.models.shipping_execution import OutboundShipment
@@ -29,18 +29,6 @@ ACCOUNT_REVISION_UUID = "60000000-0000-4000-8000-000000000001"
 SECOND_ACCOUNT_REVISION_UUID = "60000000-0000-4000-8000-000000000002"
 CLAIM_UUID = "70000000-0000-4000-8000-000000000001"
 NOW = datetime(2026, 8, 23, 5, 0, 0)
-
-
-@pytest.fixture
-def application():
-    app = create_app("testing")
-    with app.app_context():
-        db.create_all()
-        try:
-            yield app
-        finally:
-            db.session.remove()
-            db.drop_all()
 
 
 @pytest.fixture
@@ -104,9 +92,7 @@ def _shipment(
         account_masked_hint="****0001",
         sender_snapshot={"contact_name": "server-derived"},
         receiver_snapshot={"contact_phone": "13900139000"},
-        cargo_snapshot={
-            "items": [{"name": "租赁设备", "count": 1}]
-        },
+        cargo_snapshot={"items": [{"name": "租赁设备", "count": 1}]},
         tracking_check_phone_last4=phone_last4,
         express_type_id=2,
         scheduled_dispatch_at=(submitted_at - timedelta(minutes=2)),
@@ -211,9 +197,7 @@ def test_batch_plan_groups_by_exact_revision_and_phone_without_current_lookup(
         ids[0],
     ]
     assert batches[0].phone_last4 == "9000"
-    assert batches[0].provider_account_secret_revision_uuid == (
-        ACCOUNT_REVISION_UUID
-    )
+    assert batches[0].provider_account_secret_revision_uuid == (ACCOUNT_REVISION_UUID)
     assert batches[1].phone_last4 == "8000"
     assert batches[1].provider_account_secret_revision_uuid == (
         SECOND_ACCOUNT_REVISION_UUID

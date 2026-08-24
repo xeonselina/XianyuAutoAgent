@@ -212,8 +212,7 @@ class SmsChallengeService:
             session.scalars(
                 sa.select(SmsChallenge)
                 .where(
-                    SmsChallenge.canonical_phone_e164
-                    == challenge.canonical_phone_e164,
+                    SmsChallenge.canonical_phone_e164 == challenge.canonical_phone_e164,
                     SmsChallenge.purpose == challenge.purpose,
                 )
                 .order_by(SmsChallenge.created_at, SmsChallenge.id)
@@ -356,9 +355,7 @@ class SmsChallengeService:
         trusted_source: TrustedSourceBucket,
         now: datetime,
     ) -> None:
-        subjects = sorted(
-            (("phone", phone.e164), ("source", trusted_source.value))
-        )
+        subjects = sorted((("phone", phone.e164), ("source", trusted_source.value)))
         dialect_name = session.get_bind().dialect.name
         for subject_type, subject_bucket in subjects:
             values = {
@@ -368,21 +365,15 @@ class SmsChallengeService:
                 "created_at": now,
                 "updated_at": now,
             }
-            if dialect_name == "sqlite":
-                statement = sa.insert(SmsRateLimitSubject).values(**values)
-                session.execute(statement.prefix_with("OR IGNORE"))
-            elif dialect_name == "mysql":
+            if dialect_name in {"mysql", "mariadb"}:
                 statement = mysql.insert(SmsRateLimitSubject).values(**values)
                 session.execute(
                     statement.on_duplicate_key_update(
                         subject_bucket=statement.inserted.subject_bucket
                     )
                 )
-            elif session.get(
-                SmsRateLimitSubject, (subject_type, subject_bucket)
-            ) is None:
-                session.add(SmsRateLimitSubject(**values))
-                session.flush()
+            else:
+                raise RuntimeError("SMS rate limiting requires MySQL or MariaDB")
 
         for subject_type, subject_bucket in subjects:
             locked = session.scalar(
@@ -440,9 +431,7 @@ class SmsChallengeService:
                 SmsChallenge.delivery_state.in_(_VERIFIABLE_DELIVERY_STATES),
                 SmsChallenge.delivery_recorded_at.is_not(None),
             )
-            .order_by(
-                SmsChallenge.delivery_recorded_at.desc(), SmsChallenge.id.desc()
-            )
+            .order_by(SmsChallenge.delivery_recorded_at.desc(), SmsChallenge.id.desc())
             .limit(1)
             .with_for_update()
         )
@@ -515,9 +504,7 @@ class SmsChallengeService:
                     sa.select(SmsChallenge.created_at)
                     .where(
                         predicate,
-                        SmsChallenge.delivery_state.in_(
-                            _COUNTED_DELIVERY_STATES
-                        ),
+                        SmsChallenge.delivery_state.in_(_COUNTED_DELIVERY_STATES),
                         SmsChallenge.created_at >= window_start,
                         SmsChallenge.created_at <= window_end,
                     )
@@ -527,9 +514,7 @@ class SmsChallengeService:
             )
             if len(events) < limit:
                 continue
-            retry_at = fixed_retry_at or (
-                _as_utc(events[0]) + timedelta(hours=1)
-            )
+            retry_at = fixed_retry_at or (_as_utc(events[0]) + timedelta(hours=1))
             raise SmsSendRejected(
                 reason_code=reason,
                 retry_after_seconds=_retry_seconds(retry_at, now),
@@ -569,9 +554,7 @@ def _context_matches(row: SmsChallenge, context: SmsChallengeContext) -> bool:
     )
 
 
-def _invalidate_if_open(
-    challenge: SmsChallenge, *, now: datetime, reason: str
-) -> None:
+def _invalidate_if_open(challenge: SmsChallenge, *, now: datetime, reason: str) -> None:
     if challenge.verification_state not in {"pending_delivery", "active"}:
         return
     challenge.verification_state = "invalidated"

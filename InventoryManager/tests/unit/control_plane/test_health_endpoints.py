@@ -5,7 +5,6 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from flask import Flask
 
-from inventory_control import ControlBase
 from inventory_control.models.operations import PlatformOperationalSignal
 from inventory_control.models.recovery import DisasterRecoveryRun
 from inventory_control.operations import (
@@ -17,27 +16,15 @@ from inventory_control.operations import (
     OperationalEnvironment,
     create_health_blueprint,
 )
-from tests.support.test_database import (
-    clear_guarded_mysql_test_rows,
-    guarded_mysql_control_database,
-)
-
 
 NOW = datetime(2026, 8, 22, 12, 0, tzinfo=timezone.utc)
 INSTALLATION = "1" * 64
 MARKER = "2" * 64
 
 
-@pytest.fixture(scope="module")
-def database_schema():
-    with guarded_mysql_control_database(ControlBase.metadata) as database:
-        yield database
-
-
 @pytest.fixture
-def database(database_schema):
-    clear_guarded_mysql_test_rows(database_schema.engine, ControlBase.metadata)
-    return database_schema
+def database(mysql_control_database):
+    return mysql_control_database
 
 
 def _service(*, clock=lambda _session: NOW):
@@ -212,9 +199,7 @@ def test_monitor_requires_both_fresh_heartbeats_and_clear_delivery_latch(databas
     "failure",
     ["missing_worker", "stale_worker", "stale_evaluator", "delivery_latched"],
 )
-def test_monitor_fails_closed_for_missing_stale_or_latched_state(
-    database, failure
-):
+def test_monitor_fails_closed_for_missing_stale_or_latched_state(database, failure):
     rows = {
         "worker.heartbeat": _signal("worker.heartbeat"),
         "evaluator.heartbeat": _signal("evaluator.heartbeat"),

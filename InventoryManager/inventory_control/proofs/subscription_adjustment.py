@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from inventory_control.crypto import CryptoCodecV1, RootKey
+from inventory_control.evidence import require_sha256_digest
 
 from .token_codec import canonical_json, join_signed_token, split_signed_token
 
@@ -149,16 +150,14 @@ def issue_subscription_adjustment_confirmation(
         ):
             raise ValueError
         _require_positive_int(platform_auth_version)
-        request_digest = _digest32(request_digest)
-        preview_digest = _digest32(preview_digest)
+        request_digest = require_sha256_digest(request_digest, ValueError)
+        preview_digest = require_sha256_digest(preview_digest, ValueError)
         issued_at = _utc_second(database_now)
         if (
             not isinstance(ttl, timedelta)
             or ttl <= timedelta(0)
             or ttl
-            > timedelta(
-                seconds=SUBSCRIPTION_ADJUSTMENT_CONFIRMATION_MAX_TTL_SECONDS
-            )
+            > timedelta(seconds=SUBSCRIPTION_ADJUSTMENT_CONFIRMATION_MAX_TTL_SECONDS)
             or ttl.microseconds != 0
         ):
             raise ValueError
@@ -213,7 +212,7 @@ def verify_subscription_adjustment_confirmation(
         ):
             raise ValueError
         _require_positive_int(expected_platform_auth_version)
-        expected_digest = _digest32(expected_request_digest)
+        expected_digest = require_sha256_digest(expected_request_digest, ValueError)
         encoded, signature = split_signed_token(
             token,
             maximum_bytes=_MAX_TOKEN_BYTES,
@@ -235,19 +234,14 @@ def verify_subscription_adjustment_confirmation(
             payload["confirmation_version"]
             != SUBSCRIPTION_ADJUSTMENT_CONFIRMATION_VERSION
             or payload["root_key_version"] != root_key.version
-            or parsed["platform_actor_uuid"]
-            != expected_platform_actor_uuid
-            or parsed["platform_session_uuid"]
-            != expected_platform_session_uuid
-            or parsed["platform_auth_version"]
-            != expected_platform_auth_version
+            or parsed["platform_actor_uuid"] != expected_platform_actor_uuid
+            or parsed["platform_session_uuid"] != expected_platform_session_uuid
+            or parsed["platform_auth_version"] != expected_platform_auth_version
             or not hmac.compare_digest(parsed["request_digest"], expected_digest)
             or parsed["issued_at"] > now
             or parsed["expires_at"] <= now
             or parsed["expires_at"] - parsed["issued_at"]
-            > timedelta(
-                seconds=SUBSCRIPTION_ADJUSTMENT_CONFIRMATION_MAX_TTL_SECONDS
-            )
+            > timedelta(seconds=SUBSCRIPTION_ADJUSTMENT_CONFIRMATION_MAX_TTL_SECONDS)
         ):
             raise ValueError
         return VerifiedSubscriptionAdjustmentConfirmation(
@@ -285,9 +279,7 @@ def subscription_adjustment_preview_digest(
         "active",
         "expired",
     }:
-        raise SubscriptionAdjustmentConfirmationError(
-            "adjustment preview is invalid"
-        )
+        raise SubscriptionAdjustmentConfirmationError("adjustment preview is invalid")
     payload = {
         "after_expires_at": _utc_iso(after_expires_at),
         "after_status": after_status,
@@ -334,9 +326,7 @@ def _payload(
         "subscription_row_version": fences.subscription_row_version,
         "subscription_uuid": str(fences.subscription_uuid),
         "suspension_action_row_version": fences.suspension_action_row_version,
-        "suspension_action_uuid": _optional_uuid(
-            fences.suspension_action_uuid
-        ),
+        "suspension_action_uuid": _optional_uuid(fences.suspension_action_uuid),
         "suspension_generation": fences.suspension_generation,
         "suspension_row_version": fences.suspension_row_version,
         "suspension_uuid": _optional_uuid(fences.suspension_uuid),
@@ -382,9 +372,7 @@ def _parse_payload(payload: dict[str, object]) -> dict[str, object]:
     fences = SubscriptionAdjustmentFences(
         tenant_uuid=UUID(payload["tenant_uuid"]),
         tenant_row_version=_strict_positive_int(payload["tenant_row_version"]),
-        tenant_access_version=_strict_positive_int(
-            payload["tenant_access_version"]
-        ),
+        tenant_access_version=_strict_positive_int(payload["tenant_access_version"]),
         subscription_uuid=UUID(payload["subscription_uuid"]),
         subscription_row_version=_strict_positive_int(
             payload["subscription_row_version"]
@@ -394,9 +382,7 @@ def _parse_payload(payload: dict[str, object]) -> dict[str, object]:
             payload["recovery_run_row_version"]
         ),
         recovery_hold_uuid=UUID(payload["recovery_hold_uuid"]),
-        recovery_hold_revision=_strict_positive_int(
-            payload["recovery_hold_revision"]
-        ),
+        recovery_hold_revision=_strict_positive_int(payload["recovery_hold_revision"]),
         recovery_hold_row_version=_strict_positive_int(
             payload["recovery_hold_row_version"]
         ),
@@ -404,19 +390,13 @@ def _parse_payload(payload: dict[str, object]) -> dict[str, object]:
         deletion_request_revision=_nullable_positive_int(
             payload["deletion_request_revision"]
         ),
-        deletion_row_version=_nullable_positive_int(
-            payload["deletion_row_version"]
-        ),
+        deletion_row_version=_nullable_positive_int(payload["deletion_row_version"]),
         suspension_uuid=_nullable_uuid(payload["suspension_uuid"]),
         suspension_row_version=_nullable_positive_int(
             payload["suspension_row_version"]
         ),
-        suspension_generation=_nullable_positive_int(
-            payload["suspension_generation"]
-        ),
-        suspension_action_uuid=_nullable_uuid(
-            payload["suspension_action_uuid"]
-        ),
+        suspension_generation=_nullable_positive_int(payload["suspension_generation"]),
+        suspension_action_uuid=_nullable_uuid(payload["suspension_action_uuid"]),
         suspension_action_row_version=_nullable_positive_int(
             payload["suspension_action_row_version"]
         ),
@@ -425,9 +405,7 @@ def _parse_payload(payload: dict[str, object]) -> dict[str, object]:
         "fences": fences,
         "platform_actor_uuid": UUID(payload["platform_actor_uuid"]),
         "platform_session_uuid": UUID(payload["platform_session_uuid"]),
-        "platform_auth_version": _strict_positive_int(
-            payload["platform_auth_version"]
-        ),
+        "platform_auth_version": _strict_positive_int(payload["platform_auth_version"]),
         "request_digest": _hex_digest(payload["request_digest"]),
         "preview_digest": _hex_digest(payload["preview_digest"]),
         "issued_at": datetime.fromtimestamp(
@@ -480,19 +458,13 @@ def _nullable_positive_int(value: object) -> int | None:
     return None if value is None else _strict_positive_int(value)
 
 
-def _digest32(value: object) -> bytes:
-    if not isinstance(value, bytes) or len(value) != 32:
-        raise ValueError
-    return bytes(value)
-
-
 def _hex_digest(value: object) -> bytes:
     if not isinstance(value, str) or len(value) != 64:
         raise ValueError
     decoded = bytes.fromhex(value)
     if decoded.hex() != value:
         raise ValueError
-    return _digest32(decoded)
+    return require_sha256_digest(decoded, ValueError)
 
 
 def _optional_uuid(value: UUID | None) -> str | None:

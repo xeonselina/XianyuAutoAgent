@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import sqlalchemy as sa
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.models.foundation import Installation
 from inventory_control.models.recovery import DisasterRecoveryRun
@@ -19,6 +19,7 @@ from inventory_control.operations.health import (
     HostRecoveryMarker,
     HostRecoveryMarkerMode,
 )
+from inventory_control.transactions import require_caller_transaction
 
 
 class StartupAuthorityError(RuntimeError):
@@ -113,22 +114,17 @@ class StartupAuthorityService:
 
 
 def _require_clean_explicit_transaction(session: Session) -> None:
-    if not isinstance(session, Session):
-        raise TypeError("session must be a SQLAlchemy Session")
-    transaction = session.get_transaction()
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-    ):
-        raise StartupAuthorityTransactionError(
+    require_caller_transaction(
+        session,
+        lambda: StartupAuthorityTransactionError(
             "STARTUP_EXPLICIT_TRANSACTION_REQUIRED"
-        )
-    dirty = any(
-        session.is_modified(instance, include_collections=True)
-        for instance in session.dirty
+        ),
+        invalid_session_error=lambda: TypeError("session must be a SQLAlchemy Session"),
+        clean=True,
+        dirty_error=lambda: StartupAuthorityTransactionError(
+            "STARTUP_CLEAN_TRANSACTION_REQUIRED"
+        ),
     )
-    if session.new or session.deleted or dirty:
-        raise StartupAuthorityTransactionError("STARTUP_CLEAN_TRANSACTION_REQUIRED")
 
 
 __all__ = [

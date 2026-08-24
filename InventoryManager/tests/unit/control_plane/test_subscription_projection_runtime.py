@@ -177,7 +177,6 @@ def _worker(database):
         worker_id="subscription-projection-test-worker",
         lease_duration=timedelta(minutes=2),
         clock=lambda: NOW,
-        allow_sqlite_claim_for_tests=True,
     )
 
 
@@ -262,7 +261,6 @@ def test_capability_trigger_and_worker_share_one_durable_process(database):
         capabilities=(capability,),
         worker_id="shared-control-worker",
         clock=lambda: NOW,
-        allow_sqlite_claim_for_tests=True,
     )
 
     first = process.run_cycle()

@@ -2,26 +2,12 @@ from datetime import date, timedelta
 
 import pytest
 
-from app import create_app, db
+from app import db
 from app.models.device import Device
 from app.models.device_model import DeviceModel
 from app.models.rental import Rental
 from app.services.gantt.gantt_service import GanttService
 from tests.support.test_database import assert_test_database_url
-
-
-@pytest.fixture
-def app():
-    return create_app("testing")
-
-
-@pytest.fixture
-def db_session(app):
-    with app.app_context():
-        db.create_all()
-        yield db.session
-        db.session.rollback()
-        db.drop_all()
 
 
 def test_rejects_production_database_name(monkeypatch):
@@ -47,9 +33,7 @@ def test_accepts_test_database_on_192_instance(monkeypatch):
     "lifecycle_status",
     ["sold", "damaged", "decommissioned", "retired"],
 )
-def test_find_slot_excludes_online_non_active_device(
-    app, db_session, lifecycle_status
-):
+def test_find_slot_excludes_online_non_active_device(app, db_session, lifecycle_status):
     with app.app_context():
         model = DeviceModel(
             name=f"eligibility-{lifecycle_status}",
@@ -155,15 +139,17 @@ def test_find_slot_uses_usage_period_as_hard_conflict_and_logistics_as_warning(
 
         assert soft_overlap is not None
         assert soft_overlap["total_available"] == 1
-        assert soft_overlap["warnings"] == [{
-            "code": "LOGISTICS_OVERLAP_RELAY_WARNING",
-            "device_id": device.id,
-            "predecessor_rental_id": predecessor.id,
-            "successor_rental_id": None,
-            "overlap_days": 2,
-            "blocking": False,
-            "relay_candidate": True,
-        }]
+        assert soft_overlap["warnings"] == [
+            {
+                "code": "LOGISTICS_OVERLAP_RELAY_WARNING",
+                "device_id": device.id,
+                "predecessor_rental_id": predecessor.id,
+                "successor_rental_id": None,
+                "overlap_days": 2,
+                "blocking": False,
+                "relay_candidate": True,
+            }
+        ]
 
         hard_overlap = GanttService.find_available_slot(
             date(2026, 9, 2),

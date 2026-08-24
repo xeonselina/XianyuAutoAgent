@@ -2,24 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from app import create_app, db
+from app import db
 from app.models.warehouse import Warehouse
 from app.services.tenant_business.http_runtime import (
     TenantSetupRequired,
     _require_ready_default_warehouse,
 )
-
-
-@pytest.fixture
-def application():
-    app = create_app("testing")
-    with app.app_context():
-        db.create_all()
-        try:
-            yield app
-        finally:
-            db.session.remove()
-            db.drop_all()
 
 
 def test_normal_business_scope_rejects_pending_default(application):

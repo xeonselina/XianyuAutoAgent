@@ -50,7 +50,6 @@ def build_sf_relay_job_process(
     max_jobs_per_cycle: int = 100,
     idle_poll_interval: timedelta = timedelta(seconds=1),
     clock: Callable[[], datetime] | None = None,
-    allow_sqlite_claim_for_tests: bool = False,
 ) -> DurableJobProcess:
     """Merge SF, relay and caller capabilities into one durable process."""
 
@@ -92,7 +91,6 @@ def build_sf_relay_job_process(
         max_jobs_per_cycle=max_jobs_per_cycle,
         idle_poll_interval=idle_poll_interval,
         clock=clock,
-        allow_sqlite_claim_for_tests=allow_sqlite_claim_for_tests,
     )
 
 

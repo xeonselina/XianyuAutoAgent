@@ -6,7 +6,6 @@ from uuid import UUID
 import pytest
 from sqlalchemy import func, select
 
-from inventory_control import ControlBase
 from inventory_control.models import (
     MemberSeatGuard,
     PlanRevision,
@@ -22,11 +21,6 @@ from inventory_control.subscriptions import (
     SubscriptionPlanInvalidError,
     parse_core_entitlements,
 )
-from tests.support.test_database import (
-    clear_guarded_mysql_test_rows,
-    guarded_mysql_control_database,
-)
-
 
 TENANT_UUID = UUID("10000000-0000-4000-8000-000000000001")
 DATABASE_UUID = UUID("10000000-0000-4000-8000-000000000002")
@@ -34,19 +28,9 @@ PLAN_UUID = UUID("10000000-0000-4000-8000-000000000003")
 NOW = datetime(2026, 8, 22, 12, 0, tzinfo=timezone.utc)
 
 
-@pytest.fixture(scope="module")
-def control_database_schema():
-    with guarded_mysql_control_database(ControlBase.metadata) as database:
-        yield database
-
-
 @pytest.fixture
-def control_database(control_database_schema):
-    clear_guarded_mysql_test_rows(
-        control_database_schema.engine,
-        ControlBase.metadata,
-    )
-    return control_database_schema
+def control_database(mysql_control_database):
+    return mysql_control_database
 
 
 def _seed(control_database, *, digest_override=None):
@@ -151,7 +135,9 @@ def test_default_grant_creates_one_subscription_event_and_prebuilt_guard(
         assert guard is not None
 
 
-def test_retry_returns_original_grant_without_extending_expiry(control_database) -> None:
+def test_retry_returns_original_grant_without_extending_expiry(
+    control_database,
+) -> None:
     _seed(control_database)
     service = _service()
     with control_database.transaction() as session:

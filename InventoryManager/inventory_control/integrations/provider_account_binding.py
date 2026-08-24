@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 import sqlalchemy as sa
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.crypto import (
     CryptoConfigurationError,
@@ -16,6 +16,7 @@ from inventory_control.crypto import (
     derive_provider_account_fingerprint,
 )
 from inventory_control.models import ProviderAccountClaim, TenantProviderAccount
+from inventory_control.transactions import require_caller_transaction
 
 from .provider_account_credentials import (
     ProviderAccountCredentialInputError,
@@ -113,9 +114,7 @@ class TenantProviderAccountBindingCoordinator:
             expected_current_secret_revision_uuid=(
                 expected_current_secret_revision_uuid
             ),
-            expected_current_global_claim_uuid=(
-                expected_current_global_claim_uuid
-            ),
+            expected_current_global_claim_uuid=(expected_current_global_claim_uuid),
         )
         reserved = active_claim is None
         claim_result = (
@@ -145,9 +144,7 @@ class TenantProviderAccountBindingCoordinator:
             if claim_result is not None
             else active_claim.row_version
         )
-        revision = TenantProviderAccountService(
-            self._session
-        ).create_pending_revision(
+        revision = TenantProviderAccountService(self._session).create_pending_revision(
             provider_account_uuid=account_id,
             tenant_uuid=tenant_id,
             integration_uuid=integration_uuid,
@@ -162,9 +159,7 @@ class TenantProviderAccountBindingCoordinator:
             expected_warehouse_provider_account_uuid=(
                 expected_warehouse_provider_account_uuid
             ),
-            expected_warehouse_binding_revision=(
-                expected_warehouse_binding_revision
-            ),
+            expected_warehouse_binding_revision=(expected_warehouse_binding_revision),
             created_by_user_uuid=proof.actor_user_uuid,
             action_uuid=action_uuid,
             request_digest=request_digest,
@@ -173,9 +168,7 @@ class TenantProviderAccountBindingCoordinator:
             expected_current_secret_revision_uuid=(
                 expected_current_secret_revision_uuid
             ),
-            expected_current_global_claim_uuid=(
-                expected_current_global_claim_uuid
-            ),
+            expected_current_global_claim_uuid=(expected_current_global_claim_uuid),
         )
         return ProviderAccountBindingSubmission(
             revision=revision,
@@ -183,9 +176,8 @@ class TenantProviderAccountBindingCoordinator:
             claim_generation=claim_generation,
             claim_row_version=claim_row_version,
             claim_was_reserved=reserved,
-            idempotent_replay=revision.idempotent_replay or bool(
-                claim_result is not None and claim_result.idempotent_replay
-            ),
+            idempotent_replay=revision.idempotent_replay
+            or bool(claim_result is not None and claim_result.idempotent_replay),
         )
 
     def _reserve_claim(
@@ -254,8 +246,7 @@ class TenantProviderAccountBindingCoordinator:
             or claim.current_warehouse_uuid != str(owner.warehouse_uuid)
             or claim.claim_generation != account.current_claim_generation
             or claim.fingerprint_version != fingerprint.fingerprint_version
-            or claim.fingerprint_root_key_version
-            != fingerprint.root_key_version
+            or claim.fingerprint_root_key_version != fingerprint.root_key_version
             or not hmac.compare_digest(
                 bytes(claim.account_fingerprint), fingerprint.digest
             )
@@ -264,12 +255,10 @@ class TenantProviderAccountBindingCoordinator:
         return claim
 
     def _require_transaction(self) -> None:
-        transaction = self._session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            raise ProviderAccountTransactionError()
+        require_caller_transaction(
+            self._session,
+            ProviderAccountTransactionError,
+        )
 
 
 def _uuid(value) -> str:

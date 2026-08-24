@@ -3,14 +3,15 @@
 The caller supplies an already routed tenant ``Session`` and owns its outer
 transaction.  This module neither selects a database nor calls a carrier.  An
 immutable manifest binds the locked database identity, current schema facts,
-and both sides of the only permitted transformation: ``NULL`` to integer ``2``.
+and both sides of the permitted transformations.  Historical ``NULL`` values
+map to integer ``2``.  A legacy integer ``6`` maps to ``2`` only when its exact
+rental ID is explicitly bound into the manifest.
 """
 
 from __future__ import annotations
 
 import hashlib
 import hmac
-import json
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -21,19 +22,18 @@ from uuid import UUID, uuid5
 
 import sqlalchemy as sa
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransaction, SessionTransactionOrigin
+from sqlalchemy.orm import Session, SessionTransaction
 
 from app.models.database_identity import TenantDatabaseIdentity
 from app.models.rental import Rental
+from inventory_control.evidence import canonical_json_bytes
+from inventory_control.transactions import require_caller_transaction
 
-
-EXPRESS_TYPE_BACKFILL_POLICY_REVISION: Final = 1
+EXPRESS_TYPE_BACKFILL_POLICY_REVISION: Final = 2
 TENANT_IDENTITY_DIGEST_REVISION: Final = 1
 _DIGEST_BYTES: Final = 32
 _SAFE_ID: Final = re.compile(r"[a-z0-9][a-z0-9_.:/+-]{0,127}", re.ASCII)
-_SCHEMA_REVISION: Final = re.compile(
-    r"[A-Za-z0-9][A-Za-z0-9_.:/+-]{0,127}", re.ASCII
-)
+_SCHEMA_REVISION: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/+-]{0,127}", re.ASCII)
 _OPERATION_DOMAIN: Final = "inventory-manager/express-type-backfill/v1/"
 _IDENTITY_DOMAIN: Final = b"inventory-manager/tenant-database-identity/v1\x00"
 _SNAPSHOT_DOMAIN: Final = b"inventory-manager/express-type-snapshot/v1\x00"
@@ -91,12 +91,19 @@ class ExpressTypeSourceSnapshot:
 
     total_count: int
     state_counts: tuple[tuple[str, int], ...]
+    approved_legacy_6_to_2_count: int
     source_digest: bytes
     expected_result_digest: bytes
 
     def __post_init__(self) -> None:
         _nonnegative_integer(self.total_count)
         normalized = _validated_state_counts(self.state_counts)
+        _nonnegative_integer(self.approved_legacy_6_to_2_count)
+        if (
+            self.approved_legacy_6_to_2_count
+            > dict(normalized)[ExpressTypeState.LEGACY_6.value]
+        ):
+            raise ExpressTypeBackfillInputError()
         if sum(count for _, count in normalized) != self.total_count:
             raise ExpressTypeBackfillInputError()
         _digest(self.source_digest)
@@ -114,11 +121,16 @@ class ExpressTypeSourceSnapshot:
                 (
                     0
                     if state is ExpressTypeState.HISTORICAL_NULL
-                    else source[state.value]
-                    + (
-                        source[ExpressTypeState.HISTORICAL_NULL.value]
-                        if state is ExpressTypeState.CANONICAL_2
-                        else 0
+                    else (
+                        source[state.value] - self.approved_legacy_6_to_2_count
+                        if state is ExpressTypeState.LEGACY_6
+                        else source[state.value]
+                        + (
+                            source[ExpressTypeState.HISTORICAL_NULL.value]
+                            + self.approved_legacy_6_to_2_count
+                            if state is ExpressTypeState.CANONICAL_2
+                            else 0
+                        )
                     )
                 ),
             )
@@ -129,6 +141,8 @@ class ExpressTypeSourceSnapshot:
         return (
             "ExpressTypeSourceSnapshot("
             f"total_count={self.total_count}, state_counts={self.state_counts!r}, "
+            "approved_legacy_6_to_2_count="
+            f"{self.approved_legacy_6_to_2_count!r}, "
             "digests='<sha256>')"
         )
 
@@ -146,6 +160,7 @@ class ExpressTypeBackfillManifest:
     schema_revision: str
     schema_digest: bytes
     source_snapshot: ExpressTypeSourceSnapshot
+    legacy_6_to_2_rental_ids: tuple[int, ...] = ()
     policy_revision: int = EXPRESS_TYPE_BACKFILL_POLICY_REVISION
     identity_digest_revision: int = TENANT_IDENTITY_DIGEST_REVISION
 
@@ -167,9 +182,20 @@ class ExpressTypeBackfillManifest:
         if not isinstance(self.source_snapshot, ExpressTypeSourceSnapshot):
             raise ExpressTypeBackfillInputError()
         if (
+            not isinstance(self.legacy_6_to_2_rental_ids, tuple)
+            or self.legacy_6_to_2_rental_ids
+            != tuple(sorted(set(self.legacy_6_to_2_rental_ids)))
+            or any(
+                isinstance(item, bool) or not isinstance(item, int) or item < 1
+                for item in self.legacy_6_to_2_rental_ids
+            )
+            or len(self.legacy_6_to_2_rental_ids)
+            != self.source_snapshot.approved_legacy_6_to_2_count
+        ):
+            raise ExpressTypeBackfillInputError()
+        if (
             self.policy_revision != EXPRESS_TYPE_BACKFILL_POLICY_REVISION
-            or self.identity_digest_revision
-            != TENANT_IDENTITY_DIGEST_REVISION
+            or self.identity_digest_revision != TENANT_IDENTITY_DIGEST_REVISION
         ):
             raise ExpressTypeBackfillInputError()
 
@@ -179,6 +205,7 @@ class ExpressTypeBackfillManifest:
             "database_uuid": str(self.database_uuid),
             "identity_digest_revision": self.identity_digest_revision,
             "migration_idempotency_key": self.migration_idempotency_key,
+            "legacy_6_to_2_rental_ids": list(self.legacy_6_to_2_rental_ids),
             "parent_manifest_digest": self.parent_manifest_digest.hex(),
             "policy_revision": self.policy_revision,
             "schema_digest": self.schema_digest.hex(),
@@ -272,7 +299,10 @@ class ExpressTypeBackfillResult:
             raise ExpressTypeBackfillPersistenceError()
         if not isinstance(self.idempotent_replay, bool):
             raise ExpressTypeBackfillPersistenceError()
-        if self.updated_count > dict(counts)[ExpressTypeState.HISTORICAL_NULL.value]:
+        if self.updated_count > (
+            dict(counts)[ExpressTypeState.HISTORICAL_NULL.value]
+            + dict(counts)[ExpressTypeState.LEGACY_6.value]
+        ):
             raise ExpressTypeBackfillPersistenceError()
 
     def safe_summary(self) -> Mapping[str, object]:
@@ -281,9 +311,7 @@ class ExpressTypeBackfillResult:
                 "operation_uuid": str(self.operation_uuid),
                 "manifest_digest": self.manifest_digest.hex(),
                 "report_digest": self.report_digest.hex(),
-                "source_state_counts": MappingProxyType(
-                    dict(self.source_state_counts)
-                ),
+                "source_state_counts": MappingProxyType(dict(self.source_state_counts)),
                 "updated_count": self.updated_count,
                 "verification_passed": self.verification_passed,
                 "safe_status": self.safe_status,
@@ -294,18 +322,34 @@ class ExpressTypeBackfillResult:
 
 def build_express_type_source_snapshot(
     rows: Iterable[tuple[int, object]],
+    *,
+    legacy_6_to_2_rental_ids: tuple[int, ...] = (),
 ) -> ExpressTypeSourceSnapshot:
     """Build safe commitments without returning rental IDs or raw values."""
 
     materialized = _materialize_rows(rows)
+    if (
+        not isinstance(legacy_6_to_2_rental_ids, tuple)
+        or legacy_6_to_2_rental_ids != tuple(sorted(set(legacy_6_to_2_rental_ids)))
+        or any(
+            isinstance(item, bool) or not isinstance(item, int) or item < 1
+            for item in legacy_6_to_2_rental_ids
+        )
+    ):
+        raise ExpressTypeBackfillInputError()
+    by_id = dict(materialized)
+    if any(by_id.get(row_id) != 6 for row_id in legacy_6_to_2_rental_ids):
+        raise ExpressTypeBackfillInputError()
+    approved = frozenset(legacy_6_to_2_rental_ids)
     state_counts = _count_states(materialized)
     expected = tuple(
-        (row_id, 2 if value is None else value)
+        (row_id, 2 if value is None or row_id in approved else value)
         for row_id, value in materialized
     )
     return ExpressTypeSourceSnapshot(
         total_count=len(materialized),
         state_counts=state_counts,
+        approved_legacy_6_to_2_count=len(approved),
         source_digest=_snapshot_digest(materialized),
         expected_result_digest=_snapshot_digest(expected),
     )
@@ -338,7 +382,7 @@ def tenant_database_identity_digest(
 
 
 class ExpressTypeBackfillService:
-    """Lock, verify and apply only the documented ``NULL`` to ``2`` rule."""
+    """Lock, verify and apply only the manifest-bound canonicalization rules."""
 
     def __init__(
         self,
@@ -356,7 +400,12 @@ class ExpressTypeBackfillService:
     ) -> ExpressTypeBackfillResult:
         if not isinstance(manifest, ExpressTypeBackfillManifest):
             raise ExpressTypeBackfillInputError()
-        outer_transaction = _prepare_session(session)
+        outer_transaction = require_caller_transaction(
+            session,
+            ExpressTypeBackfillTransactionError,
+            invalid_session_error=ExpressTypeBackfillInputError,
+            clean=True,
+        )
         identity = _verified_identity(_lock_identity(session), manifest)
         schema_facts = _read_schema_facts(
             self._schema_current_read,
@@ -365,11 +414,14 @@ class ExpressTypeBackfillService:
         )
         _verify_schema_facts(schema_facts, manifest)
         _require_same_transaction(session, outer_transaction)
-        _require_clean_session(session)
-        rentals = _lock_rentals(session)
-        current_rows = tuple(
-            (rental.id, rental.express_type_id) for rental in rentals
+        require_caller_transaction(
+            session,
+            ExpressTypeBackfillTransactionError,
+            invalid_session_error=ExpressTypeBackfillInputError,
+            clean=True,
         )
+        rentals = _lock_rentals(session)
+        current_rows = tuple((rental.id, rental.express_type_id) for rental in rentals)
         current = build_express_type_source_snapshot(current_rows)
         source = manifest.source_snapshot
 
@@ -380,13 +432,15 @@ class ExpressTypeBackfillService:
                 try:
                     with session.begin_nested():
                         for rental in rentals:
-                            if rental.express_type_id is None:
+                            if rental.express_type_id is None or (
+                                rental.express_type_id == 6
+                                and rental.id in manifest.legacy_6_to_2_rental_ids
+                            ):
                                 rental.express_type_id = 2
                                 updated_count += 1
                         session.flush()
                         post_rows = tuple(
-                            (rental.id, rental.express_type_id)
-                            for rental in rentals
+                            (rental.id, rental.express_type_id) for rental in rentals
                         )
                         post = build_express_type_source_snapshot(post_rows)
                         if not _snapshot_matches_result(post, source):
@@ -401,7 +455,10 @@ class ExpressTypeBackfillService:
         else:
             raise ExpressTypeBackfillConflictError()
 
-        legacy_count = source.count(ExpressTypeState.LEGACY_6)
+        legacy_count = (
+            source.count(ExpressTypeState.LEGACY_6)
+            - source.approved_legacy_6_to_2_count
+        )
         unsupported_count = source.count(ExpressTypeState.UNSUPPORTED)
         verification_passed = legacy_count == 0 and unsupported_count == 0
         safe_status = _safe_status(legacy_count, unsupported_count)
@@ -428,8 +485,9 @@ def _lock_identity(session: Session) -> tuple[TenantDatabaseIdentity, ...]:
     try:
         return tuple(
             session.scalars(
-                _identity_lock_statement()
-                .execution_options(autoflush=False, populate_existing=True)
+                _identity_lock_statement().execution_options(
+                    autoflush=False, populate_existing=True
+                )
             )
         )
     except SQLAlchemyError:
@@ -504,8 +562,9 @@ def _lock_rentals(session: Session) -> tuple[Rental, ...]:
     try:
         return tuple(
             session.scalars(
-                _rental_lock_statement()
-                .execution_options(autoflush=False, populate_existing=True)
+                _rental_lock_statement().execution_options(
+                    autoflush=False, populate_existing=True
+                )
             )
         )
     except SQLAlchemyError:
@@ -532,7 +591,6 @@ def _snapshot_matches_source(
         current.total_count == source.total_count
         and current.state_counts == source.state_counts
         and current.source_digest == source.source_digest
-        and current.expected_result_digest == source.expected_result_digest
     )
 
 
@@ -548,44 +606,11 @@ def _snapshot_matches_result(
     )
 
 
-def _prepare_session(session: Session) -> SessionTransaction:
-    if not isinstance(session, Session):
-        raise ExpressTypeBackfillInputError()
-    transaction = session.get_transaction()
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-    ):
-        raise ExpressTypeBackfillTransactionError()
-    _require_clean_session(session)
-    try:
-        connection = session.connection()
-        if connection.dialect.name != "sqlite":
-            return transaction
-        driver = getattr(connection.connection, "driver_connection", None)
-        if driver is not None and not driver.in_transaction:
-            connection.exec_driver_sql("BEGIN IMMEDIATE")
-    except ExpressTypeBackfillError:
-        raise
-    except SQLAlchemyError:
-        raise ExpressTypeBackfillPersistenceError() from None
-    return transaction
-
-
 def _require_same_transaction(
     session: Session,
     expected: SessionTransaction,
 ) -> None:
     if not expected.is_active or session.get_transaction() is not expected:
-        raise ExpressTypeBackfillTransactionError()
-
-
-def _require_clean_session(session: Session) -> None:
-    dirty = any(
-        session.is_modified(instance, include_collections=True)
-        for instance in session.dirty
-    )
-    if session.new or session.deleted or dirty:
         raise ExpressTypeBackfillTransactionError()
 
 
@@ -601,11 +626,7 @@ def _materialize_rows(
         if not isinstance(row, tuple) or len(row) != 2:
             raise ExpressTypeBackfillInputError()
         row_id, value = row
-        if (
-            not isinstance(row_id, int)
-            or isinstance(row_id, bool)
-            or row_id <= 0
-        ):
+        if not isinstance(row_id, int) or isinstance(row_id, bool) or row_id <= 0:
             raise ExpressTypeBackfillInputError()
         _encoded_value(value)
         normalized.append((row_id, value))
@@ -676,6 +697,9 @@ def _report_digest(
             manifest.source_snapshot.expected_result_digest.hex()
         ),
         "manifest_digest": manifest.digest.hex(),
+        "approved_legacy_6_to_2_count": (
+            manifest.source_snapshot.approved_legacy_6_to_2_count
+        ),
         "safe_status": safe_status,
         "source_state_counts": list(manifest.source_snapshot.state_counts),
         "verification_passed": verification_passed,
@@ -724,12 +748,7 @@ def _canonical_datetime(value: object) -> str:
 
 
 def _canonical_json(value: object) -> bytes:
-    return json.dumps(
-        value,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-    ).encode("ascii")
+    return canonical_json_bytes(value, allow_nan=True)
 
 
 def _safe_id(value: object) -> str:

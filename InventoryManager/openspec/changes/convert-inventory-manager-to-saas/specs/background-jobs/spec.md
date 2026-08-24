@@ -124,11 +124,12 @@ After suspension or disaster-recovery release, the scheduler MUST generate ordin
 
 ### Requirement: Coordinate Xianyu synchronization without duplicate provider calls
 
-The background process MUST schedule one tenant-level Xianyu alert synchronization every 180 seconds for each eligible active tenant using deterministic staggering and a stable tenant/integration time-bucket idempotency key; manual refresh SHALL reuse any scheduled or manual synchronization already in flight.
+The background process MUST schedule one tenant-level Xianyu alert synchronization every 180 seconds for each eligible active tenant using deterministic staggering and a stable tenant/connection-set time-bucket idempotency key; each job SHALL freeze the complete active connection/revision set, and manual refresh SHALL cover all active shops while reusing any scheduled or manual synchronization already in flight.
 
 #### Scenario: A tenant has multiple Xianyu connections
 - **WHEN** its tenant-level synchronization runs
 - **THEN** the worker SHALL record each connection result independently, retain prior successful alerts for a failed connection, and update the tenant aggregate snapshot revision only from persisted results
+- **AND** alert identity and replacement SHALL be scoped by connection UUID plus order number rather than a tenant-global bare order number
 
 #### Scenario: A user requests refresh during an in-flight sync
 - **WHEN** an Admin or Operator submits the high-priority refresh action
@@ -165,4 +166,3 @@ Normal business jobs MUST use finite retry and dead-letter policies, priority/ty
 #### Scenario: An operator replays an allowlisted normal job
 - **WHEN** the job type permits replay and current tenant authority plus idempotency checks pass
 - **THEN** the platform SHALL record the actor, action, reason, source job, and result in audit and SHALL NOT permit payload mutation
-

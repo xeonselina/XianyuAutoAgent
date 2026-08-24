@@ -14,11 +14,12 @@ from datetime import datetime, timezone
 from typing import Callable
 
 import sqlalchemy as sa
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.database import read_database_utc_value
 from inventory_control.models.base import ControlBase
 from inventory_control.models.root_keys import PlatformRootKeyVersion
+from inventory_control.transactions import require_caller_transaction
 
 from .keyring import RootKeyLifecycle
 
@@ -79,13 +80,10 @@ class RootKeyReferenceInventory:
     def __post_init__(self) -> None:
         _positive_version(self.version)
         if not isinstance(self.references, tuple) or any(
-            not isinstance(item, RootKeyReferenceCount)
-            for item in self.references
+            not isinstance(item, RootKeyReferenceCount) for item in self.references
         ):
             raise TypeError("references must be an immutable inventory")
-        identities = {
-            (item.table_name, item.column_name) for item in self.references
-        }
+        identities = {(item.table_name, item.column_name) for item in self.references}
         if len(identities) != len(self.references):
             raise ValueError("reference inventory contains duplicate identities")
 
@@ -147,7 +145,9 @@ class SqlAlchemyRootKeyLifecycleService:
                 and _same_fingerprint(rows[0].fingerprint_sha256, fingerprint)
             ):
                 return _result(rows[0], previous_active=None, replayed=True)
-            raise RootKeyLifecycleConflictError("ROOT_KEY_REGISTRY_ALREADY_BOOTSTRAPPED")
+            raise RootKeyLifecycleConflictError(
+                "ROOT_KEY_REGISTRY_ALREADY_BOOTSTRAPPED"
+            )
 
         row = PlatformRootKeyVersion(
             version=selected_version,
@@ -204,9 +204,7 @@ class SqlAlchemyRootKeyLifecycleService:
             raise RootKeyLifecycleConflictError("ROOT_KEY_ACTIVE_VERSION_CHANGED")
         if selected_version <= max(row.version for row in rows):
             raise RootKeyLifecycleConflictError("ROOT_KEY_VERSION_NOT_MONOTONIC")
-        if any(
-            _same_fingerprint(row.fingerprint_sha256, fingerprint) for row in rows
-        ):
+        if any(_same_fingerprint(row.fingerprint_sha256, fingerprint) for row in rows):
             raise RootKeyLifecycleConflictError("ROOT_KEY_FINGERPRINT_ALREADY_EXISTS")
 
         active.status = RootKeyLifecycle.LEGACY.value
@@ -290,7 +288,9 @@ class SqlAlchemyRootKeyLifecycleService:
 
     def _scan_references(self, version: int) -> RootKeyReferenceInventory:
         references: list[RootKeyReferenceCount] = []
-        for table in sorted(ControlBase.metadata.tables.values(), key=lambda item: item.name):
+        for table in sorted(
+            ControlBase.metadata.tables.values(), key=lambda item: item.name
+        ):
             if table is PlatformRootKeyVersion.__table__:
                 continue
             primary_key = tuple(table.primary_key.columns)
@@ -326,9 +326,7 @@ class SqlAlchemyRootKeyLifecycleService:
 def _single_active(
     rows: tuple[PlatformRootKeyVersion, ...],
 ) -> PlatformRootKeyVersion:
-    active = tuple(
-        row for row in rows if row.status == RootKeyLifecycle.ACTIVE.value
-    )
+    active = tuple(row for row in rows if row.status == RootKeyLifecycle.ACTIVE.value)
     if len(active) != 1:
         raise RootKeyLifecycleConflictError("ROOT_KEY_ACTIVE_VERSION_INVALID")
     return active[0]
@@ -345,28 +343,22 @@ def _result(
         status=RootKeyLifecycle(row.status),
         previous_active_version=previous_active,
         activated_at=_aware_utc(row.activated_at),
-        retired_at=(
-            _aware_utc(row.retired_at) if row.retired_at is not None else None
-        ),
+        retired_at=(_aware_utc(row.retired_at) if row.retired_at is not None else None),
         replayed=replayed,
     )
 
 
 def _require_clean_explicit_transaction(session: Session) -> None:
-    transaction = session.get_transaction()
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-    ):
-        raise RootKeyLifecycleTransactionError(
+    require_caller_transaction(
+        session,
+        lambda: RootKeyLifecycleTransactionError(
             "ROOT_KEY_EXPLICIT_TRANSACTION_REQUIRED"
-        )
-    dirty = any(
-        session.is_modified(instance, include_collections=True)
-        for instance in session.dirty
+        ),
+        clean=True,
+        dirty_error=lambda: RootKeyLifecycleTransactionError(
+            "ROOT_KEY_CLEAN_TRANSACTION_REQUIRED"
+        ),
     )
-    if session.new or session.deleted or dirty:
-        raise RootKeyLifecycleTransactionError("ROOT_KEY_CLEAN_TRANSACTION_REQUIRED")
 
 
 def _positive_version(value: int) -> int:

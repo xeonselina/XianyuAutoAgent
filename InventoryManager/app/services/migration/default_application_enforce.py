@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.default_migration import (
     DefaultTenantMigrationGrantWriter,
@@ -28,6 +28,7 @@ from inventory_control.models import (
     Tenant,
     TenantDatabase,
 )
+from inventory_control.transactions import require_caller_transaction
 
 
 class DefaultApplicationEnforcementError(RuntimeError):
@@ -37,21 +38,15 @@ class DefaultApplicationEnforcementError(RuntimeError):
         super().__init__(self.code)
 
 
-class DefaultApplicationEnforcementInputError(
-    DefaultApplicationEnforcementError
-):
+class DefaultApplicationEnforcementInputError(DefaultApplicationEnforcementError):
     code = "DEFAULT_APPLICATION_ENFORCEMENT_INPUT_INVALID"
 
 
-class DefaultApplicationEnforcementConflictError(
-    DefaultApplicationEnforcementError
-):
+class DefaultApplicationEnforcementConflictError(DefaultApplicationEnforcementError):
     code = "DEFAULT_APPLICATION_ENFORCEMENT_CONFLICT"
 
 
-class DefaultApplicationEnforcementPersistenceError(
-    DefaultApplicationEnforcementError
-):
+class DefaultApplicationEnforcementPersistenceError(DefaultApplicationEnforcementError):
     code = "DEFAULT_APPLICATION_ENFORCEMENT_PERSISTENCE_FAILED"
 
 
@@ -113,16 +108,12 @@ class DefaultApplicationEnforcementEvidence:
                         self.legacy_surface_negative_digest.hex()
                     ),
                     "manifest_digest": self.manifest_digest.hex(),
-                    "migration_bundle_digest": (
-                        self.migration_bundle_digest.hex()
-                    ),
+                    "migration_bundle_digest": (self.migration_bundle_digest.hex()),
                     "print_side_effect_count": self.print_side_effect_count,
                     "production_write_identity_used": (
                         self.production_write_identity_used
                     ),
-                    "provider_side_effect_count": (
-                        self.provider_side_effect_count
-                    ),
+                    "provider_side_effect_count": (self.provider_side_effect_count),
                     "trusted_route_matrix_digest": (
                         self.trusted_route_matrix_digest.hex()
                     ),
@@ -143,8 +134,7 @@ class DefaultApplicationEnforcementEvidence:
             or self.manifest_digest != manifest.digest
             or self.implementation_identity_digest
             != manifest.implementation_identity_digest
-            or self.migration_bundle_digest
-            != manifest.migration_bundle_digest
+            or self.migration_bundle_digest != manifest.migration_bundle_digest
         ):
             raise DefaultApplicationEnforcementInputError()
 
@@ -216,7 +206,11 @@ class DefaultTenantApplicationEnforcementService:
         journal: MigrationJournal,
         evidence: DefaultApplicationEnforcementEvidence,
     ) -> DefaultApplicationEnforcementResult:
-        _require_transaction(session)
+        require_caller_transaction(
+            session,
+            DefaultApplicationEnforcementInputError,
+            require_begin_origin=True,
+        )
         if (
             not isinstance(manifest, DefaultTenantMigrationManifest)
             or not isinstance(journal, MigrationJournal)
@@ -304,7 +298,8 @@ def _require_authority(
         tenant is None
         or route is None
         or identity is None
-        or paired_state not in {
+        or paired_state
+        not in {
             ("provisioning", "provisional"),
             ("active", "ready"),
         }
@@ -318,25 +313,13 @@ def _require_authority(
         or route.dml_desired_login_state != "active"
         or route.dml_observed_login_state != "active"
         or identity.database_uuid != str(manifest.database_uuid)
-        or identity.expected_schema_generation
-        != identity.observed_schema_generation
+        or identity.expected_schema_generation != identity.observed_schema_generation
         or identity.expected_schema_revision != manifest.tenant_schema_head
         or identity.observed_schema_revision != manifest.tenant_schema_head
         or identity.expected_schema_sha256 is None
         or identity.expected_schema_sha256 != identity.observed_schema_sha256
     ):
         raise DefaultApplicationEnforcementConflictError()
-
-
-def _require_transaction(session: Session) -> None:
-    if (
-        not isinstance(session, Session)
-        or not session.in_transaction()
-        or session.get_transaction() is None
-        or session.get_transaction().origin
-        is not SessionTransactionOrigin.BEGIN
-    ):
-        raise DefaultApplicationEnforcementInputError()
 
 
 __all__ = [

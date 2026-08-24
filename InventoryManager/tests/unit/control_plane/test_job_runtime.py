@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from inventory_control import ControlBase, Tenant
+from inventory_control import Tenant
 from inventory_control.jobs import (
     AuthorityVerdict,
     ControlJobService,
@@ -17,11 +17,6 @@ from inventory_control.jobs import (
     RetryBackoffPolicy,
 )
 from inventory_control.models.jobs import BackgroundJob
-from tests.support.test_database import (
-    clear_guarded_mysql_test_rows,
-    guarded_mysql_control_database,
-)
-
 
 NOW = datetime(2026, 8, 22, 8, 0, tzinfo=timezone.utc)
 BACKOFF = RetryBackoffPolicy(
@@ -106,16 +101,9 @@ class RecordingHandler:
         return self.outcome
 
 
-@pytest.fixture(scope="module")
-def database_schema():
-    with guarded_mysql_control_database(ControlBase.metadata) as database:
-        yield database
-
-
 @pytest.fixture
-def database(database_schema):
-    clear_guarded_mysql_test_rows(database_schema.engine, ControlBase.metadata)
-    return database_schema
+def database(mysql_control_database):
+    return mysql_control_database
 
 
 def enqueue(database, *, job_type="test_job", max_attempts=3, priority=0):
@@ -495,13 +483,11 @@ def test_worker_rejects_non_mysql_dialect_without_opening_a_database():
         @contextmanager
         def transaction(self):
             yield SimpleNamespace(
-                bind=SimpleNamespace(
-                    dialect=SimpleNamespace(name="sqlite")
-                )
+                bind=SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
             )
 
     failed_heartbeats = RecordingHeartbeats()
-    with pytest.raises(RuntimeError, match="requires MySQL"):
+    with pytest.raises(RuntimeError, match="requires MySQL or MariaDB"):
         DurableJobWorker(
             database=NonMySqlDatabaseStub(),
             authority=RecordingAuthority(),

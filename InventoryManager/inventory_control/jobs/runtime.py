@@ -16,7 +16,7 @@ from typing import Any, Callable, Collection, Mapping, Protocol
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from inventory_control.database import ControlDatabase, read_database_utc_value
+from inventory_control.database import ControlDatabase, read_database_utc_datetime
 from inventory_control.models.jobs import BackgroundJob
 
 from .contracts import AuthorityVerdict, JobAuthority
@@ -87,14 +87,18 @@ class JobHandler(Protocol):
     """A handler split so the runtime can place the durable side-effect fence."""
 
     @property
-    def crosses_provider_boundary(self) -> bool: ...
+    def crosses_provider_boundary(self) -> bool:
+        ...
 
     @property
-    def recovery_category(self) -> RecoveryCategory | None: ...
+    def recovery_category(self) -> RecoveryCategory | None:
+        ...
 
-    def prepare(self, job: BackgroundJob) -> PreparedJob: ...
+    def prepare(self, job: BackgroundJob) -> PreparedJob:
+        ...
 
-    def execute(self, job: BackgroundJob, prepared: PreparedJob) -> JobOutcome: ...
+    def execute(self, job: BackgroundJob, prepared: PreparedJob) -> JobOutcome:
+        ...
 
 
 class WorkerHeartbeatRecorder(Protocol):
@@ -103,7 +107,8 @@ class WorkerHeartbeatRecorder(Protocol):
         session: Session,
         *,
         observed_at: datetime,
-    ) -> object: ...
+    ) -> object:
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,11 +143,7 @@ class RetryBackoffPolicy:
         object.__setattr__(self, "delays", selected)
 
     def retry_at(self, *, attempts: int, now: datetime) -> datetime:
-        if (
-            isinstance(attempts, bool)
-            or not isinstance(attempts, int)
-            or attempts < 1
-        ):
+        if isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1:
             raise ValueError("retry attempts must be positive")
         current = _as_utc(now)
         return current + self.delays[min(attempts - 1, len(self.delays) - 1)]
@@ -205,7 +206,6 @@ class DurableJobWorker:
         worker_id: str,
         lease_duration: timedelta = timedelta(minutes=2),
         clock: Callable[[], datetime] = _utc_now,
-        allow_sqlite_claim_for_tests: bool = False,
         claim_job_types: Collection[str] | None = None,
         service: ControlJobService | None = None,
     ) -> None:
@@ -225,7 +225,6 @@ class DurableJobWorker:
         self._worker_id = worker_id
         self._lease_duration = lease_duration
         self._clock = clock
-        self._allow_sqlite_claim_for_tests = allow_sqlite_claim_for_tests
         if claim_job_types is None:
             self._claim_job_types = None
         else:
@@ -235,9 +234,7 @@ class DurableJobWorker:
             if not selected_job_types or not selected_job_types.issubset(
                 self._handlers
             ):
-                raise ValueError(
-                    "claim_job_types must be a nonempty handler subset"
-                )
+                raise ValueError("claim_job_types must be a nonempty handler subset")
             self._claim_job_types = selected_job_types
         recovery_categories = {
             job_type: category
@@ -262,7 +259,7 @@ class DurableJobWorker:
     def run_once(self) -> WorkerRunResult:
         result = self._run_once()
         with self._database.transaction() as session:
-            heartbeat_at = _as_utc(read_database_utc_value(session))
+            heartbeat_at = read_database_utc_datetime(session)
             self._heartbeat_recorder(session, observed_at=heartbeat_at)
         return result
 
@@ -353,9 +350,7 @@ class DurableJobWorker:
                     generation=generation,
                     reason_code="provider_result_unknown",
                 )
-                return WorkerRunResult(
-                    "review", job_id, "provider_result_unknown"
-                )
+                return WorkerRunResult("review", job_id, "provider_result_unknown")
             self._retry_job(
                 job_id=job_id,
                 lease_token=lease_token,
@@ -398,7 +393,10 @@ class DurableJobWorker:
     def _claim(self) -> BackgroundJob | None:
         now = self._clock()
         with self._database.transaction() as session:
-            if session.bind is not None and session.bind.dialect.name == "mysql":
+            if session.bind is not None and session.bind.dialect.name in {
+                "mysql",
+                "mariadb",
+            }:
                 return self._service.claim_mysql_skip_locked(
                     session,
                     worker_id=self._worker_id,
@@ -407,16 +405,7 @@ class DurableJobWorker:
                     job_types=self._claim_job_types,
                     now=now,
                 )
-            if self._allow_sqlite_claim_for_tests:
-                return self._service.claim_sqlite_for_test(
-                    session,
-                    worker_id=self._worker_id,
-                    lease_duration=self._lease_duration,
-                    authority=self._authority,
-                    job_types=self._claim_job_types,
-                    now=now,
-                )
-            raise RuntimeError("durable worker requires MySQL")
+            raise RuntimeError("durable worker requires MySQL or MariaDB")
 
     def _load_leased(
         self,
@@ -431,9 +420,7 @@ class DurableJobWorker:
         # implementation acquires the tenant/recovery/lifecycle locks first;
         # the fenced UPDATE then locks the job row last.  Locking the job here
         # would invert the required tenant-first order against a freeze.
-        job = session.scalar(
-            sa.select(BackgroundJob).where(BackgroundJob.id == job_id)
-        )
+        job = session.scalar(sa.select(BackgroundJob).where(BackgroundJob.id == job_id))
         if job is None:
             raise LeaseFenceViolation("job does not exist")
         if (

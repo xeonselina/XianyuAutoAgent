@@ -7,22 +7,8 @@ NOW = datetime(2026, 8, 23, 1, 0, tzinfo=timezone.utc)
 
 
 @pytest.fixture
-def app():
-    from app import create_app
-
-    return create_app("testing")
-
-
-@pytest.fixture
-def session(app):
-    from app import db
-
-    with app.app_context():
-        db.create_all()
-        value = db.session()
-        yield value
-        value.rollback()
-        db.drop_all()
+def session(db_session):
+    return db_session()
 
 
 def test_snapshot_is_local_revisioned_and_stale_after_two_cycles(session):
@@ -45,27 +31,19 @@ def test_snapshot_is_local_revisioned_and_stale_after_two_cycles(session):
                     id=1,
                     snapshot_revision=8,
                     sync_status="partial_failure",
-                    last_success_at=(NOW - timedelta(seconds=361)).replace(
-                        tzinfo=None
-                    ),
+                    last_success_at=(NOW - timedelta(seconds=361)).replace(tzinfo=None),
                     last_error="部分闲鱼连接同步失败",
                 ),
                 XianyuConnectionSyncState(
-                    integration_uuid=(
-                        "71000000-0000-4000-8000-000000000001"
-                    ),
-                    secret_revision_uuid=(
-                        "72000000-0000-4000-8000-000000000001"
-                    ),
+                    integration_uuid=("71000000-0000-4000-8000-000000000001"),
+                    secret_revision_uuid=("72000000-0000-4000-8000-000000000001"),
                     sync_status="failed",
                     safe_error_code="PROVIDER_UNAVAILABLE",
                 ),
             )
         )
 
-    snapshot = XianyuAlertSnapshotQueryService(session).get_snapshot(
-        database_now=NOW
-    )
+    snapshot = XianyuAlertSnapshotQueryService(session).get_snapshot(database_now=NOW)
 
     assert snapshot["count"] == 1
     assert snapshot["alerts"][0]["order_no"] == "LOCAL-ONLY"
@@ -100,9 +78,7 @@ def test_snapshot_marks_current_durable_job_as_refreshing(session):
             )
         )
 
-    snapshot = XianyuAlertSnapshotQueryService(session).get_snapshot(
-        database_now=NOW
-    )
+    snapshot = XianyuAlertSnapshotQueryService(session).get_snapshot(database_now=NOW)
 
     assert snapshot["refreshing"] is True
     assert snapshot["stale"] is False

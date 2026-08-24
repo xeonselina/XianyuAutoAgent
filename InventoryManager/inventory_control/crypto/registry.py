@@ -6,9 +6,10 @@ import os
 
 import sqlalchemy as sa
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.models.root_keys import PlatformRootKeyVersion
+from inventory_control.transactions import require_caller_transaction
 
 from .errors import CryptoConfigurationError, RootKeyLoadError
 from .keyring import (
@@ -91,22 +92,13 @@ class SqlAlchemyRootKeyRegistry:
 
 
 def _require_clean_explicit_transaction(session: Session) -> None:
-    transaction = session.get_transaction()
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-    ):
-        raise RootKeyRegistryTransactionError(
+    require_caller_transaction(
+        session,
+        lambda: RootKeyRegistryTransactionError(
             "an explicit clean caller-owned transaction is required"
-        )
-    dirty = any(
-        session.is_modified(instance, include_collections=True)
-        for instance in session.dirty
+        ),
+        clean=True,
     )
-    if session.new or session.deleted or dirty:
-        raise RootKeyRegistryTransactionError(
-            "an explicit clean caller-owned transaction is required"
-        )
 
 
 __all__ = [

@@ -9,24 +9,6 @@ import pytest
 
 
 @pytest.fixture
-def app():
-    from app import create_app
-
-    return create_app("testing")
-
-
-@pytest.fixture
-def db_session(app):
-    from app import db
-
-    with app.app_context():
-        db.create_all()
-        yield db.session
-        db.session.rollback()
-        db.drop_all()
-
-
-@pytest.fixture
 def device(db_session):
     from app.models.device import Device
 
@@ -139,9 +121,7 @@ def test_reconcile_filters_amount_and_existing_rentals(
 
     result = service.reconcile()
 
-    assert [
-        row["order_no"] for row in result["alerts"]
-    ] == ["MISSING"]
+    assert [row["order_no"] for row in result["alerts"]] == ["MISSING"]
     assert result["count"] == 1
 
 
@@ -165,9 +145,7 @@ def test_reconcile_does_not_filter_refund_status(
 
     result = service.reconcile()
 
-    assert [row["order_no"] for row in result["alerts"]] == [
-        "REFUNDING"
-    ]
+    assert [row["order_no"] for row in result["alerts"]] == ["REFUNDING"]
 
 
 def test_ignore_is_permanent_across_reconciliation(
@@ -193,9 +171,7 @@ def test_ignore_is_permanent_across_reconciliation(
     assert service.ignore("IGNORE-ME", "非租赁商品")["count"] == 0
     assert service.reconcile()["count"] == 0
 
-    ignored = XianyuOrderAlert.query.filter_by(
-        order_no="IGNORE-ME"
-    ).one()
+    ignored = XianyuOrderAlert.query.filter_by(order_no="IGNORE-ME").one()
     assert ignored.state == "ignored"
     assert ignored.ignored_reason == "非租赁商品"
 
@@ -223,12 +199,8 @@ def test_blocking_lock_serializes_ignore_with_reconciliation(tmp_path):
     )
 
     lock_path = str(tmp_path / "reconcile.lock")
-    reconciling_service = XianyuOrderReconciliationService(
-        lock_path=lock_path
-    )
-    ignoring_service = XianyuOrderReconciliationService(
-        lock_path=lock_path
-    )
+    reconciling_service = XianyuOrderReconciliationService(lock_path=lock_path)
+    ignoring_service = XianyuOrderReconciliationService(lock_path=lock_path)
     reconcile_lock = reconciling_service._try_acquire_lock()
     acquired = threading.Event()
     release = threading.Event()
@@ -361,17 +333,11 @@ def test_busy_reconciliation_does_not_start_second_external_query(
     )
 
     lock_path = str(tmp_path / "reconcile.lock")
-    running_service = XianyuOrderReconciliationService(
-        lock_path=lock_path
-    )
-    second_service = XianyuOrderReconciliationService(
-        lock_path=lock_path
-    )
+    running_service = XianyuOrderReconciliationService(lock_path=lock_path)
+    second_service = XianyuOrderReconciliationService(lock_path=lock_path)
     lock_handle = running_service._try_acquire_lock()
     external_query = Mock()
-    monkeypatch.setattr(
-        second_service.xianyu_service, "list_orders", external_query
-    )
+    monkeypatch.setattr(second_service.xianyu_service, "list_orders", external_query)
 
     try:
         result = second_service.reconcile()

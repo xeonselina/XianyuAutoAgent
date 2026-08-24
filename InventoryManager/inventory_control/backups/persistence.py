@@ -12,7 +12,7 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.database import read_database_utc_value
 from inventory_control.models.backups import (
@@ -20,6 +20,7 @@ from inventory_control.models.backups import (
     CompletedBackupArtifactRecord,
     PlatformBackupLease,
 )
+from inventory_control.transactions import require_caller_transaction
 
 from .domain import (
     BackupAttempt,
@@ -171,9 +172,7 @@ class BackupPersistenceService:
                 and len(conflicts) == 1
             ):
                 return exact[0]
-            raise BackupPersistenceIntegrityError(
-                "BACKUP_ATTEMPT_IDENTITY_CONFLICT"
-            )
+            raise BackupPersistenceIntegrityError("BACKUP_ATTEMPT_IDENTITY_CONFLICT")
 
         row = BackupAttemptRecord(
             attempt_id=str(selected.attempt_id),
@@ -193,9 +192,7 @@ class BackupPersistenceService:
                 attempt_id=selected.attempt_id,
                 partial_name=selected.partial_name,
             )
-            if len(conflicts) == 1 and _same_attempt_identity(
-                conflicts[0], selected
-            ):
+            if len(conflicts) == 1 and _same_attempt_identity(conflicts[0], selected):
                 return conflicts[0]
             raise BackupPersistenceIntegrityError(
                 "BACKUP_ATTEMPT_IDENTITY_CONFLICT"
@@ -254,9 +251,7 @@ class BackupPersistenceService:
                 "BACKUP_CANONICAL_MANIFEST_INVALID"
             ) from None
         if decoded_manifest != manifest:
-            raise BackupPersistenceIntegrityError(
-                "BACKUP_CANONICAL_MANIFEST_INVALID"
-            )
+            raise BackupPersistenceIntegrityError("BACKUP_CANONICAL_MANIFEST_INVALID")
 
         artifact_row = _artifact_row(
             completed.artifact,
@@ -304,10 +299,7 @@ class BackupPersistenceService:
         try:
             row = self._session.scalar(
                 sa.select(CompletedBackupArtifactRecord)
-                .where(
-                    CompletedBackupArtifactRecord.artifact_id
-                    == str(artifact_id)
-                )
+                .where(CompletedBackupArtifactRecord.artifact_id == str(artifact_id))
                 .execution_options(autoflush=False, populate_existing=True)
             )
         except SQLAlchemyError:
@@ -353,9 +345,7 @@ class BackupPersistenceService:
         except SQLAlchemyError:
             raise BackupPersistenceError() from None
         now = self._now()
-        artifacts = tuple(
-            _artifact_from_row(row, database_now_utc=now) for row in rows
-        )
+        artifacts = tuple(_artifact_from_row(row, database_now_utc=now) for row in rows)
         return plan_successful_point_retention(
             artifacts,
             newly_verified_artifact_id=newly_verified_artifact_id,
@@ -364,20 +354,11 @@ class BackupPersistenceService:
         )
 
     def _prepare(self, *, mutation: bool) -> None:
-        transaction = self._session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            raise BackupPersistenceTransactionError()
-        dirty = any(
-            self._session.is_modified(instance, include_collections=True)
-            for instance in self._session.dirty
+        require_caller_transaction(
+            self._session,
+            BackupPersistenceTransactionError,
+            clean=True,
         )
-        if self._session.new or self._session.deleted or dirty:
-            raise BackupPersistenceTransactionError()
-        if mutation:
-            _materialize_sqlite_outer_transaction(self._session)
 
     def _now(self) -> datetime:
         return _as_utc(self._database_clock(self._session))
@@ -386,10 +367,7 @@ class BackupPersistenceService:
         try:
             row = self._session.scalar(
                 sa.select(PlatformBackupLease)
-                .where(
-                    PlatformBackupLease.lease_key
-                    == FLEET_FULL_BACKUP_LEASE_KEY
-                )
+                .where(PlatformBackupLease.lease_key == FLEET_FULL_BACKUP_LEASE_KEY)
                 .with_for_update()
                 .execution_options(autoflush=False, populate_existing=True)
             )
@@ -401,9 +379,7 @@ class BackupPersistenceService:
 
     def _write_lease(self, lease: BackupLease) -> None:
         try:
-            row = self._session.get(
-                PlatformBackupLease, FLEET_FULL_BACKUP_LEASE_KEY
-            )
+            row = self._session.get(PlatformBackupLease, FLEET_FULL_BACKUP_LEASE_KEY)
         except SQLAlchemyError:
             raise BackupPersistenceError() from None
         if row is None:
@@ -416,9 +392,7 @@ class BackupPersistenceService:
         row.acquisition_id = _optional_uuid_text(lease.acquisition_id)
         row.acquired_at = lease.acquired_at_utc
         row.expires_at = lease.expires_at_utc
-        row.last_acquisition_id = _optional_uuid_text(
-            lease.last_acquisition_id
-        )
+        row.last_acquisition_id = _optional_uuid_text(lease.last_acquisition_id)
 
     def _lock_attempt(self, attempt_id: UUID) -> BackupAttempt:
         try:
@@ -477,8 +451,7 @@ class BackupPersistenceService:
                         sa.or_(
                             CompletedBackupArtifactRecord.artifact_id
                             == str(artifact_id),
-                            CompletedBackupArtifactRecord.attempt_id
-                            == str(attempt_id),
+                            CompletedBackupArtifactRecord.attempt_id == str(attempt_id),
                             CompletedBackupArtifactRecord.published_name
                             == published_name,
                         )
@@ -492,8 +465,7 @@ class BackupPersistenceService:
         except SQLAlchemyError:
             raise BackupPersistenceError() from None
         return tuple(
-            _artifact_from_row(row, database_now_utc=database_now_utc)
-            for row in rows
+            _artifact_from_row(row, database_now_utc=database_now_utc) for row in rows
         )
 
     def _flush_or_fail(self) -> None:
@@ -556,14 +528,10 @@ def _artifact_from_row(
             or manifest.completed_at_utc != completed_at
             or manifest.artifact_sha256 != bytes(row.artifact_sha256)
             or manifest.size_bytes != row.size_bytes
-            or str(manifest.recovery_marker.installation_id)
-            != row.installation_id
-            or str(manifest.recovery_marker.recovery_run_id)
-            != row.recovery_run_id
-            or manifest.recovery_marker.marker_generation
-            != row.marker_generation
-            or manifest.recovery_marker.marker_sha256
-            != bytes(row.marker_sha256)
+            or str(manifest.recovery_marker.installation_id) != row.installation_id
+            or str(manifest.recovery_marker.recovery_run_id) != row.recovery_run_id
+            or manifest.recovery_marker.marker_generation != row.marker_generation
+            or manifest.recovery_marker.marker_sha256 != bytes(row.marker_sha256)
         ):
             raise BackupPersistenceIntegrityError()
         artifact = CompletedBackupArtifact(
@@ -684,15 +652,6 @@ def _optional_uuid(value: object | None) -> UUID | None:
 
 def _optional_uuid_text(value: UUID | None) -> str | None:
     return None if value is None else str(value)
-
-
-def _materialize_sqlite_outer_transaction(session: Session) -> None:
-    connection = session.connection()
-    if connection.dialect.name != "sqlite":
-        return
-    driver_connection = getattr(connection.connection, "driver_connection", None)
-    if driver_connection is not None and not driver_connection.in_transaction:
-        connection.exec_driver_sql("BEGIN IMMEDIATE")
 
 
 __all__ = [

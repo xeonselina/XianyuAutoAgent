@@ -7,7 +7,7 @@ from uuid import UUID
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
-from app import create_app, db
+from app import db
 from app.models.audit_log import AuditLog
 from app.models.database_identity import TenantDatabaseIdentity
 from app.models.device import Device
@@ -70,23 +70,29 @@ def _step_invocation() -> DefaultMigrationStepInvocation:
         rollback_action="retain reversible facts",
         mutations_allowed=True,
     )
-    phase_key = "default-migration:" + hashlib.sha256(
-        b"default-tenant-migration-phase-v1\x00"
-        + manifest.digest
-        + b"\x00backfill_verify"
-    ).hexdigest()
+    phase_key = (
+        "default-migration:"
+        + hashlib.sha256(
+            b"default-tenant-migration-phase-v1\x00"
+            + manifest.digest
+            + b"\x00backfill_verify"
+        ).hexdigest()
+    )
     phase = MigrationPhaseInvocation(
         manifest=manifest,
         plan=plan,
         phase_execution_key=phase_key,
     )
     step_name = "historical_snapshots"
-    step_key = "default-step:" + hashlib.sha256(
-        b"default-migration-step-v1\x00"
-        + phase_key.encode("ascii")
-        + b"\x00"
-        + step_name.encode("ascii")
-    ).hexdigest()
+    step_key = (
+        "default-step:"
+        + hashlib.sha256(
+            b"default-migration-step-v1\x00"
+            + phase_key.encode("ascii")
+            + b"\x00"
+            + step_name.encode("ascii")
+        ).hexdigest()
+    )
     return DefaultMigrationStepInvocation(
         phase_invocation=phase,
         step_name=step_name,
@@ -95,25 +101,18 @@ def _step_invocation() -> DefaultMigrationStepInvocation:
 
 
 @pytest.fixture
-def tenant_database():
-    app = create_app("testing")
-    with app.app_context():
-        db.create_all()
-        db.session.add(
-            TenantDatabaseIdentity(
-                singleton_key=1,
-                tenant_id=str(TENANT_UUID),
-                database_uuid=str(DATABASE_UUID),
-                schema_generation=3,
-            )
+def tenant_database(app):
+    db.session.add(
+        TenantDatabaseIdentity(
+            singleton_key=1,
+            tenant_id=str(TENANT_UUID),
+            database_uuid=str(DATABASE_UUID),
+            schema_generation=3,
         )
-        db.session.commit()
-        factory = sessionmaker(bind=db.engine, expire_on_commit=False)
-        try:
-            yield app, factory
-        finally:
-            db.session.remove()
-            db.drop_all()
+    )
+    db.session.commit()
+    factory = sessionmaker(bind=db.engine, expire_on_commit=False)
+    yield app, factory
 
 
 def test_empty_history_verification_and_phase_evidence_replay_stably(
@@ -177,9 +176,7 @@ def test_any_legacy_shipping_or_print_hint_requires_nonempty_adapter(
             end_date=date(2026, 8, 2),
             customer_name="历史客户",
             status=("shipped" if candidate == "lifecycle" else "not_shipped"),
-            ship_out_tracking_no=(
-                "SF-HISTORICAL" if candidate == "tracking" else None
-            ),
+            ship_out_tracking_no=("SF-HISTORICAL" if candidate == "tracking" else None),
         )
         db.session.add_all([device, rental])
     db.session.commit()
@@ -225,19 +222,13 @@ def test_existing_target_shipment_is_not_misreported_as_empty(
         origin_warehouse_uuid=warehouse.warehouse_uuid,
         integration_uuid="82000000-0000-4000-8000-000000000010",
         provider_account_uuid="82000000-0000-4000-8000-000000000011",
-        integration_secret_revision_uuid=(
-            "82000000-0000-4000-8000-000000000012"
-        ),
-        provider_account_secret_revision_uuid=(
-            "82000000-0000-4000-8000-000000000013"
-        ),
+        integration_secret_revision_uuid=("82000000-0000-4000-8000-000000000012"),
+        provider_account_secret_revision_uuid=("82000000-0000-4000-8000-000000000013"),
         binding_revision=1,
         account_masked_hint="****1234",
         sender_snapshot={"masked": True},
         receiver_snapshot={"masked": True},
-        cargo_snapshot={
-            "items": [{"name": "租赁设备", "count": 1}]
-        },
+        cargo_snapshot={"items": [{"name": "租赁设备", "count": 1}]},
         tracking_check_phone_last4="8000",
         express_type_id=2,
         scheduled_dispatch_at=datetime(2026, 9, 1, 1),

@@ -10,13 +10,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.backups.acknowledgements import (
     AcknowledgementFreshness,
     BackupFreshnessSnapshot,
     FreshnessState,
 )
+from inventory_control.transactions import require_caller_transaction
 
 from .service import (
     OperationalInputError,
@@ -79,10 +80,12 @@ class BackupFreshnessSignalAdapter:
 
         if not isinstance(freshness, BackupFreshnessSnapshot):
             raise OperationalInputError()
-        _materialize_sqlite_outer_transaction(session)
-        backup_status, backup_result = _observation(
-            freshness.latest_verified_backup
+        require_caller_transaction(
+            session,
+            OperationalTransactionRequiredError,
+            invalid_session_error=OperationalInputError,
         )
+        backup_status, backup_result = _observation(freshness.latest_verified_backup)
         sync_status, sync_result = _observation(freshness.latest_cloud_sync)
         backup_update = self._signals.record_observation(
             session,
@@ -125,25 +128,6 @@ def _observation(
             OperationalResultClass.THRESHOLD_EXCEEDED,
         )
     raise OperationalInputError()
-
-
-def _materialize_sqlite_outer_transaction(session: Session) -> None:
-    """Keep the signal service's savepoints inside the caller transaction."""
-
-    if not isinstance(session, Session):
-        raise OperationalInputError()
-    transaction = session.get_transaction()
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-    ):
-        raise OperationalTransactionRequiredError()
-    connection = session.connection()
-    if connection.dialect.name != "sqlite":
-        return
-    driver_connection = getattr(connection.connection, "driver_connection", None)
-    if driver_connection is not None and not driver_connection.in_transaction:
-        connection.exec_driver_sql("BEGIN IMMEDIATE")
 
 
 __all__ = [

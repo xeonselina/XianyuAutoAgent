@@ -28,6 +28,8 @@ _DIRECTORY_RULES: Final = (
 )
 _REQUIRED_FILES: Final = (
     "requirements.txt",
+    "inventory_control/evidence.py",
+    "inventory_control/transactions.py",
     "tests/conftest.py",
     "tests/support/default_backfill.py",
     "tests/support/default_expand.py",
@@ -96,16 +98,15 @@ class DefaultMigrationBundleEvidence:
             or not isinstance(self.files, tuple)
             or not self.files
             or any(
-                not isinstance(item, MigrationBundleFileEvidence)
-                for item in self.files
+                not isinstance(item, MigrationBundleFileEvidence) for item in self.files
             )
             or tuple(sorted(self.files, key=lambda item: item.relative_path))
             != self.files
-            or len({item.relative_path for item in self.files})
-            != len(self.files)
+            or len({item.relative_path for item in self.files}) != len(self.files)
             or not isinstance(self.bundle_digest, bytes)
             or len(self.bundle_digest) != 32
-            or self.bundle_digest != _bundle_digest(
+            or self.bundle_digest
+            != _bundle_digest(
                 control_schema_head=self.control_schema_head,
                 tenant_schema_head=self.tenant_schema_head,
                 files=self.files,
@@ -232,8 +233,7 @@ def migration_bundle_evidence_from_document(
     raw_files = document.get("files")
     if not isinstance(raw_files, list) or any(
         not isinstance(item, Mapping)
-        or set(item)
-        != {"relative_path", "byte_size", "sha256_digest"}
+        or set(item) != {"relative_path", "byte_size", "sha256_digest"}
         for item in raw_files
     ):
         raise MigrationBundleContentError()
@@ -259,8 +259,10 @@ def migration_bundle_evidence_from_document(
 
 def _safe_path(root: Path, relative: str, *, directory: bool) -> Path:
     candidate = root / relative
-    if candidate.is_symlink() or (directory and not candidate.is_dir()) or (
-        not directory and not candidate.is_file()
+    if (
+        candidate.is_symlink()
+        or (directory and not candidate.is_dir())
+        or (not directory and not candidate.is_file())
     ):
         raise MigrationBundleContentError()
     try:
@@ -364,8 +366,7 @@ def _relative_path(value: str) -> bool:
         and all(part not in {"", ".", ".."} for part in path.parts)
         and "\\" not in value
         and all(
-            ord(character) >= 0x20 and ord(character) != 0x7F
-            for character in value
+            ord(character) >= 0x20 and ord(character) != 0x7F for character in value
         )
     )
 

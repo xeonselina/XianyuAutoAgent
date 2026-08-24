@@ -48,6 +48,16 @@ from .default_tenant_registration import (
     DefaultTenantRegistrationTransactionError,
     DefaultTenantRouteRegistration,
 )
+from .default_source_plan import (
+    DEFAULT_SOURCE_PLAN_POLICY_REVISION,
+    LEGACY_NO_FACT_LOGISTICS_DAYS,
+    PHONE_HOLDER_TYPE_ID,
+    TRIPOD_TYPE_ID,
+    DefaultSourceBackfillPlanBuilder,
+    DefaultSourceBackfillPlans,
+    DefaultSourcePlanAudit,
+    DefaultSourcePlanError,
+)
 from .planned_logistics_backfill import (
     PLANNED_LOGISTICS_BACKFILL_POLICY_REVISION,
     PlannedLogisticsBackfillConflictError,
@@ -60,6 +70,8 @@ from .planned_logistics_backfill import (
     PlannedLogisticsBackfillResult,
     PlannedLogisticsBackfillService,
     PlannedLogisticsBackfillTransactionError,
+    PlannedLogisticsChildSourceFact,
+    legacy_logistics_source_digest,
 )
 from .integration_metadata_backfill import (
     IntegrationMetadataBackfillConflictError,
@@ -72,6 +84,7 @@ from .integration_metadata_backfill import (
 )
 from .logical_accessory_backfill import (
     LegacyAccessoryRequestEntry,
+    LegacyAccessoryTypeEntry,
     LegacyAccessoryUnitEntry,
     LogicalAccessoryBackfillConflictError,
     LogicalAccessoryBackfillError,
@@ -95,6 +108,7 @@ from .structured_address_backfill import (
     StructuredAddressBackfillService,
     StructuredAddressBackfillTransactionError,
     StructuredRentalAddressEntry,
+    UnavailableStructuredRentalAddressEntry,
     legacy_destination_digest,
 )
 from .default_phase_adapters import (
@@ -192,6 +206,14 @@ __all__ += [
     "DefaultTenantRegistrationPersistenceError",
     "DefaultTenantRegistrationTransactionError",
     "DefaultTenantRouteRegistration",
+    "DEFAULT_SOURCE_PLAN_POLICY_REVISION",
+    "DefaultSourceBackfillPlanBuilder",
+    "DefaultSourceBackfillPlans",
+    "DefaultSourcePlanAudit",
+    "DefaultSourcePlanError",
+    "LEGACY_NO_FACT_LOGISTICS_DAYS",
+    "PHONE_HOLDER_TYPE_ID",
+    "TRIPOD_TYPE_ID",
     "PLANNED_LOGISTICS_BACKFILL_POLICY_REVISION",
     "PlannedLogisticsBackfillConflictError",
     "PlannedLogisticsBackfillEntry",
@@ -203,6 +225,8 @@ __all__ += [
     "PlannedLogisticsBackfillResult",
     "PlannedLogisticsBackfillService",
     "PlannedLogisticsBackfillTransactionError",
+    "PlannedLogisticsChildSourceFact",
+    "legacy_logistics_source_digest",
     "IntegrationMetadataBackfillConflictError",
     "IntegrationMetadataBackfillEntry",
     "IntegrationMetadataBackfillError",
@@ -211,6 +235,7 @@ __all__ += [
     "IntegrationMetadataBackfillResult",
     "IntegrationMetadataBackfillService",
     "LegacyAccessoryRequestEntry",
+    "LegacyAccessoryTypeEntry",
     "LegacyAccessoryUnitEntry",
     "LogicalAccessoryBackfillConflictError",
     "LogicalAccessoryBackfillError",
@@ -232,6 +257,7 @@ __all__ += [
     "StructuredAddressBackfillService",
     "StructuredAddressBackfillTransactionError",
     "StructuredRentalAddressEntry",
+    "UnavailableStructuredRentalAddressEntry",
     "legacy_destination_digest",
     "DefaultMigrationRegistrationBundle",
     "DefaultMigrationSourceBaselineBundle",

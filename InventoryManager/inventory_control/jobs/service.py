@@ -12,6 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from inventory_control.database import read_database_utc_datetime
 from inventory_control.models.jobs import BackgroundJob, ControlOutboxEvent
 
 from .contracts import AuthorityVerdict, JobAuthority
@@ -99,7 +100,7 @@ class ControlJobService:
             for job_type, category in categories.items()
         ):
             raise TypeError("job recovery category registry is invalid")
-        self._database_clock = database_clock or _read_database_utc_now
+        self._database_clock = database_clock or read_database_utc_datetime
         self._recovery_categories = MappingProxyType(categories)
 
     def has_recovery_category(
@@ -353,30 +354,6 @@ class ControlJobService:
             return existing
         return event
 
-    def claim_sqlite_for_test(
-        self,
-        session: Session,
-        *,
-        worker_id: str,
-        lease_duration: timedelta,
-        authority: JobAuthority,
-        job_types: Collection[str] | None = None,
-        now: datetime | None = None,
-    ) -> BackgroundJob | None:
-        """Exercise queue semantics locally; this is not a production claim path."""
-
-        if session.bind is None or session.bind.dialect.name != "sqlite":
-            raise RuntimeError("claim_sqlite_for_test requires SQLite")
-        return self._claim(
-            session,
-            worker_id=worker_id,
-            lease_duration=lease_duration,
-            authority=authority,
-            job_types=job_types,
-            skip_locked=False,
-            now=now,
-        )
-
     def claim_mysql_skip_locked(
         self,
         session: Session,
@@ -393,15 +370,17 @@ class ControlJobService:
         never be made until that transaction has committed.
         """
 
-        if session.bind is None or session.bind.dialect.name != "mysql":
-            raise RuntimeError("claim_mysql_skip_locked requires MySQL")
+        if session.bind is None or session.bind.dialect.name not in {
+            "mysql",
+            "mariadb",
+        }:
+            raise RuntimeError("claim_mysql_skip_locked requires MySQL or MariaDB")
         return self._claim(
             session,
             worker_id=worker_id,
             lease_duration=lease_duration,
             authority=authority,
             job_types=job_types,
-            skip_locked=True,
             now=now,
         )
 
@@ -413,7 +392,6 @@ class ControlJobService:
         lease_duration: timedelta,
         authority: JobAuthority,
         job_types: Collection[str] | None,
-        skip_locked: bool,
         now: datetime | None,
     ) -> BackgroundJob | None:
         if (
@@ -446,7 +424,7 @@ class ControlJobService:
         candidate = session.scalar(
             sa.select(BackgroundJob)
             .where(BackgroundJob.id == snapshot.id)
-            .with_for_update(skip_locked=skip_locked)
+            .with_for_update(skip_locked=True)
             .execution_options(populate_existing=True)
         )
         if candidate is None:
@@ -530,10 +508,7 @@ class ControlJobService:
             and bool(job.payload)
             and bool(job.idempotency_key)
             and job.attempts < job.max_attempts
-            and (
-                job.not_after is None
-                or _as_utc(job.not_after) >= _as_utc(now)
-            )
+            and (job.not_after is None or _as_utc(job.not_after) >= _as_utc(now))
         )
 
     @staticmethod
@@ -870,9 +845,7 @@ class ControlJobService:
     def _require_authority(authority: JobAuthority) -> None:
         if not callable(getattr(authority, "lock_current_job_authority", None)):
             raise TypeError("authority must lock current job authority")
-        if not callable(
-            getattr(authority, "evaluate_locked_job_authority", None)
-        ):
+        if not callable(getattr(authority, "evaluate_locked_job_authority", None)):
             raise TypeError("authority must evaluate locked job authority")
 
     def _database_now(
@@ -881,22 +854,14 @@ class ControlJobService:
         *,
         test_now: datetime | None,
     ) -> datetime:
-        # ``now`` is retained solely as the deterministic SQLite test seam.
-        # MySQL always uses the control database's UTC microsecond clock.
-        if (
-            test_now is not None
-            and session.bind is not None
-            and session.bind.dialect.name == "sqlite"
-        ):
-            return _as_utc(test_now)
+        # Caller-provided time is never authoritative for SQL-backed work.
         return _as_utc(self._database_clock(session))
 
     @staticmethod
     def _claim_action(job: BackgroundJob, *, now: datetime) -> str | None:
         current_time = _as_utc(now)
         deadline_expired = (
-            job.not_after is not None
-            and _as_utc(job.not_after) < current_time
+            job.not_after is not None and _as_utc(job.not_after) < current_time
         )
         lease_expired = (
             job.lease_expires_at is not None
@@ -907,8 +872,7 @@ class ControlJobService:
         if job.status in ("pending", "leased") and deadline_expired:
             return "deadline_review"
         if (
-            job.status == "pending"
-            or (job.status == "leased" and lease_expired)
+            job.status == "pending" or (job.status == "leased" and lease_expired)
         ) and job.attempts >= job.max_attempts:
             return "dead_letter"
         if (
@@ -917,11 +881,7 @@ class ControlJobService:
             and job.attempts < job.max_attempts
         ):
             return "claim"
-        if (
-            job.status == "leased"
-            and lease_expired
-            and job.attempts < job.max_attempts
-        ):
+        if job.status == "leased" and lease_expired and job.attempts < job.max_attempts:
             return "claim"
         return None
 
@@ -1105,13 +1065,3 @@ class ControlJobService:
                 now=current_time,
             )
         return job, current_time, verdict
-
-
-def _read_database_utc_now(session: Session) -> datetime:
-    if session.bind is not None and session.bind.dialect.name == "mysql":
-        value = session.scalar(sa.text("SELECT UTC_TIMESTAMP(6)"))
-    else:
-        value = session.scalar(sa.select(sa.func.current_timestamp()))
-    if not isinstance(value, datetime):
-        raise RuntimeError("control database did not return a timestamp")
-    return _as_utc(value)

@@ -9,11 +9,19 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import mysql
 
+from inventory_control.sql_defaults import MicrosecondCurrentTimestamp
+
 
 revision = "202608220008"
 down_revision = "202608220007"
 branch_labels = None
 depends_on = None
+
+
+INVITATION_TIMESTAMP_TYPE = sa.DateTime(timezone=True).with_variant(
+    mysql.DATETIME(fsp=6),
+    "mysql",
+)
 
 
 def upgrade() -> None:
@@ -57,9 +65,9 @@ def upgrade() -> None:
             ),
             nullable=True,
         ),
-        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("accepted_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("superseded_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("expires_at", INVITATION_TIMESTAMP_TYPE, nullable=False),
+        sa.Column("accepted_at", INVITATION_TIMESTAMP_TYPE, nullable=True),
+        sa.Column("superseded_at", INVITATION_TIMESTAMP_TYPE, nullable=True),
         sa.Column("terminal_reason_code", sa.String(length=64), nullable=True),
         sa.Column(
             "row_version",
@@ -69,14 +77,14 @@ def upgrade() -> None:
         ),
         sa.Column(
             "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("CURRENT_TIMESTAMP"),
+            INVITATION_TIMESTAMP_TYPE,
+            server_default=MicrosecondCurrentTimestamp(),
             nullable=False,
         ),
         sa.Column(
             "updated_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("CURRENT_TIMESTAMP"),
+            INVITATION_TIMESTAMP_TYPE,
+            server_default=MicrosecondCurrentTimestamp(),
             nullable=False,
         ),
         sa.CheckConstraint(

@@ -16,10 +16,11 @@ from pathlib import Path
 from typing import Iterator
 
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from app.tenancy import TenancyError, TenancyErrorCode
 from inventory_control.crypto import RootKey, SqlAlchemyRootKeyRegistry
+from inventory_control.transactions import require_caller_transaction
 
 from .router import TenantDatabaseRouter, TenantRoute
 from .sqlalchemy_adapters import (
@@ -58,9 +59,7 @@ class _ControlSessionBinding:
         try:
             _require_explicit_transaction(session)
         except (TypeError, RuntimeError):
-            raise TenancyError(
-                TenancyErrorCode.TENANT_ROUTE_UNAVAILABLE
-            ) from None
+            raise TenancyError(TenancyErrorCode.TENANT_ROUTE_UNAVAILABLE) from None
         return session
 
 
@@ -79,9 +78,7 @@ class _ContextRouteRepository:
         access_version: int,
         account_kind,
     ) -> TenantRoute | None:
-        repository = SqlAlchemyRouteRepository(
-            session=self._binding.require_current()
-        )
+        repository = SqlAlchemyRouteRepository(session=self._binding.require_current())
         return repository.get_current_ready_route(
             tenant_uuid=tenant_uuid,
             access_version=access_version,
@@ -107,9 +104,9 @@ class _ContextRootKeyProvider:
         self._root_key_directory = root_key_directory
 
     def get_root_key(self, *, version: int) -> RootKey:
-        ring = SqlAlchemyRootKeyRegistry(
-            session=self._binding.require_current()
-        ).load(self._root_key_directory)
+        ring = SqlAlchemyRootKeyRegistry(session=self._binding.require_current()).load(
+            self._root_key_directory
+        )
         return ring.key_for_existing_reference(version)
 
     def __repr__(self) -> str:
@@ -136,13 +133,9 @@ class SqlAlchemyTenantRouterScope:
         max_cache_entries: int,
     ) -> None:
         if not isinstance(database_instances, DatabaseInstanceRegistry):
-            raise TypeError(
-                "database_instances must be a DatabaseInstanceRegistry"
-            )
+            raise TypeError("database_instances must be a DatabaseInstanceRegistry")
         if not isinstance(engine_pool_settings, TenantEnginePoolSettings):
-            raise TypeError(
-                "engine_pool_settings must be TenantEnginePoolSettings"
-            )
+            raise TypeError("engine_pool_settings must be TenantEnginePoolSettings")
         if (
             isinstance(max_cache_entries, bool)
             or not isinstance(max_cache_entries, int)
@@ -201,16 +194,13 @@ def _absolute_directory(value: str | os.PathLike[str]) -> Path:
 
 
 def _require_explicit_transaction(session: object) -> None:
-    if not isinstance(session, Session):
-        raise TypeError("control_session must be a SQLAlchemy Session")
-    transaction = session.get_transaction()
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-    ):
-        raise RuntimeError(
-            "control_session must own an explicit active transaction"
-        )
+    require_caller_transaction(
+        session,
+        lambda: RuntimeError("control_session must own an explicit active transaction"),
+        invalid_session_error=lambda: TypeError(
+            "control_session must be a SQLAlchemy Session"
+        ),
+    )
 
 
 __all__ = ["SqlAlchemyTenantRouterScope"]

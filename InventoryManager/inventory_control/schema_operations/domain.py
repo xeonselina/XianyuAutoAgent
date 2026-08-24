@@ -8,13 +8,13 @@ at every external boundary.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import Enum
 from uuid import UUID
+
+from inventory_control.evidence import canonical_json_sha256
 
 
 _TECHNICAL_OWNER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
@@ -434,10 +434,7 @@ def require_live_schema_operation_fence(
         purpose=selected_purpose,
         fencing_token=fencing_token,
     )
-    if (
-        current.generation != generation
-        or current.row_version != expected_row_version
-    ):
+    if current.generation != generation or current.row_version != expected_row_version:
         raise SchemaOperationLeaseFenceConflict()
     if not current.active_at(now):
         raise SchemaOperationLeaseExpired()
@@ -535,13 +532,10 @@ def _request_digest(
         "purpose": purpose.value,
         "version": 1,
     }
-    encoded = json.dumps(
+    return canonical_json_sha256(
         payload,
-        ensure_ascii=True,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("ascii")
-    return hashlib.sha256(encoded).digest()
+        allow_nan=True,
+    )
 
 
 def _lease(value: object) -> SchemaOperationLease:

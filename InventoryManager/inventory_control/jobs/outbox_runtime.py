@@ -9,7 +9,7 @@ from typing import Any, Callable, Mapping, Protocol
 
 from sqlalchemy.orm import Session
 
-from inventory_control.database import ControlDatabase, read_database_utc_value
+from inventory_control.database import ControlDatabase, read_database_utc_datetime
 
 from .outbox_service import (
     ControlOutboxService,
@@ -72,14 +72,16 @@ class OrdinaryOutboxHandler(Protocol):
         *,
         lease: OutboxLease,
         permit: OutboxDispatchPermit,
-    ) -> PreparedOutboxDispatch: ...
+    ) -> PreparedOutboxDispatch:
+        ...
 
     def execute(
         self,
         *,
         permit: OutboxDispatchPermit,
         prepared: PreparedOutboxDispatch,
-    ) -> OutboxHandlerResult: ...
+    ) -> OutboxHandlerResult:
+        ...
 
     def persist_result(
         self,
@@ -88,7 +90,8 @@ class OrdinaryOutboxHandler(Protocol):
         permit: OutboxDispatchPermit,
         result: OutboxHandlerResult,
         completed_at: datetime,
-    ) -> None: ...
+    ) -> None:
+        ...
 
     def persist_unknown(
         self,
@@ -98,7 +101,8 @@ class OrdinaryOutboxHandler(Protocol):
         result: OutboxHandlerResult | None,
         reason_code: str,
         completed_at: datetime,
-    ) -> None: ...
+    ) -> None:
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,7 +126,6 @@ class DurableOrdinaryOutboxWorker:
         result_mac_key: bytes,
         lease_duration: timedelta = timedelta(minutes=2),
         clock: Callable[[], datetime] | None = None,
-        allow_sqlite_claim_for_tests: bool = False,
         service: ControlOutboxService | None = None,
     ) -> None:
         if not isinstance(database, ControlDatabase):
@@ -145,7 +148,6 @@ class DurableOrdinaryOutboxWorker:
         self._result_mac_key = bytes(result_mac_key)
         self._lease_duration = lease_duration
         self._clock = clock or (lambda: datetime.now(timezone.utc))
-        self._allow_sqlite_claim_for_tests = allow_sqlite_claim_for_tests
         self._service = service or ControlOutboxService()
 
     def run_once(self) -> OutboxWorkerRunResult:
@@ -154,7 +156,7 @@ class DurableOrdinaryOutboxWorker:
             with self._database.transaction() as session:
                 self._heartbeat_recorder(
                     session,
-                    observed_at=_database_now(session),
+                    observed_at=read_database_utc_datetime(session),
                 )
         return result
 
@@ -267,7 +269,7 @@ class DurableOrdinaryOutboxWorker:
                         session,
                         permit=permit,
                         result=result,
-                        completed_at=_database_now(session),
+                        completed_at=read_database_utc_datetime(session),
                     )
                 else:
                     handler.persist_unknown(
@@ -275,7 +277,7 @@ class DurableOrdinaryOutboxWorker:
                         permit=permit,
                         result=result,
                         reason_code="authority_changed_after_result",
-                        completed_at=_database_now(session),
+                        completed_at=read_database_utc_datetime(session),
                     )
             return OutboxWorkerRunResult(completed.state, lease.event_id)
         except Exception:
@@ -303,7 +305,7 @@ class DurableOrdinaryOutboxWorker:
                     permit=permit,
                     result=result,
                     reason_code=reason_code,
-                    completed_at=_database_now(session),
+                    completed_at=read_database_utc_datetime(session),
                 )
                 event = self._service.record_unknown_outcome(
                     session,
@@ -334,26 +336,12 @@ class DurableOrdinaryOutboxWorker:
                 "authority": self._authority,
                 "now": self._clock(),
             }
-            if dialect == "mysql":
+            if dialect in {"mysql", "mariadb"}:
                 return self._service.claim_ordinary_mysql_skip_locked(
                     session,
                     **kwargs,
                 )
-            if dialect == "sqlite" and self._allow_sqlite_claim_for_tests:
-                return self._service.claim_ordinary_sqlite_for_test(
-                    session,
-                    **kwargs,
-                )
-            raise RuntimeError("ordinary outbox worker requires MySQL")
-
-
-def _database_now(session: Session) -> datetime:
-    value = read_database_utc_value(session)
-    if not isinstance(value, datetime):
-        raise RuntimeError("control database time is unavailable")
-    if value.tzinfo is None or value.utcoffset() is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+            raise RuntimeError("ordinary outbox worker requires MySQL or MariaDB")
 
 
 __all__ = [

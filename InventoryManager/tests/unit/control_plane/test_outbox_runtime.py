@@ -108,19 +108,23 @@ def database(mysql_control_database):
 
 def _enqueue(database, *, max_attempts=1):
     with database.transaction() as session:
-        return ControlJobService().enqueue_outbox(
-            session,
-            tenant_id=str(TENANT_ID),
-            tenant_access_version=1,
-            source_type="test_source",
-            source_uuid=str(SOURCE_ID),
-            source_generation=1,
-            event_type="provider_validate",
-            payload={"safe": "payload"},
-            idempotency_key="validate:1",
-            max_attempts=max_attempts,
-            available_at=NOW,
-        ).id
+        return (
+            ControlJobService()
+            .enqueue_outbox(
+                session,
+                tenant_id=str(TENANT_ID),
+                tenant_access_version=1,
+                source_type="test_source",
+                source_uuid=str(SOURCE_ID),
+                source_generation=1,
+                event_type="provider_validate",
+                payload={"safe": "payload"},
+                idempotency_key="validate:1",
+                max_attempts=max_attempts,
+                available_at=NOW,
+            )
+            .id
+        )
 
 
 def _worker(database, handler, *, handlers=True, heartbeats=None):
@@ -137,7 +141,6 @@ def _worker(database, handler, *, handlers=True, heartbeats=None):
         result_mac_key=MAC_KEY,
         lease_duration=timedelta(minutes=2),
         clock=lambda: NOW,
-        allow_sqlite_claim_for_tests=True,
         service=ControlOutboxService(database_clock=lambda _session: NOW),
     )
 

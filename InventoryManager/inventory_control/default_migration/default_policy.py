@@ -17,7 +17,6 @@ from app.models.accessory_inventory import (
 from app.models.device import Device
 from app.models.device_model import DeviceModel
 from app.models.rental import Rental
-from app.models.rental_accessory import RentalAccessory
 from app.models.rental_relay_case import RentalRelayCase
 from app.models.legacy_unattributed_history import (
     LegacyUnattributedPrintSnapshot,
@@ -229,9 +228,7 @@ class DefaultTenantReconciliationSqlRegistry:
             "orphans.foreign_keys": _orphan_count_statement(),
             "rentals.device_links": _rental_device_links_statement(),
             "shipments.historical_waybills": _historical_waybills_statement(),
-            "tables.devices.rows": sa.select(sa.func.count()).select_from(
-                Device
-            ),
+            "tables.devices.rows": sa.select(sa.func.count()).select_from(Device),
             "warehouses.default_count": _default_warehouse_statement(),
         }
         selected = [
@@ -261,9 +258,7 @@ def compose_default_tenant_reconciliation_collectors(
     *,
     policy: ReconciliationPolicy,
     sql_registry: DefaultTenantReconciliationSqlRegistry,
-    supplemental_collectors: tuple[
-        DefaultMigrationReconciliationCollector, ...
-    ],
+    supplemental_collectors: tuple[DefaultMigrationReconciliationCollector, ...],
 ) -> tuple[DefaultMigrationReconciliationCollector, ...]:
     """Require schema and authority-boundary collectors to close coverage."""
 
@@ -333,7 +328,7 @@ def _rental_total_minor_statement() -> sa.sql.Select:
     )
     # MySQL returns DECIMAL for SUM(BIGINT).  Cast the aggregate, not only
     # each row, so the scalar collector receives the policy's integer type on
-    # both MySQL and SQLite.
+    # both MySQL 8 and MariaDB.
     return sa.select(
         sa.cast(
             sa.func.coalesce(sa.func.sum(amount_minor), 0),
@@ -352,16 +347,11 @@ def _historical_waybills_statement() -> sa.sql.Select:
     legacy_count = (
         sa.select(sa.func.count())
         .select_from(LegacyUnattributedShipmentSnapshot)
-        .where(
-            LegacyUnattributedShipmentSnapshot.ship_out_tracking_no.is_not(
-                None
-            )
-        )
+        .where(LegacyUnattributedShipmentSnapshot.ship_out_tracking_no.is_not(None))
         .scalar_subquery()
     )
     return sa.select(
-        sa.func.coalesce(core_count, 0)
-        + sa.func.coalesce(legacy_count, 0)
+        sa.func.coalesce(core_count, 0) + sa.func.coalesce(legacy_count, 0)
     )
 
 
@@ -378,7 +368,6 @@ def _orphan_count_statement() -> sa.sql.Select:
     device_model = DeviceModel.__table__
     warehouse = Warehouse.__table__
     rental = Rental.__table__
-    legacy_accessory = RentalAccessory.__table__
     accessory_type = AccessoryType.__table__
     unit = AccessoryUnit.__table__
     request = RentalAccessoryRequest.__table__
@@ -396,33 +385,21 @@ def _orphan_count_statement() -> sa.sql.Select:
         _missing_reference(device, device.c.warehouse_id, warehouse),
         _missing_reference(rental, rental.c.device_id, device),
         _missing_reference(rental, rental.c.parent_rental_id, rental),
-        _missing_reference(
-            rental, rental.c.preferred_warehouse_id, warehouse
-        ),
+        _missing_reference(rental, rental.c.preferred_warehouse_id, warehouse),
         _missing_reference(
             rental,
             rental.c.logistics_estimate_origin_warehouse_id,
             warehouse,
         ),
-        _missing_reference(
-            legacy_accessory, legacy_accessory.c.rental_id, rental
-        ),
-        _missing_reference(
-            legacy_accessory, legacy_accessory.c.device_id, device
-        ),
         _missing_reference(unit, unit.c.accessory_type_id, accessory_type),
         _missing_reference(unit, unit.c.warehouse_id, warehouse),
         _missing_reference(unit, unit.c.current_holder_rental_id, rental),
         _missing_reference(request, request.c.rental_id, rental),
-        _missing_reference(
-            request, request.c.accessory_type_id, accessory_type
-        ),
+        _missing_reference(request, request.c.accessory_type_id, accessory_type),
         _missing_reference(link, link.c.rental_id, rental),
         _missing_reference(link, link.c.accessory_type_id, accessory_type),
         _missing_reference(link, link.c.accessory_unit_id, unit),
-        _missing_reference(
-            link, link.c.source_relay_case_id, relay_case
-        ),
+        _missing_reference(link, link.c.source_relay_case_id, relay_case),
         _missing_reference(event, event.c.unit_id, unit),
         _missing_reference(event, event.c.main_device_id, device),
         _missing_reference(event, event.c.rental_id, rental),
@@ -430,18 +407,12 @@ def _orphan_count_statement() -> sa.sql.Select:
         _missing_reference(event, event.c.from_warehouse_id, warehouse),
         _missing_reference(event, event.c.to_warehouse_id, warehouse),
         _missing_reference(shipment, shipment.c.rental_id, rental),
-        _missing_reference(
-            shipment, shipment.c.origin_warehouse_id, warehouse
-        ),
+        _missing_reference(shipment, shipment.c.origin_warehouse_id, warehouse),
         _missing_reference(attempt, attempt.c.shipment_id, shipment),
         _missing_reference(print_job, print_job.c.shipment_id, shipment),
         _missing_reference(print_job, print_job.c.rental_id, rental),
-        _missing_reference(
-            print_job, print_job.c.return_warehouse_id, warehouse
-        ),
-        _missing_reference(
-            legacy_shipment, legacy_shipment.c.rental_id, rental
-        ),
+        _missing_reference(print_job, print_job.c.return_warehouse_id, warehouse),
+        _missing_reference(legacy_shipment, legacy_shipment.c.rental_id, rental),
         _missing_reference(legacy_print, legacy_print.c.rental_id, rental),
         _missing_reference(
             legacy_print,

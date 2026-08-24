@@ -11,14 +11,15 @@ os.environ.pop("CONTROL_DATABASE_URL", None)
 
 
 @pytest.fixture(scope="session")
-def mysql_control_database_schema():
-    """Own one shared routed/control schema for a serial real-database run."""
+def mysql_test_schema():
+    """Own the one guarded MySQL schema and application for a serial run."""
 
     from app import create_app, db
     from inventory_control import ControlBase
     from tests.support.test_database import guarded_mysql_control_database
+    from tests.support.test_database import build_mysql_test_config
 
-    create_app("testing")
+    application = create_app(build_mysql_test_config())
     metadata = sa.MetaData()
     for table in ControlBase.metadata.sorted_tables:
         table.to_metadata(metadata)
@@ -36,7 +37,48 @@ def mysql_control_database_schema():
             },
         },
     ) as database:
-        yield database, metadata
+        yield application, database, metadata
+    with application.app_context():
+        db.session.remove()
+        db.engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def mysql_control_database_schema(mysql_test_schema):
+    """Expose the shared control database without creating another lifecycle."""
+
+    _application, database, metadata = mysql_test_schema
+    return database, metadata
+
+
+@pytest.fixture
+def app(mysql_test_schema):
+    """Return the guarded MySQL application with an empty routed schema."""
+
+    from app import db
+    from tests.support.test_database import clear_guarded_mysql_test_rows
+
+    application, database, metadata = mysql_test_schema
+    clear_guarded_mysql_test_rows(database.engine, metadata)
+    with application.app_context():
+        yield application
+        db.session.remove()
+
+
+@pytest.fixture
+def application(app):
+    """Alias used by service-level tests."""
+
+    return app
+
+
+@pytest.fixture
+def db_session(app):
+    """Return the guarded application session owned by the test fixture."""
+
+    from app import db
+
+    return db.session
 
 
 @pytest.fixture

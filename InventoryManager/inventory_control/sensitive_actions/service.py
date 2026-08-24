@@ -8,7 +8,6 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.session import SessionTransactionOrigin
 
 from inventory_control.crypto import RootKey
 from inventory_control.models import (
@@ -23,6 +22,7 @@ from inventory_control.sms import (
     SmsPurpose,
     TrustedSourceBucket,
 )
+from inventory_control.transactions import require_caller_transaction
 
 from .contracts import (
     AuthorizedSensitiveAction,
@@ -83,10 +83,8 @@ class SensitiveActionIntentService:
         existing = session.scalar(
             sa.select(TenantSensitiveActionIntent)
             .where(
-                TenantSensitiveActionIntent.tenant_id
-                == str(context.tenant_uuid),
-                TenantSensitiveActionIntent.idempotency_key
-                == context.idempotency_key,
+                TenantSensitiveActionIntent.tenant_id == str(context.tenant_uuid),
+                TenantSensitiveActionIntent.idempotency_key == context.idempotency_key,
             )
             .with_for_update()
             .execution_options(populate_existing=True)
@@ -109,9 +107,7 @@ class SensitiveActionIntentService:
             policy=sms_policy,
             now=now,
         )
-        expires_at = now + timedelta(
-            seconds=sms_policy.challenge_ttl_seconds
-        )
+        expires_at = now + timedelta(seconds=sms_policy.challenge_ttl_seconds)
         row = _new_intent_row(
             context=context,
             context_mac=context_mac,
@@ -166,8 +162,7 @@ class SensitiveActionIntentService:
         assert row is not None
         links = _locked_challenge_links(session, intent_id=row.id)
         if len(links) != 1 or (
-            links[0].challenge_role
-            != SensitiveActionChallengeRole.PRIMARY.value
+            links[0].challenge_role != SensitiveActionChallengeRole.PRIMARY.value
             or links[0].challenge_id != str(challenge_uuid)
         ):
             raise SensitiveActionConflictError()
@@ -224,10 +219,8 @@ class SensitiveActionIntentService:
         existing = session.scalar(
             sa.select(TenantSensitiveActionIntent)
             .where(
-                TenantSensitiveActionIntent.tenant_id
-                == str(context.tenant_uuid),
-                TenantSensitiveActionIntent.idempotency_key
-                == context.idempotency_key,
+                TenantSensitiveActionIntent.tenant_id == str(context.tenant_uuid),
+                TenantSensitiveActionIntent.idempotency_key == context.idempotency_key,
             )
             .with_for_update()
             .execution_options(populate_existing=True)
@@ -319,9 +312,11 @@ class SensitiveActionIntentService:
         _prepare_transaction(session)
         _require_phone_change_context(context)
         _require_distinct_phones(old_phone, new_phone)
-        if not isinstance(old_challenge_uuid, UUID) or not isinstance(
-            new_challenge_uuid, UUID
-        ) or old_challenge_uuid == new_challenge_uuid:
+        if (
+            not isinstance(old_challenge_uuid, UUID)
+            or not isinstance(new_challenge_uuid, UUID)
+            or old_challenge_uuid == new_challenge_uuid
+        ):
             raise SensitiveActionInputError()
         now = _as_utc(database_now)
         row, terminal = _lock_authorizable_intent(
@@ -335,12 +330,8 @@ class SensitiveActionIntentService:
         assert row is not None
         links = _locked_challenge_links(session, intent_id=row.id)
         expected_links = {
-            SensitiveActionChallengeRole.OLD_PHONE.value: str(
-                old_challenge_uuid
-            ),
-            SensitiveActionChallengeRole.NEW_PHONE.value: str(
-                new_challenge_uuid
-            ),
+            SensitiveActionChallengeRole.OLD_PHONE.value: str(old_challenge_uuid),
+            SensitiveActionChallengeRole.NEW_PHONE.value: str(new_challenge_uuid),
         }
         if {link.challenge_role: link.challenge_id for link in links} != (
             expected_links
@@ -483,8 +474,7 @@ class SensitiveActionIntentService:
             raise SensitiveActionConflictError()
         links = _locked_challenge_links(session, intent_id=row.id)
         if len(links) != 1 or (
-            links[0].challenge_role
-            != SensitiveActionChallengeRole.PRIMARY.value
+            links[0].challenge_role != SensitiveActionChallengeRole.PRIMARY.value
         ):
             raise SensitiveActionConflictError()
         return PreparedSensitiveAction(
@@ -580,9 +570,7 @@ def _lock_authorizable_intent(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    if row is None or not _matches_context(
-        row, context=context, root_key=root_key
-    ):
+    if row is None or not _matches_context(row, context=context, root_key=root_key):
         raise SensitiveActionConflictError()
     if row.status == "succeeded":
         return None, SensitiveActionAuthorizationResult(
@@ -691,9 +679,7 @@ def _require_phone_change_context(context: object) -> None:
         raise SensitiveActionInputError()
 
 
-def _require_distinct_phones(
-    old_phone: object, new_phone: object
-) -> None:
+def _require_distinct_phones(old_phone: object, new_phone: object) -> None:
     if (
         not isinstance(old_phone, CanonicalSmsPhone)
         or not isinstance(new_phone, CanonicalSmsPhone)
@@ -703,20 +689,12 @@ def _require_distinct_phones(
 
 
 def _prepare_transaction(session: Session) -> None:
-    if not isinstance(session, Session):
-        raise SensitiveActionInputError()
-    transaction = session.get_transaction()
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        or session.new
-        or session.deleted
-        or any(
-            session.is_modified(row, include_collections=True)
-            for row in session.dirty
-        )
-    ):
-        raise SensitiveActionInputError()
+    require_caller_transaction(
+        session,
+        SensitiveActionInputError,
+        invalid_session_error=SensitiveActionInputError,
+        clean=True,
+    )
 
 
 def _as_utc(value: object) -> datetime:

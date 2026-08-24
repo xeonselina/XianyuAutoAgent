@@ -18,10 +18,11 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from app.models.audit_log import AuditLog
 from app.models.shipping_execution import OutboundShipment
+from inventory_control.transactions import require_caller_transaction
 
 
 SHIPMENT_TRACKING_RESULT_ACTION = "shipment_tracking_result_recorded"
@@ -155,8 +156,7 @@ class ShipmentTrackingLedgerService:
             matches = tuple(
                 receipt
                 for receipt in existing
-                if receipt.observation.result_digest
-                == observation.result_digest
+                if receipt.observation.result_digest == observation.result_digest
             )
             if len(matches) > 1:
                 raise ShipmentTrackingLedgerConflict()
@@ -221,8 +221,7 @@ class ShipmentTrackingLedgerService:
         )
         if (
             len(matches) != 1
-            or matches[0].observation.status
-            is not ShipmentTrackingStatus.DELIVERED
+            or matches[0].observation.status is not ShipmentTrackingStatus.DELIVERED
             or matches[0].observation.waybill_no != selected_waybill
             or matches[0].observation.occurred_at != selected_time
         ):
@@ -243,8 +242,7 @@ class ShipmentTrackingLedgerService:
                     AuditLog.action == SHIPMENT_TRACKING_RESULT_ACTION,
                     AuditLog.resource_type == SHIPMENT_TRACKING_RESOURCE_TYPE,
                     AuditLog.resource_id == shipment_uuid,
-                    AuditLog.details["result_digest"].as_string()
-                    == result_digest,
+                    AuditLog.details["result_digest"].as_string() == result_digest,
                 )
                 .order_by(AuditLog.id.desc())
                 .limit(2)
@@ -282,12 +280,7 @@ class ShipmentTrackingLedgerService:
 
 
 def _require_transaction(session: Session) -> None:
-    transaction = session.get_transaction() if isinstance(session, Session) else None
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-    ):
-        raise ShipmentTrackingLedgerInputError()
+    require_caller_transaction(session, ShipmentTrackingLedgerInputError)
 
 
 def _text(value: object, *, maximum: int) -> str:

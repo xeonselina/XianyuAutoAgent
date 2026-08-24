@@ -55,7 +55,7 @@ from inventory_control.default_migration import (
     compose_default_tenant_reconciliation_collectors,
 )
 from inventory_control.models import Tenant, TenantIntegration
-from tests.support.test_database import preflight_test_database_write
+from tests.support.test_database import observe_test_database_schema
 
 
 TENANT_UUID = UUID("8b000000-0000-4000-8000-000000000001")
@@ -110,18 +110,21 @@ class _CrashAfterCommittedStep:
 
 
 @dataclass(frozen=True, slots=True)
-class _CurrentTestSchemaCollector:
+class CurrentTestSchemaCollector:
     """Re-observe the one approved test schema after backfill mutations."""
 
     key: str
     engine: Engine
 
     def collect(self, *, manifest, requirement):
-        if manifest != _manifest() or requirement.key != self.key:
+        if (
+            not isinstance(manifest, DefaultTenantMigrationManifest)
+            or requirement.key != self.key
+        ):
             raise MigrationReconciliationCollectionError()
         preflight = _test_schema_preflight(self.engine)
         if self.key == "schema.generation":
-            observed = _schema_generation(preflight)
+            observed = _observed_schema_generation(preflight)
         elif self.key == "schema.digest":
             observed = bytes.fromhex(preflight.preflight_digest)
         else:
@@ -135,10 +138,7 @@ def run_complete_default_backfill_composition(
 ) -> CompleteBackfillObservation:
     """Execute every resolved backfill plus empty-history verification twice."""
 
-    if (
-        not isinstance(engine, Engine)
-        or engine.dialect.name != "mysql"
-    ):
+    if not isinstance(engine, Engine) or engine.dialect.name != "mysql":
         raise TypeError("complete backfill requires one bound MySQL engine")
     _install_tenant_revision(engine)
     manifest = _manifest()
@@ -159,10 +159,9 @@ def run_complete_default_backfill_composition(
     control_read_session = control_factory(autoflush=False)
     try:
         schema_preflight = _test_schema_preflight(engine)
-        if (
-            _schema_generation(schema_preflight) != SCHEMA_GENERATION
-            or schema_preflight.alembic_versions != (TENANT_HEAD,)
-        ):
+        if _schema_generation(
+            schema_preflight
+        ) != SCHEMA_GENERATION or schema_preflight.alembic_versions != (TENANT_HEAD,):
             raise AssertionError("test tenant schema identity is invalid")
         schema_digest = bytes.fromhex(schema_preflight.preflight_digest)
         bundle = _bundle(
@@ -189,8 +188,8 @@ def run_complete_default_backfill_composition(
             )
         )
         schema_collectors = (
-            _CurrentTestSchemaCollector("schema.digest", engine),
-            _CurrentTestSchemaCollector("schema.generation", engine),
+            CurrentTestSchemaCollector("schema.digest", engine),
+            CurrentTestSchemaCollector("schema.generation", engine),
         )
         registry = DefaultTenantReconciliationSqlRegistry(
             manifest=manifest,
@@ -201,9 +200,7 @@ def run_complete_default_backfill_composition(
             policy=policy,
             sql_registry=registry,
             supplemental_collectors=(
-                DefaultLegacyDoubleCountCollector(
-                    _legacy_boundary_evidence(manifest)
-                ),
+                DefaultLegacyDoubleCountCollector(_legacy_boundary_evidence(manifest)),
                 *schema_collectors,
             ),
         )
@@ -215,17 +212,17 @@ def run_complete_default_backfill_composition(
                 expected_schema_generation=SCHEMA_GENERATION,
             ),
             policy=policy,
-            reconciliation_runner=DefaultMigrationReconciliationRunner(
-                collectors
-            ),
+            reconciliation_runner=DefaultMigrationReconciliationRunner(collectors),
         )
         invocation = _phase_invocation(manifest)
         crash_executor = replace(
             executor,
             steps=tuple(
-                _CrashAfterCommittedStep(step)
-                if step.name == "logical_accessory_backfill"
-                else step
+                (
+                    _CrashAfterCommittedStep(step)
+                    if step.name == "logical_accessory_backfill"
+                    else step
+                )
                 for step in executor.steps
             ),
         )
@@ -249,8 +246,7 @@ def run_complete_default_backfill_composition(
                 if finding.status.value != "matched"
             )
             raise AssertionError(
-                "isolated reconciliation mismatched keys: "
-                + ",".join(mismatched)
+                "isolated reconciliation mismatched keys: " + ",".join(mismatched)
             ) from exc
         replay = executor.execute(invocation)
         if (
@@ -276,6 +272,11 @@ def run_complete_default_backfill_composition(
 
 def _install_tenant_revision(engine: Engine) -> None:
     with engine.begin() as connection:
+        # The shared metadata lifecycle deletes rows between cases without
+        # resetting MySQL AUTO_INCREMENT.  This fixture's reviewed accessory
+        # plan intentionally names the deterministic default warehouse id 1,
+        # so own that test-only identity instead of depending on test order.
+        connection.exec_driver_sql("ALTER TABLE warehouses AUTO_INCREMENT = 1")
         connection.exec_driver_sql("DROP TABLE IF EXISTS alembic_version")
         connection.exec_driver_sql(
             "CREATE TABLE alembic_version ("
@@ -336,9 +337,7 @@ def _seed_databases(
             serial_number="migration-accessory-001",
             is_accessory=True,
         )
-        session.add_all(
-            (identity, accessory_type, main_device, accessory_device)
-        )
+        session.add_all((identity, accessory_type, main_device, accessory_device))
         session.flush()
         rental = Rental(
             device_id=main_device.id,
@@ -374,17 +373,31 @@ def _seed_databases(
 
 
 def _test_schema_preflight(engine: Engine):
-    return preflight_test_database_write(
+    return observe_test_database_schema(
         engine.url,
         lambda _parsed: engine.connect(),
-        disposition="metadata_rebuild",
     )
 
 
 def _schema_generation(preflight) -> int:
-    if preflight.identity_generations != ((1, SCHEMA_GENERATION),):
+    observed = _observed_schema_generation(preflight)
+    if observed != SCHEMA_GENERATION:
         raise MigrationReconciliationCollectionError()
     return SCHEMA_GENERATION
+
+
+def _observed_schema_generation(preflight) -> int:
+    if len(preflight.identity_generations) != 1:
+        raise MigrationReconciliationCollectionError()
+    singleton_key, generation = preflight.identity_generations[0]
+    if (
+        singleton_key != 1
+        or isinstance(generation, bool)
+        or not isinstance(generation, int)
+        or generation < 1
+    ):
+        raise MigrationReconciliationCollectionError()
+    return generation
 
 
 def _bundle(
@@ -410,9 +423,7 @@ def _bundle(
         tenant_identity_digest=identity_digest,
         schema_revision=manifest.tenant_schema_head,
         schema_digest=schema_digest,
-        source_snapshot=build_express_type_source_snapshot(
-            ((seeded.rental_id, None),)
-        ),
+        source_snapshot=build_express_type_source_snapshot(((seeded.rental_id, None),)),
     )
     schema_read = lambda _session, _identity: TenantSchemaAuthorityFacts(
         tenant_uuid=manifest.tenant_uuid,
@@ -508,9 +519,7 @@ def _empty_historical_boundary(manifest):
         source_schema_name=manifest.source_schema_name,
         baseline_migration_id=manifest.baseline_migration_id,
         source_snapshot_digest=manifest.source_snapshot_digest,
-        counts=tuple(
-            (key, 0) for key in HISTORICAL_BOUNDARY_COUNT_KEYS
-        ),
+        counts=tuple((key, 0) for key in HISTORICAL_BOUNDARY_COUNT_KEYS),
         disposition=HistoricalSnapshotDisposition.EMPTY,
     )
 
@@ -519,9 +528,7 @@ def _legacy_boundary_evidence(manifest):
     return DefaultLegacyAuthorityBoundaryEvidence(
         manifest_digest=manifest.digest,
         source_snapshot_digest=manifest.source_snapshot_digest,
-        implementation_identity_digest=(
-            manifest.implementation_identity_digest
-        ),
+        implementation_identity_digest=(manifest.implementation_identity_digest),
         migration_bundle_digest=manifest.migration_bundle_digest,
         legacy_quantity_negative_digest=_digest("quantity-negative"),
         legacy_child_rental_negative_digest=_digest("child-negative"),
@@ -541,11 +548,14 @@ def _phase_invocation(manifest):
         rollback_action="retain reversible backfill facts",
         mutations_allowed=True,
     )
-    phase_key = "default-migration:" + hashlib.sha256(
-        b"default-tenant-migration-phase-v1\x00"
-        + manifest.digest
-        + b"\x00backfill_verify"
-    ).hexdigest()
+    phase_key = (
+        "default-migration:"
+        + hashlib.sha256(
+            b"default-tenant-migration-phase-v1\x00"
+            + manifest.digest
+            + b"\x00backfill_verify"
+        ).hexdigest()
+    )
     return MigrationPhaseInvocation(
         manifest=manifest,
         plan=plan,
@@ -592,9 +602,7 @@ def _observe_result(
         from inventory_control.models import TenantIntegrationSecretRevision
 
         revision_count = session.scalar(
-            sa.select(sa.func.count()).select_from(
-                TenantIntegrationSecretRevision
-            )
+            sa.select(sa.func.count()).select_from(TenantIntegrationSecretRevision)
         )
     return CompleteBackfillObservation(
         result_digest=first_digest,
@@ -626,16 +634,15 @@ def _assert_partial_crash_state(
             or rental.planned_ship_out_date is None
             or rental.planned_return_date is None
             or rental.customer_province is None
-            or session.scalar(
-                sa.select(sa.func.count()).select_from(AccessoryUnit)
-            )
+            or session.scalar(sa.select(sa.func.count()).select_from(AccessoryUnit))
             != 1
         ):
             raise AssertionError("committed pre-crash tenant facts are missing")
     with control_factory() as session:
-        if session.scalar(
-            sa.select(sa.func.count()).select_from(TenantIntegration)
-        ) != 0:
+        if (
+            session.scalar(sa.select(sa.func.count()).select_from(TenantIntegration))
+            != 0
+        ):
             raise AssertionError("post-crash control step ran unexpectedly")
 
 
@@ -645,5 +652,6 @@ def _digest(value: str) -> bytes:
 
 __all__ = [
     "CompleteBackfillObservation",
+    "CurrentTestSchemaCollector",
     "run_complete_default_backfill_composition",
 ]

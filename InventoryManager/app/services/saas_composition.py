@@ -145,9 +145,7 @@ class SaasCoreHttpRuntimeSettings:
     def __post_init__(self) -> None:
         if (
             not isinstance(self.database_instances, DatabaseInstanceRegistry)
-            or not isinstance(
-                self.engine_pool_settings, TenantEnginePoolSettings
-            )
+            or not isinstance(self.engine_pool_settings, TenantEnginePoolSettings)
             or isinstance(self.max_cache_entries, bool)
             or not isinstance(self.max_cache_entries, int)
             or self.max_cache_entries < 1
@@ -159,15 +157,11 @@ class SaasCoreHttpRuntimeSettings:
             or not 100 <= self.platform_read_query_timeout_ms <= 10_000
             or (
                 self.tenant_login is not None
-                and not isinstance(
-                    self.tenant_login, TenantLoginRuntimeSettings
-                )
+                and not isinstance(self.tenant_login, TenantLoginRuntimeSettings)
             )
             or (
                 self.platform_login is not None
-                and not isinstance(
-                    self.platform_login, PlatformLoginRuntimeSettings
-                )
+                and not isinstance(self.platform_login, PlatformLoginRuntimeSettings)
             )
             or (
                 self.platform_redemption is not None
@@ -184,18 +178,14 @@ class SaasCoreHttpRuntimeSettings:
             )
             or (
                 self.xianyu_schedule_gate is not None
-                and not callable(
-                    getattr(self.xianyu_schedule_gate, "evaluate", None)
-                )
+                and not callable(getattr(self.xianyu_schedule_gate, "evaluate", None))
             )
         ):
             raise TypeError("SaaS Core HTTP runtime settings are invalid")
         try:
             root = os.fspath(self.root_key_directory)
         except TypeError:
-            raise TypeError(
-                "SaaS Core HTTP runtime settings are invalid"
-            ) from None
+            raise TypeError("SaaS Core HTTP runtime settings are invalid") from None
         if not isinstance(root, str) or not os.path.isabs(root):
             raise ValueError("root key directory must be absolute")
         object.__setattr__(self, "root_key_directory", root)
@@ -235,156 +225,6 @@ class SaasCoreHttpRuntimeBundle:
     sf_tracking: SqlAlchemySfTrackingHttpRuntime | None
     xianyu_sync: SqlAlchemyXianyuSyncHttpRuntime | None
 
-    def __post_init__(self) -> None:
-        if (
-            not isinstance(
-                self.tenant_business, SqlAlchemyTenantBusinessHttpRuntime
-            )
-            or not isinstance(
-                self.identity, SqlAlchemyTenantIdentityHttpRuntime
-            )
-            or not isinstance(
-                self.invitations, SqlAlchemyTenantInvitationHttpRuntime
-            )
-            or not isinstance(
-                self.integrations, SqlAlchemyTenantIntegrationHttpRuntime
-            )
-            or not isinstance(
-                self.provider_accounts,
-                SqlAlchemyTenantProviderAccountHttpRuntime,
-            )
-            or not isinstance(
-                self.subscription,
-                SqlAlchemyTenantSubscriptionHttpRuntime,
-            )
-            or not isinstance(
-                self.platform_identity,
-                SqlAlchemyPlatformIdentityHttpRuntime,
-            )
-            or not isinstance(
-                self.platform_tenant_read,
-                SqlAlchemyPlatformTenantReadHttpRuntime,
-            )
-            or (
-                self.platform_subscription_adjustment is not None
-                and not isinstance(
-                    self.platform_subscription_adjustment,
-                    SqlAlchemyPlatformSubscriptionAdjustmentHttpRuntime,
-                )
-            )
-            or (
-                self.platform_redemption is not None
-                and not isinstance(
-                    self.platform_redemption,
-                    SqlAlchemyPlatformRedemptionHttpRuntime,
-                )
-            )
-            or not isinstance(self.gantt, SqlAlchemyGanttSaasHttpRuntime)
-            or not isinstance(self.rental, SqlAlchemyRentalSaasHttpRuntime)
-            or not isinstance(
-                self.inspection, SqlAlchemyInspectionSaasHttpRuntime
-            )
-            or not isinstance(
-                self.warehouse, SqlAlchemyWarehouseSaasHttpRuntime
-            )
-            or not isinstance(self.relay, SqlAlchemyRelaySaasHttpRuntime)
-            or not isinstance(
-                self.sf_batch_shipping,
-                SqlAlchemySfBatchShippingHttpRuntime,
-            )
-            or self.sf_batch_shipping.control_database
-            is not self.tenant_business.control_database
-            or self.sf_batch_shipping.tenant_http_boundary
-            is not self.tenant_business.tenant_http_boundary
-            or self.sf_batch_shipping.tenant_business_runtime
-            is not self.tenant_business
-            or (
-                self.sf_tracking is not None
-                and not isinstance(
-                    self.sf_tracking,
-                    SqlAlchemySfTrackingHttpRuntime,
-                )
-            )
-            or (
-                self.xianyu_sync is not None
-                and not isinstance(
-                    self.xianyu_sync,
-                    SqlAlchemyXianyuSyncHttpRuntime,
-                )
-            )
-            or self.identity.control_database
-            is not self.tenant_business.control_database
-            or self.identity.tenant_http_boundary
-            is not self.tenant_business.tenant_http_boundary
-            or self.invitations.control_database
-            is not self.tenant_business.control_database
-            or self.invitations.tenant_http_boundary
-            is not self.tenant_business.tenant_http_boundary
-            or self.integrations.control_database
-            is not self.tenant_business.control_database
-            or self.integrations.tenant_http_boundary
-            is not self.tenant_business.tenant_http_boundary
-            or self.provider_accounts.control_database
-            is not self.tenant_business.control_database
-            or self.provider_accounts.tenant_http_boundary
-            is not self.tenant_business.tenant_http_boundary
-            or self.provider_accounts.tenant_business_runtime
-            is not self.tenant_business
-            or self.identity.session_service
-            is not self.tenant_business.tenant_http_boundary.session_service
-            or self.subscription.control_database
-            is not self.tenant_business.control_database
-            or self.platform_identity.control_database
-            is not self.tenant_business.control_database
-            or self.platform_tenant_read.control_database
-            is not self.tenant_business.control_database
-            or self.platform_tenant_read.platform_boundary
-            is not self.platform_identity.boundary
-            or (
-                self.platform_subscription_adjustment is not None
-                and (
-                    self.platform_subscription_adjustment.control_database
-                    is not self.tenant_business.control_database
-                    or self.platform_subscription_adjustment.platform_boundary
-                    is not self.platform_identity.boundary
-                )
-            )
-            or (
-                self.platform_redemption is not None
-                and (
-                    self.platform_redemption.control_database
-                    is not self.tenant_business.control_database
-                    or self.platform_redemption.platform_boundary
-                    is not self.platform_identity.boundary
-                )
-            )
-            or self.subscription.tenant_http_boundary
-            is not self.tenant_business.tenant_http_boundary
-            or self.gantt.tenant_business_runtime is not self.tenant_business
-            or self.relay.tenant_business_runtime is not self.tenant_business
-            or (
-                self.sf_tracking is not None
-                and (
-                    self.sf_tracking.control_database
-                    is not self.tenant_business.control_database
-                    or self.sf_tracking.tenant_http_boundary
-                    is not self.tenant_business.tenant_http_boundary
-                    or self.sf_tracking.tenant_business_runtime
-                    is not self.tenant_business
-                )
-            )
-            or (
-                self.xianyu_sync is not None
-                and (
-                    self.xianyu_sync.tenant_business_runtime
-                    is not self.tenant_business
-                    or self.xianyu_sync.job_coordinator.database
-                    is not self.tenant_business.control_database
-                )
-            )
-        ):
-            raise TypeError("SaaS Core HTTP runtime bundle is invalid")
-
 
 def build_saas_core_http_runtime_bundle(
     *,
@@ -409,9 +249,7 @@ def build_saas_core_http_runtime_bundle(
         root_key_directory=settings.root_key_directory,
     )
     gantt = SqlAlchemyGanttSaasHttpRuntime(
-        proof_adapter=GanttPreviewProofAdapter(
-            authority_reader=authority_reader
-        ),
+        proof_adapter=GanttPreviewProofAdapter(authority_reader=authority_reader),
         tenant_business_runtime=shared,
     )
     login_settings = settings.tenant_login
@@ -434,19 +272,13 @@ def build_saas_core_http_runtime_bundle(
             session_service=shared.tenant_http_boundary.session_service,
             root_key_directory=settings.root_key_directory,
             sms_provider=(
-                login_settings.sms_provider
-                if login_settings is not None
-                else None
+                login_settings.sms_provider if login_settings is not None else None
             ),
             sms_policy=(
-                login_settings.sms_policy
-                if login_settings is not None
-                else None
+                login_settings.sms_policy if login_settings is not None else None
             ),
             session_policy=(
-                login_settings.session_policy
-                if login_settings is not None
-                else None
+                login_settings.session_policy if login_settings is not None else None
             ),
             trusted_source_resolver=(
                 login_settings.trusted_source_resolver
@@ -459,14 +291,10 @@ def build_saas_core_http_runtime_bundle(
             tenant_http_boundary=shared.tenant_http_boundary,
             root_key_directory=settings.root_key_directory,
             sms_provider=(
-                login_settings.sms_provider
-                if login_settings is not None
-                else None
+                login_settings.sms_provider if login_settings is not None else None
             ),
             sms_policy=(
-                login_settings.sms_policy
-                if login_settings is not None
-                else None
+                login_settings.sms_policy if login_settings is not None else None
             ),
             trusted_source_resolver=(
                 login_settings.trusted_source_resolver
@@ -479,14 +307,10 @@ def build_saas_core_http_runtime_bundle(
             tenant_http_boundary=shared.tenant_http_boundary,
             root_key_directory=settings.root_key_directory,
             sms_provider=(
-                login_settings.sms_provider
-                if login_settings is not None
-                else None
+                login_settings.sms_provider if login_settings is not None else None
             ),
             sms_policy=(
-                login_settings.sms_policy
-                if login_settings is not None
-                else None
+                login_settings.sms_policy if login_settings is not None else None
             ),
             trusted_source_resolver=(
                 login_settings.trusted_source_resolver
@@ -500,14 +324,10 @@ def build_saas_core_http_runtime_bundle(
             tenant_business_runtime=shared,
             root_key_directory=settings.root_key_directory,
             sms_provider=(
-                login_settings.sms_provider
-                if login_settings is not None
-                else None
+                login_settings.sms_provider if login_settings is not None else None
             ),
             sms_policy=(
-                login_settings.sms_policy
-                if login_settings is not None
-                else None
+                login_settings.sms_policy if login_settings is not None else None
             ),
             trusted_source_resolver=(
                 login_settings.trusted_source_resolver
@@ -521,9 +341,7 @@ def build_saas_core_http_runtime_bundle(
             platform_boundary=platform_identity.boundary,
             tenant_router_factory=platform_read_router_scope,
             read_policy_version=settings.platform_read_policy_version,
-            maximum_execution_time_ms=(
-                settings.platform_read_query_timeout_ms
-            ),
+            maximum_execution_time_ms=(settings.platform_read_query_timeout_ms),
         ),
         platform_subscription_adjustment=(
             SqlAlchemyPlatformSubscriptionAdjustmentHttpRuntime(
@@ -554,18 +372,10 @@ def build_saas_core_http_runtime_bundle(
             tenant_http_boundary=shared.tenant_http_boundary,
         ),
         gantt=gantt,
-        rental=SqlAlchemyRentalSaasHttpRuntime(
-            tenant_business_runtime=shared
-        ),
-        inspection=SqlAlchemyInspectionSaasHttpRuntime(
-            tenant_business_runtime=shared
-        ),
-        warehouse=SqlAlchemyWarehouseSaasHttpRuntime(
-            tenant_business_runtime=shared
-        ),
-        relay=SqlAlchemyRelaySaasHttpRuntime(
-            tenant_business_runtime=shared
-        ),
+        rental=SqlAlchemyRentalSaasHttpRuntime(tenant_business_runtime=shared),
+        inspection=SqlAlchemyInspectionSaasHttpRuntime(tenant_business_runtime=shared),
+        warehouse=SqlAlchemyWarehouseSaasHttpRuntime(tenant_business_runtime=shared),
+        relay=SqlAlchemyRelaySaasHttpRuntime(tenant_business_runtime=shared),
         sf_batch_shipping=SqlAlchemySfBatchShippingHttpRuntime(
             control_database=control_database,
             tenant_http_boundary=shared.tenant_http_boundary,
@@ -619,9 +429,7 @@ def install_saas_core_http_runtime_bundle(
         TENANT_IDENTITY_HTTP_RUNTIME_EXTENSION: bundle.identity,
         TENANT_INVITATION_HTTP_RUNTIME_EXTENSION: bundle.invitations,
         TENANT_INTEGRATION_HTTP_RUNTIME_EXTENSION: bundle.integrations,
-        TENANT_PROVIDER_ACCOUNT_HTTP_RUNTIME_EXTENSION: (
-            bundle.provider_accounts
-        ),
+        TENANT_PROVIDER_ACCOUNT_HTTP_RUNTIME_EXTENSION: (bundle.provider_accounts),
         PLATFORM_IDENTITY_HTTP_RUNTIME_EXTENSION: bundle.platform_identity,
         PLATFORM_TENANT_READ_HTTP_RUNTIME_EXTENSION: bundle.platform_tenant_read,
         TENANT_SUBSCRIPTION_HTTP_RUNTIME_EXTENSION: bundle.subscription,
@@ -637,9 +445,9 @@ def install_saas_core_http_runtime_bundle(
             PLATFORM_SUBSCRIPTION_ADJUSTMENT_HTTP_RUNTIME_EXTENSION
         ] = bundle.platform_subscription_adjustment
     if bundle.platform_redemption is not None:
-        extensions[PLATFORM_REDEMPTION_HTTP_RUNTIME_EXTENSION] = (
-            bundle.platform_redemption
-        )
+        extensions[
+            PLATFORM_REDEMPTION_HTTP_RUNTIME_EXTENSION
+        ] = bundle.platform_redemption
     if bundle.sf_tracking is not None:
         extensions[SF_TRACKING_HTTP_RUNTIME_EXTENSION] = bundle.sf_tracking
     if bundle.xianyu_sync is not None:

@@ -2,21 +2,11 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
-from app import create_app, db
+from app import db
 from app.models.device import Device
 from app.models.device_model import DeviceModel
 from app.models.rental import Rental
 from app.services.rental_statistics_service import calculate_period_depreciation
-
-
-@pytest.fixture
-def app():
-    application = create_app("testing")
-    with application.app_context():
-        db.create_all()
-        yield application
-        db.session.remove()
-        db.drop_all()
 
 
 @pytest.fixture
@@ -93,11 +83,10 @@ def test_periodic_stats_prorate_device_until_lifecycle_date(app, client):
     assert row["rental_rate"] == pytest.approx(2 / (44 / 7), abs=0.0001)
 
 
-def test_forecast_retains_exited_device_history_but_not_future_capacity(
-    app, client
-):
+def test_forecast_retains_exited_device_history_but_not_future_capacity(app, client):
     with app.app_context():
         model = DeviceModel(
+            id=1,
             name="x200u",
             display_name="X200 Ultra",
             is_accessory=False,

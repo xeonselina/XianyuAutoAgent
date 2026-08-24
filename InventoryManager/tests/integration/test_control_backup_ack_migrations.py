@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy.dialects import sqlite
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
@@ -49,8 +48,7 @@ def test_backup_ack_migration_0022_to_0023_round_trip_and_head_metadata(
         inspector = sa.inspect(engine)
         assert ACK_TABLE in inspector.get_table_names()
         columns = {
-            column["name"]: column
-            for column in inspector.get_columns(ACK_TABLE)
+            column["name"]: column for column in inspector.get_columns(ACK_TABLE)
         }
         assert set(columns) == {
             "artifact_id",
@@ -258,15 +256,7 @@ def test_backup_ack_migration_emits_mysql_8_microsecond_non_secret_ddl():
     assert " json" not in lower_ddl
 
 
-def test_backup_ack_model_sqlite_default_is_valid_and_mysql_is_microsecond():
-    sqlite_ddl = str(
-        sa.schema.CreateTable(BackupArtifactAcknowledgementRecord.__table__).compile(
-            dialect=sqlite.dialect()
-        )
-    )
-    assert "DEFAULT CURRENT_TIMESTAMP" in sqlite_ddl
-    assert "CURRENT_TIMESTAMP(6)" not in sqlite_ddl
-
+def test_backup_ack_model_mysql_default_is_microsecond():
     mysql_ddl = str(
         sa.schema.CreateTable(BackupArtifactAcknowledgementRecord.__table__).compile(
             dialect=sa.create_mock_engine(

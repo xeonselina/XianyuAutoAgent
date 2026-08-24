@@ -21,7 +21,7 @@ from typing import Callable, Protocol
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.database import read_database_utc_value
 from inventory_control.domain.tenant_gate import TenantStatus
@@ -54,6 +54,7 @@ from inventory_control.models.deletion import (
 )
 from inventory_control.models.foundation import Tenant, TenantDatabase
 from inventory_control.models.recovery import DisasterRecoveryRun, TenantRecoveryHold
+from inventory_control.transactions import require_caller_transaction
 
 
 _SAFE_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,190}\Z", re.ASCII)
@@ -218,7 +219,8 @@ class DeletionEvidenceCurrentRead(Protocol):
         prior_state: DeletionState,
         transition: DeletionTransition,
         database_now_utc: datetime,
-    ) -> DeletionEvidenceVerification: ...
+    ) -> DeletionEvidenceVerification:
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,7 +245,8 @@ class ExpandingRouteProjectionWriter(Protocol):
         route: TenantDatabase,
         prior_state: DeletionState,
         transition: DeletionTransition,
-    ) -> RouteProjectionVerification: ...
+    ) -> RouteProjectionVerification:
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -302,9 +305,7 @@ class TenantDeletionPersistenceCoordinator:
     ) -> None:
         if evidence_current_read is not None and not callable(evidence_current_read):
             raise TypeError("evidence_current_read must be callable")
-        if expanding_route_writer is not None and not callable(
-            expanding_route_writer
-        ):
+        if expanding_route_writer is not None and not callable(expanding_route_writer):
             raise TypeError("expanding_route_writer must be callable")
         if database_clock is not None and not callable(database_clock):
             raise TypeError("database_clock must be callable")
@@ -632,8 +633,7 @@ class TenantDeletionPersistenceCoordinator:
             or effect.action_id != request.current_action_id
             or effect.execution_generation != request.execution_generation
             or effect.executor_fencing_token != request.executor_fencing_token
-            or effect.tenant_access_version
-            != request.committed_tenant_access_version
+            or effect.tenant_access_version != request.committed_tenant_access_version
         ):
             _raise(
                 DeletionPersistenceEvidenceError,
@@ -673,29 +673,19 @@ class TenantDeletionPersistenceCoordinator:
         return self._lock_aggregate(session, tenant_id).state
 
     def _prepare(self, session: Session) -> None:
-        if not isinstance(session, Session):
-            _raise(
-                DeletionPersistenceTransactionError,
-                "DELETION_CALLER_TRANSACTION_REQUIRED",
-            )
-        transaction = session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            _raise(
-                DeletionPersistenceTransactionError,
-                "DELETION_CALLER_TRANSACTION_REQUIRED",
-            )
-        dirty = any(
-            session.is_modified(instance, include_collections=True)
-            for instance in session.dirty
+        require_caller_transaction(
+            session,
+            lambda: DeletionPersistenceTransactionError(
+                "DELETION_CALLER_TRANSACTION_REQUIRED"
+            ),
+            invalid_session_error=lambda: DeletionPersistenceTransactionError(
+                "DELETION_CALLER_TRANSACTION_REQUIRED"
+            ),
+            dirty_error=lambda: DeletionPersistenceTransactionError(
+                "DELETION_CLEAN_CALLER_UNIT_OF_WORK_REQUIRED"
+            ),
+            clean=True,
         )
-        if session.new or session.deleted or dirty:
-            _raise(
-                DeletionPersistenceTransactionError,
-                "DELETION_CLEAN_CALLER_UNIT_OF_WORK_REQUIRED",
-            )
 
     def _now(self, session: Session) -> datetime:
         return _database_utc(self._database_clock(session))
@@ -770,9 +760,7 @@ class TenantDeletionPersistenceCoordinator:
                 )
             tombstone_row = session.scalar(
                 sa.select(TenantDeletionTombstone)
-                .where(
-                    TenantDeletionTombstone.deletion_request_id == request_row.id
-                )
+                .where(TenantDeletionTombstone.deletion_request_id == request_row.id)
                 .with_for_update()
             )
         route = session.scalar(
@@ -783,7 +771,9 @@ class TenantDeletionPersistenceCoordinator:
         database_id = (
             request_row.database_uuid
             if request_row is not None
-            else route.database_uuid if route is not None else None
+            else route.database_uuid
+            if route is not None
+            else None
         )
         if database_id is None or hold.database_uuid != database_id:
             _raise(
@@ -827,10 +817,8 @@ class TenantDeletionPersistenceCoordinator:
             existing = session.scalar(
                 sa.select(TenantDeletionAction)
                 .where(
-                    TenantDeletionAction.deletion_request_id
-                    == locked.request_row.id,
-                    TenantDeletionAction.idempotency_key
-                    == identity.idempotency_key,
+                    TenantDeletionAction.deletion_request_id == locked.request_row.id,
+                    TenantDeletionAction.idempotency_key == identity.idempotency_key,
                 )
                 .with_for_update()
             )
@@ -1062,11 +1050,9 @@ class TenantDeletionPersistenceCoordinator:
                 if (
                     not isinstance(acknowledgment, OffsiteTombstoneAck)
                     or tombstone is None
-                    or acknowledgment.acknowledged_at_utc
-                    < tombstone.recorded_at_utc
+                    or acknowledgment.acknowledged_at_utc < tombstone.recorded_at_utc
                     or acknowledgment.acknowledged_at_utc > database_now
-                    or verification.verified_at_utc
-                    < acknowledgment.acknowledged_at_utc
+                    or verification.verified_at_utc < acknowledgment.acknowledged_at_utc
                 ):
                     _raise(
                         DeletionPersistenceEvidenceError,
@@ -1129,15 +1115,13 @@ class TenantDeletionPersistenceCoordinator:
                     TenantDeletionEffect.execution_generation
                     == request.execution_generation,
                     TenantDeletionEffect.effect_kind.in_(required),
-                    TenantDeletionEffect.tombstone_sequence
-                    == tombstone_sequence,
+                    TenantDeletionEffect.tombstone_sequence == tombstone_sequence,
                 )
                 .with_for_update()
             )
         )
-        if (
-            {effect.effect_kind for effect in persisted} != set(required)
-            or any(effect.state != "succeeded" for effect in persisted)
+        if {effect.effect_kind for effect in persisted} != set(required) or any(
+            effect.state != "succeeded" for effect in persisted
         ):
             _raise(
                 DeletionPersistenceEvidenceError,
@@ -1233,10 +1217,8 @@ class TenantDeletionPersistenceCoordinator:
                 or proof.verified is not True
                 or proof.tenant_id != target.tenant_id
                 or proof.database_id != target.database_id
-                or proof.published_dml_generation
-                != target.published_dml_generation
-                or proof.desired_dml_login_state
-                is not target.desired_dml_login_state
+                or proof.published_dml_generation != target.published_dml_generation
+                or proof.desired_dml_login_state is not target.desired_dml_login_state
                 or locked.route.row_version != proof.route_row_version
                 or locked.route.dml_desired_login_state != "active"
             ):
@@ -1284,9 +1266,7 @@ class TenantDeletionPersistenceCoordinator:
                 "DELETION_TRANSITION_REQUEST_MISSING",
             )
         row = locked.request_row
-        creates_new_request = bool(
-            row is None or row.id != str(target.request_id)
-        )
+        creates_new_request = bool(row is None or row.id != str(target.request_id))
         if creates_new_request:
             if row is not None and row.status not in {"rejected", "cancelled"}:
                 _raise(
@@ -1316,13 +1296,9 @@ class TenantDeletionPersistenceCoordinator:
                 desired_dml_login_state=(
                     transition.state.desired_dml_login_state.value
                 ),
-                published_dml_generation=(
-                    transition.state.published_dml_generation
-                ),
+                published_dml_generation=(transition.state.published_dml_generation),
                 latest_dml_generation=transition.state.latest_dml_generation,
-                candidate_dml_generation=(
-                    transition.state.candidate_dml_generation
-                ),
+                candidate_dml_generation=(transition.state.candidate_dml_generation),
                 recovery_dispositions_required=(
                     transition.state.recovery_dispositions_required
                 ),
@@ -1339,19 +1315,11 @@ class TenantDeletionPersistenceCoordinator:
             row.execution_generation = target.execution_generation
             row.executor_fencing_token = target.executor_fencing_token
             row.current_action_id = str(target.current_action.action_id)
-            row.committed_tenant_access_version = (
-                transition.state.tenant_access_version
-            )
-            row.desired_dml_login_state = (
-                transition.state.desired_dml_login_state.value
-            )
-            row.published_dml_generation = (
-                transition.state.published_dml_generation
-            )
+            row.committed_tenant_access_version = transition.state.tenant_access_version
+            row.desired_dml_login_state = transition.state.desired_dml_login_state.value
+            row.published_dml_generation = transition.state.published_dml_generation
             row.latest_dml_generation = transition.state.latest_dml_generation
-            row.candidate_dml_generation = (
-                transition.state.candidate_dml_generation
-            )
+            row.candidate_dml_generation = transition.state.candidate_dml_generation
             row.recovery_dispositions_required = (
                 transition.state.recovery_dispositions_required
             )
@@ -1359,9 +1327,7 @@ class TenantDeletionPersistenceCoordinator:
                 target.reviewed_by_platform_admin_id
             )
             row.cancelled_by_user_id = _uuid_text(target.cancelled_by_user_id)
-            row.pre_freeze_tenant_status = _enum_text(
-                target.pre_freeze_tenant_status
-            )
+            row.pre_freeze_tenant_status = _enum_text(target.pre_freeze_tenant_status)
             row.pre_freeze_suspension_phase = _enum_text(
                 target.pre_freeze_suspension_phase
             )
@@ -1440,8 +1406,7 @@ class TenantDeletionPersistenceCoordinator:
             or tombstone.recorded_at_utc < target_request.requested_at_utc
             or (
                 target_request.execute_not_before_utc is not None
-                and tombstone.recorded_at_utc
-                < target_request.execute_not_before_utc
+                and tombstone.recorded_at_utc < target_request.execute_not_before_utc
             )
         ):
             _raise(
@@ -1451,8 +1416,7 @@ class TenantDeletionPersistenceCoordinator:
         existing = session.scalar(
             sa.select(TenantDeletionTombstone)
             .where(
-                TenantDeletionTombstone.deletion_request_id
-                == str(tombstone.request_id)
+                TenantDeletionTombstone.deletion_request_id == str(tombstone.request_id)
             )
             .with_for_update()
         )
@@ -1481,9 +1445,7 @@ class TenantDeletionPersistenceCoordinator:
                 previous_hash=tombstone.previous_hash,
                 record_hash=tombstone.record_hash,
                 head_hash=tombstone.head_hash,
-                checkpoint_root_key_version=(
-                    tombstone.checkpoint_root_key_version
-                ),
+                checkpoint_root_key_version=(tombstone.checkpoint_root_key_version),
                 checkpoint_mac=tombstone.checkpoint_mac,
                 recorded_at=tombstone.recorded_at_utc,
             )
@@ -1492,9 +1454,7 @@ class TenantDeletionPersistenceCoordinator:
             _require_tombstone_match(existing, tombstone)
 
         prior_ack = (
-            prior_state.request.offsite_ack
-            if prior_state.request is not None
-            else None
+            prior_state.request.offsite_ack if prior_state.request is not None else None
         )
         ack = target_request.offsite_ack
         if ack is not None and prior_ack is None:
@@ -1537,8 +1497,7 @@ class TenantDeletionPersistenceCoordinator:
             existing = session.scalar(
                 sa.select(TenantDeletionEvidenceReceipt)
                 .where(
-                    TenantDeletionEvidenceReceipt.deletion_request_id
-                    == request_row.id,
+                    TenantDeletionEvidenceReceipt.deletion_request_id == request_row.id,
                     TenantDeletionEvidenceReceipt.action_id == action_row.id,
                     TenantDeletionEvidenceReceipt.execution_generation
                     == request.execution_generation,
@@ -1606,8 +1565,7 @@ class TenantDeletionPersistenceCoordinator:
                     TenantDeletionEffect.execution_generation
                     == fact.execution_generation,
                     TenantDeletionEffect.effect_kind == fact.kind.value,
-                    TenantDeletionEffect.tombstone_sequence
-                    == fact.tombstone_sequence,
+                    TenantDeletionEffect.tombstone_sequence == fact.tombstone_sequence,
                 )
                 .with_for_update()
             )
@@ -1871,9 +1829,7 @@ def _required_effect_kinds(
             }
         )
     if receipt_kind == "offsite_ack":
-        return frozenset(
-            {DeletionEffectKind.REPLICATE_TOMBSTONE_OFFSITE.value}
-        )
+        return frozenset({DeletionEffectKind.REPLICATE_TOMBSTONE_OFFSITE.value})
     if receipt_kind == "claim_release":
         values = {
             DeletionEffectKind.RELEASE_TENANT_PROVIDER_CLAIMS.value,
@@ -1881,9 +1837,7 @@ def _required_effect_kinds(
             DeletionEffectKind.ISOLATE_PROVIDER_OPERATIONS.value,
         }
         if recovery_required:
-            values.add(
-                DeletionEffectKind.RECORD_RECOVERY_TOMBSTONED_DISPOSITIONS.value
-            )
+            values.add(DeletionEffectKind.RECORD_RECOVERY_TOMBSTONED_DISPOSITIONS.value)
         return frozenset(values)
     if receipt_kind == "destructive_cleanup":
         return frozenset(
@@ -2039,9 +1993,7 @@ def _to_state(
         ),
         cancelled_by_user_id=_optional_uuid(request_row.cancelled_by_user_id),
         reviewed_at_utc=_optional_database_utc(request_row.reviewed_at),
-        execute_not_before_utc=_optional_database_utc(
-            request_row.execute_not_before
-        ),
+        execute_not_before_utc=_optional_database_utc(request_row.execute_not_before),
         cancelled_at_utc=_optional_database_utc(request_row.cancelled_at),
         pre_freeze_tenant_status=(
             TenantStatus(request_row.pre_freeze_tenant_status)
@@ -2152,8 +2104,7 @@ def _require_tombstone_match(
         or row.previous_hash != tombstone.previous_hash
         or row.record_hash != tombstone.record_hash
         or row.head_hash != tombstone.head_hash
-        or row.checkpoint_root_key_version
-        != tombstone.checkpoint_root_key_version
+        or row.checkpoint_root_key_version != tombstone.checkpoint_root_key_version
         or row.checkpoint_mac != tombstone.checkpoint_mac
         or _database_utc(row.recorded_at) != tombstone.recorded_at_utc
     ):
@@ -2172,8 +2123,7 @@ def _require_ack_match(
         or row.head_hash != ack.head_hash
         or row.offsite_artifact_checksum != ack.artifact_checksum
         or row.offsite_acknowledged_at is None
-        or _database_utc(row.offsite_acknowledged_at)
-        != ack.acknowledged_at_utc
+        or _database_utc(row.offsite_acknowledged_at) != ack.acknowledged_at_utc
         or row.offsite_authenticated != ack.authenticated
         or row.offsite_durably_persisted != ack.durably_persisted
         or row.offsite_checksum_verified != ack.checksum_verified
@@ -2260,9 +2210,7 @@ def _redrive_effects(state: DeletionState) -> tuple[DeletionEffectFact, ...]:
             DeletionEffectKind.ISOLATE_PROVIDER_OPERATIONS,
         ]
         if state.recovery_dispositions_required:
-            values.append(
-                DeletionEffectKind.RECORD_RECOVERY_TOMBSTONED_DISPOSITIONS
-            )
+            values.append(DeletionEffectKind.RECORD_RECOVERY_TOMBSTONED_DISPOSITIONS)
         kinds = tuple(values)
     elif request.status is DeletionRequestStatus.DROPPING:
         kinds = (

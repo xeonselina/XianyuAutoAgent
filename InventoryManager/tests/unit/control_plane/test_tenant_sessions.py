@@ -6,7 +6,6 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from inventory_control import (
-    ControlBase,
     Tenant,
     TenantMembership,
     TenantUserSession,
@@ -28,28 +27,13 @@ from inventory_control.identity import (
     issue_csrf_token,
     issue_session_token,
 )
-from tests.support.test_database import (
-    clear_guarded_mysql_test_rows,
-    guarded_mysql_control_database,
-)
-
 
 NOW = datetime(2026, 8, 22, 8, 0, tzinfo=timezone.utc)
 
 
-@pytest.fixture(scope="module")
-def control_database_schema():
-    with guarded_mysql_control_database(ControlBase.metadata) as database:
-        yield database
-
-
 @pytest.fixture
-def control_database(control_database_schema):
-    clear_guarded_mysql_test_rows(
-        control_database_schema.engine,
-        ControlBase.metadata,
-    )
-    return control_database_schema
+def control_database(mysql_control_database):
+    return mysql_control_database
 
 
 @pytest.fixture
@@ -127,9 +111,7 @@ def test_session_digest_collision_is_discarded_and_retried(
         issue_csrf_token(),
         issue_csrf_token(),
     ]
-    bearer_values = iter(
-        [colliding_bearer, colliding_bearer, fresh_bearer]
-    )
+    bearer_values = iter([colliding_bearer, colliding_bearer, fresh_bearer])
     csrf_iterator = iter(csrf_values)
     service = SessionService(
         gate_current_read=_gate_reader,
@@ -169,12 +151,14 @@ def test_issue_persists_only_digests_and_resolve_returns_safe_dto(
 
     with control_database.new_session() as session:
         row = session.get(TenantUserSession, session_id)
-        assert row.token_digest_sha256 == hashlib.sha256(
-            issued.session_token.encode("ascii")
-        ).digest()
-        assert row.csrf_digest_sha256 == hashlib.sha256(
-            issued.csrf_token.encode("ascii")
-        ).digest()
+        assert (
+            row.token_digest_sha256
+            == hashlib.sha256(issued.session_token.encode("ascii")).digest()
+        )
+        assert (
+            row.csrf_digest_sha256
+            == hashlib.sha256(issued.csrf_token.encode("ascii")).digest()
+        )
         assert "session_token" not in row.__table__.columns
         assert "csrf_token" not in row.__table__.columns
 
@@ -242,9 +226,7 @@ def test_resolve_reduces_the_current_gate_without_rotating_an_existing_session(
 ):
     _, user_id, _ = identity_ids
     state = {"gate": EffectiveTenantGate.ACTIVE}
-    service = _service(
-        lambda _session, _tenant, _now: _decision(state["gate"])
-    )
+    service = _service(lambda _session, _tenant, _now: _decision(state["gate"]))
     with control_database.transaction() as session:
         issued = _issue(service, session, user_id)
 
@@ -334,9 +316,7 @@ def test_csrf_reduces_a_fresh_gate_and_maps_closed_gate_to_fixed_error(
 ):
     _, user_id, _ = identity_ids
     state = {"gate": EffectiveTenantGate.ACTIVE}
-    service = _service(
-        lambda _session, _tenant, _now: _decision(state["gate"])
-    )
+    service = _service(lambda _session, _tenant, _now: _decision(state["gate"]))
     with control_database.transaction() as session:
         issued = _issue(service, session, user_id)
 
@@ -385,7 +365,9 @@ def test_resolve_rejects_stale_identity_facts(
 
     with control_database.new_session() as session:
         with pytest.raises(SessionAuthenticationError):
-            service.resolve(session, issued.session_token, now=NOW + timedelta(minutes=1))
+            service.resolve(
+                session, issued.session_token, now=NOW + timedelta(minutes=1)
+            )
 
 
 def test_resolve_rejects_missing_malformed_and_expired_tokens(
@@ -435,7 +417,9 @@ def test_revoke_one_is_owner_scoped_and_immediate(control_database, identity_ids
 
     with control_database.new_session() as session:
         with pytest.raises(SessionAuthenticationError):
-            service.resolve(session, target.session_token, now=NOW + timedelta(minutes=2))
+            service.resolve(
+                session, target.session_token, now=NOW + timedelta(minutes=2)
+            )
         assert (
             service.resolve(
                 session, actor.session_token, now=NOW + timedelta(minutes=2)

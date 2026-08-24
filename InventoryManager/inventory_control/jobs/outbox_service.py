@@ -19,10 +19,13 @@ from typing import Any, Callable, Collection, Mapping, Protocol
 from uuid import UUID
 
 import sqlalchemy as sa
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.crypto import CryptoCodecV1
+from inventory_control.database import read_database_utc_datetime
+from inventory_control.evidence import require_sha256_digest
 from inventory_control.models.jobs import ControlOutboxEvent
+from inventory_control.transactions import require_caller_transaction
 
 
 RESULT_DIGEST_VERSION = 1
@@ -269,15 +272,14 @@ class ControlOutboxService:
         database_clock: Callable[[Session], datetime] | None = None,
     ) -> None:
         normalized = frozenset(
-            _technical_text(value, maximum=96)
-            for value in system_cleanup_event_types
+            _technical_text(value, maximum=96) for value in system_cleanup_event_types
         )
         if not normalized:
             raise OutboxInputError()
         if database_clock is not None and not callable(database_clock):
             raise TypeError("database_clock must be callable")
         self._system_cleanup_event_types = normalized
-        self._database_clock = database_clock or _read_database_utc_now
+        self._database_clock = database_clock or read_database_utc_datetime
 
     def claim_ordinary_mysql_skip_locked(
         self,
@@ -291,7 +293,6 @@ class ControlOutboxService:
         return self._claim(
             session,
             lane=OutboxLane.ORDINARY,
-            dialect="mysql",
             worker_id=worker_id,
             lease_duration=lease_duration,
             authority=authority,
@@ -310,45 +311,6 @@ class ControlOutboxService:
         return self._claim(
             session,
             lane=OutboxLane.SYSTEM_CLEANUP,
-            dialect="mysql",
-            worker_id=worker_id,
-            lease_duration=lease_duration,
-            authority=authority,
-            now=now,
-        )
-
-    def claim_ordinary_sqlite_for_test(
-        self,
-        session: Session,
-        *,
-        worker_id: str,
-        lease_duration: timedelta,
-        authority: OutboxAuthorityVerifier,
-        now: datetime | None = None,
-    ) -> OutboxLease | None:
-        return self._claim(
-            session,
-            lane=OutboxLane.ORDINARY,
-            dialect="sqlite",
-            worker_id=worker_id,
-            lease_duration=lease_duration,
-            authority=authority,
-            now=now,
-        )
-
-    def claim_system_cleanup_sqlite_for_test(
-        self,
-        session: Session,
-        *,
-        worker_id: str,
-        lease_duration: timedelta,
-        authority: OutboxAuthorityVerifier,
-        now: datetime | None = None,
-    ) -> OutboxLease | None:
-        return self._claim(
-            session,
-            lane=OutboxLane.SYSTEM_CLEANUP,
-            dialect="sqlite",
             worker_id=worker_id,
             lease_duration=lease_duration,
             authority=authority,
@@ -605,8 +567,7 @@ class ControlOutboxService:
             selected_certainty is OutboxFailureCertainty.BEFORE_SIDE_EFFECT
             and event.last_attempt_at is not None
         ) or (
-            selected_certainty
-            is OutboxFailureCertainty.PROVIDER_CONFIRMED_NO_EFFECT
+            selected_certainty is OutboxFailureCertainty.PROVIDER_CONFIRMED_NO_EFFECT
             and event.last_attempt_at is None
         ):
             raise OutboxTransitionError()
@@ -626,10 +587,7 @@ class ControlOutboxService:
         can_retry = (
             event.attempts < event.max_attempts
             and retry_time >= current_time
-            and (
-                event.not_after is None
-                or _as_utc(event.not_after) >= retry_time
-            )
+            and (event.not_after is None or _as_utc(event.not_after) >= retry_time)
         )
         state = (
             "pending"
@@ -887,13 +845,11 @@ class ControlOutboxService:
         if not isinstance(permit, OutboxDispatchPermit):
             raise OutboxInputError()
         result_code = _safe_code(safe_code)
-        facts_digest = _digest32(safe_facts_digest)
+        facts_digest = require_sha256_digest(safe_facts_digest, OutboxInputError)
         mac_key = _mac_key(result_mac_key)
         digest = hashlib.sha256(
             CryptoCodecV1.encode_parts(
-                CryptoCodecV1.domain(
-                    "inventory-manager/control-outbox-safe-result/v1"
-                ),
+                CryptoCodecV1.domain("inventory-manager/control-outbox-safe-result/v1"),
                 CryptoCodecV1.uuid_bytes(permit.event_id),
                 CryptoCodecV1.ascii_text(permit.source_type),
                 CryptoCodecV1.uuid_bytes(permit.source_uuid),
@@ -923,14 +879,16 @@ class ControlOutboxService:
         session: Session,
         *,
         lane: OutboxLane,
-        dialect: str,
         worker_id: str,
         lease_duration: timedelta,
         authority: OutboxAuthorityVerifier,
         now: datetime | None,
     ) -> OutboxLease | None:
         self._require_transaction(session)
-        if session.bind is None or session.bind.dialect.name != dialect:
+        if session.bind is None or session.bind.dialect.name not in {
+            "mysql",
+            "mariadb",
+        }:
             raise OutboxInputError()
         self._require_authority(authority)
         duration = _duration(lease_duration)
@@ -950,7 +908,7 @@ class ControlOutboxService:
             authority=authority,
             phase=OutboxAuthorityPhase.CLAIM,
             test_now=now,
-            skip_locked=dialect == "mysql",
+            skip_locked=True,
         )
         if locked is None:
             return None
@@ -1056,10 +1014,7 @@ class ControlOutboxService:
             return "lease_expired"
         if event.state != "pending":
             return None
-        if (
-            event.not_after is not None
-            and _as_utc(event.not_after) < current_time
-        ):
+        if event.not_after is not None and _as_utc(event.not_after) < current_time:
             return "deadline_expired"
         if event.attempts >= event.max_attempts:
             return "attempts_exhausted"
@@ -1164,13 +1119,11 @@ class ControlOutboxService:
             tenant_matches = False
         elif allow_superseded_versions:
             tenant_matches = (
-                verdict.current_tenant_access_version
-                >= event.tenant_access_version
+                verdict.current_tenant_access_version >= event.tenant_access_version
             )
         else:
             tenant_matches = (
-                verdict.current_tenant_access_version
-                == event.tenant_access_version
+                verdict.current_tenant_access_version == event.tenant_access_version
             )
         if not source_matches or not tenant_matches:
             return False, "authority_version_mismatch"
@@ -1351,13 +1304,9 @@ class ControlOutboxService:
 
     @staticmethod
     def _require_authority(authority: OutboxAuthorityVerifier) -> None:
-        if not callable(
-            getattr(authority, "lock_current_outbox_authority", None)
-        ):
+        if not callable(getattr(authority, "lock_current_outbox_authority", None)):
             raise TypeError("authority must lock current outbox authority")
-        if not callable(
-            getattr(authority, "evaluate_locked_outbox_authority", None)
-        ):
+        if not callable(getattr(authority, "evaluate_locked_outbox_authority", None)):
             raise TypeError("authority must evaluate locked outbox authority")
 
     def _database_now(
@@ -1366,14 +1315,7 @@ class ControlOutboxService:
         *,
         test_now: datetime | None,
     ) -> datetime:
-        # ``now`` is only a deterministic SQLite seam.  Production MySQL
-        # always uses the control database's UTC microsecond clock.
-        if (
-            test_now is not None
-            and session.bind is not None
-            and session.bind.dialect.name == "sqlite"
-        ):
-            return _as_utc(test_now)
+        # Caller-provided time is never authoritative for SQL-backed work.
         return _as_utc(self._database_clock(session))
 
     def _fenced_finish(
@@ -1392,8 +1334,7 @@ class ControlOutboxService:
                 ControlOutboxEvent.state == "leased",
                 ControlOutboxEvent.lease_owner == event.lease_owner,
                 ControlOutboxEvent.lease_token == event.lease_token,
-                ControlOutboxEvent.execution_generation
-                == event.execution_generation,
+                ControlOutboxEvent.execution_generation == event.execution_generation,
                 ControlOutboxEvent.lease_expires_at > now,
                 *extra_predicates,
             )
@@ -1453,14 +1394,11 @@ class ControlOutboxService:
 
     @staticmethod
     def _require_transaction(session: Session) -> None:
-        if not isinstance(session, Session):
-            raise OutboxInputError()
-        transaction = session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            raise OutboxTransactionRequiredError()
+        require_caller_transaction(
+            session,
+            OutboxTransactionRequiredError,
+            invalid_session_error=OutboxInputError,
+        )
 
 
 def _authority_facts(
@@ -1623,22 +1561,6 @@ def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
-
-
-def _read_database_utc_now(session: Session) -> datetime:
-    if session.bind is not None and session.bind.dialect.name == "mysql":
-        value = session.scalar(sa.text("SELECT UTC_TIMESTAMP(6)"))
-    else:
-        value = session.scalar(sa.select(sa.func.current_timestamp()))
-    if not isinstance(value, datetime):
-        raise RuntimeError("control database did not return a timestamp")
-    return _as_utc(value)
-
-
-def _digest32(value: bytes) -> bytes:
-    if not isinstance(value, bytes) or len(value) != 32:
-        raise OutboxInputError()
-    return bytes(value)
 
 
 def _mac_key(value: bytes) -> bytes:

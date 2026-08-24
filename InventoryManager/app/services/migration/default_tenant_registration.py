@@ -22,7 +22,7 @@ from uuid import UUID, uuid5
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from app.models.database_identity import TenantDatabaseIdentity
 from inventory_control.default_migration import (
@@ -34,6 +34,7 @@ from inventory_control.identity import (
     CN_MOBILE_METADATA_VERSION,
     PHONE_NORMALIZATION_VERSION,
 )
+from inventory_control.transactions import require_caller_transaction
 from inventory_control.models import (
     DatabaseIdentityControlRecord,
     Tenant,
@@ -46,9 +47,7 @@ from inventory_control.models import (
 _DIGEST_BYTES: Final = 32
 _ROUTE_TOKEN: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.@:-]{0,127}")
 _ADMIN_USER_DOMAIN: Final = "inventory-manager/default-admin-user/v1/"
-_ADMIN_MEMBERSHIP_DOMAIN: Final = (
-    "inventory-manager/default-admin-membership/v1/"
-)
+_ADMIN_MEMBERSHIP_DOMAIN: Final = "inventory-manager/default-admin-membership/v1/"
 _MIGRATION_SOURCE_DOMAIN: Final = "inventory-manager/default-migration-source/v1/"
 _ACTIVATION_DOMAIN: Final = "inventory-manager/default-route-activation/v1/"
 
@@ -113,9 +112,10 @@ class DefaultTenantRouteRegistration:
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise DefaultTenantRegistrationInputError()
-        if not isinstance(self.schema_digest, bytes) or len(
-            self.schema_digest
-        ) != _DIGEST_BYTES:
+        if (
+            not isinstance(self.schema_digest, bytes)
+            or len(self.schema_digest) != _DIGEST_BYTES
+        ):
             raise DefaultTenantRegistrationInputError()
 
 
@@ -129,9 +129,10 @@ class DefaultTenantDatabaseIdentityResult:
     created: bool
 
     def __post_init__(self) -> None:
-        if not isinstance(self.manifest_digest, bytes) or len(
-            self.manifest_digest
-        ) != _DIGEST_BYTES:
+        if (
+            not isinstance(self.manifest_digest, bytes)
+            or len(self.manifest_digest) != _DIGEST_BYTES
+        ):
             raise DefaultTenantRegistrationInputError()
         if (
             not isinstance(self.tenant_uuid, UUID)
@@ -178,7 +179,10 @@ class DefaultTenantInPlaceRegistrationService:
         if not isinstance(manifest, DefaultTenantMigrationManifest):
             raise DefaultTenantRegistrationInputError()
         generation = _positive(schema_generation)
-        _require_explicit_transaction(session)
+        require_caller_transaction(
+            session,
+            DefaultTenantRegistrationTransactionError,
+        )
         try:
             identities = tuple(
                 session.scalars(
@@ -251,7 +255,10 @@ class DefaultTenantInPlaceRegistrationService:
             or tenant_identity.schema_generation != route.schema_generation
         ):
             raise DefaultTenantRegistrationInputError()
-        _require_explicit_transaction(session)
+        require_caller_transaction(
+            session,
+            DefaultTenantRegistrationTransactionError,
+        )
 
         admin_uuid = _derived_uuid(
             manifest.tenant_uuid,
@@ -359,9 +366,7 @@ class DefaultTenantInPlaceRegistrationService:
                             observed_schema_revision=manifest.tenant_schema_head,
                             observed_schema_sha256=route.schema_digest,
                             row_version=1,
-                            identity_created_at=(
-                                tenant_identity.identity_created_at
-                            ),
+                            identity_created_at=(tenant_identity.identity_created_at),
                             last_verified_at=_as_utc(self._clock()),
                         )
                     )
@@ -542,14 +547,12 @@ def _require_existing_control_identity(
         or database_route.database_name != manifest.source_schema_name
         or database_route.status != "provisional"
         or database_route.schema_version != manifest.tenant_schema_head
-        or database_route.activated_by_registration_commit_uuid
-        != str(activation_uuid)
+        or database_route.activated_by_registration_commit_uuid != str(activation_uuid)
         or database_route.activation_route_version != 1
         or database_route.activation_credential_generation
         != route.dml_credential_generation
         or database_route.dml_username != route.dml_username
-        or database_route.dml_credential_generation
-        != route.dml_credential_generation
+        or database_route.dml_credential_generation != route.dml_credential_generation
         or database_route.dml_root_key_version != route.dml_root_key_version
         or database_route.dml_derivation_version != route.dml_derivation_version
         or database_route.route_version != 1
@@ -572,8 +575,7 @@ def _require_existing_control_identity(
         or identity.observed_schema_revision != manifest.tenant_schema_head
         or identity.expected_schema_sha256 != route.schema_digest
         or identity.observed_schema_sha256 != route.schema_digest
-        or _as_utc(identity.identity_created_at)
-        != tenant_identity.identity_created_at
+        or _as_utc(identity.identity_created_at) != tenant_identity.identity_created_at
     ):
         raise DefaultTenantRegistrationConflictError()
 
@@ -599,17 +601,6 @@ def _require_tenant_identity(
         or identity.created_at is None
     ):
         raise DefaultTenantRegistrationConflictError()
-
-
-def _require_explicit_transaction(session: Session) -> None:
-    if not isinstance(session, Session):
-        raise DefaultTenantRegistrationTransactionError()
-    transaction = session.get_transaction()
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-    ):
-        raise DefaultTenantRegistrationTransactionError()
 
 
 def _positive(value: object) -> int:

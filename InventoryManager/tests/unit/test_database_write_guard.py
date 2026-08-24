@@ -26,6 +26,8 @@ from tests.support.test_database import (
     assert_test_database_url,
     _guard_test_statement,
     guarded_mysql_test_metadata,
+    guarded_mysql_test_schema_migration,
+    observe_test_database_schema,
     open_production_read_only_probe,
     preflight_test_database_write,
 )
@@ -69,8 +71,7 @@ def test_database_write_guard_requires_testing_mode(monkeypatch):
 
     with pytest.raises(RuntimeError, match="TESTING=true"):
         assert_test_database_url(
-            "mysql+pymysql://tester:secret@127.0.0.1/"
-            f"{WRITABLE_TEST_DATABASE_NAME}"
+            "mysql+pymysql://tester:secret@127.0.0.1/" f"{WRITABLE_TEST_DATABASE_NAME}"
         )
 
 
@@ -82,8 +83,7 @@ def test_database_write_guard_requires_explicit_real_database_opt_in(
 
     with pytest.raises(RuntimeError, match="ALLOW_REAL_TEST_DATABASE=true"):
         assert_test_database_url(
-            "mysql+pymysql://tester:secret@127.0.0.1/"
-            f"{WRITABLE_TEST_DATABASE_NAME}"
+            "mysql+pymysql://tester:secret@127.0.0.1/" f"{WRITABLE_TEST_DATABASE_NAME}"
         )
 
 
@@ -123,8 +123,7 @@ def test_database_urls_reject_preconnect_execution_and_config_hooks(
     monkeypatch.setenv("ALLOW_PRODUCTION_READ_ONLY", "true")
     with pytest.raises(RuntimeError, match="连接选项"):
         assert_test_database_url(
-            "mysql+pymysql://tester:secret@lan/inventory_management_test?"
-            + option
+            "mysql+pymysql://tester:secret@lan/inventory_management_test?" + option
         )
     with pytest.raises(RuntimeError, match="连接选项"):
         assert_production_read_database_url(
@@ -176,9 +175,7 @@ class _GrantConnection:
         self.database_version = database_version
         self.database_version_comment = database_version_comment
         self.public_grants = (
-            ["GRANT USAGE ON *.* TO PUBLIC"]
-            if public_grants is None
-            else public_grants
+            ["GRANT USAGE ON *.* TO PUBLIC"] if public_grants is None else public_grants
         )
         self.executed = []
         self.closed = False
@@ -188,9 +185,7 @@ class _GrantConnection:
     def exec_driver_sql(self, statement):
         self.executed.append(statement)
         if statement.startswith("DROP TABLE IF EXISTS "):
-            table_name = statement.rsplit(" ", 1)[-1].strip("`").replace(
-                "``", "`"
-            )
+            table_name = statement.rsplit(" ", 1)[-1].strip("`").replace("``", "`")
             for inventory_statement in (
                 TEST_SCHEMA_INVENTORY_SQL,
                 TEST_SCHEMA_COLUMN_INVENTORY_SQL,
@@ -214,9 +209,7 @@ class _GrantConnection:
         if statement == TEST_CURRENT_ROLE_SQL:
             return _FakeResult(scalar=self.current_role)
         if statement == TEST_DATABASE_PROFILE_SQL:
-            return _FakeResult(
-                [(self.database_version, self.database_version_comment)]
-            )
+            return _FakeResult([(self.database_version, self.database_version_comment)])
         if statement == "SHOW GRANTS FOR CURRENT_USER":
             return _FakeResult((grant,) for grant in self.grants)
         if statement == TEST_MARIADB_PUBLIC_GRANTS_SQL:
@@ -277,10 +270,7 @@ class _DriftingGrantConnection(_GrantConnection):
     def exec_driver_sql(self, statement):
         if statement == TEST_SCHEMA_INVENTORY_SQL:
             self.inventory_round += 1
-        if (
-            statement == TEST_SCHEMA_INDEX_INVENTORY_SQL
-            and self.inventory_round >= 2
-        ):
+        if statement == TEST_SCHEMA_INDEX_INVENTORY_SQL and self.inventory_round >= 2:
             self.executed.append(statement)
             return _FakeResult(
                 [
@@ -362,9 +352,7 @@ def _expected_inventory_statements(*, include_generations=True):
         *TEST_SCHEMA_EXTENSION_INVENTORY_STATEMENTS,
     ]
     if include_generations:
-        statements.extend(
-            [TEST_ALEMBIC_GENERATION_SQL, TEST_IDENTITY_GENERATION_SQL]
-        )
+        statements.extend([TEST_ALEMBIC_GENERATION_SQL, TEST_IDENTITY_GENERATION_SQL])
     return statements
 
 
@@ -380,9 +368,7 @@ def _test_database_connection(*, grants=None, schema_rows=None, **connection_opt
             else grants
         ),
         database=WRITABLE_TEST_DATABASE_NAME,
-        schema_rows=(
-            _current_schema_rows() if schema_rows is None else schema_rows
-        ),
+        schema_rows=(_current_schema_rows() if schema_rows is None else schema_rows),
         **connection_options,
     )
 
@@ -432,14 +418,10 @@ def test_test_account_grants_are_scoped_to_exact_writable_test_database():
     with pytest.raises(RuntimeError, match="inventory_management_test"):
         assert_current_user_has_test_only_grants(
             _GrantConnection(
-                [
-                    "GRANT ALL PRIVILEGES ON `inventory_management`.* "
-                    "TO `tester`@`%`"
-                ]
+                ["GRANT ALL PRIVILEGES ON `inventory_management`.* " "TO `tester`@`%`"]
             ),
             "inventory_management",
         )
-
 
     for unsafe_grants in (
         [],
@@ -474,9 +456,7 @@ def test_test_account_grants_are_scoped_to_exact_writable_test_database():
 
 def test_global_dba_test_account_requires_explicit_opt_in(monkeypatch):
     connection = _test_database_connection(
-        grants=(
-            "GRANT ALL PRIVILEGES ON *.* TO `dba`@`%` WITH GRANT OPTION",
-        )
+        grants=("GRANT ALL PRIVILEGES ON *.* TO `dba`@`%` WITH GRANT OPTION",)
     )
     with pytest.raises(RuntimeError):
         assert_current_user_has_test_only_grants(
@@ -523,15 +503,15 @@ def test_global_dba_statement_guard_allows_selected_schema_orm_sql():
 def test_database_grant_guards_reject_any_active_or_mandatory_role(production):
     connection = _GrantConnection(
         [
-            "GRANT SELECT ON `inventory_management`.* TO `reader`@`%`"
-            if production
-            else "GRANT ALL PRIVILEGES ON `inventory_management_test`.* "
-            "TO `tester`@`%`"
+            (
+                "GRANT SELECT ON `inventory_management`.* TO `reader`@`%`"
+                if production
+                else "GRANT ALL PRIVILEGES ON `inventory_management_test`.* "
+                "TO `tester`@`%`"
+            )
         ],
         database=(
-            "inventory_management"
-            if production
-            else WRITABLE_TEST_DATABASE_NAME
+            "inventory_management" if production else WRITABLE_TEST_DATABASE_NAME
         ),
         current_role="`mandatory_writer`@`%`",
     )
@@ -569,8 +549,7 @@ def test_test_schema_preflight_checks_grants_before_inventory(monkeypatch):
     monkeypatch.setenv("TESTING", "true")
     connection = _test_database_connection(
         grants=[
-            "GRANT ALL PRIVILEGES ON `inventory_management_test`.* "
-            "TO `tester`@`%`",
+            "GRANT ALL PRIVILEGES ON `inventory_management_test`.* " "TO `tester`@`%`",
             "GRANT SELECT ON `inventory_management`.* TO `tester`@`%`",
         ]
     )
@@ -689,15 +668,15 @@ def test_mariadb_public_role_must_be_provably_usage_only(
 ):
     connection = _GrantConnection(
         [
-            "GRANT SELECT ON `inventory_management`.* TO `reader`@`%`"
-            if production
-            else "GRANT ALL PRIVILEGES ON `inventory_management_test`.* "
-            "TO `tester`@`%`"
+            (
+                "GRANT SELECT ON `inventory_management`.* TO `reader`@`%`"
+                if production
+                else "GRANT ALL PRIVILEGES ON `inventory_management_test`.* "
+                "TO `tester`@`%`"
+            )
         ],
         database=(
-            "inventory_management"
-            if production
-            else WRITABLE_TEST_DATABASE_NAME
+            "inventory_management" if production else WRITABLE_TEST_DATABASE_NAME
         ),
         database_version="10.11.8-MariaDB-0ubuntu0.24.04.1",
         database_version_comment="Ubuntu 24.04",
@@ -724,15 +703,15 @@ def test_mariadb_public_role_must_be_provably_usage_only(
 def test_mariadb_empty_public_grants_prove_no_inherited_privilege(production):
     connection = _GrantConnection(
         [
-            "GRANT SELECT ON `inventory_management`.* TO `reader`@`%`"
-            if production
-            else "GRANT ALL PRIVILEGES ON `inventory_management_test`.* "
-            "TO `tester`@`%`"
+            (
+                "GRANT SELECT ON `inventory_management`.* TO `reader`@`%`"
+                if production
+                else "GRANT ALL PRIVILEGES ON `inventory_management_test`.* "
+                "TO `tester`@`%`"
+            )
         ],
         database=(
-            "inventory_management"
-            if production
-            else WRITABLE_TEST_DATABASE_NAME
+            "inventory_management" if production else WRITABLE_TEST_DATABASE_NAME
         ),
         database_version="10.11.8-MariaDB-0ubuntu0.24.04.1",
         database_version_comment="Ubuntu 24.04",
@@ -948,9 +927,7 @@ def test_migrate_requires_and_verifies_observed_source_digest(monkeypatch):
         *drifted_rows[TEST_SCHEMA_COLUMN_INVENTORY_SQL],
         ("rentals", "unexpected", 2, "text", "YES", None, ""),
     ]
-    drifted_connection = _test_database_connection(
-        schema_rows=drifted_rows
-    )
+    drifted_connection = _test_database_connection(schema_rows=drifted_rows)
     with pytest.raises(DatabaseWriteRefused, match="digest") as caught:
         preflight_test_database_write(
             _test_database_url(),
@@ -958,10 +935,82 @@ def test_migrate_requires_and_verifies_observed_source_digest(monkeypatch):
             disposition="migrate",
             expected_preflight_digest=baseline.preflight_digest,
         )
-    assert caught.value.preflight.preflight_digest != (
-        baseline.preflight_digest
-    )
+    assert caught.value.preflight.preflight_digest != (baseline.preflight_digest)
     assert drifted_connection.closed is True
+
+
+def test_migration_observation_is_read_only_and_does_not_authorize_writes(
+    monkeypatch,
+):
+    monkeypatch.setenv("TESTING", "true")
+    connection = _test_database_connection()
+
+    observed = observe_test_database_schema(
+        _test_database_url(),
+        lambda _parsed: connection,
+    )
+
+    assert observed.disposition is DatabaseWriteDisposition.FAIL_CLOSED
+    assert len(observed.preflight_digest) == 64
+    assert all(
+        statement.split(maxsplit=1)[0] in {"SELECT", "SHOW"}
+        for statement in connection.executed
+    )
+    assert connection.closed is True
+
+
+def test_guarded_mysql_migration_pins_digest_under_shared_schema_lock(
+    monkeypatch,
+):
+    monkeypatch.setenv("TESTING", "true")
+    baseline_connection = _test_database_connection()
+    observed = observe_test_database_schema(
+        _test_database_url(),
+        lambda _parsed: baseline_connection,
+    )
+    migration_connection = _test_database_connection()
+    engine = _FakeMySQLEngine(migration_connection)
+
+    with pytest.raises(ValueError, match="body failed"):
+        with guarded_mysql_test_schema_migration(
+            engine,
+            expected_preflight_digest=observed.preflight_digest,
+        ) as (connection, preflight):
+            assert connection is migration_connection
+            assert preflight.preflight_digest == observed.preflight_digest
+            assert migration_connection.executed.index(
+                TEST_SCHEMA_ACQUIRE_LOCK_SQL
+            ) < migration_connection.executed.index(TEST_SCHEMA_INVENTORY_SQL)
+            raise ValueError("body failed")
+
+    assert migration_connection.executed[-1] == (TEST_SCHEMA_RELEASE_LOCK_SQL)
+    assert migration_connection.commit_count == 1
+    assert migration_connection.closed is True
+
+
+def test_guarded_mysql_migration_rejects_drift_before_yield(monkeypatch):
+    monkeypatch.setenv("TESTING", "true")
+    baseline = observe_test_database_schema(
+        _test_database_url(),
+        lambda _parsed: _test_database_connection(),
+    )
+    drifted_rows = _current_schema_rows()
+    drifted_rows[TEST_SCHEMA_COLUMN_INVENTORY_SQL] = [
+        *drifted_rows[TEST_SCHEMA_COLUMN_INVENTORY_SQL],
+        ("rentals", "unexpected", 2, "text", "YES", None, ""),
+    ]
+    connection = _test_database_connection(schema_rows=drifted_rows)
+    engine = _FakeMySQLEngine(connection)
+
+    with pytest.raises(DatabaseWriteRefused, match="digest"):
+        with guarded_mysql_test_schema_migration(
+            engine,
+            expected_preflight_digest=baseline.preflight_digest,
+        ):
+            pytest.fail("migration guard must reject drift before yielding")
+
+    assert TEST_SCHEMA_RELEASE_LOCK_SQL in connection.executed
+    assert connection.closed is True
 
 
 @pytest.mark.parametrize(
@@ -1087,9 +1136,7 @@ def test_production_probe_exposes_only_one_fixed_bounded_observation(
     assert connection.closed is True
     assert connection.rollback_count == 1
     with pytest.raises(RuntimeError, match="已经关闭"):
-        probe.observe(
-            ProductionReadCapability.SCHEMA_METADATA_AND_GENERATIONS_V1
-        )
+        probe.observe(ProductionReadCapability.SCHEMA_METADATA_AND_GENERATIONS_V1)
 
 
 @pytest.mark.parametrize(
@@ -1136,6 +1183,7 @@ def test_production_probe_rejects_driver_hook_before_connector_is_called(
 
     assert connected == []
 
+
 def test_database_grant_guards_recheck_the_actual_selected_schema():
     test_grants = [
         "GRANT ALL PRIVILEGES ON `inventory_management_test`.* TO `tester`@`%`"
@@ -1146,9 +1194,7 @@ def test_database_grant_guards_recheck_the_actual_selected_schema():
             WRITABLE_TEST_DATABASE_NAME,
         )
 
-    production_grants = [
-        "GRANT SELECT ON `inventory_management`.* TO `reader`@`%`"
-    ]
+    production_grants = ["GRANT SELECT ON `inventory_management`.* TO `reader`@`%`"]
     with pytest.raises(RuntimeError, match="实际数据库"):
         assert_current_user_has_production_read_only_grants(
             _GrantConnection(

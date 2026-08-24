@@ -50,6 +50,6 @@ D63 否决 D12/D62 曾引入的代码、schema、核心模块冻结、冻结例�
 
 ## 20. Remaining Decisions After Core Approval
 
-具体决策 D01–D67 与 SaaS Core 总体方向均已确认；D64 已取消迁移项目的阶段 Approval Gate，D65–D67 已简化人工 DBA 和 SQL-backed 测试目标。Core 内已无待确认的产品决策；当前只保留 Core 之后的方向：
+具体决策 D01–D73 与 SaaS Core 总体方向均已确认；D64 已取消迁移项目的阶段 Approval Gate，D71 已限定 SQL-backed 数据库范围，D72 已确定深度行为等价收缩，D73 已确定多闲管家账号/闲鱼店铺及订单归属。Core 内已无待确认的产品决策；当前只保留 Core 之后的方向：
 
 1. Core 之后是否需要在线支付；若需要，收款主体与目标地区决定 Stripe、微信/支付宝或合同转账 provider，并另立 Commercial SaaS 变更。

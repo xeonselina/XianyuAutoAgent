@@ -104,9 +104,10 @@ def test_platform_bearers_are_high_entropy_namespaced_and_repr_safe():
         issued.append(token)
         assert token.plaintext.startswith(prefix)
         assert PLATFORM_TOKEN_ENTROPY_BITS == 256
-        assert token.digest_sha256 == hashlib.sha256(
-            token.plaintext.encode("ascii")
-        ).digest()
+        assert (
+            token.digest_sha256
+            == hashlib.sha256(token.plaintext.encode("ascii")).digest()
+        )
         assert digest(token.plaintext) == token.digest_sha256
         assert verify(token.plaintext, token.digest_sha256)
         assert token.plaintext not in repr(token)
@@ -128,9 +129,7 @@ def test_password_hashing_is_versioned_memory_hard_and_safe():
 
     assert password_hash.algorithm in {"argon2id", "scrypt"}
     assert password_hash.version == 1
-    assert password_hash.encoded.startswith(
-        f"${password_hash.algorithm}-v1$"
-    )
+    assert password_hash.encoded.startswith(f"${password_hash.algorithm}-v1$")
     assert PASSWORD not in password_hash.encoded
     assert password_hash.encoded not in repr(password_hash)
     assert hasher.verify(PASSWORD, password_hash.encoded)
@@ -183,13 +182,16 @@ def test_totp_envelope_has_independent_domain_and_immutable_aad():
         seed=SEED,
     )
     assert SEED not in envelope.ciphertext
-    assert decrypt_totp_seed(
-        root_key=ROOT_KEY,
-        credential_id=credential_id,
-        platform_admin_id=admin_id,
-        secret_revision=1,
-        envelope=envelope,
-    ) == SEED
+    assert (
+        decrypt_totp_seed(
+            root_key=ROOT_KEY,
+            credential_id=credential_id,
+            platform_admin_id=admin_id,
+            secret_revision=1,
+            envelope=envelope,
+        )
+        == SEED
+    )
 
     for changed in ("credential", "admin", "revision"):
         kwargs = {
@@ -341,12 +343,8 @@ def test_setup_challenge_rejects_unconsumed_expired_revoked_and_stale_versions(
             ttl=timedelta(minutes=1),
             now=NOW,
         )
-        revoked = setup.create_pending_admin(
-            session, username="revoked.root", now=NOW
-        )
-        stale = setup.create_pending_admin(
-            session, username="stale.root", now=NOW
-        )
+        revoked = setup.create_pending_admin(session, username="revoked.root", now=NOW)
+        stale = setup.create_pending_admin(session, username="stale.root", now=NOW)
         with pytest.raises(RuntimeError):
             setup.set_password(
                 session,
@@ -375,9 +373,7 @@ def test_setup_challenge_rejects_unconsumed_expired_revoked_and_stale_versions(
             (revoked.plaintext_token, NOW + timedelta(seconds=2)),
             (stale.plaintext_token, NOW + timedelta(seconds=2)),
         ):
-            result = setup.consume(
-                session, presented_token=token, now=checked_at
-            )
+            result = setup.consume(session, presented_token=token, now=checked_at)
             assert not result.accepted
             assert result.platform_admin_id is None
 
@@ -412,6 +408,39 @@ def test_recovery_rotation_invalidates_previous_generation(control_database):
             now=NOW + timedelta(minutes=3),
         )
         assert proof.method == "recovery_code"
+
+
+def test_recovery_consume_tolerates_mysql_creation_rounding(control_database):
+    admin_id, _, _, _original_codes = _activate_admin(control_database)
+    recovery = PlatformRecoveryCodeService()
+    issued_at = NOW + timedelta(minutes=2, microseconds=750_000)
+    with control_database.transaction() as session:
+        replacement = recovery.issue_codes(
+            session,
+            platform_admin_id=admin_id,
+            count=6,
+            now=issued_at,
+        )
+        replacement_codes = replacement.take_plaintext_codes()
+
+    with control_database.transaction() as session:
+        consumed_at = issued_at + timedelta(microseconds=10_000)
+        proof = recovery.consume(
+            session,
+            platform_admin_id=admin_id,
+            presented_code=replacement_codes[0],
+            now=consumed_at,
+        )
+        row = session.get(PlatformAdminRecoveryCode, proof.factor_record_id)
+        assert row.consumed_at >= row.created_at
+        issued = PlatformAdminSessionService().issue(
+            session,
+            factor=proof,
+            idle_timeout=timedelta(minutes=30),
+            absolute_timeout=timedelta(hours=8),
+            now=consumed_at,
+        )
+        assert issued.auth.platform_admin_id == admin_id
 
 
 def test_totp_replacement_keeps_old_seed_until_atomic_confirmation(
@@ -473,9 +502,7 @@ def test_totp_replacement_keeps_old_seed_until_atomic_confirmation(
             session,
             platform_admin_id=admin_id,
             credential_id=replacement_id,
-            presented_code=generate_totp_code(
-                replacement_seed, replacement_step
-            ),
+            presented_code=generate_totp_code(replacement_seed, replacement_step),
             root_key=ROOT_KEY,
             now=_time_for_step(replacement_step),
             allowed_drift_steps=0,
@@ -489,17 +516,13 @@ def test_totp_replacement_keeps_old_seed_until_atomic_confirmation(
                 sa.select(PlatformAdminTotpCredential)
                 .where(
                     PlatformAdminTotpCredential.platform_admin_id == admin_id,
-                    PlatformAdminTotpCredential.status.in_(
-                        ("pending", "confirmed")
-                    ),
+                    PlatformAdminTotpCredential.status.in_(("pending", "confirmed")),
                 )
                 .order_by(PlatformAdminTotpCredential.generation)
             )
         )
         assert admin.totp_generation == 3
-        assert [(row.id, row.status) for row in live] == [
-            (replacement_id, "confirmed")
-        ]
+        assert [(row.id, row.status) for row in live] == [(replacement_id, "confirmed")]
 
     with control_database.new_session() as session:
         with pytest.raises(PlatformFactorRejected):
@@ -544,9 +567,7 @@ def test_platform_sessions_are_digest_only_versioned_expiring_and_revocable(
         assert row.token_digest_sha256 == digest_platform_session_token(
             first.session_token
         )
-        assert row.csrf_digest_sha256 == digest_platform_csrf_token(
-            first.csrf_token
-        )
+        assert row.csrf_digest_sha256 == digest_platform_csrf_token(first.csrf_token)
         assert "session_token" not in row.__table__.columns
         assert "csrf_token" not in row.__table__.columns
         assert all(
@@ -656,9 +677,7 @@ def test_session_issue_proof_is_single_use_and_idle_expiry_is_exclusive(
     with control_database.new_session() as session:
         for token in (None, "malformed", issued.csrf_token):
             with pytest.raises(PlatformSessionAuthenticationError):
-                service.resolve(
-                    session, token, now=login_time + timedelta(minutes=1)
-                )
+                service.resolve(session, token, now=login_time + timedelta(minutes=1))
         with pytest.raises(PlatformSessionAuthenticationError):
             service.resolve(
                 session,
@@ -742,23 +761,31 @@ def test_host_credential_recovery_revokes_old_authority_and_is_consumable(
         assert admin.setup_version == 2
         assert admin.totp_generation == 2
         assert admin.recovery_code_generation == 2
-        assert session.get(
-            PlatformAdminSession, issued_session.auth.session_id
-        ).revoked_reason_code == "credential_recovery"
-        assert session.scalar(
-            sa.select(sa.func.count(PlatformAdminTotpCredential.id)).where(
-                PlatformAdminTotpCredential.status == "confirmed"
+        assert (
+            session.get(
+                PlatformAdminSession, issued_session.auth.session_id
+            ).revoked_reason_code
+            == "credential_recovery"
+        )
+        assert (
+            session.scalar(
+                sa.select(sa.func.count(PlatformAdminTotpCredential.id)).where(
+                    PlatformAdminTotpCredential.status == "confirmed"
+                )
             )
-        ) == 0
-        assert session.scalar(
-            sa.select(sa.func.count(PlatformAdminRecoveryCode.id)).where(
-                PlatformAdminRecoveryCode.state == "active"
+            == 0
+        )
+        assert (
+            session.scalar(
+                sa.select(sa.func.count(PlatformAdminRecoveryCode.id)).where(
+                    PlatformAdminRecoveryCode.state == "active"
+                )
             )
-        ) == 0
+            == 0
+        )
         audit = session.scalar(
             sa.select(PlatformAuditLog).where(
-                PlatformAuditLog.action
-                == "platform_admin.credential_recovery"
+                PlatformAuditLog.action == "platform_admin.credential_recovery"
             )
         )
         assert audit.target_platform_admin_id == admin_id
@@ -825,26 +852,30 @@ def test_host_disable_requires_a_fully_active_successor_and_revokes_authority(
     with control_database.new_session() as session:
         target = session.get(PlatformAdmin, target_id)
         successor = session.get(PlatformAdmin, successor_id)
-        old_session = session.get(
-            PlatformAdminSession, issued_session.auth.session_id
-        )
+        old_session = session.get(PlatformAdminSession, issued_session.auth.session_id)
         assert target.status == "disabled"
         assert target.disabled_at is not None
         assert target.auth_version == 2
         assert successor.status == "active"
         assert old_session.revoked_reason_code == "platform_admin_disabled"
-        assert session.scalar(
-            sa.select(sa.func.count(PlatformAdminTotpCredential.id)).where(
-                PlatformAdminTotpCredential.platform_admin_id == target_id,
-                PlatformAdminTotpCredential.status == "confirmed",
+        assert (
+            session.scalar(
+                sa.select(sa.func.count(PlatformAdminTotpCredential.id)).where(
+                    PlatformAdminTotpCredential.platform_admin_id == target_id,
+                    PlatformAdminTotpCredential.status == "confirmed",
+                )
             )
-        ) == 0
-        assert session.scalar(
-            sa.select(sa.func.count(PlatformAdminRecoveryCode.id)).where(
-                PlatformAdminRecoveryCode.platform_admin_id == target_id,
-                PlatformAdminRecoveryCode.state == "active",
+            == 0
+        )
+        assert (
+            session.scalar(
+                sa.select(sa.func.count(PlatformAdminRecoveryCode.id)).where(
+                    PlatformAdminRecoveryCode.platform_admin_id == target_id,
+                    PlatformAdminRecoveryCode.state == "active",
+                )
             )
-        ) == 0
+            == 0
+        )
         audit = session.scalar(
             sa.select(PlatformAuditLog).where(
                 PlatformAuditLog.action == "platform_admin.disable"

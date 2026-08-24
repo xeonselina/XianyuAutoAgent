@@ -4,29 +4,14 @@ from datetime import date, timedelta
 
 import pytest
 
-from app import create_app, db
+from app import db
 from app.models.device import Device
 from app.models.rental import Rental
 
 
 @pytest.fixture
-def app():
-    application = create_app("testing")
-    return application
-
-
-@pytest.fixture
 def client(app):
     return app.test_client()
-
-
-@pytest.fixture
-def db_session(app):
-    with app.app_context():
-        db.create_all()
-        yield db.session
-        db.session.rollback()
-        db.drop_all()
 
 
 @pytest.fixture

@@ -250,9 +250,7 @@ def test_claim_uses_two_phase_authority_and_final_database_clock(
                     kwargs["phase"],
                 )
             )
-            return super().evaluate_locked_outbox_authority(
-                session, **kwargs
-            )
+            return super().evaluate_locked_outbox_authority(session, **kwargs)
 
     def clock(session):
         trace.append(("database_clock", session, None, None))
@@ -292,9 +290,7 @@ def test_heartbeat_and_dispatch_use_lock_then_final_database_clock(
 
         def evaluate_locked_outbox_authority(self, session, **kwargs):
             trace.append(("authority_evaluate", session, kwargs["phase"]))
-            return super().evaluate_locked_outbox_authority(
-                session, **kwargs
-            )
+            return super().evaluate_locked_outbox_authority(session, **kwargs)
 
     clock_now = {"value": NOW}
 
@@ -407,9 +403,9 @@ def test_authority_callback_failure_is_fail_closed(control_database):
     service = ControlOutboxService()
     lease = _claim_ordinary(control_database, service, FakeAuthority())
 
-    assert _authorize(
-        control_database, service, FakeAuthority(raises=True), lease
-    ) is None
+    assert (
+        _authorize(control_database, service, FakeAuthority(raises=True), lease) is None
+    )
     with control_database.new_session() as session:
         persisted = session.get(ControlOutboxEvent, event.id)
         assert persisted.state == "recovery_quarantined"
@@ -624,9 +620,7 @@ def test_result_after_authority_change_is_saved_but_quarantined(control_database
             execution_generation=lease.execution_generation,
             evidence=evidence,
             result_mac_key=MAC_KEY,
-            authority=FakeAuthority(
-                allowed=False, reason_code="recovery_hold_active"
-            ),
+            authority=FakeAuthority(allowed=False, reason_code="recovery_hold_active"),
             now=NOW + timedelta(seconds=2),
         )
         assert completed.state == "recovery_quarantined"
@@ -758,13 +752,16 @@ def test_unknown_outcome_and_expired_lease_are_never_reclaimed(control_database)
     expired_lease = _claim_ordinary(control_database, service, authority)
     assert expired_lease.event_id == expired_event.id
     clock.set(NOW + timedelta(seconds=31))
-    assert _claim_ordinary(
-        control_database,
-        service,
-        authority,
-        now=NOW + timedelta(seconds=31),
-        worker="worker-b",
-    ) is None
+    assert (
+        _claim_ordinary(
+            control_database,
+            service,
+            authority,
+            now=NOW + timedelta(seconds=31),
+            worker="worker-b",
+        )
+        is None
+    )
     with control_database.new_session() as session:
         expired = session.get(ControlOutboxEvent, expired_event.id)
         assert expired.state == "recovery_quarantined"
@@ -777,13 +774,16 @@ def test_duplicate_dispatch_boundary_quarantines(control_database):
     authority = FakeAuthority()
     lease = _claim_ordinary(control_database, service, authority)
     assert _authorize(control_database, service, authority, lease) is not None
-    assert _authorize(
-        control_database,
-        service,
-        authority,
-        lease,
-        now=NOW + timedelta(seconds=2),
-    ) is None
+    assert (
+        _authorize(
+            control_database,
+            service,
+            authority,
+            lease,
+            now=NOW + timedelta(seconds=2),
+        )
+        is None
+    )
     with control_database.new_session() as session:
         persisted = session.get(ControlOutboxEvent, event.id)
         assert persisted.state == "recovery_quarantined"
@@ -877,40 +877,32 @@ def test_housekeeping_is_lane_scoped_and_uses_lane_specific_terminal_state(
     )
     service = ControlOutboxService()
     with control_database.transaction() as session:
-        assert service.claim_ordinary_mysql_skip_locked(
-            session,
-            worker_id="worker-a",
-            lease_duration=timedelta(seconds=30),
-            authority=FakeAuthority(),
-            now=NOW + timedelta(seconds=2),
-        ) is None
+        assert (
+            service.claim_ordinary_mysql_skip_locked(
+                session,
+                worker_id="worker-a",
+                lease_duration=timedelta(seconds=30),
+                authority=FakeAuthority(),
+                now=NOW + timedelta(seconds=2),
+            )
+            is None
+        )
     with control_database.new_session() as session:
         assert session.get(ControlOutboxEvent, ordinary.id).state == "cancelled"
         assert session.get(ControlOutboxEvent, system.id).state == "pending"
 
     with control_database.transaction() as session:
-        assert service.claim_system_cleanup_mysql_skip_locked(
-            session,
-            worker_id="cleanup-worker",
-            lease_duration=timedelta(seconds=30),
-            authority=FakeAuthority(),
-            now=NOW + timedelta(seconds=2),
-        ) is None
-    with control_database.new_session() as session:
         assert (
-            session.get(ControlOutboxEvent, system.id).state
-            == "recovery_quarantined"
-        )
-
-
-def test_sqlite_claim_method_refuses_mysql_backend(control_database):
-    service = ControlOutboxService()
-    with control_database.transaction() as session:
-        with pytest.raises(OutboxInputError):
-            service.claim_ordinary_sqlite_for_test(
+            service.claim_system_cleanup_mysql_skip_locked(
                 session,
-                worker_id="worker-a",
+                worker_id="cleanup-worker",
                 lease_duration=timedelta(seconds=30),
                 authority=FakeAuthority(),
-                now=NOW,
+                now=NOW + timedelta(seconds=2),
             )
+            is None
+        )
+    with control_database.new_session() as session:
+        assert (
+            session.get(ControlOutboxEvent, system.id).state == "recovery_quarantined"
+        )

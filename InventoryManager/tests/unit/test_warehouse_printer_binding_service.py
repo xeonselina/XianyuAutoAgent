@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app import create_app, db
+from app import db
 from app.models.warehouse import Warehouse, WarehousePrinter
 from app.services.warehouse import (
     WarehousePrinterBindingConflictError,
@@ -15,18 +15,6 @@ from app.services.warehouse import (
 
 
 NOW = datetime(2026, 8, 23, 6, 0, tzinfo=timezone.utc)
-
-
-@pytest.fixture
-def application():
-    app = create_app("testing")
-    with app.app_context():
-        db.create_all()
-        try:
-            yield app
-        finally:
-            db.session.remove()
-            db.drop_all()
 
 
 def _warehouse(name: str, *, active: bool = True) -> Warehouse:
@@ -51,9 +39,7 @@ def test_verified_binding_is_exactly_replayable_and_resolvable(application):
         session.add(warehouse)
         session.flush()
         warehouse_id = warehouse.id
-        created = WarehousePrinterBindingService(
-            session
-        ).bind_verified_kuaimai_printer(
+        created = WarehousePrinterBindingService(session).bind_verified_kuaimai_printer(
             warehouse_id=warehouse_id,
             printer_sn="KM-001",
             display_name="前台打印机",
@@ -95,9 +81,7 @@ def test_rebind_updates_only_current_pointer_and_old_print_snapshot_is_external(
             verified_at=NOW,
         )
     with session.begin():
-        rebound = WarehousePrinterBindingService(
-            session
-        ).bind_verified_kuaimai_printer(
+        rebound = WarehousePrinterBindingService(session).bind_verified_kuaimai_printer(
             warehouse_id=warehouse_id,
             printer_sn="KM-NEW",
             display_name="新打印机",
@@ -157,12 +141,10 @@ def test_noncurrent_binding_never_resolves(application, status, verified):
         )
         warehouse_id = warehouse.id
 
-    with session.begin(), pytest.raises(
-        WarehousePrinterBindingUnavailableError
-    ):
-        WarehousePrinterBindingService(
-            session
-        ).resolve_active_kuaimai_printer(warehouse_id=warehouse_id)
+    with session.begin(), pytest.raises(WarehousePrinterBindingUnavailableError):
+        WarehousePrinterBindingService(session).resolve_active_kuaimai_printer(
+            warehouse_id=warehouse_id
+        )
 
 
 def test_binding_service_requires_explicit_transaction(application):

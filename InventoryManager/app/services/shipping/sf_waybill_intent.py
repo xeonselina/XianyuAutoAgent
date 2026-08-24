@@ -16,7 +16,7 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from app.models.shipping_execution import (
     OutboundShipment,
@@ -44,6 +44,7 @@ from inventory_control.jobs import (
 )
 from inventory_control.models.foundation import Tenant
 from inventory_control.models.jobs import BackgroundJob
+from inventory_control.transactions import require_caller_transaction
 
 
 SF_WAYBILL_INTENT_JOB_TYPE: Final = "sf_waybill_enqueue_intent"
@@ -124,7 +125,8 @@ class SfWaybillIntentStore(Protocol):
     def discover_one(
         self,
         prepared: PreparedSfWaybillIntentJob,
-    ) -> SfWaybillIntentSignal | None: ...
+    ) -> SfWaybillIntentSignal | None:
+        ...
 
     def acknowledge_enqueued(
         self,
@@ -132,7 +134,8 @@ class SfWaybillIntentStore(Protocol):
         *,
         signal: SfWaybillIntentSignal,
         acknowledged_at: datetime,
-    ) -> bool: ...
+    ) -> bool:
+        ...
 
 
 class SfWaybillIntentEnqueuer(Protocol):
@@ -141,12 +144,11 @@ class SfWaybillIntentEnqueuer(Protocol):
         *,
         signal: SfWaybillIntentSignal,
         available_at: datetime,
-    ) -> BackgroundJob: ...
+    ) -> BackgroundJob:
+        ...
 
 
-TenantTransactionProvider = Callable[
-    [TenantContext], AbstractContextManager[Session]
-]
+TenantTransactionProvider = Callable[[TenantContext], AbstractContextManager[Session]]
 
 
 class SqlAlchemySfWaybillIntentStore:
@@ -174,9 +176,7 @@ class SqlAlchemySfWaybillIntentStore:
                         ProviderOperationAttempt.background_job_uuid.is_not(None),
                         ProviderOperationAttempt.tenant_access_version
                         == prepared.tenant_access_version,
-                        ProviderOperationAttempt.requested_by_user_uuid.is_not(
-                            None
-                        ),
+                        ProviderOperationAttempt.requested_by_user_uuid.is_not(None),
                         ProviderOperationAttempt.request_id.is_not(None),
                     )
                     .order_by(
@@ -249,9 +249,7 @@ class SqlAlchemySfWaybillIntentStore:
                     provenance=ShippingJobProvenance(
                         job_uuid=signal.job_uuid,
                         tenant_access_version=signal.tenant_access_version,
-                        requested_by_user_uuid=(
-                            signal.requested_by_user_uuid
-                        ),
+                        requested_by_user_uuid=(signal.requested_by_user_uuid),
                         request_id=signal.request_id,
                         correlation_id=signal.correlation_id,
                     ),
@@ -459,12 +457,7 @@ def _prepared(value: object) -> PreparedSfWaybillIntentJob:
 
 
 def _require_transaction(session: Session) -> None:
-    transaction = session.get_transaction() if isinstance(session, Session) else None
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-    ):
-        raise SfWaybillIntentInputError()
+    require_caller_transaction(session, SfWaybillIntentInputError)
 
 
 def _uuid(value: object) -> str:

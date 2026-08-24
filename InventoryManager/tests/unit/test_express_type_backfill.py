@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy import event
 from sqlalchemy.dialects import mysql
 
-from app import create_app, db
+from app import db
 from app.models.database_identity import TenantDatabaseIdentity
 from app.models.device import Device
 from app.models.rental import Rental
@@ -36,19 +36,7 @@ SCHEMA_GENERATION = 12
 SCHEMA_REVISION = "20260822_add_shipping_execution_ledgers"
 SCHEMA_DIGEST = hashlib.sha256(b"offline-tenant-schema-v1").digest()
 PARENT_MANIFEST_DIGEST = hashlib.sha256(b"default-migration-manifest").digest()
-IDENTITY_CREATED_AT = datetime(2026, 8, 22, 1, 2, 3, 456789)
-
-
-@pytest.fixture
-def application():
-    app = create_app("testing")
-    with app.app_context():
-        db.create_all()
-        try:
-            yield app
-        finally:
-            db.session.remove()
-            db.drop_all()
+IDENTITY_CREATED_AT = datetime(2026, 8, 22, 1, 2, 3)
 
 
 def _seed_identity() -> None:
@@ -199,8 +187,7 @@ def test_mixed_snapshot_never_maps_six_or_invalid_value_to_263_or_calls_provider
     result = _run(manifest)
 
     values = tuple(
-        db.session.get(Rental, rental_id).express_type_id
-        for rental_id in rental_ids
+        db.session.get(Rental, rental_id).express_type_id for rental_id in rental_ids
     )
     assert values == (2, 1, 2, 263, 6, 99)
     assert provider_calls == []
@@ -243,9 +230,7 @@ def test_snapshot_or_idempotency_identity_drift_fails_closed(application):
     (rental_id,) = _seed_rentals([None])
     manifest = _manifest()
     db.session.execute(
-        sa.update(Rental)
-        .where(Rental.id == rental_id)
-        .values(express_type_id=263)
+        sa.update(Rental).where(Rental.id == rental_id).values(express_type_id=263)
     )
     db.session.commit()
 
@@ -369,11 +354,14 @@ def test_schema_reader_cannot_stage_writes_before_rental_lock(application):
                 manifest=manifest,
             )
 
-    assert db.session.scalar(
-        sa.select(sa.func.count())
-        .select_from(Device)
-        .where(Device.name == "unauthorized-reader-write")
-    ) == 0
+    assert (
+        db.session.scalar(
+            sa.select(sa.func.count())
+            .select_from(Device)
+            .where(Device.name == "unauthorized-reader-write")
+        )
+        == 0
+    )
 
 
 @pytest.mark.parametrize("transaction_action", ("commit", "rollback"))
@@ -442,9 +430,9 @@ def test_requires_explicit_clean_caller_owned_transaction(application):
     session = db.session()
 
     with pytest.raises(ExpressTypeBackfillTransactionError):
-        ExpressTypeBackfillService(
-            lambda current_session, identity: _facts()
-        ).backfill(session, manifest=manifest)
+        ExpressTypeBackfillService(lambda current_session, identity: _facts()).backfill(
+            session, manifest=manifest
+        )
 
     with pytest.raises(ExpressTypeBackfillTransactionError):
         with session.begin():
@@ -454,37 +442,11 @@ def test_requires_explicit_clean_caller_owned_transaction(application):
             ).backfill(session, manifest=manifest)
 
 
-def test_sqlite_outer_transaction_is_materialized_before_lock_order(application):
-    _seed_identity()
-    _seed_rentals([None])
-    manifest = _manifest()
-    sequence: list[str] = []
-
-    def capture(_connection, _cursor, statement, _params, _context, _many):
-        lowered = statement.lower().strip()
-        if lowered.startswith("begin immediate"):
-            sequence.append("begin_immediate")
-        elif lowered.startswith("select") and "database_identity" in lowered:
-            sequence.append("identity")
-        elif lowered.startswith("select") and "rentals" in lowered:
-            sequence.append("rentals")
-
-    event.listen(db.engine, "before_cursor_execute", capture)
-    try:
-        _run(manifest)
-    finally:
-        event.remove(db.engine, "before_cursor_execute", capture)
-
-    assert sequence[:3] == ["begin_immediate", "identity", "rentals"]
-
-
 def test_mysql_lock_sql_is_offline_and_uses_for_update():
     identity_sql = str(
         _identity_lock_statement().compile(dialect=mysql.dialect())
     ).upper()
-    rental_sql = str(
-        _rental_lock_statement().compile(dialect=mysql.dialect())
-    ).upper()
+    rental_sql = str(_rental_lock_statement().compile(dialect=mysql.dialect())).upper()
 
     assert "DATABASE_IDENTITY" in identity_sql
     assert "RENTALS" in rental_sql
@@ -496,28 +458,28 @@ def test_reports_and_errors_never_echo_invalid_raw_values(
     application,
     caplog,
 ):
-    first_secret = "leak-me-13800138000"
-    second_secret = "second-secret-13900139000"
+    first_invalid_value = 2_147_483_647
+    second_invalid_value = 2_147_483_646
     _seed_identity()
-    (rental_id,) = _seed_rentals([first_secret])
+    (rental_id,) = _seed_rentals([first_invalid_value])
     manifest = _manifest()
 
     result = _run(manifest)
     rendered = repr(result) + repr(result.safe_summary()) + repr(manifest)
-    assert first_secret not in rendered
+    assert str(first_invalid_value) not in rendered
     assert result.verification_passed is False
     assert result.safe_status == "blocked_unsupported"
 
     db.session.execute(
         sa.update(Rental)
         .where(Rental.id == rental_id)
-        .values(express_type_id=second_secret)
+        .values(express_type_id=second_invalid_value)
     )
     db.session.commit()
     with pytest.raises(ExpressTypeBackfillConflictError) as caught:
         _run(manifest)
 
     exposed = str(caught.value) + repr(caught.value) + caplog.text
-    assert first_secret not in exposed
-    assert second_secret not in exposed
+    assert str(first_invalid_value) not in exposed
+    assert str(second_invalid_value) not in exposed
     assert str(caught.value) == "EXPRESS_TYPE_BACKFILL_SNAPSHOT_CONFLICT"

@@ -87,8 +87,40 @@ The system MUST allow inventory, accessory, customer, and rental management for 
 - **AND** no provider call or fallback-account call is made
 - **AND** the Operator receives guidance to contact an Admin
 
+### Requirement: Xianyu accounts, shops, and orders are connection-scoped
+The system MUST allow one tenant to own multiple Xianyu integration connections, with each connection representing exactly one Xianyu Manager account and its corresponding Xianyu shop. It SHALL use the existing tenant-integration identity and immutable credential revisions rather than create a parallel Xianyu account aggregate. Alerts and rentals SHALL identify a provider order by the connection UUID together with the order number; a display label or bare order number MUST NOT authorize provider access.
+
+#### Scenario: A tenant manually records an order with multiple active shops
+- **GIVEN** the tenant has more than one active Xianyu connection
+- **WHEN** an Admin or Operator enters or fetches a Xianyu order manually
+- **THEN** the request requires one of those shops to be selected
+- **AND** the rental stores that connection UUID with the order number
+- **AND** the system does not search every connection or silently choose the first one
+
+#### Scenario: An alert becomes a rental
+- **GIVEN** a pending alert was synchronized from one exact Xianyu connection
+- **WHEN** an Admin or Operator creates a rental from that alert
+- **THEN** the rental inherits the alert's connection UUID
+- **AND** ignoring or recording the same textual order number for another shop is unaffected
+
+#### Scenario: A migrated order has no trustworthy shop attribution
+- **GIVEN** a legacy rental contains a Xianyu order number but no trustworthy connection identity
+- **WHEN** it is migrated or later displayed
+- **THEN** its connection UUID remains null and its local facts remain readable
+- **AND** order-detail queries, shipment notifications, and all other Xianyu provider actions fail closed until an Admin or Operator explicitly selects the correct shop
+- **AND** the system does not backfill a later validated credential revision as its historical source
+
+### Requirement: Xianyu provider actions freeze the selected shop authority
+The system MUST resolve a new Xianyu order-detail query, shipment notification, or other provider action only from the rental's stored Xianyu connection after proving current tenant ownership, active status, and a current successfully verified credential revision. Before provider I/O it SHALL persist that integration UUID and exact revision UUID in the durable job or execution identity. Rotation SHALL NOT change shop ownership or rewrite an already submitted action, and an inactive or missing connection SHALL NOT fall back to another shop.
+
+#### Scenario: Credentials rotate after a shipment notification is submitted
+- **GIVEN** a durable Xianyu action froze connection A and credential revision 4
+- **WHEN** connection A advances to revision 5 before the worker finishes
+- **THEN** the submitted execution remains bound to revision 4 according to its recovery policy
+- **AND** it never switches to revision 5 or connection B merely because either is currently active
+
 ### Requirement: Xianyu synchronization is tenant-scoped durable work
-The system MUST schedule one deduplicated Xianyu reconciliation job per eligible tenant every three minutes, using that tenant's current connection revision and writing only its tenant database. A user refresh SHALL enqueue a higher-priority tenant job deduplicated within the approved 180-second window; pages SHALL read the local summary and last-success time rather than calling Xianyu per account or tab.
+The system MUST schedule one deduplicated Xianyu reconciliation job per eligible tenant every three minutes, freezing that tenant's complete active connection/revision set and writing only its tenant database. A user refresh SHALL enqueue one higher-priority all-active-shops tenant job deduplicated within the approved 180-second window; pages SHALL read the local aggregate and per-shop summary rather than calling Xianyu per account, shop, or tab.
 
 #### Scenario: Multiple tabs request refresh
 - **GIVEN** several sessions in one tenant request Xianyu refresh within 180 seconds
@@ -96,6 +128,13 @@ The system MUST schedule one deduplicated Xianyu reconciliation job per eligible
 - **THEN** they reference one durable tenant-scoped job
 - **AND** no browser directly calls Xianyu
 - **AND** another tenant's schedule, credentials, or summary is unaffected
+
+#### Scenario: A tenant refreshes several active shops
+- **GIVEN** the tenant has multiple active Xianyu connections
+- **WHEN** an Admin or Operator requests a manual refresh
+- **THEN** one tenant job freezes and processes the full active connection set
+- **AND** each connection persists its cursor and result independently
+- **AND** no per-shop provider refresh job is created
 
 ### Requirement: Platform SMS uses one production identity
 The system MUST send registration, login, and sensitive-action OTPs through the platform's Tencent Cloud account, approved corporate signature, and approved templates; tenant branding SHALL NOT alter that signature. Production SHALL fail closed when qualification, signature, template, carrier filing, or controlled real-number verification is incomplete, while a fake provider is permitted only in explicitly non-production environments.

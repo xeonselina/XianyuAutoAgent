@@ -26,11 +26,10 @@ def downgrade() -> None:
 
 
 def _alter_token_hash(selected_type) -> None:
-    # On SQLite both LargeBinary variants compile to BLOB, so there is no
-    # physical change to apply.  MySQL BINARY pads short values to 32 bytes,
-    # which makes LENGTH(token_hash) = 32 ineffective; VARBINARY preserves
-    # the submitted length and lets the existing check reject malformed data.
-    if op.get_context().dialect.name != "mysql":
+    # MySQL-family BINARY pads short values to 32 bytes, which makes
+    # LENGTH(token_hash) = 32 ineffective; VARBINARY preserves the submitted
+    # length and lets the existing check reject malformed data.
+    if op.get_context().dialect.name not in {"mysql", "mariadb"}:
         return
     op.alter_column(
         "tenant_invitations",

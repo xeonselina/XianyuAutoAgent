@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from typing import Iterable
 
 import sqlalchemy as sa
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.lifecycle.deletion import (
     DeletionClaimReleaseEvidence,
@@ -48,6 +48,7 @@ from inventory_control.models.recovery import (
     DisasterRecoveryRun,
     TenantRecoveryHold,
 )
+from inventory_control.transactions import require_caller_transaction
 
 
 _ZERO_HASH = b"\x00" * 32
@@ -263,11 +264,14 @@ class ControlDatabaseDeletionEvidenceAdapter:
         for claim in claims:
             history = tuple(by_claim[claim.id])
             _verify_claim_chain(claim, history, database_now=now)
-            touched = any(
-                event.previous_tenant_id == tenant_id
-                or event.new_tenant_id == tenant_id
-                for event in history
-            ) or claim.current_tenant_id == tenant_id
+            touched = (
+                any(
+                    event.previous_tenant_id == tenant_id
+                    or event.new_tenant_id == tenant_id
+                    for event in history
+                )
+                or claim.current_tenant_id == tenant_id
+            )
             if not touched:
                 continue
             related += 1
@@ -309,20 +313,19 @@ class ControlDatabaseDeletionEvidenceAdapter:
 
 
 def _prepare(session: Session) -> None:
-    if not isinstance(session, Session):
-        _fail("DELETION_CONTROL_EVIDENCE_TRANSACTION_REQUIRED")
-    transaction = session.get_transaction()
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-    ):
-        _fail("DELETION_CONTROL_EVIDENCE_TRANSACTION_REQUIRED")
-    dirty = any(
-        session.is_modified(instance, include_collections=True)
-        for instance in session.dirty
+    require_caller_transaction(
+        session,
+        lambda: DeletionControlEvidenceError(
+            "DELETION_CONTROL_EVIDENCE_TRANSACTION_REQUIRED"
+        ),
+        invalid_session_error=lambda: DeletionControlEvidenceError(
+            "DELETION_CONTROL_EVIDENCE_TRANSACTION_REQUIRED"
+        ),
+        dirty_error=lambda: DeletionControlEvidenceError(
+            "DELETION_CONTROL_EVIDENCE_CLEAN_UNIT_OF_WORK_REQUIRED"
+        ),
+        clean=True,
     )
-    if session.new or session.deleted or dirty:
-        _fail("DELETION_CONTROL_EVIDENCE_CLEAN_UNIT_OF_WORK_REQUIRED")
 
 
 def _require_transition_scope(
@@ -346,8 +349,7 @@ def _require_transition_scope(
         or request.current_action.action_id != evidence.action_id
         or request.execution_generation != evidence.execution_generation
         or request.executor_fencing_token != evidence.executor_fencing_token
-        or transition.state.tenant_access_version
-        != evidence.tenant_access_version
+        or transition.state.tenant_access_version != evidence.tenant_access_version
     ):
         _fail("DELETION_CONTROL_EVIDENCE_STATE_MISMATCH")
     tombstone = request.tombstone
@@ -420,10 +422,7 @@ def _verify_claim_chain(
             or _event_owner(event, previous=True) != previous_owner
             or bytes(event.previous_event_hash) != previous_hash
             or created_at > database_now
-            or (
-                previous_created_at is not None
-                and created_at < previous_created_at
-            )
+            or (previous_created_at is not None and created_at < previous_created_at)
         ):
             _fail("DELETION_SF_CLAIM_CHAIN_INVALID")
         _verify_event_provenance_shape(event)
@@ -488,10 +487,8 @@ def _verify_target_release_provenance(
         if event.actor_type == "system_deletion":
             if (
                 event.deletion_request_uuid != str(request.request_id)
-                or event.source_action_uuid
-                != str(request.current_action.action_id)
-                or event.deletion_execution_generation
-                != request.execution_generation
+                or event.source_action_uuid != str(request.current_action.action_id)
+                or event.deletion_execution_generation != request.execution_generation
                 or event.tombstone_sequence != tombstone.sequence
                 or event.tombstone_record_hash is None
                 or not hmac.compare_digest(
@@ -677,9 +674,7 @@ def _event_record_hash(
         "previous_hash": bytes(event.previous_event_hash).hex(),
     }
     return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
-            "ascii"
-        )
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("ascii")
     ).digest()
 
 
@@ -727,9 +722,7 @@ def _disposition_digest(
         "claim_fences": claim_fences,
     }
     return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
-            "ascii"
-        )
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("ascii")
     ).digest()
 
 

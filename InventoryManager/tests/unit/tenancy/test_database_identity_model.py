@@ -1,22 +1,10 @@
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy.exc import IntegrityError
 
-from app import create_app, db
+from app import db
 from app.models.database_identity import TenantDatabaseIdentity
-
-
-@pytest.fixture
-def application():
-    app = create_app("testing")
-    with app.app_context():
-        db.create_all()
-        try:
-            yield app
-        finally:
-            db.session.remove()
-            db.drop_all()
+from tests.support.test_database import DATABASE_CONSTRAINT_ERRORS
 
 
 def identity(**overrides):
@@ -49,7 +37,7 @@ def test_database_identity_singleton_constraint_rejects_a_second_row(application
     db.session.commit()
 
     db.session.add(second)
-    with pytest.raises(IntegrityError):
+    with pytest.raises(DATABASE_CONSTRAINT_ERRORS):
         db.session.commit()
     db.session.rollback()
 

@@ -42,11 +42,9 @@ def downgrade() -> None:
 
 
 def _alter_timestamp_precision(selected_type: sa.types.TypeEngine) -> None:
-    # SQLite already retains the values used by local migration contract
-    # tests and its ALTER COLUMN grammar cannot express MySQL FSP.  The
-    # forward fix is intentionally physical-dialect specific; ORM metadata
-    # continues to resolve to ordinary DateTime on non-MySQL dialects.
-    if op.get_context().dialect.name != "mysql":
+    # The forward fix is intentionally MySQL-family specific; ORM metadata
+    # continues to resolve to ordinary DateTime on unsupported dialects.
+    if op.get_context().dialect.name not in {"mysql", "mariadb"}:
         return
     for table_name, columns in (
         ("platform_operational_signals", _SIGNAL_COLUMNS),

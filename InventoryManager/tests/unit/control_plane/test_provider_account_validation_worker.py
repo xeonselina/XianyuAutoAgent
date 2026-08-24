@@ -233,77 +233,81 @@ def _seed_control_authority(database):
             status="active",
             auth_version=1,
         )
-        session.add_all((
-            plan,
-            tenant,
-            user,
-            PlatformRootKeyVersion(
-                version=ROOT_KEY.version,
-                fingerprint_sha256=bytes.fromhex(ROOT_KEY.fingerprint_sha256),
-                status="active",
-                activated_at=NOW,
-            ),
-        ))
-        session.flush()
-        session.add_all((
-            TenantDatabase(
-                tenant_id=str(TENANT_ID),
-                database_instance_key="primary",
-                database_name="tenant_7b000000000040008000000000000001",
-                status="ready",
-                schema_version="test-head",
-                activated_by_registration_commit_uuid=(
-                    "7b000000-0000-4000-8000-000000000099"
+        session.add_all(
+            (
+                plan,
+                tenant,
+                user,
+                PlatformRootKeyVersion(
+                    version=ROOT_KEY.version,
+                    fingerprint_sha256=bytes.fromhex(ROOT_KEY.fingerprint_sha256),
+                    status="active",
+                    activated_at=NOW,
                 ),
-                activation_route_version=1,
-                activation_credential_generation=1,
-                dml_username="tenant_dml_g1",
-                dml_credential_generation=1,
-                dml_root_key_version=1,
-                dml_derivation_version=1,
-                dml_desired_login_state="active",
-                dml_observed_login_state="active",
-                dml_login_state_version=1,
-                platform_read_username="tenant_read_g1",
-                platform_read_credential_generation=1,
-                platform_read_root_key_version=1,
-                platform_read_derivation_version=1,
-                platform_read_route_version=1,
-            ),
-            Subscription(
-                tenant_id=str(TENANT_ID),
-                plan_revision_uuid=plan.id,
-                entitlements_schema_version=1,
-                entitlements_json=entitlements,
-                entitlements_digest=digest,
-                status="active",
-                expires_at=NOW + timedelta(days=30),
-            ),
-            TenantMembership(
-                id="7b000000-0000-4000-8000-000000000010",
-                tenant_id=str(TENANT_ID),
-                user_id=str(USER_ID),
-                role_key="admin",
-                status="active",
-                source_type="registration",
-                row_version=1,
-            ),
-            TenantUserSession(
-                id=str(SESSION_ID),
-                user_id=str(USER_ID),
-                token_digest_sha256=hashlib.sha256(b"session-token").digest(),
-                csrf_digest_sha256=hashlib.sha256(b"session-csrf").digest(),
-                auth_version_at_issue=1,
-                tenant_access_version_at_issue=1,
-                policy_version=1,
-                csrf_generation=1,
-                idle_timeout_seconds=3600,
-                created_at=NOW - timedelta(minutes=5),
-                last_seen_at=NOW,
-                idle_expires_at=NOW + timedelta(hours=1),
-                absolute_expires_at=NOW + timedelta(days=1),
-            ),
-        ))
+            )
+        )
+        session.flush()
+        session.add_all(
+            (
+                TenantDatabase(
+                    tenant_id=str(TENANT_ID),
+                    database_instance_key="primary",
+                    database_name="tenant_7b000000000040008000000000000001",
+                    status="ready",
+                    schema_version="test-head",
+                    activated_by_registration_commit_uuid=(
+                        "7b000000-0000-4000-8000-000000000099"
+                    ),
+                    activation_route_version=1,
+                    activation_credential_generation=1,
+                    dml_username="tenant_dml_g1",
+                    dml_credential_generation=1,
+                    dml_root_key_version=1,
+                    dml_derivation_version=1,
+                    dml_desired_login_state="active",
+                    dml_observed_login_state="active",
+                    dml_login_state_version=1,
+                    platform_read_username="tenant_read_g1",
+                    platform_read_credential_generation=1,
+                    platform_read_root_key_version=1,
+                    platform_read_derivation_version=1,
+                    platform_read_route_version=1,
+                ),
+                Subscription(
+                    tenant_id=str(TENANT_ID),
+                    plan_revision_uuid=plan.id,
+                    entitlements_schema_version=1,
+                    entitlements_json=entitlements,
+                    entitlements_digest=digest,
+                    status="active",
+                    expires_at=NOW + timedelta(days=30),
+                ),
+                TenantMembership(
+                    id="7b000000-0000-4000-8000-000000000010",
+                    tenant_id=str(TENANT_ID),
+                    user_id=str(USER_ID),
+                    role_key="admin",
+                    status="active",
+                    source_type="registration",
+                    row_version=1,
+                ),
+                TenantUserSession(
+                    id=str(SESSION_ID),
+                    user_id=str(USER_ID),
+                    token_digest_sha256=hashlib.sha256(b"session-token").digest(),
+                    csrf_digest_sha256=hashlib.sha256(b"session-csrf").digest(),
+                    auth_version_at_issue=1,
+                    tenant_access_version_at_issue=1,
+                    policy_version=1,
+                    csrf_generation=1,
+                    idle_timeout_seconds=3600,
+                    created_at=NOW - timedelta(minutes=5),
+                    last_seen_at=NOW,
+                    idle_expires_at=NOW + timedelta(hours=1),
+                    absolute_expires_at=NOW + timedelta(days=1),
+                ),
+            )
+        )
         session.flush()
         session.add(
             SmsChallenge(
@@ -334,40 +338,42 @@ def _seed_control_authority(database):
             )
         )
         session.flush()
-        session.add_all((
-            TenantSensitiveActionIntent(
-                id=str(ACTION_ID),
-                tenant_id=str(TENANT_ID),
-                actor_user_id=str(USER_ID),
-                actor_session_id=str(SESSION_ID),
-                purpose="sf_account_bind",
-                action_subtype="sf.account_bind",
-                target_type="warehouse",
-                target_uuid=str(WAREHOUSE_ID),
-                expected_target_revision="binding:absent:target:1",
-                canonicalization_version=1,
-                context_mac_version=1,
-                root_key_version=ROOT_KEY.version,
-                request_context_mac_sha256=hashlib.sha256(b"context").digest(),
-                idempotency_key=f"sf-account:{ACTION_ID}",
-                status="succeeded",
-                safe_result_code="provider_account_revision_pending",
-                request_id=f"sensitive-action:{ACTION_ID}",
-                correlation_id=f"provider-account:{ACCOUNT_ID}",
-                row_version=3,
-                created_at=NOW - timedelta(minutes=4),
-                updated_at=NOW - timedelta(minutes=1),
-                expires_at=NOW + timedelta(minutes=1),
-                authorized_at=NOW - timedelta(minutes=1),
-                completed_at=NOW - timedelta(minutes=1),
-            ),
-            TenantSensitiveActionIntentChallenge(
-                intent_id=str(ACTION_ID),
-                challenge_role="primary",
-                challenge_id=str(CHALLENGE_ID),
-                created_at=NOW - timedelta(minutes=4),
-            ),
-        ))
+        session.add_all(
+            (
+                TenantSensitiveActionIntent(
+                    id=str(ACTION_ID),
+                    tenant_id=str(TENANT_ID),
+                    actor_user_id=str(USER_ID),
+                    actor_session_id=str(SESSION_ID),
+                    purpose="sf_account_bind",
+                    action_subtype="sf.account_bind",
+                    target_type="warehouse",
+                    target_uuid=str(WAREHOUSE_ID),
+                    expected_target_revision="binding:absent:target:1",
+                    canonicalization_version=1,
+                    context_mac_version=1,
+                    root_key_version=ROOT_KEY.version,
+                    request_context_mac_sha256=hashlib.sha256(b"context").digest(),
+                    idempotency_key=f"sf-account:{ACTION_ID}",
+                    status="succeeded",
+                    safe_result_code="provider_account_revision_pending",
+                    request_id=f"sensitive-action:{ACTION_ID}",
+                    correlation_id=f"provider-account:{ACCOUNT_ID}",
+                    row_version=3,
+                    created_at=NOW - timedelta(minutes=4),
+                    updated_at=NOW - timedelta(minutes=1),
+                    expires_at=NOW + timedelta(minutes=1),
+                    authorized_at=NOW - timedelta(minutes=1),
+                    completed_at=NOW - timedelta(minutes=1),
+                ),
+                TenantSensitiveActionIntentChallenge(
+                    intent_id=str(ACTION_ID),
+                    challenge_role="primary",
+                    challenge_id=str(CHALLENGE_ID),
+                    created_at=NOW - timedelta(minutes=4),
+                ),
+            )
+        )
 
 
 def _seed_active_integration(database):
@@ -457,7 +463,6 @@ def _run(harness, validator, *, authority=None):
         result_mac_key=MAC_KEY,
         lease_duration=timedelta(minutes=2),
         clock=lambda: NOW,
-        allow_sqlite_claim_for_tests=True,
         service=ControlOutboxService(database_clock=lambda _session: NOW),
     )
     return worker.run_once()
@@ -486,7 +491,6 @@ def _run_binding(database, applier):
         result_mac_key=MAC_KEY,
         lease_duration=timedelta(minutes=2),
         clock=lambda: NOW,
-        allow_sqlite_claim_for_tests=True,
         service=ControlOutboxService(database_clock=lambda _session: NOW),
     ).run_once()
 
@@ -505,7 +509,6 @@ def _run_unbinding(database, applier):
         result_mac_key=MAC_KEY,
         lease_duration=timedelta(minutes=2),
         clock=lambda: NOW,
-        allow_sqlite_claim_for_tests=True,
         service=ControlOutboxService(database_clock=lambda _session: NOW),
     ).run_once()
 
@@ -609,9 +612,10 @@ def test_current_authority_allows_exact_active_sources(harness):
     assert validator.calls == 1
     with database.new_session() as session:
         assert session.get(ControlOutboxEvent, event_id).state == "succeeded"
-        assert session.get(
-            TenantProviderAccountSecretRevision, revision_id
-        ).status == "current"
+        assert (
+            session.get(TenantProviderAccountSecretRevision, revision_id).status
+            == "current"
+        )
 
 
 def test_success_enqueues_and_applies_exact_tenant_binding_command(harness):
@@ -636,10 +640,13 @@ def test_success_enqueues_and_applies_exact_tenant_binding_command(harness):
 
 def test_released_claim_event_authorizes_cleanup_after_new_reservation(harness):
     database, _keys, _event_id, _revision_id = harness
-    assert _run(
-        harness,
-        _Validator(CredentialValidationDecision.VALID),
-    ).state == "succeeded"
+    assert (
+        _run(
+            harness,
+            _Validator(CredentialValidationDecision.VALID),
+        ).state
+        == "succeeded"
+    )
     assert _run_binding(database, _BindingApplier()).state == "succeeded"
 
     unbind_action = UUID("7b000000-0000-4000-8000-000000000021")
@@ -717,18 +724,12 @@ def test_released_claim_event_authorizes_cleanup_after_new_reservation(harness):
             owner=SfClaimOwner(next_tenant, next_account, next_warehouse),
             proof=SfAdminClaimProof(
                 tenant_uuid=next_tenant,
-                actor_user_uuid=UUID(
-                    "7b000000-0000-4000-8000-000000000035"
-                ),
-                actor_session_uuid=UUID(
-                    "7b000000-0000-4000-8000-000000000036"
-                ),
+                actor_user_uuid=UUID("7b000000-0000-4000-8000-000000000035"),
+                actor_session_uuid=UUID("7b000000-0000-4000-8000-000000000036"),
                 role=TenantRole.ADMIN,
                 effective_gate=EffectiveTenantGate.ACTIVE,
                 tenant_access_version=1,
-                otp_challenge_uuid=UUID(
-                    "7b000000-0000-4000-8000-000000000037"
-                ),
+                otp_challenge_uuid=UUID("7b000000-0000-4000-8000-000000000037"),
                 otp_purpose="sf_account_bind",
                 otp_action_uuid=next_action,
                 otp_request_digest=next_digest,

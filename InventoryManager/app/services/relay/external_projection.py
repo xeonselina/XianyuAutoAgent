@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import sqlalchemy as sa
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from app.models.audit_log import AuditLog
 from app.models.rental_relay_case import RentalRelayCase
@@ -41,6 +41,7 @@ from inventory_control.jobs import (
 )
 from inventory_control.jobs.service import ControlJobService
 from inventory_control.models.jobs import BackgroundJob
+from inventory_control.transactions import require_caller_transaction
 
 
 RELAY_EXTERNAL_PROJECTION_JOB_TYPE = "relay_external_stage_projection"
@@ -116,10 +117,7 @@ class RelayExternalProjectionCommand:
 
     @property
     def idempotency_key(self) -> str:
-        return (
-            f"relay-external:{self.stage.value}:"
-            f"{self.source_result_digest}"
-        )
+        return f"relay-external:{self.stage.value}:" f"{self.source_result_digest}"
 
     @property
     def operation_key(self) -> str:
@@ -192,8 +190,8 @@ class RelayExternalProjectionService:
             if command.stage is RelayExternalStage.COMPLETED:
                 result.relay_case.sf_tracking_status = "delivered"
                 result.relay_case.sf_tracking_summary = "已签收"
-                result.relay_case.sf_last_checked_at = (
-                    command.occurred_at.replace(tzinfo=None)
+                result.relay_case.sf_last_checked_at = command.occurred_at.replace(
+                    tzinfo=None
                 )
                 tenant_session.flush()
             return RelayExternalProjectionReceipt(
@@ -222,8 +220,7 @@ class RelayExternalProjectionService:
             tenant_session.scalars(
                 sa.select(ProviderOperationAttempt)
                 .where(
-                    ProviderOperationAttempt.shipment_id
-                    == command.shipment_uuid,
+                    ProviderOperationAttempt.shipment_id == command.shipment_uuid,
                     ProviderOperationAttempt.operation == "create_waybill",
                 )
                 .order_by(ProviderOperationAttempt.attempt_no.asc())
@@ -306,8 +303,7 @@ class RelayExternalProjectionService:
             len(matches) != 1
             or matches[0].details.get("source_result_digest")
             != command.source_result_digest
-            or matches[0].details.get("operation_key")
-            != command.operation_key
+            or matches[0].details.get("operation_key") != command.operation_key
         ):
             raise RelayExternalProjectionConflict()
 
@@ -316,12 +312,11 @@ class RelayExternalProjectionStore(Protocol):
     def apply(
         self,
         prepared: PreparedRelayExternalProjectionJob,
-    ) -> RelayExternalProjectionReceipt: ...
+    ) -> RelayExternalProjectionReceipt:
+        ...
 
 
-TenantTransactionProvider = Callable[
-    [TenantContext], AbstractContextManager[Session]
-]
+TenantTransactionProvider = Callable[[TenantContext], AbstractContextManager[Session]]
 
 
 class SqlAlchemyRelayExternalProjectionStore:
@@ -476,12 +471,7 @@ def _parse_job(job: BackgroundJob) -> PreparedRelayExternalProjectionJob:
 
 
 def _require_explicit_transaction(session: Session) -> None:
-    transaction = session.get_transaction() if isinstance(session, Session) else None
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-    ):
-        raise RelayExternalProjectionInputError()
+    require_caller_transaction(session, RelayExternalProjectionInputError)
 
 
 def _positive(value: object) -> int:

@@ -7,13 +7,8 @@ from sqlalchemy.dialects import mysql
 
 from inventory_control import (
     BackgroundJob,
-    ControlBase,
     ControlOutboxEvent,
     Tenant,
-)
-from tests.support.test_database import (
-    clear_guarded_mysql_test_rows,
-    guarded_mysql_control_database,
 )
 from inventory_control.jobs import (
     AuthorityVerdict,
@@ -65,19 +60,9 @@ class _AllowAllAuthority:
 ALLOW_ALL_AUTHORITY = _AllowAllAuthority()
 
 
-@pytest.fixture(scope="module")
-def control_database_schema():
-    with guarded_mysql_control_database(ControlBase.metadata) as database:
-        yield database
-
-
 @pytest.fixture
-def control_database(control_database_schema):
-    clear_guarded_mysql_test_rows(
-        control_database_schema.engine,
-        ControlBase.metadata,
-    )
-    return control_database_schema
+def control_database(mysql_control_database):
+    return mysql_control_database
 
 
 @pytest.fixture
@@ -115,9 +100,7 @@ def _enqueue(
     )
 
 
-def test_enqueue_reuses_stable_job_and_outbox_idempotency(
-    control_database, tenant_id
-):
+def test_enqueue_reuses_stable_job_and_outbox_idempotency(control_database, tenant_id):
     service = ControlJobService()
     with control_database.transaction() as session:
         first_job = _enqueue(service, session, tenant_id)
@@ -156,9 +139,7 @@ def test_enqueue_reuses_stable_job_and_outbox_idempotency(
 
     with control_database.new_session() as session:
         assert session.scalar(select(func.count()).select_from(BackgroundJob)) == 1
-        assert (
-            session.scalar(select(func.count()).select_from(ControlOutboxEvent)) == 1
-        )
+        assert session.scalar(select(func.count()).select_from(ControlOutboxEvent)) == 1
 
 
 def test_enqueue_accepts_one_preallocated_job_uuid_and_fences_replays(
@@ -457,13 +438,16 @@ def test_provider_boundary_is_committed_and_expired_lease_is_never_stolen(
 
     clock.set(NOW + timedelta(seconds=6))
     with control_database.transaction() as session:
-        assert service.claim_mysql_skip_locked(
-            session,
-            worker_id="worker-b",
-            lease_duration=timedelta(seconds=5),
-            authority=ALLOW_ALL_AUTHORITY,
-            now=NOW + timedelta(seconds=6),
-        ) is None
+        assert (
+            service.claim_mysql_skip_locked(
+                session,
+                worker_id="worker-b",
+                lease_duration=timedelta(seconds=5),
+                authority=ALLOW_ALL_AUTHORITY,
+                now=NOW + timedelta(seconds=6),
+            )
+            is None
+        )
         unknown = session.get(BackgroundJob, job.id)
         assert unknown.status == "needs_review"
         assert unknown.review_reason_code == "provider_result_unknown"
@@ -515,9 +499,7 @@ def test_gate_block_finishes_lease_before_any_provider_call(
 def test_review_and_deadline_expiry_are_not_replayed(control_database, tenant_id):
     service = ControlJobService()
     with control_database.transaction() as session:
-        review_job = _enqueue(
-            service, session, tenant_id, key="review", priority=10
-        )
+        review_job = _enqueue(service, session, tenant_id, key="review", priority=10)
         _enqueue(
             service,
             session,
@@ -637,9 +619,9 @@ def test_invalid_terminal_transition_and_mysql_backend_check_are_explicit(
                 now=NOW + timedelta(seconds=2),
             )
     non_mysql_session = SimpleNamespace(
-        bind=SimpleNamespace(dialect=SimpleNamespace(name="sqlite"))
+        bind=SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
     )
-    with pytest.raises(RuntimeError, match="requires MySQL"):
+    with pytest.raises(RuntimeError, match="requires MySQL or MariaDB"):
         service.claim_mysql_skip_locked(
             non_mysql_session,
             worker_id="worker-a",

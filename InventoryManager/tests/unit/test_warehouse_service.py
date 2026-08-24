@@ -1,13 +1,12 @@
 from dataclasses import FrozenInstanceError
 from datetime import date, datetime, timedelta
-import os
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import event, select, update
 from sqlalchemy.exc import IntegrityError
 
-from app import create_app, db
+from app import db
 from app.models.accessory_inventory import (
     AccessoryType,
     AccessoryUnit,
@@ -43,33 +42,6 @@ from app.services.warehouse_service import (
     WarehouseServiceError,
     WarehouseUnavailableError,
 )
-from tests.support.test_database import (
-    build_mysql_test_config,
-    clear_guarded_mysql_test_rows,
-    guarded_mysql_test_metadata,
-)
-
-
-@pytest.fixture(scope="module")
-def mysql_application():
-    if not os.environ.get("TEST_DATABASE_URL"):
-        pytest.fail("TEST_DATABASE_URL is required for database tests")
-    app = create_app(build_mysql_test_config())
-    with app.app_context():
-        with guarded_mysql_test_metadata(db.engine, db.metadata):
-            yield app
-        db.session.remove()
-
-
-@pytest.fixture
-def application(mysql_application):
-    with mysql_application.app_context():
-        clear_guarded_mysql_test_rows(db.engine, db.metadata)
-        try:
-            yield mysql_application
-        finally:
-            db.session.rollback()
-            db.session.remove()
 
 
 def ready_warehouse(name, *, is_default=False):
@@ -199,9 +171,7 @@ def submitted_shipment_for(rental, warehouse):
         account_masked_hint="****1234",
         sender_snapshot={"name": "sender"},
         receiver_snapshot={"name": "receiver"},
-        cargo_snapshot={
-            "items": [{"name": "租赁设备", "count": 1}]
-        },
+        cargo_snapshot={"items": [{"name": "租赁设备", "count": 1}]},
         tracking_check_phone_last4="8000",
         express_type_id=2,
         scheduled_dispatch_at=datetime(2026, 8, 22, 1),
@@ -337,12 +307,8 @@ def test_default_transfer_and_deactivation_preserve_history(application):
     with pytest.raises(DefaultWarehouseProtectedError):
         WarehouseService.deactivate_warehouse(warehouse_id=current.id)
 
-    selected = WarehouseService.set_default_warehouse(
-        warehouse_id=replacement.id
-    )
-    deactivated_current = WarehouseService.deactivate_warehouse(
-        warehouse_id=current.id
-    )
+    selected = WarehouseService.set_default_warehouse(warehouse_id=replacement.id)
+    deactivated_current = WarehouseService.deactivate_warehouse(warehouse_id=current.id)
     deactivated_historical = WarehouseService.deactivate_warehouse(
         warehouse_id=historical.id
     )
@@ -454,9 +420,7 @@ def test_preview_is_immutable_and_lists_only_future_incomplete_main_rentals(
         parent=affected,
     )
     accessory_type = logical_type()
-    db.session.add_all(
-        [affected, returned, completed, past, child, accessory_type]
-    )
+    db.session.add_all([affected, returned, completed, past, child, accessory_type])
     db.session.flush()
     source_unit = unit_for(accessory_type, current)
     db.session.add_all(
@@ -493,14 +457,11 @@ def test_preview_is_immutable_and_lists_only_future_incomplete_main_rentals(
         == affected.planned_ship_out_date
     )
     assert (
-        preview.affected_rentals[0].planned_return_date
-        == affected.planned_return_date
+        preview.affected_rentals[0].planned_return_date == affected.planned_return_date
     )
     assert len(preview.affected_rentals[0].affected_accessory_types) == 1
     assert (
-        preview.affected_rentals[0]
-        .affected_accessory_types[0]
-        .accessory_type_id
+        preview.affected_rentals[0].affected_accessory_types[0].accessory_type_id
         == accessory_type.id
     )
     assert preview.affected_rentals[0].affected_accessory_types[0].name == "电池"
@@ -537,9 +498,7 @@ def test_execute_rejects_stale_expected_warehouse(application):
     ("status", "setup_state"),
     [("inactive", "ready"), ("active", "pending")],
 )
-def test_execute_rejects_inactive_or_pending_target(
-    application, status, setup_state
-):
+def test_execute_rejects_inactive_or_pending_target(application, status, setup_state):
     current = ready_warehouse("当前仓", is_default=True)
     target = ready_warehouse("目标仓")
     target.status = status
@@ -682,9 +641,7 @@ def test_execute_rolls_back_location_when_movement_insert_fails(application):
                 actor_user_id="user-1",
             )
     finally:
-        event.remove(
-            DeviceWarehouseMovement, "before_insert", fail_movement_insert
-        )
+        event.remove(DeviceWarehouseMovement, "before_insert", fail_movement_insert)
 
     db.session.expire_all()
     assert db.session.get(Device, device.id).warehouse_id == current.id
@@ -721,16 +678,10 @@ def test_execute_commits_location_history_and_coordination_ids_only(application)
         "logistics_estimate_provider_version": (
             rental.logistics_estimate_provider_version
         ),
-        "logistics_estimate_rule_version": (
-            rental.logistics_estimate_rule_version
-        ),
+        "logistics_estimate_rule_version": (rental.logistics_estimate_rule_version),
         "logistics_estimate_days": rental.logistics_estimate_days,
-        "logistics_estimate_evaluated_at": (
-            rental.logistics_estimate_evaluated_at
-        ),
-        "logistics_estimate_address_digest": (
-            rental.logistics_estimate_address_digest
-        ),
+        "logistics_estimate_evaluated_at": (rental.logistics_estimate_evaluated_at),
+        "logistics_estimate_address_digest": (rental.logistics_estimate_address_digest),
         "logistics_estimate_address_summary": (
             rental.logistics_estimate_address_summary
         ),
@@ -836,16 +787,24 @@ def test_execute_reassigns_future_link_to_target_and_appends_events(application)
     result = execute_previewed(device, target)
 
     db.session.expire_all()
-    links = db.session.execute(
-        select(RentalAccessoryUnitLink).where(
-            RentalAccessoryUnitLink.rental_id == rental.id
+    links = (
+        db.session.execute(
+            select(RentalAccessoryUnitLink).where(
+                RentalAccessoryUnitLink.rental_id == rental.id
+            )
         )
-    ).scalars().all()
-    events = db.session.execute(
-        select(AccessoryUnitEvent)
-        .where(AccessoryUnitEvent.rental_id == rental.id)
-        .order_by(AccessoryUnitEvent.event_type.asc())
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
+    events = (
+        db.session.execute(
+            select(AccessoryUnitEvent)
+            .where(AccessoryUnitEvent.rental_id == rental.id)
+            .order_by(AccessoryUnitEvent.event_type.asc())
+        )
+        .scalars()
+        .all()
+    )
     assert db.session.get(Device, device.id).warehouse_id == target.id
     assert len(links) == 1
     assert links[0].id != old_link_id
@@ -888,15 +847,21 @@ def test_execute_shortage_keeps_request_without_link_and_moves_device(applicatio
 
     db.session.expire_all()
     assert db.session.get(Device, device.id).warehouse_id == target.id
-    assert db.session.get(
-        RentalAccessoryRequest,
-        (rental.id, accessory_type.id),
-    ) is not None
+    assert (
+        db.session.get(
+            RentalAccessoryRequest,
+            (rental.id, accessory_type.id),
+        )
+        is not None
+    )
     assert RentalAccessoryUnitLink.query.filter_by(rental_id=rental.id).count() == 0
-    assert AccessoryUnitEvent.query.filter_by(
-        rental_id=rental.id,
-        event_type="unlinked",
-    ).count() == 1
+    assert (
+        AccessoryUnitEvent.query.filter_by(
+            rental_id=rental.id,
+            event_type="unlinked",
+        ).count()
+        == 1
+    )
     assert result.accessory_fulfillment[0].status == "shortage"
 
 
@@ -918,9 +883,7 @@ def test_execute_chooses_candidate_units_in_stable_type_and_id_order(application
         target,
         unit_id="00000000-0000-0000-0000-000000000001",
     )
-    db.session.add_all(
-        [rental, later, first, request_for(rental, accessory_type)]
-    )
+    db.session.add_all([rental, later, first, request_for(rental, accessory_type)])
     db.session.commit()
 
     execute_previewed(device, target)
@@ -1136,18 +1099,14 @@ def test_execute_reuses_chain_solver_for_requestless_relay_successor(
         db.session.execute(
             select(RentalAccessoryUnitLink)
             .where(
-                RentalAccessoryUnitLink.rental_id.in_(
-                    (predecessor.id, successor.id)
-                )
+                RentalAccessoryUnitLink.rental_id.in_((predecessor.id, successor.id))
             )
             .order_by(RentalAccessoryUnitLink.rental_id.asc())
         ).scalars()
     )
     assert db.session.get(Device, device.id).warehouse_id == target.id
     assert result.affected_rental_ids == (predecessor.id, successor.id)
-    assert [fact.status for fact in result.accessory_fulfillment] == [
-        expected_status
-    ]
+    assert [fact.status for fact in result.accessory_fulfillment] == [expected_status]
     if target_unit is None:
         assert links == ()
     else:

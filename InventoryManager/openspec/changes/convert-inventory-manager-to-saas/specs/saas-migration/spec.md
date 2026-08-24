@@ -81,6 +81,13 @@ The migration MUST register the original business schema as one immutable defaul
 - **THEN** it SHALL create or replay only the matching `legacy_unattributed` read-only snapshot and preserve its source identity and digest
 - **AND** it SHALL create no Core shipment, provider attempt, print job, credential revision, provider order, printer task, or provider call from that history
 
+#### Scenario: A legacy Xianyu order cannot be attributed to a shop
+- **GIVEN** a legacy rental contains a Xianyu order number but the source does not prove which Xianyu Manager account or shop owns it
+- **WHEN** the default-tenant backfill runs
+- **THEN** it SHALL preserve the order number and leave `xianyu_integration_uuid` null
+- **AND** it SHALL NOT infer ownership from the only current connection, a newly validated credential revision, a display label, or another order
+- **AND** subsequent provider access remains blocked until an Admin or Operator explicitly selects the correct shop through the normal tenant workflow
+
 ### Requirement: Default tenant receives one fixed long-term migration grant
 The migration MUST create the default tenant's initial subscription from the immutable Core plan revision bundled with that migration, with `member_seats = 10` and an exact duration of 36,500 days of 24 hours. The final control-database transaction SHALL calculate expiry from database current time and append one immutable `migration_grant` subscription event uniquely bound to the default tenant UUID, database UUID, initial baseline, and migration idempotency key; it MUST NOT accept a duration/expiry deployment parameter, create a perpetual-subscription state, consume a redemption code, or bypass normal lifecycle and recovery state checks.
 
@@ -104,7 +111,13 @@ The migration MUST create the default tenant's initial subscription from the imm
 - **AND** default-tenant identity or long expiry does not create an exemption
 
 ### Requirement: Business backfill is ordered and idempotent
-The migration MUST backfill default warehouse and device ownership before structured logistics snapshots, then accessory types/units before requests/links/events, then non-secret provider metadata before D68 `legacy_unattributed` shipment/print snapshots; newly validated provider connections/account revisions/bindings remain separate inputs for new Core operations. Every transform SHALL have a stable source identity, idempotency key, negative/orphan checks, and reversible expand-period mapping; legacy quantity, child-rental, global-credential, or shipment facts MUST NOT be double-counted after enforcement.
+The migration MUST backfill default warehouse and device ownership before structured logistics snapshots, then accessory types/units before requests/links/events, then non-secret provider metadata before D68 `legacy_unattributed` shipment/print snapshots; newly validated provider connections/account revisions/bindings remain separate inputs for new Core operations. Under D69, exact manifest-bound approved legacy express values MAY be converted to the approved canonical type, but every other non-canonical value remains fail-closed. Main rentals SHALL be authoritative for new planned-logistics and logical-accessory windows without rewriting child-rental legacy date/status facts. Address text SHALL be structured only when the required province/city/district/detail sequence can be extracted deterministically; other rows remain explicitly unavailable and provider fail-closed. Every transform SHALL have a stable source identity, idempotency key, negative/orphan checks, and reversible expand-period mapping; legacy quantity, child-rental, global-credential, or shipment facts MUST NOT be double-counted after enforcement.
+
+#### Scenario: Representative unresolved facts are disposed by the approved source policy
+- **GIVEN** the manifest approves only Rental 778 legacy express type `6` as canonical type `2`
+- **WHEN** the D69 source-plan builder processes the representative non-empty snapshot
+- **THEN** that exact row and historical NULL values become canonical type `2`, while every unapproved legacy value remains blocked
+- **AND** main-rental facts drive new plan fields, child legacy facts remain unchanged, unparseable addresses remain unavailable, and ambiguous logical units remain maintenance/request-only
 
 #### Scenario: Accessory backfill restarts midway
 - **GIVEN** some legacy accessories have generated units and unfinished child rentals have generated requests/links

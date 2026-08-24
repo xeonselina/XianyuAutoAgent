@@ -7,7 +7,7 @@ from datetime import datetime
 from uuid import UUID
 
 import sqlalchemy as sa
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.models import (
     ProviderAccountClaim,
@@ -16,6 +16,7 @@ from inventory_control.models import (
     TenantProviderAccount,
     TenantProviderAccountSecretRevision,
 )
+from inventory_control.transactions import require_caller_transaction
 
 from .provider_account_service import ProviderAccountStateConflictError
 
@@ -83,12 +84,12 @@ class TenantProviderAccountQueryService:
                 sa.select(TenantProviderAccountSecretRevision)
                 .where(
                     TenantProviderAccountSecretRevision.tenant_id == tenant_id,
-                    TenantProviderAccountSecretRevision
-                    .tenant_provider_account_id.in_(account_ids),
+                    TenantProviderAccountSecretRevision.tenant_provider_account_id.in_(
+                        account_ids
+                    ),
                 )
                 .order_by(
-                    TenantProviderAccountSecretRevision
-                    .tenant_provider_account_id.asc(),
+                    TenantProviderAccountSecretRevision.tenant_provider_account_id.asc(),
                     TenantProviderAccountSecretRevision.revision_no.desc(),
                 )
             ).scalars()
@@ -100,17 +101,19 @@ class TenantProviderAccountQueryService:
                 revision.tenant_provider_account_id,
                 revision,
             )
-        claim_ids = tuple(sorted(
-            {
-                account.current_global_claim_id
-                for account in accounts
-                if account.current_global_claim_id is not None
-            }
-            | {
-                revision.provider_account_claim_id
-                for revision in latest_by_account.values()
-            }
-        ))
+        claim_ids = tuple(
+            sorted(
+                {
+                    account.current_global_claim_id
+                    for account in accounts
+                    if account.current_global_claim_id is not None
+                }
+                | {
+                    revision.provider_account_claim_id
+                    for revision in latest_by_account.values()
+                }
+            )
+        )
         claims = {
             claim.id: claim
             for claim in self._session.execute(
@@ -129,8 +132,7 @@ class TenantProviderAccountQueryService:
                     ProviderAccountClaimEvent.to_status == "released",
                 )
                 .order_by(
-                    ProviderAccountClaimEvent
-                    .previous_provider_account_id.asc(),
+                    ProviderAccountClaimEvent.previous_provider_account_id.asc(),
                     ProviderAccountClaimEvent.claim_generation.desc(),
                 )
             ).scalars()
@@ -167,36 +169,36 @@ class TenantProviderAccountQueryService:
                 release_event=release_event,
                 tenant_id=tenant_id,
             )
-            result.append(ProviderAccountSettingsRef(
-                provider_account_uuid=account.id,
-                integration_uuid=integration.id,
-                integration_name=integration.name,
-                label=account.label,
-                masked_hint=account.masked_hint,
-                status=account.status,
-                verification_status=selected.verification_status,
-                warehouse_uuid=(
-                    claim.current_warehouse_uuid
-                    if account.status != "inactive"
-                    else release_event.previous_warehouse_uuid
-                ),
-                binding_revision=(
-                    claim.active_binding_revision
-                    if account.status == "active"
-                    else selected.target_binding_revision
-                ),
-                last_verified_at=account.last_verified_at,
-                row_version=account.row_version,
-            ))
+            result.append(
+                ProviderAccountSettingsRef(
+                    provider_account_uuid=account.id,
+                    integration_uuid=integration.id,
+                    integration_name=integration.name,
+                    label=account.label,
+                    masked_hint=account.masked_hint,
+                    status=account.status,
+                    verification_status=selected.verification_status,
+                    warehouse_uuid=(
+                        claim.current_warehouse_uuid
+                        if account.status != "inactive"
+                        else release_event.previous_warehouse_uuid
+                    ),
+                    binding_revision=(
+                        claim.active_binding_revision
+                        if account.status == "active"
+                        else selected.target_binding_revision
+                    ),
+                    last_verified_at=account.last_verified_at,
+                    row_version=account.row_version,
+                )
+            )
         return tuple(result)
 
     def _require_transaction(self) -> None:
-        transaction = self._session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            raise RuntimeError("an explicit caller-owned transaction is required")
+        require_caller_transaction(
+            self._session,
+            lambda: RuntimeError("an explicit caller-owned transaction is required"),
+        )
 
 
 def _validate_projection(

@@ -9,24 +9,8 @@ from app.models.rental import Rental
 
 
 @pytest.fixture
-def app():
-    from app import create_app
-
-    return create_app("testing")
-
-
-@pytest.fixture
 def client(app):
     return app.test_client()
-
-
-@pytest.fixture
-def db_session(app):
-    with app.app_context():
-        db.create_all()
-        yield db.session
-        db.session.rollback()
-        db.drop_all()
 
 
 def _rental(device_id, *, end_date, status="shipped", parent_rental_id=None):
@@ -83,23 +67,24 @@ def test_pending_returns_includes_due_today_and_overdue_main_rentals(
         db_session.add_all(pending_rentals)
         db_session.flush()
         pending_ids = {
-            days: rental.id
-            for days, rental in zip(overdue_days, pending_rentals)
+            days: rental.id for days, rental in zip(overdue_days, pending_rentals)
         }
 
-        db_session.add_all([
-            _rental(
-                accessory.id,
-                end_date=today - timedelta(days=1),
-                parent_rental_id=pending_rentals[0].id,
-            ),
-            _rental(
-                main_device.id,
-                end_date=today - timedelta(days=10),
-                status="returned",
-            ),
-            _rental(main_device.id, end_date=today),
-        ])
+        db_session.add_all(
+            [
+                _rental(
+                    accessory.id,
+                    end_date=today - timedelta(days=1),
+                    parent_rental_id=pending_rentals[0].id,
+                ),
+                _rental(
+                    main_device.id,
+                    end_date=today - timedelta(days=10),
+                    status="returned",
+                ),
+                _rental(main_device.id, end_date=today),
+            ]
+        )
         db_session.commit()
 
         response = client.get("/api/rentals/pending-returns")
@@ -177,10 +162,12 @@ def test_due_today_uses_device_model_and_name_fallbacks(
         )
         db_session.add_all([legacy_model_device, name_fallback_device])
         db_session.flush()
-        db_session.add_all([
-            _rental(legacy_model_device.id, end_date=yesterday),
-            _rental(name_fallback_device.id, end_date=yesterday),
-        ])
+        db_session.add_all(
+            [
+                _rental(legacy_model_device.id, end_date=yesterday),
+                _rental(name_fallback_device.id, end_date=yesterday),
+            ]
+        )
         db_session.commit()
 
         response = client.get("/api/rentals/pending-returns")

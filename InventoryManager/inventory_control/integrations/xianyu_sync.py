@@ -14,13 +14,14 @@ from typing import Mapping
 from uuid import UUID
 
 import sqlalchemy as sa
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.crypto import RootKeyLoadError, RootKeyRing
 from inventory_control.models import (
     TenantIntegration,
     TenantIntegrationSecretRevision,
 )
+from inventory_control.transactions import require_caller_transaction
 
 from .errors import (
     IntegrationCredentialAuthenticationError,
@@ -158,8 +159,7 @@ class XianyuSyncCredentialFactory:
                     TenantIntegrationSecretRevision.tenant_id == tenant_id,
                     TenantIntegrationSecretRevision.provider == "xianyu",
                     TenantIntegrationSecretRevision.status == "current",
-                    TenantIntegrationSecretRevision.verification_status
-                    == "succeeded",
+                    TenantIntegrationSecretRevision.verification_status == "succeeded",
                     TenantIntegrationSecretRevision.row_version
                     == expected_revision_version,
                 )
@@ -198,12 +198,10 @@ class XianyuSyncCredentialFactory:
             raise XianyuSyncCredentialError() from exc
 
     def _require_transaction(self) -> None:
-        transaction = self._session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            raise XianyuSyncCredentialInputError()
+        require_caller_transaction(
+            self._session,
+            XianyuSyncCredentialInputError,
+        )
 
 
 def _uuid(value: str | UUID) -> str:

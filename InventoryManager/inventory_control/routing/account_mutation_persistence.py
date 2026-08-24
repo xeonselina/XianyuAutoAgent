@@ -17,13 +17,14 @@ from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.database import read_database_utc_value
 from inventory_control.models.account_mutations import (
     TenantDatabaseAccountMutationLease,
     TenantDatabaseAccountRotation,
 )
+from inventory_control.transactions import require_caller_transaction
 
 from .account_mutation import (
     AccountCandidatePreparationProof,
@@ -294,16 +295,14 @@ class AccountMutationLeasePersistenceService:
                 changed = self._session.execute(
                     sa.update(TenantDatabaseAccountMutationLease)
                     .where(
-                        TenantDatabaseAccountMutationLease.tenant_id
-                        == row.tenant_id,
+                        TenantDatabaseAccountMutationLease.tenant_id == row.tenant_id,
                         TenantDatabaseAccountMutationLease.account_kind
                         == row.account_kind,
                         TenantDatabaseAccountMutationLease.fencing_token
                         == before.fencing_token,
                         TenantDatabaseAccountMutationLease.row_version
                         == before.row_version,
-                        TenantDatabaseAccountMutationLease.lease_owner
-                        == before.owner,
+                        TenantDatabaseAccountMutationLease.lease_owner == before.owner,
                         TenantDatabaseAccountMutationLease.lease_purpose
                         == before.purpose,
                         TenantDatabaseAccountMutationLease.lease_expires_at
@@ -335,17 +334,19 @@ class AccountMutationLeasePersistenceService:
         return self._session.scalar(
             sa.select(TenantDatabaseAccountMutationLease)
             .where(
-                TenantDatabaseAccountMutationLease.tenant_id
-                == str(tenant_uuid),
-                TenantDatabaseAccountMutationLease.account_kind
-                == account_kind.value,
+                TenantDatabaseAccountMutationLease.tenant_id == str(tenant_uuid),
+                TenantDatabaseAccountMutationLease.account_kind == account_kind.value,
             )
             .with_for_update()
             .execution_options(populate_existing=True)
         )
 
     def _prepare(self) -> None:
-        _prepare_session(self._session)
+        require_caller_transaction(
+            self._session,
+            AccountMutationTransactionError,
+            clean=True,
+        )
 
     def _now(self) -> datetime:
         return _as_utc(self._database_clock(self._session))
@@ -625,8 +626,7 @@ class AccountRotationPersistenceService:
                         == expected_row_version,
                         TenantDatabaseAccountRotation.transition_sequence
                         == before.transition_sequence,
-                        TenantDatabaseAccountRotation.state
-                        == before.state.value,
+                        TenantDatabaseAccountRotation.state == before.state.value,
                         TenantDatabaseAccountRotation.last_action
                         == (
                             None
@@ -639,18 +639,12 @@ class AccountRotationPersistenceService:
                     .values(
                         state=reduced.rotation.state.value,
                         candidate_locked=reduced.rotation.candidate_locked,
-                        candidate_published=(
-                            reduced.rotation.candidate_published
-                        ),
+                        candidate_published=(reduced.rotation.candidate_published),
                         previous_locked=reduced.rotation.previous_locked,
                         previous_revoked=reduced.rotation.previous_revoked,
-                        transition_sequence=(
-                            reduced.rotation.transition_sequence
-                        ),
+                        transition_sequence=(reduced.rotation.transition_sequence),
                         last_action=reduced.rotation.last_action.value,
-                        last_request_digest=(
-                            reduced.rotation.last_request_digest
-                        ),
+                        last_request_digest=(reduced.rotation.last_request_digest),
                         safe_error_code=reduced.rotation.safe_error_code,
                         row_version=expected_row_version + 1,
                         updated_at=now,
@@ -675,10 +669,7 @@ class AccountRotationPersistenceService:
     ) -> TenantDatabaseAccountRotation | None:
         return self._session.scalar(
             sa.select(TenantDatabaseAccountRotation)
-            .where(
-                TenantDatabaseAccountRotation.rotation_id
-                == str(rotation_uuid)
-            )
+            .where(TenantDatabaseAccountRotation.rotation_id == str(rotation_uuid))
             .with_for_update()
             .execution_options(populate_existing=True)
         )
@@ -691,10 +682,8 @@ class AccountRotationPersistenceService:
         row = self._session.scalar(
             sa.select(TenantDatabaseAccountMutationLease)
             .where(
-                TenantDatabaseAccountMutationLease.tenant_id
-                == str(tenant_uuid),
-                TenantDatabaseAccountMutationLease.account_kind
-                == account_kind.value,
+                TenantDatabaseAccountMutationLease.tenant_id == str(tenant_uuid),
+                TenantDatabaseAccountMutationLease.account_kind == account_kind.value,
             )
             .with_for_update()
             .execution_options(populate_existing=True)
@@ -704,7 +693,11 @@ class AccountRotationPersistenceService:
         return row
 
     def _prepare(self) -> None:
-        _prepare_session(self._session)
+        require_caller_transaction(
+            self._session,
+            AccountMutationTransactionError,
+            clean=True,
+        )
 
     def _now(self) -> datetime:
         return _as_utc(self._database_clock(self._session))
@@ -750,12 +743,8 @@ def _new_rotation_row(
         to_credential_generation=rotation.candidate.credential_generation,
         to_root_key_version=rotation.candidate.root_key_version,
         to_derivation_version=rotation.candidate.derivation_version,
-        inherited_desired_login_state=(
-            rotation.inherited_desired_login_state.value
-        ),
-        expected_tenant_access_version=(
-            rotation.expected_tenant_access_version
-        ),
+        inherited_desired_login_state=(rotation.inherited_desired_login_state.value),
+        expected_tenant_access_version=(rotation.expected_tenant_access_version),
         expected_route_version=rotation.expected_route_version,
         expected_login_state_version=rotation.expected_login_state_version,
         lease_owner=rotation.lease_owner,
@@ -787,9 +776,7 @@ def _domain_lease(
             owner=row.lease_owner,
             purpose=row.lease_purpose,
             expires_at=(
-                None
-                if row.lease_expires_at is None
-                else _as_utc(row.lease_expires_at)
+                None if row.lease_expires_at is None else _as_utc(row.lease_expires_at)
             ),
             row_version=row.row_version,
         )
@@ -822,9 +809,7 @@ def _domain_rotation(
             inherited_desired_login_state=AccountLoginState(
                 row.inherited_desired_login_state
             ),
-            expected_tenant_access_version=(
-                row.expected_tenant_access_version
-            ),
+            expected_tenant_access_version=(row.expected_tenant_access_version),
             expected_route_version=row.expected_route_version,
             expected_login_state_version=row.expected_login_state_version,
             lease_owner=row.lease_owner,
@@ -926,31 +911,6 @@ def _rotation_result(
     )
 
 
-def _prepare_session(session: Session) -> None:
-    transaction = session.get_transaction()
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-    ):
-        raise AccountMutationTransactionError()
-    dirty = any(
-        session.is_modified(instance, include_collections=True)
-        for instance in session.dirty
-    )
-    if session.new or session.deleted or dirty:
-        raise AccountMutationTransactionError()
-    _materialize_sqlite_outer_transaction(session)
-
-
-def _materialize_sqlite_outer_transaction(session: Session) -> None:
-    connection = session.connection()
-    if connection.dialect.name != "sqlite":
-        return
-    driver_connection = getattr(connection.connection, "driver_connection", None)
-    if driver_connection is not None and not driver_connection.in_transaction:
-        connection.exec_driver_sql("BEGIN IMMEDIATE")
-
-
 def _read_database_utc_now(session: Session) -> datetime:
     return _as_utc(read_database_utc_value(session))
 
@@ -959,7 +919,7 @@ def _as_utc(value: object) -> datetime:
     if not isinstance(value, datetime):
         raise AccountMutationPersistenceError()
     if value.tzinfo is None:
-        # Control MySQL is UTC and SQLite drops timezone information in tests.
+        # MySQL and MariaDB control databases are required to run in UTC.
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
 

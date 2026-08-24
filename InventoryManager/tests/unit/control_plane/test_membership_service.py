@@ -5,7 +5,6 @@ import pytest
 import sqlalchemy as sa
 
 from inventory_control import (
-    ControlBase,
     Tenant,
     TenantAuthSecurityEvent,
     TenantInvitation,
@@ -26,25 +25,13 @@ from inventory_control.identity import (
     TenantMembershipService,
     plan_membership_mutation,
 )
-from tests.support.test_database import (
-    clear_guarded_mysql_test_rows,
-    guarded_mysql_control_database,
-)
-
 
 NOW = datetime(2026, 8, 23, 1, 45, tzinfo=timezone.utc)
 
 
-@pytest.fixture(scope="module")
-def database_schema():
-    with guarded_mysql_control_database(ControlBase.metadata) as database:
-        yield database
-
-
 @pytest.fixture
-def database(database_schema):
-    clear_guarded_mysql_test_rows(database_schema.engine, ControlBase.metadata)
-    return database_schema
+def database(mysql_control_database):
+    return mysql_control_database
 
 
 def _user(index: int, *, status: str = "active") -> User:
@@ -201,9 +188,7 @@ def test_operator_disable_needs_no_d48_and_revokes_all_target_sessions(database)
     assert result.sessions_revoked == 1
     with database.new_session() as session:
         user = session.get(User, str(ids["target_user"]))
-        target_session = session.get(
-            TenantUserSession, str(ids["target_session"])
-        )
+        target_session = session.get(TenantUserSession, str(ids["target_session"]))
         event = session.scalar(sa.select(TenantAuthSecurityEvent))
         assert user.auth_version == 2
         assert target_session.revoked_reason_code == "membership_security_invalidated"
@@ -221,9 +206,10 @@ def test_only_active_admin_cannot_be_disabled_even_with_exact_proof(database):
         _mutate(database, ids, admin_proof=proof)
 
     with database.new_session() as session:
-        assert session.get(
-            TenantMembership, str(ids["target_membership"])
-        ).status == "active"
+        assert (
+            session.get(TenantMembership, str(ids["target_membership"])).status
+            == "active"
+        )
 
 
 def test_admin_downgrade_requires_exact_d48_and_preserves_one_admin(database):
@@ -269,11 +255,7 @@ def test_enabling_operator_recounts_active_and_unexpired_pending_seats(database)
             user = _user(index)
             session.add(user)
             session.flush()
-            session.add(
-                _membership(
-                    str(ids["tenant"]), user.id, role="operator"
-                )
-            )
+            session.add(_membership(str(ids["tenant"]), user.id, role="operator"))
         invited = _user(99, status="unverified")
         session.add(invited)
         session.flush()
@@ -297,9 +279,10 @@ def test_enabling_operator_recounts_active_and_unexpired_pending_seats(database)
         _mutate(database, ids, action=MembershipMutationAction.ENABLE)
 
     with database.new_session() as session:
-        assert session.get(
-            TenantMembership, str(ids["target_membership"])
-        ).status == "disabled"
+        assert (
+            session.get(TenantMembership, str(ids["target_membership"])).status
+            == "disabled"
+        )
 
 
 def test_disabled_actor_cannot_mutate_even_if_request_claims_admin(database):

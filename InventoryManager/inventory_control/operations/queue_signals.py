@@ -7,10 +7,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 import sqlalchemy as sa
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 
 from inventory_control.database import read_database_utc_value
 from inventory_control.models.jobs import BackgroundJob
+from inventory_control.transactions import require_caller_transaction
 
 from .service import (
     OperationalInputError,
@@ -79,7 +80,11 @@ class QueueOperationalSignalAdapter:
         self._database_clock = database_clock or _read_database_utc_now
 
     def record_current(self, session: Session) -> QueueOperationalSnapshot:
-        _materialize_sqlite_outer_transaction(session)
+        require_caller_transaction(
+            session,
+            OperationalTransactionRequiredError,
+            invalid_session_error=OperationalInputError,
+        )
         observed_at = _as_utc(self._database_clock(session))
         oldest_available_at = session.scalar(
             sa.select(sa.func.min(BackgroundJob.available_at)).where(
@@ -92,11 +97,7 @@ class QueueOperationalSignalAdapter:
             if oldest_available_at is None
             else max(
                 0,
-                int(
-                    (
-                        observed_at - _as_utc(oldest_available_at)
-                    ).total_seconds()
-                ),
+                int((observed_at - _as_utc(oldest_available_at)).total_seconds()),
             )
         )
         failure_count = int(
@@ -110,13 +111,10 @@ class QueueOperationalSignalAdapter:
             or 0
         )
 
-        oldest_failed = (
-            oldest_wait_seconds
-            >= int(self._policy.oldest_wait_threshold.total_seconds())
+        oldest_failed = oldest_wait_seconds >= int(
+            self._policy.oldest_wait_threshold.total_seconds()
         )
-        failures_failed = (
-            failure_count >= self._policy.terminal_failure_threshold
-        )
+        failures_failed = failure_count >= self._policy.terminal_failure_threshold
         # Stable order prevents the two current-signal rows from deadlocking
         # against another evaluator transaction.
         oldest_update = self._signals.record_observation(
@@ -165,25 +163,6 @@ def _duration(value: object) -> None:
         or value > timedelta(days=365)
     ):
         raise OperationalInputError()
-
-
-def _materialize_sqlite_outer_transaction(session: Session) -> None:
-    """Keep signal-service savepoints inside the caller transaction in tests."""
-
-    if not isinstance(session, Session):
-        raise OperationalInputError()
-    transaction = session.get_transaction()
-    if (
-        transaction is None
-        or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-    ):
-        raise OperationalTransactionRequiredError()
-    connection = session.connection()
-    if connection.dialect.name != "sqlite":
-        return
-    driver_connection = getattr(connection.connection, "driver_connection", None)
-    if driver_connection is not None and not driver_connection.in_transaction:
-        connection.exec_driver_sql("BEGIN IMMEDIATE")
 
 
 def _read_database_utc_now(session: Session) -> datetime:

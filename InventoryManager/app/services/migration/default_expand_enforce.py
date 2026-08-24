@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass
 
 from inventory_control.default_migration import DefaultTenantMigrationManifest
+from inventory_control.evidence import canonical_json_sha256
 
 
 class DefaultExpandEnforcementError(RuntimeError):
@@ -82,8 +81,7 @@ class DefaultControlExpandEvidence:
             or self.manifest_digest != manifest.digest
             or self.implementation_identity_digest
             != manifest.implementation_identity_digest
-            or self.migration_bundle_digest
-            != manifest.migration_bundle_digest
+            or self.migration_bundle_digest != manifest.migration_bundle_digest
             or self.schema_head != manifest.control_schema_head
         ):
             raise DefaultExpandEnforcementInputError()
@@ -98,17 +96,11 @@ class DefaultControlExpandEvidence:
                 "implementation_identity_digest": (
                     self.implementation_identity_digest.hex()
                 ),
-                "installation_marker_digest": (
-                    self.installation_marker_digest.hex()
-                ),
+                "installation_marker_digest": (self.installation_marker_digest.hex()),
                 "manifest_digest": self.manifest_digest.hex(),
-                "metadata_model_match_digest": (
-                    self.metadata_model_match_digest.hex()
-                ),
+                "metadata_model_match_digest": (self.metadata_model_match_digest.hex()),
                 "migration_bundle_digest": self.migration_bundle_digest.hex(),
-                "migration_round_trip_digest": (
-                    self.migration_round_trip_digest.hex()
-                ),
+                "migration_round_trip_digest": (self.migration_round_trip_digest.hex()),
                 "schema_head": self.schema_head,
                 "side_effects": 0,
                 "version": 1,
@@ -164,8 +156,7 @@ class DefaultTenantExpandEvidence:
             or self.manifest_digest != manifest.digest
             or self.implementation_identity_digest
             != manifest.implementation_identity_digest
-            or self.migration_bundle_digest
-            != manifest.migration_bundle_digest
+            or self.migration_bundle_digest != manifest.migration_bundle_digest
             or self.schema_head != manifest.tenant_schema_head
         ):
             raise DefaultExpandEnforcementInputError()
@@ -184,21 +175,13 @@ class DefaultTenantExpandEvidence:
                     self.implementation_identity_digest.hex()
                 ),
                 "manifest_digest": self.manifest_digest.hex(),
-                "metadata_model_match_digest": (
-                    self.metadata_model_match_digest.hex()
-                ),
+                "metadata_model_match_digest": (self.metadata_model_match_digest.hex()),
                 "migration_bundle_digest": self.migration_bundle_digest.hex(),
-                "migration_round_trip_digest": (
-                    self.migration_round_trip_digest.hex()
-                ),
-                "platform_read_grants_digest": (
-                    self.platform_read_grants_digest.hex()
-                ),
+                "migration_round_trip_digest": (self.migration_round_trip_digest.hex()),
+                "platform_read_grants_digest": (self.platform_read_grants_digest.hex()),
                 "schema_head": self.schema_head,
                 "side_effects": 0,
-                "tenant_dml_grants_digest": (
-                    self.tenant_dml_grants_digest.hex()
-                ),
+                "tenant_dml_grants_digest": (self.tenant_dml_grants_digest.hex()),
                 "version": 1,
             }
         )
@@ -208,14 +191,7 @@ class DefaultTenantExpandEvidence:
 
 
 def _digest_document(value: dict[str, object]) -> bytes:
-    return hashlib.sha256(
-        json.dumps(
-            value,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-        ).encode("ascii")
-    ).digest()
+    return canonical_json_sha256(value, allow_nan=True)
 
 
 __all__ = [

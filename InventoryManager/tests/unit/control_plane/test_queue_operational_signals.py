@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from inventory_control import ControlBase, Tenant
+from inventory_control import Tenant
 from inventory_control.jobs import ControlJobService
 from inventory_control.models.jobs import BackgroundJob
 from inventory_control.models.operations import PlatformOperationalSignal
@@ -21,25 +21,13 @@ from inventory_control.operations import (
     QueueOperationalPolicy,
     QueueOperationalSignalAdapter,
 )
-from tests.support.test_database import (
-    clear_guarded_mysql_test_rows,
-    guarded_mysql_control_database,
-)
-
 
 NOW = datetime(2026, 8, 22, 12, 0, tzinfo=timezone.utc)
 
 
-@pytest.fixture(scope="module")
-def database_schema():
-    with guarded_mysql_control_database(ControlBase.metadata) as database:
-        yield database
-
-
 @pytest.fixture
-def database(database_schema):
-    clear_guarded_mysql_test_rows(database_schema.engine, ControlBase.metadata)
-    return database_schema
+def database(mysql_control_database):
+    return mysql_control_database
 
 
 def _signals():
@@ -103,8 +91,7 @@ def test_empty_queue_records_two_independent_healthy_aggregates(database):
     assert snapshot.terminal_failures_in_window == 0
     assert snapshot.oldest_wait_update.signal.effective_status.value == "healthy"
     assert (
-        snapshot.consecutive_failures_update.signal.effective_status.value
-        == "healthy"
+        snapshot.consecutive_failures_update.signal.effective_status.value == "healthy"
     )
 
 
@@ -171,10 +158,13 @@ def test_second_signal_failure_rolls_back_both_current_rows(database):
             adapter.record_current(session)
 
     with database.new_session() as session:
-        assert session.get(
-            PlatformOperationalSignal,
-            OperationalSignalKey.QUEUE_OLDEST_WAIT.value,
-        ) is None
+        assert (
+            session.get(
+                PlatformOperationalSignal,
+                OperationalSignalKey.QUEUE_OLDEST_WAIT.value,
+            )
+            is None
+        )
 
 
 @pytest.mark.parametrize(

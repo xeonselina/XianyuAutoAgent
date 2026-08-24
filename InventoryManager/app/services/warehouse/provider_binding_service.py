@@ -8,10 +8,11 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, SessionTransactionOrigin
+from sqlalchemy.orm import Session
 from sqlalchemy.orm.scoping import scoped_session
 
 from app.models.warehouse import Warehouse, WarehouseProviderBinding
+from inventory_control.transactions import require_caller_transaction
 
 
 class WarehouseProviderBindingError(RuntimeError):
@@ -218,8 +219,7 @@ class WarehouseProviderBindingService:
                 binding_already_current=False,
             )
         already_current = bool(
-            binding.status == "active"
-            and binding.provider_account_uuid == account_id
+            binding.status == "active" and binding.provider_account_uuid == account_id
         )
         return WarehouseProviderBindingPlan(
             warehouse_id=warehouse.id,
@@ -249,10 +249,7 @@ class WarehouseProviderBindingService:
         binding = self._lock_binding(warehouse.id)
         if binding is None:
             raise WarehouseProviderBindingUnavailableError()
-        if (
-            binding.status == "active"
-            and binding.provider_account_uuid == account_id
-        ):
+        if binding.status == "active" and binding.provider_account_uuid == account_id:
             return WarehouseProviderUnbindingPlan(
                 warehouse_id=warehouse.id,
                 warehouse_uuid=warehouse.warehouse_uuid,
@@ -365,12 +362,10 @@ class WarehouseProviderBindingService:
         ).scalar_one()
 
     def _require_transaction(self) -> None:
-        transaction = self._session.get_transaction()
-        if (
-            transaction is None
-            or transaction.origin is SessionTransactionOrigin.AUTOBEGIN
-        ):
-            raise WarehouseProviderBindingTransactionError()
+        require_caller_transaction(
+            self._session,
+            WarehouseProviderBindingTransactionError,
+        )
 
 
 def _binding_ref(

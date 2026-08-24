@@ -9,13 +9,14 @@ bounded disposition only when the versioned policy explicitly allows it.
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from types import MappingProxyType
 from typing import Mapping
+
+from inventory_control.evidence import canonical_json_bytes
 
 from .manifest import (
     DefaultTenantMigrationManifest,
@@ -110,11 +111,15 @@ class ReconciliationRequirement:
             raise MigrationReconciliationError(
                 "schema identity and anomaly tolerance must be zero"
             )
-        if scope in {
-            ReconciliationScope.SCHEMA_GENERATION,
-            ReconciliationScope.SCHEMA_DIGEST,
-            ReconciliationScope.LEGACY_DOUBLE_COUNT,
-        } and self.disposition_allowed:
+        if (
+            scope
+            in {
+                ReconciliationScope.SCHEMA_GENERATION,
+                ReconciliationScope.SCHEMA_DIGEST,
+                ReconciliationScope.LEGACY_DOUBLE_COUNT,
+            }
+            and self.disposition_allowed
+        ):
             raise MigrationReconciliationError(
                 "schema and legacy authority checks are non-waivable"
             )
@@ -129,7 +134,8 @@ class ReconciliationRequirement:
         ):
             raise MigrationReconciliationError("schema generation kind is invalid")
         if (
-            scope in {
+            scope
+            in {
                 ReconciliationScope.ORPHAN_COUNT,
                 ReconciliationScope.LEGACY_DOUBLE_COUNT,
             }
@@ -153,8 +159,7 @@ class ReconciliationPolicy:
         if not isinstance(self.requirements, tuple) or not self.requirements:
             raise MigrationReconciliationError("policy requirements are missing")
         if not all(
-            isinstance(item, ReconciliationRequirement)
-            for item in self.requirements
+            isinstance(item, ReconciliationRequirement) for item in self.requirements
         ):
             raise MigrationReconciliationError("policy requirement is invalid")
         keys = tuple(item.key for item in self.requirements)
@@ -196,9 +201,10 @@ class ReconciliationDisposition:
     evidence_digest: bytes
 
     def __post_init__(self) -> None:
-        if not isinstance(self.reason_code, str) or _SAFE_CODE.fullmatch(
-            self.reason_code
-        ) is None:
+        if (
+            not isinstance(self.reason_code, str)
+            or _SAFE_CODE.fullmatch(self.reason_code) is None
+        ):
             raise MigrationReconciliationError("disposition reason is invalid")
         _digest(self.evidence_digest)
 
@@ -242,9 +248,10 @@ class ReconciliationFinding:
             raise MigrationReconciliationError("finding is invalid") from None
         if not isinstance(self.blocking, bool):
             raise MigrationReconciliationError("finding blocking flag is invalid")
-        if not isinstance(self.safe_reason_code, str) or _SAFE_CODE.fullmatch(
-            self.safe_reason_code
-        ) is None:
+        if (
+            not isinstance(self.safe_reason_code, str)
+            or _SAFE_CODE.fullmatch(self.safe_reason_code) is None
+        ):
             raise MigrationReconciliationError("finding reason is invalid")
 
 
@@ -412,12 +419,9 @@ def record_backfill_verification_completion(
         )
 
     expected_identity = tuple(
-        (requirement.key, requirement.scope)
-        for requirement in policy.requirements
+        (requirement.key, requirement.scope) for requirement in policy.requirements
     )
-    report_identity = tuple(
-        (finding.key, finding.scope) for finding in report.findings
-    )
+    report_identity = tuple((finding.key, finding.scope) for finding in report.findings)
     if report_identity != expected_identity:
         raise MigrationReconciliationError(
             "reconciliation report does not cover its policy identity"
@@ -532,13 +536,7 @@ def _encoded_value(value: int | bytes | None) -> int | str | None:
 
 
 def _canonical_json(value: object) -> bytes:
-    return json.dumps(
-        value,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=True,
-        allow_nan=False,
-    ).encode("ascii")
+    return canonical_json_bytes(value)
 
 
 __all__ = [

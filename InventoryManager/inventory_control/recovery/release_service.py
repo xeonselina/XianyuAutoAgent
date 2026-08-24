@@ -15,8 +15,6 @@ request digest supplied in :class:`CandidateDmlRouteCommand`.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -29,6 +27,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from inventory_control.database import read_database_utc_value
+from inventory_control.evidence import canonical_json_sha256
 from inventory_control.models.deletion import TenantDeletionRequest
 from inventory_control.models.foundation import Tenant, TenantDatabase
 from inventory_control.models.platform_identity import (
@@ -151,7 +150,8 @@ class CandidateDmlRouteAdapter(Protocol):
     def verify_and_publish(
         self,
         command: CandidateDmlRouteCommand,
-    ) -> DmlRoutePublication: ...
+    ) -> DmlRoutePublication:
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,10 +217,9 @@ class RecoveryReleaseService:
         publish = getattr(dml_route_adapter, "verify_and_publish", None)
         if not callable(publish):
             raise TypeError("dml_route_adapter must provide verify_and_publish")
-        if (
-            not isinstance(recent_mfa_window, timedelta)
-            or recent_mfa_window <= timedelta(0)
-        ):
+        if not isinstance(
+            recent_mfa_window, timedelta
+        ) or recent_mfa_window <= timedelta(0):
             raise ValueError("recent_mfa_window must be positive")
         if database_clock is not None and not callable(database_clock):
             raise TypeError("database_clock must be callable")
@@ -349,9 +348,7 @@ class RecoveryReleaseService:
                 database_uuid=hold.database_uuid,
                 candidate_generation=normalized.candidate_generation,
                 current_dml_username=route.dml_username,
-                current_dml_credential_generation=(
-                    route.dml_credential_generation
-                ),
+                current_dml_credential_generation=(route.dml_credential_generation),
                 current_dml_root_key_version=route.dml_root_key_version,
                 current_dml_derivation_version=route.dml_derivation_version,
                 expected_dml_login_state_version=(
@@ -411,9 +408,7 @@ class RecoveryReleaseService:
                 publication.published_dml_credential_generation
             )
             route.dml_root_key_version = publication.published_dml_root_key_version
-            route.dml_derivation_version = (
-                publication.published_dml_derivation_version
-            )
+            route.dml_derivation_version = publication.published_dml_derivation_version
             route.dml_desired_login_state = "active"
             route.dml_observed_login_state = "active"
             route.dml_login_state_version = (
@@ -744,9 +739,7 @@ def _result(
         resulting_tenant_row_version=action.expected_tenant_row_version + 1,
         expected_access_version=action.expected_access_version,
         resulting_access_version=action.expected_access_version + 1,
-        expected_dml_login_state_version=(
-            action.expected_dml_login_state_version
-        ),
+        expected_dml_login_state_version=(action.expected_dml_login_state_version),
         resulting_dml_login_state_version=(
             action.expected_dml_login_state_version + (1 if released else 0)
         ),
@@ -761,7 +754,7 @@ def _result(
 
 
 def _request_digest(request: _NormalizedRequest) -> bytes:
-    canonical = json.dumps(
+    return canonical_json_sha256(
         {
             "candidate_generation": request.candidate_generation,
             "canonicalization_version": RECOVERY_RELEASE_CANONICALIZATION_VERSION,
@@ -791,10 +784,8 @@ def _request_digest(request: _NormalizedRequest) -> bytes:
             "tenant_uuid": request.tenant_uuid,
         },
         ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode("utf-8")
-    return hashlib.sha256(canonical).digest()
+        allow_nan=True,
+    )
 
 
 def _require_clean_caller_transaction(session: object) -> None:

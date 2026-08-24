@@ -9,7 +9,7 @@ from typing import Callable, Protocol
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from inventory_control.database import read_database_utc_value
+from inventory_control.database import read_database_utc_datetime
 from inventory_control.domain import TenantGateFacts, TenantStatus, reduce_tenant_gate
 from inventory_control.models.foundation import Tenant, TenantDatabase
 from inventory_control.models.jobs import BackgroundJob
@@ -166,7 +166,7 @@ class ControlTenantGateReader:
         self._recovery_hold_released = recovery_hold_released
         self._unresolved_deletion = unresolved_deletion
         self._unresolved_suspension = unresolved_suspension
-        self._database_clock = database_clock or _read_database_utc_now
+        self._database_clock = database_clock or read_database_utc_datetime
 
     def read(
         self,
@@ -205,9 +205,7 @@ class ControlTenantGateReader:
         tenant = tenant_already_locked
         if tenant is None:
             tenant = session.scalar(
-                sa.select(Tenant)
-                .where(Tenant.id == tenant_id)
-                .with_for_update()
+                sa.select(Tenant).where(Tenant.id == tenant_id).with_for_update()
             )
         elif tenant.id != tenant_id:
             raise ValueError("locked tenant does not match requested tenant")
@@ -301,21 +299,15 @@ class ControlTenantGateReader:
         if tenant is None:
             return CurrentTenantAuthority(None, False, "tenant_not_found")
         if locked.failure_reason_code is not None:
-            return CurrentTenantAuthority(
-                tenant, False, locked.failure_reason_code
-            )
+            return CurrentTenantAuthority(tenant, False, locked.failure_reason_code)
         if (
             locked.recovery_released is None
             or locked.deletion_open is None
             or locked.suspension_open is None
         ):
-            return CurrentTenantAuthority(
-                tenant, False, "tenant_authority_unavailable"
-            )
+            return CurrentTenantAuthority(tenant, False, "tenant_authority_unavailable")
         if locked.deletion_open:
-            return CurrentTenantAuthority(
-                tenant, False, "TENANT_DELETION_IN_PROGRESS"
-            )
+            return CurrentTenantAuthority(tenant, False, "TENANT_DELETION_IN_PROGRESS")
         try:
             tenant_status = TenantStatus(tenant.status)
         except (TypeError, ValueError):
@@ -467,10 +459,6 @@ def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
-
-
-def _read_database_utc_now(session: Session) -> datetime:
-    return _as_utc(read_database_utc_value(session))
 
 
 def _require_probe_inputs(

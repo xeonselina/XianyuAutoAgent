@@ -21,9 +21,7 @@ from inventory_control.jobs import (
 
 
 NOW = datetime(2026, 8, 23, 0, 0, tzinfo=timezone.utc)
-BACKOFF = RetryBackoffPolicy(
-    (timedelta(seconds=5), timedelta(seconds=30))
-)
+BACKOFF = RetryBackoffPolicy((timedelta(seconds=5), timedelta(seconds=30)))
 
 
 def _definition(job_type: str = "periodic") -> PeriodicJobDefinition:
@@ -363,7 +361,6 @@ def test_capability_composer_builds_one_scoped_worker_without_database_io() -> N
             ),
             worker_id="shared-worker",
             clock=lambda: NOW,
-            allow_sqlite_claim_for_tests=True,
         )
     finally:
         database.dispose()

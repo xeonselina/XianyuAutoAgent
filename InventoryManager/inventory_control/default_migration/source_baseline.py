@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Final, Mapping
 
+from inventory_control.evidence import canonical_json_sha256
+
 from .manifest import DefaultTenantMigrationManifest
 
 
-DEFAULT_SOURCE_BASELINE_FORMAT: Final = (
-    "inventory-manager/default-source-baseline/v1"
-)
+DEFAULT_SOURCE_BASELINE_FORMAT: Final = "inventory-manager/default-source-baseline/v1"
 _SCHEMA = re.compile(r"^[A-Za-z0-9_]{1,64}$", re.ASCII)
 _BASELINE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]{0,127}$", re.ASCII)
 _MAX_TABLES: Final = 512
@@ -69,7 +67,8 @@ class DefaultSourceBaselineEvidence:
             or _SCHEMA.fullmatch(self.source_schema_name) is None
             or not isinstance(self.baseline_migration_id, str)
             or _BASELINE.fullmatch(self.baseline_migration_id) is None
-            or self.database_profile not in {
+            or self.database_profile
+            not in {
                 "mariadb-10.11",
                 "mysql-8.0.30+",
             }
@@ -163,13 +162,9 @@ def source_baseline_evidence_from_document(
             server_version=_text(document["server_version"]),
             table_count=_integer(document["table_count"]),
             total_rows=_integer(document["total_rows"]),
-            schema_inventory_digest=_hex_digest(
-                document["schema_inventory_digest"]
-            ),
+            schema_inventory_digest=_hex_digest(document["schema_inventory_digest"]),
             row_count_digest=_hex_digest(document["row_count_digest"]),
-            source_snapshot_digest=_hex_digest(
-                document["source_snapshot_digest"]
-            ),
+            source_snapshot_digest=_hex_digest(document["source_snapshot_digest"]),
         )
     except DefaultSourceBaselineError:
         raise
@@ -178,17 +173,10 @@ def source_baseline_evidence_from_document(
 
 
 def source_baseline_payload_digest(value: object) -> bytes:
-    try:
-        encoded = json.dumps(
-            value,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-            allow_nan=False,
-        ).encode("ascii")
-    except (TypeError, ValueError, UnicodeEncodeError):
-        raise DefaultSourceBaselineRejected() from None
-    return hashlib.sha256(encoded).digest()
+    return canonical_json_sha256(
+        value,
+        invalid_error=DefaultSourceBaselineRejected,
+    )
 
 
 def _text(value: object) -> str:

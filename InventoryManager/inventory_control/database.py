@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Iterator, Mapping
 
-from sqlalchemy import create_engine, func, select, text
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -14,19 +15,29 @@ from sqlalchemy.orm import Session, sessionmaker
 def read_database_utc_value(session: Session) -> object:
     """Read the database clock with UTC semantics on supported MySQL engines.
 
-    MySQL ``CURRENT_TIMESTAMP`` follows the connection time zone.  Most
+    MySQL-family ``CURRENT_TIMESTAMP`` follows the connection time zone.  Most
     control-plane rows store a naive ``DATETIME(6)`` interpreted as UTC, so
     treating that value as UTC would shift leases and expiry decisions when a
-    session is configured for Asia/Shanghai.  Other test dialects keep the
-    typed SQLAlchemy expression used by their fixtures.
+    session is configured for Asia/Shanghai.  Unsupported dialects fail closed.
     """
 
     if not isinstance(session, Session):
         raise TypeError("session must be a SQLAlchemy Session")
     dialect_name = session.get_bind().dialect.name
-    if dialect_name in {"mysql", "mariadb"}:
-        return session.scalar(text("SELECT UTC_TIMESTAMP(6)"))
-    return session.scalar(select(func.current_timestamp()))
+    if dialect_name not in {"mysql", "mariadb"}:
+        raise RuntimeError("control database requires MySQL or MariaDB")
+    return session.scalar(text("SELECT UTC_TIMESTAMP(6)"))
+
+
+def read_database_utc_datetime(session: Session) -> datetime:
+    """Return the supported database clock as one aware UTC datetime."""
+
+    value = read_database_utc_value(session)
+    if not isinstance(value, datetime):
+        raise RuntimeError("control database did not return a timestamp")
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 @dataclass(frozen=True)

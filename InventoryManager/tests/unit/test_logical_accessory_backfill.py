@@ -7,7 +7,7 @@ from uuid import UUID
 import pytest
 import sqlalchemy as sa
 
-from app import create_app, db
+from app import db
 from app.models.accessory_inventory import (
     AccessoryType,
     AccessoryUnit,
@@ -45,9 +45,7 @@ def _manifest() -> DefaultTenantMigrationManifest:
         database_uuid=DATABASE_UUID,
         source_schema_name="inventory_management",
         baseline_migration_id="initial-baseline-v1",
-        core_plan_revision_uuid=UUID(
-            "80000000-0000-4000-8000-000000000003"
-        ),
+        core_plan_revision_uuid=UUID("80000000-0000-4000-8000-000000000003"),
         control_schema_head="202608220026",
         tenant_schema_head="20260824_legacy_history",
         source_snapshot_digest=_digest("source"),
@@ -59,46 +57,39 @@ def _manifest() -> DefaultTenantMigrationManifest:
 
 
 @pytest.fixture
-def application():
-    app = create_app("testing")
-    with app.app_context():
-        db.create_all()
-        db.session.add(
-            TenantDatabaseIdentity(
-                singleton_key=1,
-                tenant_id=str(TENANT_UUID),
-                database_uuid=str(DATABASE_UUID),
-                schema_generation=9,
-            )
+def application(app):
+    db.session.add(
+        TenantDatabaseIdentity(
+            singleton_key=1,
+            tenant_id=str(TENANT_UUID),
+            database_uuid=str(DATABASE_UUID),
+            schema_generation=9,
         )
-        warehouse = Warehouse(
-            warehouse_uuid="80000000-0000-4000-8000-000000000010",
-            name="fixture",
-            status="active",
-            setup_state="ready",
-            is_default=True,
-            default_slot=1,
-            contact_name="fixture",
-            contact_phone="13800138000",
-            province="广东省",
-            city="深圳市",
-            district="南山区",
-            address_detail="fixture",
-        )
-        accessory_type = AccessoryType(
-            name="tripod",
-            display_name="三脚架",
-            tracking_mode="logical_unit",
-            is_active=True,
-            display_order=1,
-        )
-        db.session.add_all((warehouse, accessory_type))
-        db.session.commit()
-        try:
-            yield app, warehouse.id, accessory_type.id
-        finally:
-            db.session.remove()
-            db.drop_all()
+    )
+    warehouse = Warehouse(
+        warehouse_uuid="80000000-0000-4000-8000-000000000010",
+        name="fixture",
+        status="active",
+        setup_state="ready",
+        is_default=True,
+        default_slot=1,
+        contact_name="fixture",
+        contact_phone="13800138000",
+        province="广东省",
+        city="深圳市",
+        district="南山区",
+        address_detail="fixture",
+    )
+    accessory_type = AccessoryType(
+        name="tripod",
+        display_name="三脚架",
+        tracking_mode="logical_unit",
+        is_active=True,
+        display_order=1,
+    )
+    db.session.add_all((warehouse, accessory_type))
+    db.session.commit()
+    yield app, warehouse.id, accessory_type.id
 
 
 def _rental(device, *, parent=None, status="not_shipped"):
@@ -135,9 +126,7 @@ def _plan(manifest, unit_device, warehouse_id, type_id, *, child=None, linked=Tr
                 accessory_type_id=type_id,
                 expected_warehouse_id=warehouse_id,
                 expected_lifecycle_status=unit_device.lifecycle_status,
-                reliable_and_available=(
-                    unit_device.lifecycle_status == "active"
-                ),
+                reliable_and_available=(unit_device.lifecycle_status == "active"),
             ),
         ),
         requests=requests,
@@ -191,15 +180,22 @@ def test_not_shipped_child_creates_unit_request_link_and_exactly_replays(
     assert unit.legacy_source_type == "device"
     assert unit.legacy_source_id == str(accessory.id)
     assert unit.current_holder_rental_id is None
-    assert db.session.scalar(
-        sa.select(sa.func.count()).select_from(RentalAccessoryRequest)
-    ) == 1
-    assert db.session.scalar(
-        sa.select(sa.func.count()).select_from(RentalAccessoryUnitLink)
-    ) == 1
-    assert db.session.scalar(
-        sa.select(sa.func.count()).select_from(AccessoryUnitEvent)
-    ) == 2
+    assert (
+        db.session.scalar(
+            sa.select(sa.func.count()).select_from(RentalAccessoryRequest)
+        )
+        == 1
+    )
+    assert (
+        db.session.scalar(
+            sa.select(sa.func.count()).select_from(RentalAccessoryUnitLink)
+        )
+        == 1
+    )
+    assert (
+        db.session.scalar(sa.select(sa.func.count()).select_from(AccessoryUnitEvent))
+        == 2
+    )
 
 
 def test_shipped_child_sets_main_holder_and_dispatched_event(application) -> None:
@@ -296,9 +292,8 @@ def test_unlisted_child_or_unlinked_shipped_child_fails_without_facts(
             ),
         )
 
-    assert db.session.scalar(
-        sa.select(sa.func.count()).select_from(AccessoryUnit)
-    ) == 0
-    assert db.session.scalar(
-        sa.select(sa.func.count()).select_from(AccessoryUnitEvent)
-    ) == 0
+    assert db.session.scalar(sa.select(sa.func.count()).select_from(AccessoryUnit)) == 0
+    assert (
+        db.session.scalar(sa.select(sa.func.count()).select_from(AccessoryUnitEvent))
+        == 0
+    )

@@ -2,27 +2,13 @@ from datetime import date, datetime, time, timedelta
 
 import pytest
 
-from app import create_app, db
+from app import db
 from app.models.device import Device
 from app.models.device_model import DeviceModel
 from app.models.rental import Rental
 from app.models.rental_relay_binding import RentalRelayBinding
 from app.services.gantt.reorder_service import GanttReorderService
 from app.services.scheduling import ScheduleValidationError
-
-
-@pytest.fixture
-def app():
-    return create_app("testing")
-
-
-@pytest.fixture
-def db_session(app):
-    with app.app_context():
-        db.create_all()
-        yield db.session
-        db.session.rollback()
-        db.drop_all()
 
 
 def make_rental(
@@ -73,12 +59,17 @@ def test_analyze_requires_confirmation_only_above_one_day(app, db_session):
     with app.app_context():
         _, device = seed_device(db_session)
         first = make_rental(
-            device.id, "客户1", date.today() + timedelta(days=2),
+            device.id,
+            "客户1",
+            date.today() + timedelta(days=2),
             date.today() + timedelta(days=5),
         )
         second = make_rental(
-            device.id, "客户2", date.today() + timedelta(days=6),
-            date.today() + timedelta(days=10), logistics_days=1,
+            device.id,
+            "客户2",
+            date.today() + timedelta(days=6),
+            date.today() + timedelta(days=10),
+            logistics_days=1,
         )
         db_session.add_all([first, second])
         db_session.commit()
@@ -97,19 +88,26 @@ def test_analyze_marks_persisted_binding_as_bound(app, db_session):
     with app.app_context():
         _, device = seed_device(db_session)
         first = make_rental(
-            device.id, "客户1", date.today() + timedelta(days=2),
+            device.id,
+            "客户1",
+            date.today() + timedelta(days=2),
             date.today() + timedelta(days=5),
         )
         second = make_rental(
-            device.id, "客户2", date.today() + timedelta(days=6),
-            date.today() + timedelta(days=10), logistics_days=1,
+            device.id,
+            "客户2",
+            date.today() + timedelta(days=6),
+            date.today() + timedelta(days=10),
+            logistics_days=1,
         )
         db_session.add_all([first, second])
         db_session.flush()
-        db_session.add(RentalRelayBinding(
-            predecessor_rental_id=first.id,
-            successor_rental_id=second.id,
-        ))
+        db_session.add(
+            RentalRelayBinding(
+                predecessor_rental_id=first.id,
+                successor_rental_id=second.id,
+            )
+        )
         db_session.commit()
 
         overlap = GanttReorderService.analyze()["overlaps"][0]
@@ -119,9 +117,7 @@ def test_analyze_marks_persisted_binding_as_bound(app, db_session):
 
 
 @pytest.mark.parametrize("overlap_days", [0, 1])
-def test_analyze_suppresses_zero_and_one_day_overlap(
-    app, db_session, overlap_days
-):
+def test_analyze_suppresses_zero_and_one_day_overlap(app, db_session, overlap_days):
     with app.app_context():
         _, device = seed_device(db_session)
         first = make_rental(
@@ -130,9 +126,7 @@ def test_analyze_suppresses_zero_and_one_day_overlap(
             date.today() + timedelta(days=2),
             date.today() + timedelta(days=5),
         )
-        successor_start = (
-            first.planned_return_date + timedelta(days=1 - overlap_days)
-        )
+        successor_start = first.planned_return_date + timedelta(days=1 - overlap_days)
         second = make_rental(
             device.id,
             "客户2",
@@ -175,14 +169,19 @@ def test_binding_rejects_child_rental(app, db_session):
     with app.app_context():
         _, device = seed_device(db_session)
         parent = make_rental(
-            device.id, "父", date.today() + timedelta(days=2),
-            date.today() + timedelta(days=6)
+            device.id,
+            "父",
+            date.today() + timedelta(days=2),
+            date.today() + timedelta(days=6),
         )
         db_session.add(parent)
         db_session.flush()
         child = make_rental(
-            device.id, "子", date.today() + timedelta(days=5),
-            date.today() + timedelta(days=9), parent.id
+            device.id,
+            "子",
+            date.today() + timedelta(days=5),
+            date.today() + timedelta(days=9),
+            parent.id,
         )
 
         with pytest.raises(ValueError, match="只允许主 rental"):
@@ -193,11 +192,15 @@ def test_binding_accepts_planned_only_pair(app, db_session):
     with app.app_context():
         _, device = seed_device(db_session)
         first = make_rental(
-            device.id, "前单", date.today() + timedelta(days=2),
+            device.id,
+            "前单",
+            date.today() + timedelta(days=2),
             date.today() + timedelta(days=5),
         )
         second = make_rental(
-            device.id, "后单", date.today() + timedelta(days=6),
+            device.id,
+            "后单",
+            date.today() + timedelta(days=6),
             date.today() + timedelta(days=9),
         )
         first.ship_out_time = first.ship_in_time = None
@@ -212,19 +215,21 @@ def test_binding_ignores_reverse_actual_order(app, db_session):
     with app.app_context():
         _, device = seed_device(db_session)
         first = make_rental(
-            device.id, "前单", date.today() + timedelta(days=2),
+            device.id,
+            "前单",
+            date.today() + timedelta(days=2),
             date.today() + timedelta(days=5),
         )
         second = make_rental(
-            device.id, "后单", date.today() + timedelta(days=6),
+            device.id,
+            "后单",
+            date.today() + timedelta(days=6),
             date.today() + timedelta(days=9),
         )
         first.ship_out_time = datetime.combine(
             date.today() + timedelta(days=20), time(19)
         )
-        second.ship_out_time = datetime.combine(
-            date.today(), time(19)
-        )
+        second.ship_out_time = datetime.combine(date.today(), time(19))
         db_session.add_all([first, second])
         db_session.flush()
 

@@ -5,7 +5,7 @@ from inspect import signature
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app import create_app, db
+from app import db
 from app.models.accessory_inventory import (
     AccessoryType,
     AccessoryUnit,
@@ -43,18 +43,6 @@ ACCOUNT_UUID = "22222222-2222-4222-8222-222222222222"
 INTEGRATION_REVISION_UUID = "33333333-3333-4333-8333-333333333333"
 ACCOUNT_REVISION_UUID = "44444444-4444-4444-8444-444444444444"
 OPERATOR_UUID = "55555555-5555-4555-8555-555555555555"
-
-
-@pytest.fixture
-def application():
-    app = create_app("testing")
-    with app.app_context():
-        db.create_all()
-        try:
-            yield app
-        finally:
-            db.session.remove()
-            db.drop_all()
 
 
 def _warehouse(*, name="默认仓库"):
@@ -187,9 +175,7 @@ def _seed_shipping_execution(
         account_masked_hint="****1234",
         sender_snapshot={"contact": "仓库"},
         receiver_snapshot={"contact": "客户"},
-        cargo_snapshot={
-            "items": [{"name": "租赁设备", "count": 1}]
-        },
+        cargo_snapshot={"items": [{"name": "租赁设备", "count": 1}]},
         tracking_check_phone_last4="9000",
         express_type_id=1,
         scheduled_dispatch_at=datetime(2026, 8, 23, 9),
@@ -366,7 +352,6 @@ def test_reservation_uses_fixed_unit_order_excludes_overlap_and_is_idempotent(
             accessory_type_id=accessory_type.id,
         )
 
-    assert repository.row_locking_supported is False
     assert repository.locked_unit_ids == tuple(sorted(unit_ids))
     link = RentalAccessoryUnitLink.query.filter_by(
         rental_id=rentals[1].id,
@@ -586,7 +571,10 @@ def test_inspection_records_custody_condition_and_idempotent_events(
     if holder_is_cleared:
         assert units[0].warehouse_id == target.id
         assert AccessoryUnitEvent.query.filter_by(event_type="inspected").count() == 1
-        assert AccessoryUnitEvent.query.filter_by(event_type="warehouse_moved").count() == 1
+        assert (
+            AccessoryUnitEvent.query.filter_by(event_type="warehouse_moved").count()
+            == 1
+        )
     else:
         assert units[0].warehouse_id == warehouse.id
         assert units[0].current_holder_rental_id == rentals[0].id
@@ -739,9 +727,7 @@ def _seed_relay_links(*, holder_index=0, source_case=True):
 def test_relay_handoff_advances_exact_holder_without_creating_demand(
     application,
 ):
-    warehouse, accessory_type, device, rentals, unit, relay_case = (
-        _seed_relay_links()
-    )
+    warehouse, accessory_type, device, rentals, unit, relay_case = _seed_relay_links()
     session = db.session()
     service = AccessoryInventoryService(session)
 
@@ -757,13 +743,14 @@ def test_relay_handoff_advances_exact_holder_without_creating_demand(
     assert result.type_code == "tripod"
     assert unit.current_holder_rental_id == rentals[1].id
     assert unit.row_version == 2
-    assert RentalAccessoryRequest.query.filter_by(
-        rental_id=rentals[1].id,
-        accessory_type_id=accessory_type.id,
-    ).count() == 0
-    event = AccessoryUnitEvent.query.filter_by(
-        event_type="relay_handoff"
-    ).one()
+    assert (
+        RentalAccessoryRequest.query.filter_by(
+            rental_id=rentals[1].id,
+            accessory_type_id=accessory_type.id,
+        ).count()
+        == 0
+    )
+    event = AccessoryUnitEvent.query.filter_by(event_type="relay_handoff").one()
     assert event.main_device_id == device.id
     assert event.rental_id == rentals[1].id
     assert event.relay_case_id == relay_case.id
@@ -788,17 +775,13 @@ def test_relay_handoff_advances_exact_holder_without_creating_demand(
 
     assert replay == result
     assert unit.row_version == 2
-    assert AccessoryUnitEvent.query.filter_by(
-        event_type="relay_handoff"
-    ).count() == 1
+    assert AccessoryUnitEvent.query.filter_by(event_type="relay_handoff").count() == 1
 
 
 def test_relay_handoff_rejects_out_of_order_holder_and_wrong_chain_source(
     application,
 ):
-    _, accessory_type, _, rentals, unit, relay_case = _seed_relay_links(
-        holder_index=2
-    )
+    _, accessory_type, _, rentals, unit, relay_case = _seed_relay_links(holder_index=2)
     session = db.session()
     service = AccessoryInventoryService(session)
 
@@ -814,9 +797,7 @@ def test_relay_handoff_rejects_out_of_order_holder_and_wrong_chain_source(
 
     assert unit.current_holder_rental_id == rentals[2].id
     assert unit.row_version == 1
-    assert AccessoryUnitEvent.query.filter_by(
-        event_type="relay_handoff"
-    ).count() == 0
+    assert AccessoryUnitEvent.query.filter_by(event_type="relay_handoff").count() == 0
 
     unit.current_holder_rental_id = rentals[0].id
     successor_link = RentalAccessoryUnitLink.query.filter_by(
@@ -861,9 +842,7 @@ def test_print_effect_boundary_on_either_relay_rental_blocks_handoff(application
 
     assert unit.current_holder_rental_id == rentals[0].id
     assert unit.row_version == 1
-    assert AccessoryUnitEvent.query.filter_by(
-        event_type="relay_handoff"
-    ).count() == 0
+    assert AccessoryUnitEvent.query.filter_by(event_type="relay_handoff").count() == 0
 
 
 def test_release_removes_only_link_keeps_request_and_is_idempotent(application):
@@ -954,12 +933,8 @@ def test_provider_effect_boundary_blocks_release_without_partial_write(
             )
 
     assert caught.value.code == "ACCESSORY_FULFILLMENT_FROZEN"
-    assert RentalAccessoryRequest.query.filter_by(
-        rental_id=rentals[0].id
-    ).count() == 1
-    assert RentalAccessoryUnitLink.query.filter_by(
-        rental_id=rentals[0].id
-    ).count() == 1
+    assert RentalAccessoryRequest.query.filter_by(rental_id=rentals[0].id).count() == 1
+    assert RentalAccessoryUnitLink.query.filter_by(rental_id=rentals[0].id).count() == 1
     assert AccessoryUnitEvent.query.filter_by(event_type="unlinked").count() == 0
 
 
@@ -996,9 +971,7 @@ def test_provider_pre_boundary_or_no_effect_allows_release(
             operation_key=f"release-before-{attempt_status}",
         )
 
-    assert RentalAccessoryUnitLink.query.filter_by(
-        rental_id=rentals[0].id
-    ).count() == 0
+    assert RentalAccessoryUnitLink.query.filter_by(rental_id=rentals[0].id).count() == 0
 
 
 @pytest.mark.parametrize(
@@ -1030,12 +1003,8 @@ def test_print_effect_boundary_blocks_new_request_without_partial_write(
             )
 
     assert caught.value.code == "ACCESSORY_FULFILLMENT_FROZEN"
-    assert RentalAccessoryRequest.query.filter_by(
-        rental_id=rentals[0].id
-    ).count() == 0
-    assert RentalAccessoryUnitLink.query.filter_by(
-        rental_id=rentals[0].id
-    ).count() == 0
+    assert RentalAccessoryRequest.query.filter_by(rental_id=rentals[0].id).count() == 0
+    assert RentalAccessoryUnitLink.query.filter_by(rental_id=rentals[0].id).count() == 0
     assert AccessoryUnitEvent.query.count() == 0
 
 
@@ -1064,12 +1033,8 @@ def test_submitted_shipment_remains_frozen_regardless_of_print_job_state(
                 operation_key=f"reserve-submitted-{print_status}",
             )
 
-    assert RentalAccessoryRequest.query.filter_by(
-        rental_id=rentals[0].id
-    ).count() == 0
-    assert RentalAccessoryUnitLink.query.filter_by(
-        rental_id=rentals[0].id
-    ).count() == 0
+    assert RentalAccessoryRequest.query.filter_by(rental_id=rentals[0].id).count() == 0
+    assert RentalAccessoryUnitLink.query.filter_by(rental_id=rentals[0].id).count() == 0
 
 
 def test_proven_cancelled_shipment_unfreezes_historical_waybill_and_print(
@@ -1106,9 +1071,7 @@ def test_proven_cancelled_shipment_unfreezes_historical_waybill_and_print(
             operation_key="release-after-proven-cancel",
         )
 
-    assert RentalAccessoryUnitLink.query.filter_by(
-        rental_id=rentals[0].id
-    ).count() == 0
+    assert RentalAccessoryUnitLink.query.filter_by(rental_id=rentals[0].id).count() == 0
 
 
 def test_cancelled_shipment_without_successful_cancel_attempt_fails_closed(
@@ -1163,9 +1126,7 @@ def test_failed_shipment_with_historical_effect_fails_closed(
                 operation_key=f"reserve-inconsistent-{historical_effect}",
             )
 
-    assert RentalAccessoryRequest.query.filter_by(
-        rental_id=rentals[0].id
-    ).count() == 0
+    assert RentalAccessoryRequest.query.filter_by(rental_id=rentals[0].id).count() == 0
 
 
 def test_exact_reservation_replay_survives_boundary_but_new_facts_freeze(
