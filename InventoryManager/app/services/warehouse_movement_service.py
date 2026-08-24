@@ -271,12 +271,20 @@ class WarehouseMovementService:
         ]
 
     @classmethod
-    def _candidate_occupancies(cls, candidate_ids, lock):
+    def _candidate_occupancies(
+        cls, candidate_ids, lock, excluded_main_rental_id=None
+    ):
         if not candidate_ids:
             return []
+        occupancy_filter = Rental.status.in_(cls.OCCUPANCY_STATUSES)
+        if excluded_main_rental_id is not None:
+            occupancy_filter = db.or_(
+                occupancy_filter,
+                Rental.id == excluded_main_rental_id,
+                Rental.parent_rental_id == excluded_main_rental_id,
+            )
         query = Rental.query.filter(
-            Rental.device_id.in_(candidate_ids),
-            Rental.status.in_(cls.OCCUPANCY_STATUSES),
+            Rental.device_id.in_(candidate_ids), occupancy_filter
         ).order_by(Rental.id)
         return cls._locked(query, lock).all()
 
@@ -691,7 +699,9 @@ class WarehouseMovementService:
             need_keys, need_warehouse_ids, -1, lock
         )
         occupancy_rows = cls._candidate_occupancies(
-            [device.id for device in candidates], lock
+            [device.id for device in candidates],
+            lock,
+            excluded_main_rental_id=excluded_main_rental_id,
         )
         snapshot_occupancy_rows = [
             rental for rental in occupancy_rows

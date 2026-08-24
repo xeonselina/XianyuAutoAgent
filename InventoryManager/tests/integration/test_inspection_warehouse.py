@@ -850,6 +850,9 @@ def test_child_only_receipt_keeps_excluded_overlapping_candidate_occupied(
     )
 
     assert executed.status_code == 200
+    executed_impact = executed.get_json()["data"]
+    assert executed_impact["shortages"] == impact["shortages"]
+    assert executed_impact["auto_fixable"] == impact["auto_fixable"]
     with app.app_context():
         assert db.session.get(
             Rental, case["not_received_child"]
@@ -857,6 +860,107 @@ def test_child_only_receipt_keeps_excluded_overlapping_candidate_occupied(
         assert db.session.get(
             Rental, case["future_child"]
         ).device_id == case["received"]
+
+
+def test_receipt_repair_keeps_completed_excluded_group_as_occupancy(
+    client, app
+):
+    with app.app_context():
+        case = _seed_case(with_future=True)
+        _configure_child_only_candidate(case, overlaps_future=True)
+        candidate = db.session.get(Device, case["not_received"])
+        model = candidate.model
+        model_id = candidate.model_id
+        main_model = db.session.get(
+            DeviceModel,
+            db.session.get(Device, case["main"]).model_id,
+        )
+        source = db.session.get(Warehouse, case["source"])
+        later_main_device = _device(
+            "later-main", source, main_model
+        )
+        later_main = _rental(later_main_device, source, future=True)
+        later_child = _rental(
+            db.session.get(Device, case["received"]),
+            source,
+            parent=later_main,
+            future=True,
+        )
+        later_main.start_date = date.today() + timedelta(days=20)
+        later_main.end_date = date.today() + timedelta(days=22)
+        later_child.start_date = later_main.start_date
+        later_child.end_date = later_main.end_date
+        later_main_id = later_main.id
+        later_child_id = later_child.id
+        db.session.commit()
+
+    inspection = client.post(
+        "/api/inspections",
+        json=_payload(
+            case,
+            receiving_warehouse_id=case["target"],
+            received_device_ids=[case["received"]],
+        ),
+    )
+
+    assert inspection.status_code == 201
+    impact = inspection.get_json()["data"]["warehouse_impacts"]
+    assert impact["moved_device_ids"] == [case["received"]]
+    assert impact["auto_fixable"] == [{
+        "rental_id": later_main_id,
+        "fulfillment_warehouse_id": case["source"],
+        "replacements": [{
+            "child_rental_id": later_child_id,
+            "old_device_id": case["received"],
+            "new_device_id": case["not_received"],
+        }],
+    }]
+    assert impact["manual"] == []
+    assert impact["shortages"] == [{
+        "rental_id": case["future"],
+        "code": "NO_AVAILABLE_REPLACEMENT",
+        "missing": [{
+            "child_rental_id": case["future_child"],
+            "model_id": model_id,
+            "model": model,
+        }],
+    }]
+    excluded_ids = {
+        case["rental"],
+        case["received_child"],
+        case["not_received_child"],
+    }
+    with app.app_context():
+        payload = WarehouseMovementService._load_token(impact["token"])
+        assert excluded_ids.isdisjoint(payload["related_rental_ids"])
+        assert excluded_ids.isdisjoint(
+            row["id"] for row in payload["snapshot"]["rentals"]
+        )
+        for rental_id in excluded_ids:
+            db.session.get(Rental, rental_id).status = "completed"
+        db.session.commit()
+
+    executed = client.post(
+        f"/api/devices/{case['main']}/move",
+        json={"token": impact["token"]},
+    )
+
+    assert executed.status_code == 200
+    executed_impact = executed.get_json()["data"]
+    assert executed_impact["shortages"] == impact["shortages"]
+    assert executed_impact["auto_fixable"] == impact["auto_fixable"]
+    with app.app_context():
+        assert db.session.get(
+            Rental, case["not_received_child"]
+        ).device_id == case["not_received"]
+        assert db.session.get(
+            Rental, case["future_child"]
+        ).device_id == case["received"]
+        later = db.session.get(Rental, later_main_id)
+        assert later.warehouse_id == case["source"]
+        assert db.session.get(
+            Rental, later_child_id
+        ).device_id == case["not_received"]
 
 
 def test_child_only_receipt_can_reuse_non_overlapping_excluded_candidate(
