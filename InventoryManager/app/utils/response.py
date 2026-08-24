@@ -15,6 +15,7 @@ class ApiResponse:
     status_code: int
     message: Optional[str] = None
     data: Optional[Any] = None
+    code: Optional[str] = None
 
     def to_dict(self) -> dict:
         """转换为字典"""
@@ -25,6 +26,9 @@ class ApiResponse:
 
         if self.data is not None:
             result['data'] = self.data
+
+        if self.code is not None:
+            result['code'] = self.code
 
         return result
 
@@ -48,19 +52,44 @@ def handle_response(func):
 
 
 # 便捷函数
-def success(data: Any = None, message: str = None, status_code: int = 200) -> ApiResponse:
+def success(
+    data: Any = None,
+    message: str = None,
+    status_code: int = 200,
+) -> ApiResponse:
     """返回成功响应"""
-    return ApiResponse(success=True, status_code=status_code, message=message, data=data)
+    return ApiResponse(
+        success=True,
+        status_code=status_code,
+        message=message,
+        data=data,
+    )
 
 
-def error(message: str, status_code: int = 400, data: Any = None) -> ApiResponse:
+def error(
+    message: str,
+    status_code: int = 400,
+    data: Any = None,
+    code: Optional[str] = None,
+) -> ApiResponse:
     """返回错误响应"""
-    return ApiResponse(success=False, status_code=status_code, message=message, data=data)
+    return ApiResponse(
+        success=False,
+        status_code=status_code,
+        message=message,
+        data=data,
+        code=code,
+    )
 
 
 def created(data: Any = None, message: str = '创建成功') -> ApiResponse:
     """返回创建成功响应"""
-    return ApiResponse(success=True, status_code=201, message=message, data=data)
+    return ApiResponse(
+        success=True,
+        status_code=201,
+        message=message,
+        data=data,
+    )
 
 
 def not_found(message: str = '资源不存在') -> ApiResponse:

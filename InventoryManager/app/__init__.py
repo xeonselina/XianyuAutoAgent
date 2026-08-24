@@ -4,6 +4,7 @@
 
 import logging
 import os
+import weakref
 from logging.handlers import RotatingFileHandler
 
 from dotenv import load_dotenv
@@ -11,6 +12,10 @@ from flask import Flask
 from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
+
+from app.control.store import ControlStore
+from app.crypto import SecretBox
+from app.tenant_context import TenantEngineRegistry, TenantSession
 
 # 提前加载 .env，确保 Config 读取到环境变量
 _BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -20,8 +25,14 @@ if os.environ.get('TESTING', '').lower() != 'true':
 from config import Config, config as config_map  # noqa: E402
 
 # 初始化扩展
-db = SQLAlchemy()
+db = SQLAlchemy(session_options={"class_": TenantSession})
 migrate = Migrate()
+
+
+def _dispose_tenant_resources(control_store, tenant_engine_registry):
+    tenant_engine_registry.dispose_all()
+    if control_store is not None:
+        control_store.dispose()
 
 
 def create_app(config_class=Config):
@@ -44,6 +55,14 @@ def create_app(config_class=Config):
     )
     app.config.from_object(config_class)
 
+    if (
+        app.config.get('AUTH_BYPASS_FOR_TESTS')
+        and not app.testing
+    ):
+        raise RuntimeError(
+            'AUTH_BYPASS_FOR_TESTS requires TESTING=True'
+        )
+
     if app.config.get('IS_PRODUCTION'):
         master_key = app.config.get('SAAS_MASTER_KEY')
         if (
@@ -55,6 +74,26 @@ def create_app(config_class=Config):
             )
         if app.config.get('DEV_SMS_CODE'):
             raise RuntimeError('Production forbids DEV_SMS_CODE')
+
+    secret_box = SecretBox.from_base64(app.config['SAAS_MASTER_KEY'])
+    control_database_url = app.config.get('CONTROL_DATABASE_URL')
+    control_store = None
+    if control_database_url:
+        control_store = ControlStore(control_database_url, secret_box)
+    tenant_engine_registry = TenantEngineRegistry(
+        secret_box=secret_box,
+        host=app.config['TENANT_DB_HOST'],
+        port=app.config['TENANT_DB_PORT'],
+        pool_size=app.config.get('TENANT_DB_POOL_SIZE', 2),
+    )
+    app.extensions['control_store'] = control_store
+    app.extensions['tenant_engine_registry'] = tenant_engine_registry
+    app.extensions['tenant_resource_finalizer'] = weakref.finalize(
+        app,
+        _dispose_tenant_resources,
+        control_store,
+        tenant_engine_registry,
+    )
 
     # 初始化扩展
     db.init_app(app)
@@ -88,15 +127,6 @@ def create_app(config_class=Config):
     app.register_blueprint(sf_tracking_api.bp)
     app.register_blueprint(inspection.inspection_bp)
     app.register_blueprint(rental_stats_api.bp)
-
-    # 启动定时调度器
-    try:
-        from app.utils.scheduler import init_scheduler
-
-        init_scheduler(app)
-        app.logger.info('定时调度器已启动')
-    except Exception as e:
-        app.logger.error(f'启动定时调度器失败: {e}')
 
     # 配置日志
     if not app.debug and not app.testing:
