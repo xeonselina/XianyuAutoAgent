@@ -35,23 +35,6 @@ CURRENT_DATABASE_RE = re.compile(
     re.IGNORECASE,
 )
 DELIMITER_RE = re.compile(r"^\s*DELIMITER\s+(?P<delimiter>\S+)", re.IGNORECASE)
-DATABASE_AFFECTING_RE = re.compile(
-    r"^\s*(?:DROP\s+(?:DATABASE|SCHEMA)(?:\s+IF\s+EXISTS)?|"
-    r"ALTER\s+(?:DATABASE|SCHEMA)|CREATE\s+SCHEMA"
-    r"(?:\s+IF\s+NOT\s+EXISTS)?)\s+"
-    r"(?P<identifier>`[A-Za-z0-9_$-]+`|[A-Za-z0-9_$-]+)",
-    re.IGNORECASE,
-)
-QUALIFIED_DATABASE_RE = re.compile(
-    r"`(?P<database>[A-Za-z0-9_$-]+)`\s*\.\s*`[A-Za-z0-9_$-]+`"
-)
-QUALIFIED_TABLE_DDL_RE = re.compile(
-    r"^\s*(?:CREATE|ALTER|DROP|TRUNCATE)\s+TABLE"
-    r"(?:\s+IF\s+(?:NOT\s+)?EXISTS)?\s+"
-    r"(?P<database>[A-Za-z0-9_$-]+)\s*\.\s*"
-    r"(?:`[A-Za-z0-9_$-]+`|[A-Za-z0-9_$-]+)",
-    re.IGNORECASE,
-)
 
 
 class UnsafeDatabaseError(ValueError):
@@ -85,32 +68,208 @@ def _validate_target_database(target_database: str) -> None:
         raise UnsafeDatabaseError("拒绝系统库或生产默认库作为目标数据库")
 
 
+class _SqlSafetyScanner:
+    """Stream SQL tokens while ignoring strings and comments."""
+
+    _OBJECT_PREFIXES = {"FROM", "JOIN", "REFERENCES", "UPDATE"}
+    _OBJECT_MODIFIERS = {
+        "EXISTS",
+        "IF",
+        "LOW_PRIORITY",
+        "NOT",
+        "TEMPORARY",
+    }
+
+    def __init__(self, target_database: str) -> None:
+        self.target_database = target_database.lower()
+        self.string_quote: str | None = None
+        self.in_block_comment = False
+        self.quoted_identifier: list[str] | None = None
+        self.words: list[str] = []
+        self.expect_database = False
+        self.expect_object = False
+        self.candidate_database: str | None = None
+        self.candidate_has_dot = False
+        self.rename_table = False
+
+    def finish_statement(self) -> None:
+        self.words.clear()
+        self.expect_database = False
+        self.expect_object = False
+        self.candidate_database = None
+        self.candidate_has_dot = False
+        self.rename_table = False
+
+    def scan(self, line: str) -> None:
+        index = 0
+        while index < len(line):
+            if self.in_block_comment:
+                end = line.find("*/", index)
+                if end < 0:
+                    return
+                self.in_block_comment = False
+                index = end + 2
+                continue
+
+            if self.string_quote:
+                index = self._scan_string(line, index)
+                continue
+
+            if self.quoted_identifier is not None:
+                index = self._scan_quoted_identifier(line, index)
+                continue
+
+            character = line[index]
+            if character in {"'", '"'}:
+                self.string_quote = character
+                index += 1
+            elif line.startswith("/*", index):
+                self.in_block_comment = True
+                index += 2
+            elif character == "#" or (
+                line.startswith("--", index)
+                and (index + 2 == len(line) or line[index + 2].isspace())
+            ):
+                return
+            elif character == "`":
+                self.quoted_identifier = []
+                index += 1
+            elif character.isalnum() or character in {"_", "$"}:
+                end = index + 1
+                while end < len(line) and (
+                    line[end].isalnum() or line[end] in {"_", "$"}
+                ):
+                    end += 1
+                self._token(line[index:end])
+                index = end
+            elif character == ".":
+                if self.candidate_database is not None:
+                    self.candidate_has_dot = True
+                index += 1
+            else:
+                self._clear_unqualified_candidate()
+                if character == ";":
+                    self.finish_statement()
+                index += 1
+
+    def _scan_string(self, line: str, index: int) -> int:
+        quote = self.string_quote
+        while index < len(line):
+            character = line[index]
+            if character == "\\":
+                index += 2
+            elif character == quote:
+                if index + 1 < len(line) and line[index + 1] == quote:
+                    index += 2
+                else:
+                    self.string_quote = None
+                    return index + 1
+            else:
+                index += 1
+        return index
+
+    def _scan_quoted_identifier(self, line: str, index: int) -> int:
+        while index < len(line):
+            character = line[index]
+            if character == "`":
+                if index + 1 < len(line) and line[index + 1] == "`":
+                    self.quoted_identifier.append("`")
+                    index += 2
+                else:
+                    self._token("".join(self.quoted_identifier))
+                    self.quoted_identifier = None
+                    return index + 1
+            else:
+                self.quoted_identifier.append(character)
+                index += 1
+        return index
+
+    def _token(self, token: str) -> None:
+        upper = token.upper()
+        if self.expect_database:
+            if upper not in {"EXISTS", "IF", "NOT"}:
+                if token.lower() != self.target_database:
+                    raise UnsafeDatabaseError("提取结果包含其他数据库引用")
+                self.expect_database = False
+            self._remember(upper)
+            return
+
+        if self.expect_object:
+            if self.candidate_database is None and upper in self._OBJECT_MODIFIERS:
+                self._remember(upper)
+                return
+            if self.candidate_database is None:
+                self.candidate_database = token.lower()
+                self.candidate_has_dot = False
+                self._remember(upper)
+                return
+            if self.candidate_has_dot:
+                if self.candidate_database != self.target_database:
+                    raise UnsafeDatabaseError("提取结果包含其他数据库引用")
+                self.expect_object = False
+                self.candidate_database = None
+                self.candidate_has_dot = False
+                self._remember(upper)
+                return
+            self._clear_unqualified_candidate()
+
+        previous_words = self.words[-3:]
+        if (
+            upper in {"DATABASE", "SCHEMA"}
+            and previous_words
+            and previous_words[-1] in {"ALTER", "CREATE", "DROP"}
+        ):
+            self.expect_database = True
+        elif upper == "TABLE" and (
+            previous_words
+            and previous_words[-1]
+            in {"ALTER", "CREATE", "DROP", "RENAME", "TRUNCATE"}
+            or len(previous_words) >= 2
+            and previous_words[-1] == "TEMPORARY"
+            and previous_words[-2] in {"CREATE", "DROP"}
+        ):
+            self.expect_object = True
+            self.rename_table = "RENAME" in previous_words
+        elif upper == "INTO" and previous_words and previous_words[-1] in {
+            "INSERT",
+            "REPLACE",
+        }:
+            self.expect_object = True
+        elif upper in self._OBJECT_PREFIXES:
+            self.expect_object = True
+        elif upper == "TABLES" and previous_words and previous_words[-1] == "LOCK":
+            self.expect_object = True
+        elif upper == "TO" and self.rename_table:
+            self.expect_object = True
+        self._remember(upper)
+
+    def _clear_unqualified_candidate(self) -> None:
+        if self.candidate_database is not None and not self.candidate_has_dot:
+            self.candidate_database = None
+            self.expect_object = False
+
+    def _remember(self, token: str) -> None:
+        self.words.append(token)
+        del self.words[:-3]
+
+
 def _validate_output(path: Path, target_database: str) -> None:
     target = target_database.lower()
+    delimiter = ";"
+    scanner = _SqlSafetyScanner(target_database)
     with path.open("r", encoding="utf-8", newline="") as output:
         for line in output:
             for matcher in (CURRENT_DATABASE_RE, CREATE_DATABASE_RE, USE_RE):
                 match = matcher.match(line)
                 if match and _identifier(match) != target:
                     raise UnsafeDatabaseError("提取结果仍包含其他数据库")
-            _reject_unsafe_database_reference(line, target_database)
-
-
-def _reject_unsafe_database_reference(line: str, target_database: str) -> None:
-    target = target_database.lower()
-    database_statement = DATABASE_AFFECTING_RE.match(line)
-    if database_statement and _identifier(database_statement) != target:
-        raise UnsafeDatabaseError("提取结果包含其他数据库引用")
-
-    qualified_databases = [
-        match.group("database").lower()
-        for match in QUALIFIED_DATABASE_RE.finditer(line)
-    ]
-    table_ddl = QUALIFIED_TABLE_DDL_RE.match(line)
-    if table_ddl:
-        qualified_databases.append(table_ddl.group("database").lower())
-    if any(database != target for database in qualified_databases):
-        raise UnsafeDatabaseError("提取结果包含其他数据库引用")
+            scanner.scan(line)
+            delimiter_match = DELIMITER_RE.match(line)
+            if delimiter_match:
+                delimiter = delimiter_match.group("delimiter")
+                scanner.finish_statement()
+            elif line.rstrip().endswith(delimiter):
+                scanner.finish_statement()
 
 
 def extract_database(
@@ -129,6 +288,7 @@ def extract_database(
     source_seen = False
     copying_source = False
     pending_create: str | None = None
+    scanner = _SqlSafetyScanner(target_database)
 
     try:
         with tempfile.NamedTemporaryFile(
@@ -144,19 +304,21 @@ def extract_database(
 
             def write_line(line: str) -> None:
                 nonlocal bytes_written, delimiter, statements
-                _reject_unsafe_database_reference(line, target_database)
+                scanner.scan(line)
                 temporary.write(line)
                 bytes_written += len(line.encode("utf-8"))
 
                 delimiter_match = DELIMITER_RE.match(line)
                 if delimiter_match:
                     delimiter = delimiter_match.group("delimiter")
+                    scanner.finish_statement()
                 elif (
                     line.strip()
                     and not line.lstrip().startswith("--")
                     and line.rstrip().endswith(delimiter)
                 ):
                     statements += 1
+                    scanner.finish_statement()
 
             with Path(input_path).open("r", encoding="utf-8", newline="") as source:
                 for line in source:

@@ -97,6 +97,9 @@ def test_rejects_missing_source_without_replacing_existing_output(tmp_path):
     [
         "DROP DATABASE `mysql`;\n",
         "CREATE TABLE `mysql`.`stolen_devices` (id int);\n",
+        "DROP TABLE `mysql`.stolen_devices;\n",
+        "INSERT INTO mysql.`stolen_devices` (id) VALUES (1);\n",
+        "RENAME TABLE mysql.stolen_devices TO inventory_management_restore_test.stolen_devices;\n",
     ],
 )
 def test_rejects_cross_database_sql_without_replacing_existing_output(
@@ -121,6 +124,61 @@ def test_rejects_cross_database_sql_without_replacing_existing_output(
 
     assert target.read_text(encoding="utf-8") == "keep this file"
     assert list(tmp_path.glob(".restore.sql.*.tmp")) == []
+
+
+def test_preserves_cross_database_looking_text_in_literals_and_comments(tmp_path):
+    source = tmp_path / "backup.sql"
+    source.write_text(
+        "USE `inventory_management`;\n"
+        "CREATE TABLE devices(id int, note varchar(255));\n"
+        "INSERT INTO devices(note) VALUES ('first line `mysql`.`x`\n"
+        "second line still literal');\n"
+        'INSERT INTO devices(note) VALUES ("first line `mysql`.`x`\n'
+        'second line still literal");\n'
+        "-- ordinary comment mentioning `mysql`.`x`\n"
+        "/* block comment mentioning `mysql`.`x`\n"
+        "   and continuing on the next line */\n"
+        "DELIMITER $$\n"
+        "CREATE TRIGGER device_before_insert BEFORE INSERT ON devices\n"
+        "FOR EACH ROW BEGIN\n"
+        "  SET NEW.note = 'trigger text: `mysql`.`x`';\n"
+        "END$$\n"
+        "DELIMITER ;\n",
+        encoding="utf-8",
+    )
+    target = tmp_path / "restore.sql"
+
+    extract_database(
+        source,
+        target,
+        target_database="inventory_management_restore_test",
+    )
+
+    text = target.read_text(encoding="utf-8")
+    assert "second line still literal" in text
+    assert "ordinary comment mentioning `mysql`.`x`" in text
+    assert "block comment mentioning `mysql`.`x`" in text
+    assert "trigger text: `mysql`.`x`" in text
+
+
+def test_preserves_identifiers_that_match_database_keywords(tmp_path):
+    source = tmp_path / "backup.sql"
+    source.write_text(
+        "USE `inventory_management`;\n"
+        "CREATE TABLE devices (`database` int);\n",
+        encoding="utf-8",
+    )
+    target = tmp_path / "restore.sql"
+
+    extract_database(
+        source,
+        target,
+        target_database="inventory_management_restore_test",
+    )
+
+    assert "CREATE TABLE devices (`database` int);" in target.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_rejects_targets_that_are_not_explicit_test_databases(tmp_path):
