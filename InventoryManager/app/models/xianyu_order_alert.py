@@ -94,30 +94,3 @@ class XianyuOrderAlert(db.Model):
             "first_detected_at": self._iso(self.first_detected_at),
             "last_seen_at": self._iso(self.last_seen_at),
         }
-
-
-class XianyuOrderSyncState(db.Model):
-    """闲鱼漏单对账最近一次运行状态（固定使用 id=1）。"""
-
-    __tablename__ = "xianyu_order_sync_state"
-
-    id = db.Column(db.Integer, primary_key=True)
-    last_attempt_at = db.Column(db.DateTime)
-    last_success_at = db.Column(db.DateTime)
-    last_error = db.Column(db.String(1000))
-
-    @classmethod
-    def get_or_create(cls):
-        state = db.session.get(cls, 1)
-        if state is None:
-            state = cls(id=1)
-            db.session.add(state)
-            db.session.flush()
-        return state
-
-    def to_dict(self):
-        return {
-            "last_attempt_at": XianyuOrderAlert._iso(self.last_attempt_at),
-            "last_success_at": XianyuOrderAlert._iso(self.last_success_at),
-            "last_error": self.last_error,
-        }

@@ -6,10 +6,8 @@ from datetime import datetime
 
 from app import db
 from app.models.rental import Rental
-from app.models.xianyu_order_alert import (
-    XianyuOrderAlert,
-    XianyuOrderSyncState,
-)
+from app.models.xianyu_order_alert import XianyuOrderAlert
+from app.models.xianyu_shop import XianyuShop
 from app.services.xianyu_order_service import (
     XianyuOrderServiceError,
     xianyu_service,
@@ -116,11 +114,19 @@ class XianyuOrderReconciliationService:
             if value and str(value).strip()
         }
 
-    def _replace_pending(self, pending_orders, now):
+    @staticmethod
+    def _current_shop():
+        shop = XianyuShop.query.order_by(XianyuShop.id).first()
+        if shop is None:
+            raise RuntimeError("未配置闲鱼店铺")
+        return shop
+
+    def _replace_pending(self, pending_orders, now, shop_id):
         current_pending = {
             alert.order_no: alert
             for alert in XianyuOrderAlert.query.filter_by(
-                state="pending"
+                xianyu_shop_id=shop_id,
+                state="pending",
             ).all()
         }
 
@@ -132,6 +138,7 @@ class XianyuOrderReconciliationService:
             alert = current_pending.get(order_no)
             if alert is None:
                 alert = XianyuOrderAlert(
+                    xianyu_shop_id=shop_id,
                     order_no=order_no,
                     state="pending",
                     pay_amount=int(order.get("pay_amount") or 0),
@@ -156,9 +163,13 @@ class XianyuOrderReconciliationService:
             alert.last_seen_at = now
 
     def get_snapshot(self):
+        shop = self._current_shop()
         existing = self._existing_rental_order_numbers()
         rows = (
-            XianyuOrderAlert.query.filter_by(state="pending")
+            XianyuOrderAlert.query.filter_by(
+                xianyu_shop_id=shop.id,
+                state="pending",
+            )
             .order_by(
                 XianyuOrderAlert.order_time.desc(),
                 XianyuOrderAlert.id.desc(),
@@ -170,16 +181,12 @@ class XianyuOrderReconciliationService:
             for alert in rows
             if alert.order_no not in existing
         ]
-        state = db.session.get(XianyuOrderSyncState, 1)
-        sync = (
-            state.to_dict()
-            if state
-            else {
-                "last_attempt_at": None,
-                "last_success_at": None,
-                "last_error": None,
-            }
-        )
+        shop_payload = shop.to_dict()
+        sync = {
+            "last_attempt_at": None,
+            "last_success_at": shop_payload["last_success_at"],
+            "last_error": shop.last_error,
+        }
         return {
             "alerts": alerts,
             "count": len(alerts),
@@ -196,6 +203,7 @@ class XianyuOrderReconciliationService:
             return snapshot
 
         try:
+            shop = self._current_shop()
             now = datetime.utcnow()
             eligible = self._eligible_orders(
                 self.xianyu_service.list_orders()
@@ -206,7 +214,10 @@ class XianyuOrderReconciliationService:
                 for (order_no,) in db.session.query(
                     XianyuOrderAlert.order_no
                 )
-                .filter(XianyuOrderAlert.state == "ignored")
+                .filter(
+                    XianyuOrderAlert.xianyu_shop_id == shop.id,
+                    XianyuOrderAlert.state == "ignored",
+                )
                 .all()
             }
             excluded = existing | ignored
@@ -216,18 +227,15 @@ class XianyuOrderReconciliationService:
                 if order_no not in excluded
             }
 
-            self._replace_pending(pending, now)
-            state = XianyuOrderSyncState.get_or_create()
-            state.last_attempt_at = now
-            state.last_success_at = now
-            state.last_error = None
+            self._replace_pending(pending, now, shop.id)
+            shop.last_success_at = now
+            shop.last_error = None
             db.session.commit()
         except XianyuOrderServiceError:
             db.session.rollback()
             logger.error("闲鱼漏录订单对账失败，类型: XianyuOrderServiceError")
-            state = XianyuOrderSyncState.get_or_create()
-            state.last_attempt_at = datetime.utcnow()
-            state.last_error = "闲鱼订单查询失败"
+            shop = self._current_shop()
+            shop.last_error = "闲鱼订单查询失败"
             db.session.commit()
         except Exception as exc:
             db.session.rollback()
@@ -235,9 +243,8 @@ class XianyuOrderReconciliationService:
                 "闲鱼漏录订单对账失败，异常类型: %s",
                 type(exc).__name__,
             )
-            state = XianyuOrderSyncState.get_or_create()
-            state.last_attempt_at = datetime.utcnow()
-            state.last_error = "漏录订单检查失败"
+            shop = self._current_shop()
+            shop.last_error = "漏录订单检查失败"
             db.session.commit()
         finally:
             self._release_lock(lock_handle)
@@ -255,7 +262,9 @@ class XianyuOrderReconciliationService:
 
         lock_handle = self._acquire_lock()
         try:
+            shop = self._current_shop()
             alert = XianyuOrderAlert.query.filter_by(
+                xianyu_shop_id=shop.id,
                 order_no=normalized_order_no,
                 state="pending",
             ).one_or_none()

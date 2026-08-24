@@ -9,6 +9,7 @@ from sqlalchemy.orm import joinedload
 from app import db
 from app.models.rental import Rental
 from app.models.device import Device
+from app.models.warehouse import resolve_write_warehouse_id
 from app.utils.date_utils import parse_date_strings, validate_date_range
 
 
@@ -163,6 +164,11 @@ class RentalService:
             device = Device.query.get(data['device_id'])
             if not device:
                 raise ValueError('设备不存在')
+            warehouse_id = resolve_write_warehouse_id(
+                data.get('warehouse_id')
+            )
+            if device.warehouse_id != warehouse_id:
+                raise ValueError('主设备不属于所选仓库')
 
             # 解析日期
             start_date, end_date = parse_date_strings(data['start_date'], data['end_date'])
@@ -195,6 +201,7 @@ class RentalService:
             # 创建主租赁记录（包含配套附件标记）
             main_rental = Rental(
                 device_id=data['device_id'],
+                warehouse_id=warehouse_id,
                 customer_name=data['customer_name'],
                 customer_phone=data.get('customer_phone'),
                 destination=data.get('destination', ''),
@@ -232,6 +239,7 @@ class RentalService:
                         # 仅为库存附件（手机支架、三脚架）创建子租赁
                         accessory_rental = Rental(
                             device_id=accessory_id,
+                            warehouse_id=warehouse_id,
                             customer_name=data['customer_name'],
                             customer_phone=data.get('customer_phone'),
                             destination=data.get('destination', ''),

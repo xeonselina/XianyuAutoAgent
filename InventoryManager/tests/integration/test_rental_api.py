@@ -6,6 +6,11 @@ import pytest
 import json
 from datetime import date, timedelta
 from app.models.device import Device
+from app.models.warehouse import Warehouse
+
+
+def _warehouse_id(db_session):
+    return db_session.query(Warehouse.id).scalar()
 
 
 class TestRentalAPIBundledAccessories:
@@ -18,7 +23,8 @@ class TestRentalAPIBundledAccessories:
             name='测试相机-API01',
             model='API Test Camera',
             serial_number='ATC-001',
-            is_accessory=False
+            is_accessory=False,
+            warehouse_id=_warehouse_id(db_session),
         )
         db_session.add(device)
         db_session.commit()
@@ -63,16 +69,23 @@ class TestRentalAPIBundledAccessories:
     def test_create_rental_with_inventory_accessories_api(self, client, db_session):
         """测试通过API创建包含库存附件的租赁"""
         # 创建主设备和附件
-        main_device = Device(name='相机-API02', is_accessory=False)
+        warehouse_id = _warehouse_id(db_session)
+        main_device = Device(
+            name='相机-API02',
+            is_accessory=False,
+            warehouse_id=warehouse_id,
+        )
         phone_holder = Device(
             name='手机支架-P-API01',
             serial_number='PHAPI-001',
-            is_accessory=True
+            is_accessory=True,
+            warehouse_id=warehouse_id,
         )
         tripod = Device(
             name='三脚架-T-API01',
             serial_number='TAPI-001',
-            is_accessory=True
+            is_accessory=True,
+            warehouse_id=warehouse_id,
         )
         
         db_session.add_all([main_device, phone_holder, tripod])
@@ -114,10 +127,16 @@ class TestRentalAPIBundledAccessories:
     def test_create_rental_with_mixed_accessories_api(self, client, db_session):
         """测试通过API创建同时包含配套和库存附件的租赁"""
         # 创建设备
-        main_device = Device(name='相机-API03', is_accessory=False)
+        warehouse_id = _warehouse_id(db_session)
+        main_device = Device(
+            name='相机-API03',
+            is_accessory=False,
+            warehouse_id=warehouse_id,
+        )
         phone_holder = Device(
             name='手机支架-P-API02',
-            is_accessory=True
+            is_accessory=True,
+            warehouse_id=warehouse_id,
         )
         
         db_session.add_all([main_device, phone_holder])
@@ -155,7 +174,11 @@ class TestRentalAPIBundledAccessories:
     def test_update_rental_bundled_accessories_api(self, client, db_session):
         """测试通过API更新配套附件"""
         # 创建设备和初始租赁
-        device = Device(name='相机-API04', is_accessory=False)
+        device = Device(
+            name='相机-API04',
+            is_accessory=False,
+            warehouse_id=_warehouse_id(db_session),
+        )
         db_session.add(device)
         db_session.commit()
         
@@ -202,11 +225,17 @@ class TestRentalAPIBundledAccessories:
     def test_get_rental_includes_accessory_info(self, client, db_session):
         """测试获取租赁时包含完整的附件信息"""
         # 创建设备
-        main_device = Device(name='相机-API05', is_accessory=False)
+        warehouse_id = _warehouse_id(db_session)
+        main_device = Device(
+            name='相机-API05',
+            is_accessory=False,
+            warehouse_id=warehouse_id,
+        )
         phone_holder = Device(
             name='手机支架-P-API03',
             serial_number='PHAPI-003',
-            is_accessory=True
+            is_accessory=True,
+            warehouse_id=warehouse_id,
         )
         
         db_session.add_all([main_device, phone_holder])
@@ -265,6 +294,14 @@ def db_session(app):
     from app import db
     with app.app_context():
         db.create_all()
+        db.session.add(
+            Warehouse(
+                province='待配置',
+                city='待配置',
+                name='默认仓库',
+            )
+        )
+        db.session.commit()
         yield db.session
         db.session.rollback()
         db.drop_all()

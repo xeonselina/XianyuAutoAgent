@@ -15,6 +15,30 @@ def _iso(value):
     return value.isoformat().replace("+00:00", "Z")
 
 
+def resolve_write_warehouse_id(requested_id):
+    """Resolve a concrete warehouse for a write without storing preference."""
+    if requested_id not in (None, ""):
+        if isinstance(requested_id, bool) or not isinstance(
+            requested_id, int
+        ):
+            raise ValueError("仓库不存在")
+        warehouse = db.session.get(Warehouse, requested_id)
+        if warehouse is None:
+            raise ValueError("仓库不存在")
+        return warehouse.id
+
+    warehouse_ids = [
+        warehouse_id
+        for (warehouse_id,) in db.session.query(Warehouse.id)
+        .order_by(Warehouse.id)
+        .limit(2)
+        .all()
+    ]
+    if len(warehouse_ids) != 1:
+        raise ValueError("请指定仓库")
+    return warehouse_ids[0]
+
+
 class Warehouse(db.Model):
     __tablename__ = "warehouses"
 

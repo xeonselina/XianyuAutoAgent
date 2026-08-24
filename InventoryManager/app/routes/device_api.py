@@ -5,9 +5,15 @@
 from flask import Blueprint, request, jsonify, current_app
 from app.models.device import Device
 from app.models.rental import Rental
+from app.models.warehouse import resolve_write_warehouse_id
 from app.services.inventory_service import InventoryService
 from app.handlers.device_handlers import DeviceHandlers
-from app.utils.response import handle_response
+from app.utils.response import (
+    bad_request,
+    created,
+    handle_response,
+    server_error,
+)
 from app import db
 from datetime import datetime, date, timedelta
 
@@ -68,27 +74,28 @@ def get_device(device_id):
 
 
 @bp.route('/api/devices', methods=['POST'])
+@handle_response
 def create_device():
     """创建设备"""
     try:
-        data = request.get_json()
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return bad_request('缺少请求数据')
         
         # 验证必填字段
         required_fields = ['name', 'serial_number']
         for field in required_fields:
             if not data.get(field):
-                return jsonify({
-                    'success': False,
-                    'error': f'缺少必填字段: {field}'
-                }), 400
+                return bad_request(f'缺少必填字段: {field}')
+
+        warehouse_id = resolve_write_warehouse_id(
+            data.get('warehouse_id')
+        )
         
         # 检查序列号是否已存在
         existing_device = Device.query.filter_by(serial_number=data['serial_number']).first()
         if existing_device:
-            return jsonify({
-                'success': False,
-                'error': '序列号已存在'
-            }), 400
+            return bad_request('序列号已存在')
         
         # 创建设备
         device = Device(
@@ -97,33 +104,34 @@ def create_device():
             model=data.get('model', 'x200u'),
             model_id=data.get('model_id'),
             is_accessory=data.get('is_accessory', False),
-            lifecycle_status='active'
+            lifecycle_status='active',
+            warehouse_id=warehouse_id,
         )
         
         db.session.add(device)
         db.session.commit()
         
-        return jsonify({
-            'success': True,
-            'message': '设备创建成功',
-            'data': {
+        return created(
+            message='设备创建成功',
+            data={
                 'id': device.id,
                 'name': device.name,
                 'serial_number': device.serial_number,
                 'model': device.model,
                 'model_id': device.model_id,
                 'is_accessory': device.is_accessory,
-                'lifecycle_status': device.lifecycle_status
-            }
-        })
+                'lifecycle_status': device.lifecycle_status,
+                'warehouse_id': device.warehouse_id,
+            },
+        )
         
+    except ValueError as e:
+        db.session.rollback()
+        return bad_request(str(e))
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"创建设备失败: {e}")
-        return jsonify({
-            'success': False,
-            'error': '创建设备失败'
-        }), 500
+        return server_error('创建设备失败')
 
 
 @bp.route('/api/devices/<device_id>', methods=['PUT'])

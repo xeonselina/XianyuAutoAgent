@@ -18,9 +18,26 @@ def app():
 @pytest.fixture
 def db_session(app):
     from app import db
+    from app.models.warehouse import Warehouse
+    from app.models.xianyu_shop import XianyuShop
 
     with app.app_context():
         db.create_all()
+        db.session.add(
+            Warehouse(
+                province="待配置",
+                city="待配置",
+                name="默认仓库",
+            )
+        )
+        db.session.add(
+            XianyuShop(
+                name="默认闲鱼店铺",
+                app_key="",
+                is_active=False,
+            )
+        )
+        db.session.commit()
         yield db.session
         db.session.rollback()
         db.drop_all()
@@ -29,8 +46,13 @@ def db_session(app):
 @pytest.fixture
 def device(db_session):
     from app.models.device import Device
+    from app.models.warehouse import Warehouse
 
-    row = Device(name="测试相机", is_accessory=False)
+    row = Device(
+        name="测试相机",
+        is_accessory=False,
+        warehouse_id=db_session.query(Warehouse.id).scalar(),
+    )
     db_session.add(row)
     db_session.commit()
     return row
@@ -59,10 +81,19 @@ def make_order(order_no, pay_amount, refund_status=0):
 
 
 def make_rental(device_id, order_no):
+    from app import db
+    from app.models.device import Device
     from app.models.rental import Rental
+    from app.models.xianyu_shop import XianyuShop
+
+    device = db.session.get(Device, device_id)
 
     return Rental(
         device_id=device_id,
+        warehouse_id=device.warehouse_id,
+        xianyu_shop_id=db.session.query(XianyuShop.id).order_by(
+            XianyuShop.id
+        ).scalar(),
         start_date=date(2026, 7, 25),
         end_date=date(2026, 7, 26),
         customer_name="已录入客户",
@@ -71,11 +102,21 @@ def make_rental(device_id, order_no):
     )
 
 
-def test_alert_serializes_amount_and_order_fields(app, db_session):
+def make_alert(**values):
+    from app import db
     from app.models.xianyu_order_alert import XianyuOrderAlert
+    from app.models.xianyu_shop import XianyuShop
 
+    if "xianyu_shop_id" not in values:
+        values["xianyu_shop_id"] = db.session.query(
+            XianyuShop.id
+        ).order_by(XianyuShop.id).limit(1).scalar()
+    return XianyuOrderAlert(**values)
+
+
+def test_alert_serializes_amount_and_order_fields(app, db_session):
     with app.app_context():
-        alert = XianyuOrderAlert(
+        alert = make_alert(
             order_no=" XY-1 ",
             state="pending",
             pay_amount=5001,
@@ -97,10 +138,8 @@ def test_alert_serializes_naive_database_datetimes_as_utc(
     app,
     db_session,
 ):
-    from app.models.xianyu_order_alert import XianyuOrderAlert
-
     with app.app_context():
-        alert = XianyuOrderAlert(
+        alert = make_alert(
             order_no="UTC-1",
             state="pending",
             pay_amount=5001,
@@ -256,13 +295,12 @@ def test_ignore_uses_reconciliation_lock(
     monkeypatch,
     tmp_path,
 ):
-    from app.models.xianyu_order_alert import XianyuOrderAlert
     from app.services.xianyu_order_reconciliation_service import (
         XianyuOrderReconciliationService,
     )
 
     db_session.add(
-        XianyuOrderAlert(
+        make_alert(
             order_no="LOCKED-IGNORE",
             state="pending",
             pay_amount=8000,
@@ -285,7 +323,6 @@ def test_failed_reconcile_keeps_existing_cache(
     monkeypatch,
     tmp_path,
 ):
-    from app.models.xianyu_order_alert import XianyuOrderAlert
     from app.services.xianyu_order_reconciliation_service import (
         XianyuOrderReconciliationService,
     )
@@ -294,7 +331,7 @@ def test_failed_reconcile_keeps_existing_cache(
     )
 
     db_session.add(
-        XianyuOrderAlert(
+        make_alert(
             order_no="OLD",
             state="pending",
             pay_amount=6000,
@@ -322,13 +359,12 @@ def test_unexpected_reconcile_error_does_not_persist_or_log_pii(
     tmp_path,
     caplog,
 ):
-    from app.models.xianyu_order_alert import XianyuOrderAlert
     from app.services.xianyu_order_reconciliation_service import (
         XianyuOrderReconciliationService,
     )
 
     db_session.add(
-        XianyuOrderAlert(
+        make_alert(
             order_no="OLD",
             state="pending",
             pay_amount=6000,
@@ -386,13 +422,12 @@ def test_cached_alert_disappears_immediately_after_rental_is_recorded(
     db_session,
     device,
 ):
-    from app.models.xianyu_order_alert import XianyuOrderAlert
     from app.services.xianyu_order_reconciliation_service import (
         XianyuOrderReconciliationService,
     )
 
     db_session.add(
-        XianyuOrderAlert(
+        make_alert(
             order_no="JUST-RECORDED",
             state="pending",
             pay_amount=8800,
@@ -406,3 +441,67 @@ def test_cached_alert_disappears_immediately_after_rental_is_recorded(
     db_session.commit()
 
     assert service.get_snapshot()["count"] == 0
+
+
+def test_snapshot_uses_first_shop_state_and_never_legacy_sync_table(
+    db_session,
+):
+    from app import db
+    from app.models.xianyu_shop import XianyuShop
+    from app.services.xianyu_order_reconciliation_service import (
+        XianyuOrderReconciliationService,
+    )
+
+    assert "xianyu_order_sync_state" not in db.metadata.tables
+    shop = XianyuShop.query.order_by(XianyuShop.id).first()
+    shop.last_success_at = datetime(2026, 8, 25, 8, 0, 0)
+    shop.last_error = "shop error"
+    db_session.commit()
+
+    snapshot = XianyuOrderReconciliationService().get_snapshot()
+
+    assert snapshot["sync"] == {
+        "last_attempt_at": None,
+        "last_success_at": "2026-08-25T08:00:00Z",
+        "last_error": "shop error",
+    }
+
+
+def test_snapshot_and_ignore_are_scoped_to_first_shop(
+    db_session,
+):
+    from app.models.xianyu_shop import XianyuShop
+    from app.services.xianyu_order_reconciliation_service import (
+        XianyuOrderReconciliationService,
+    )
+
+    first_shop = XianyuShop.query.order_by(XianyuShop.id).first()
+    second_shop = XianyuShop(
+        name="第二店铺",
+        app_key="second",
+        is_active=True,
+    )
+    db_session.add(second_shop)
+    db_session.flush()
+    db_session.add_all([
+        make_alert(
+            xianyu_shop_id=first_shop.id,
+            order_no="FIRST-SHOP",
+            state="pending",
+            pay_amount=6000,
+        ),
+        make_alert(
+            xianyu_shop_id=second_shop.id,
+            order_no="SECOND-SHOP",
+            state="pending",
+            pay_amount=7000,
+        ),
+    ])
+    db_session.commit()
+    service = XianyuOrderReconciliationService()
+
+    assert [
+        row["order_no"] for row in service.get_snapshot()["alerts"]
+    ] == ["FIRST-SHOP"]
+    with pytest.raises(LookupError):
+        service.ignore("SECOND-SHOP", "不处理第二店铺")

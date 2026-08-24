@@ -128,6 +128,32 @@ def _downgrade(database_url, revision):
             migration_db.engine.dispose()
 
 
+def _business_api_app(database_url):
+    from app import create_app
+    from config import TestingConfig
+
+    class BusinessApiConfig(TestingConfig):
+        AUTH_BYPASS_FOR_TESTS = True
+        SQLALCHEMY_DATABASE_URI = database_url
+        SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True}
+        CONTROL_DATABASE_URL = None
+        PROVISIONER_DATABASE_URL = None
+
+    return create_app(BusinessApiConfig)
+
+
+def _dispose_business_api_app(application):
+    from app import db
+
+    with application.app_context():
+        db.session.remove()
+        for engine in db.engines.values():
+            engine.dispose()
+    finalizer = application.extensions.get("tenant_resource_finalizer")
+    if finalizer is not None and finalizer.alive:
+        finalizer()
+
+
 @pytest.fixture(params=DATABASE_ENVIRONMENTS)
 def empty_business_database(request):
     database_url = _required_test_url(request.param)
@@ -624,3 +650,168 @@ def test_model_serializers_never_expose_secret_material():
     assert warehouse.sf_config.to_dict()["monthly_card_configured"] is True
     assert warehouse.kuaimai_config.to_dict()["app_secret_configured"] is True
     assert shop.to_dict()["app_secret_configured"] is True
+
+
+def test_head_public_create_apis_resolve_and_persist_warehouses(
+    empty_business_database,
+):
+    database_url, engine = empty_business_database
+    _upgrade(database_url, "head")
+    application = _business_api_app(database_url)
+    client = application.test_client()
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("DELETE FROM warehouses"))
+
+        no_warehouse = client.post(
+            "/api/devices",
+            json={"name": "无仓设备", "serial_number": "NO-WAREHOUSE"},
+        )
+        assert no_warehouse.status_code == 400
+        assert no_warehouse.get_json() == {
+            "success": False,
+            "message": "请指定仓库",
+        }
+
+        with engine.begin() as connection:
+            default_warehouse_id = connection.execute(
+                text(
+                    "INSERT INTO warehouses "
+                    "(province, city, name, created_at, updated_at) VALUES "
+                    "('待配置', '待配置', '默认仓库', "
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING id"
+                )
+            ).scalar_one()
+
+        main_response = client.post(
+            "/api/devices",
+            json={"name": "主设备", "serial_number": "MAIN-PUBLIC"},
+        )
+        accessory_response = client.post(
+            "/api/devices",
+            json={
+                "name": "三脚架",
+                "serial_number": "TRIPOD-PUBLIC",
+                "is_accessory": True,
+            },
+        )
+        assert main_response.status_code == 201
+        assert accessory_response.status_code == 201
+        assert main_response.get_json()["data"]["warehouse_id"] == (
+            default_warehouse_id
+        )
+        assert accessory_response.get_json()["data"]["warehouse_id"] == (
+            default_warehouse_id
+        )
+
+        rental_response = client.post(
+            "/api/rentals",
+            json={
+                "device_id": main_response.get_json()["data"]["id"],
+                "accessories": [
+                    accessory_response.get_json()["data"]["id"]
+                ],
+                "customer_name": "测试客户",
+                "start_date": "2026-09-01",
+                "end_date": "2026-09-03",
+            },
+        )
+        assert rental_response.status_code == 201
+        created = rental_response.get_json()["data"]
+        assert created["main_rental"]["warehouse_id"] == (
+            default_warehouse_id
+        )
+        assert {
+            row["warehouse_id"] for row in created["accessory_rentals"]
+        } == {default_warehouse_id}
+
+        with engine.begin() as connection:
+            second_warehouse_id = connection.execute(
+                text(
+                    "INSERT INTO warehouses "
+                    "(province, city, name, created_at, updated_at) VALUES "
+                    "('广东省', '广州市', '广州仓库', "
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING id"
+                )
+            ).scalar_one()
+            rental_count = connection.scalar(
+                text("SELECT count(*) FROM rentals")
+            )
+
+        missing_warehouse = client.post(
+            "/api/devices",
+            json={"name": "多仓设备", "serial_number": "MULTI-MISSING"},
+        )
+        invalid_warehouse = client.post(
+            "/api/devices",
+            json={
+                "name": "无效仓设备",
+                "serial_number": "INVALID-WAREHOUSE",
+                "warehouse_id": 999999,
+            },
+        )
+        assert missing_warehouse.status_code == 400
+        assert missing_warehouse.get_json()["message"] == "请指定仓库"
+        assert invalid_warehouse.status_code == 400
+        assert invalid_warehouse.get_json()["message"] == "仓库不存在"
+
+        second_device = client.post(
+            "/api/devices",
+            json={
+                "name": "广州设备",
+                "serial_number": "GUANGZHOU-DEVICE",
+                "warehouse_id": second_warehouse_id,
+            },
+        )
+        assert second_device.status_code == 201
+
+        missing_rental_warehouse = client.post(
+            "/api/rentals",
+            json={
+                "device_id": second_device.get_json()["data"]["id"],
+                "customer_name": "多仓缺失",
+                "start_date": "2026-10-01",
+                "end_date": "2026-10-03",
+            },
+        )
+        mismatched_rental_warehouse = client.post(
+            "/api/rentals",
+            json={
+                "device_id": second_device.get_json()["data"]["id"],
+                "warehouse_id": default_warehouse_id,
+                "customer_name": "仓库不匹配",
+                "start_date": "2026-10-01",
+                "end_date": "2026-10-03",
+            },
+        )
+        assert missing_rental_warehouse.status_code == 400
+        assert missing_rental_warehouse.get_json()["message"] == "请指定仓库"
+        assert mismatched_rental_warehouse.status_code == 400
+        assert mismatched_rental_warehouse.get_json()["message"] == (
+            "主设备不属于所选仓库"
+        )
+        with engine.connect() as connection:
+            assert connection.scalar(
+                text("SELECT count(*) FROM rentals")
+            ) == rental_count
+    finally:
+        _dispose_business_api_app(application)
+
+
+def test_head_xianyu_alert_endpoint_reads_shop_sync_state(
+    empty_business_database,
+):
+    database_url, _engine = empty_business_database
+    _upgrade(database_url, "head")
+    application = _business_api_app(database_url)
+    try:
+        response = application.test_client().get("/api/xianyu-order-alerts")
+
+        assert response.status_code == 200
+        assert response.get_json()["data"]["sync"] == {
+            "last_attempt_at": None,
+            "last_success_at": None,
+            "last_error": None,
+        }
+    finally:
+        _dispose_business_api_app(application)

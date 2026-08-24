@@ -6,7 +6,12 @@ import pytest
 from datetime import date, timedelta
 from app.models.rental import Rental
 from app.models.device import Device
+from app.models.warehouse import Warehouse
 from app.services.rental.rental_service import RentalService
+
+
+def _warehouse_id(db_session):
+    return db_session.query(Warehouse.id).scalar()
 
 
 class TestRentalServiceBundledAccessories:
@@ -20,7 +25,8 @@ class TestRentalServiceBundledAccessories:
                 name='测试相机-A01',
                 model='Test Camera',
                 serial_number='TC-001',
-                is_accessory=False
+                is_accessory=False,
+                warehouse_id=_warehouse_id(db_session),
             )
             db_session.add(device)
             db_session.commit()
@@ -55,11 +61,13 @@ class TestRentalServiceBundledAccessories:
         """测试创建包含库存附件的租赁"""
         with app.app_context():
             # 创建主设备
+            warehouse_id = _warehouse_id(db_session)
             main_device = Device(
                 name='测试相机-A02',
                 model='Test Camera',
                 serial_number='TC-002',
-                is_accessory=False
+                is_accessory=False,
+                warehouse_id=warehouse_id,
             )
             
             # 创建库存附件（手机支架）
@@ -67,7 +75,8 @@ class TestRentalServiceBundledAccessories:
                 name='手机支架-P01',
                 model='Phone Holder',
                 serial_number='PH-001',
-                is_accessory=True
+                is_accessory=True,
+                warehouse_id=warehouse_id,
             )
             
             db_session.add_all([main_device, phone_holder])
@@ -103,15 +112,18 @@ class TestRentalServiceBundledAccessories:
         """测试创建同时包含配套和库存附件的租赁"""
         with app.app_context():
             # 创建设备
+            warehouse_id = _warehouse_id(db_session)
             main_device = Device(
                 name='测试相机-A03',
                 model='Test Camera',
-                is_accessory=False
+                is_accessory=False,
+                warehouse_id=warehouse_id,
             )
             tripod = Device(
                 name='三脚架-T01',
                 model='Tripod',
-                is_accessory=True
+                is_accessory=True,
+                warehouse_id=warehouse_id,
             )
             
             db_session.add_all([main_device, tripod])
@@ -143,11 +155,17 @@ class TestRentalServiceBundledAccessories:
         """测试获取所有附件信息的显示方法"""
         with app.app_context():
             # 创建设备
-            main_device = Device(name='相机', is_accessory=False)
+            warehouse_id = _warehouse_id(db_session)
+            main_device = Device(
+                name='相机',
+                is_accessory=False,
+                warehouse_id=warehouse_id,
+            )
             phone_holder = Device(
                 name='手机支架-P02',
                 serial_number='PH-002',
-                is_accessory=True
+                is_accessory=True,
+                warehouse_id=warehouse_id,
             )
             
             db_session.add_all([main_device, phone_holder])
@@ -156,6 +174,7 @@ class TestRentalServiceBundledAccessories:
             # 创建主租赁
             main_rental = Rental(
                 device_id=main_device.id,
+                warehouse_id=warehouse_id,
                 start_date=date.today(),
                 end_date=date.today() + timedelta(days=3),
                 customer_name='测试客户',
@@ -169,6 +188,7 @@ class TestRentalServiceBundledAccessories:
             # 创建库存附件子租赁
             child_rental = Rental(
                 device_id=phone_holder.id,
+                warehouse_id=warehouse_id,
                 start_date=date.today(),
                 end_date=date.today() + timedelta(days=3),
                 customer_name='测试客户',
@@ -201,13 +221,19 @@ class TestRentalServiceBundledAccessories:
         """测试更新租赁的附件（包括配套附件）"""
         with app.app_context():
             # 创建设备
-            main_device = Device(name='相机', is_accessory=False)
+            warehouse_id = _warehouse_id(db_session)
+            main_device = Device(
+                name='相机',
+                is_accessory=False,
+                warehouse_id=warehouse_id,
+            )
             db_session.add(main_device)
             db_session.commit()
             
             # 创建初始租赁（不含附件）
             rental = Rental(
                 device_id=main_device.id,
+                warehouse_id=warehouse_id,
                 start_date=date.today(),
                 end_date=date.today() + timedelta(days=5),
                 customer_name='客户A',
@@ -245,6 +271,14 @@ def db_session(app):
     from app import db
     with app.app_context():
         db.create_all()
+        db.session.add(
+            Warehouse(
+                province='待配置',
+                city='待配置',
+                name='默认仓库',
+            )
+        )
+        db.session.commit()
         yield db.session
         db.session.rollback()
         db.drop_all()
