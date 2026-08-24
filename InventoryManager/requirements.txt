@@ -13,6 +13,7 @@ python-dotenv==1.0.0
 Werkzeug==2.3.7
 click==8.1.7
 python-dateutil==2.8.2
+pyotp==2.9.0
 
 # 生产环境WSGI服务器 - 必需
 gunicorn==21.2.0
