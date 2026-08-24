@@ -284,6 +284,7 @@ def create_app(config_class=Config):
         inspection,
         platform_api,
         rental_stats_api,
+        settings_api,
         sf_test_api,
         sf_tracking_api,
         shipping_batch_api,
@@ -297,6 +298,7 @@ def create_app(config_class=Config):
 
     app.register_blueprint(auth_api.bp)
     app.register_blueprint(platform_api.bp)
+    app.register_blueprint(settings_api.bp)
     platform_api.register_platform_commands(app)
     app.register_blueprint(web.bp)
     app.register_blueprint(external_api.bp, url_prefix='/external-api')

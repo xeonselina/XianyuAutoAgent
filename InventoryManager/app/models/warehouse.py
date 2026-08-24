@@ -79,6 +79,18 @@ class Warehouse(db.Model):
             "updated_at": _iso(self.updated_at),
         }
 
+    def to_settings_dict(self):
+        data = self.to_dict()
+        data["sf_config"] = (
+            self.sf_config.to_dict() if self.sf_config is not None else None
+        )
+        data["kuaimai_config"] = (
+            self.kuaimai_config.to_dict()
+            if self.kuaimai_config is not None
+            else None
+        )
+        return data
+
 
 class WarehouseSFConfig(db.Model):
     __tablename__ = "warehouse_sf_configs"

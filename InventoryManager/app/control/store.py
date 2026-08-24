@@ -3,9 +3,10 @@
 from contextlib import contextmanager
 from typing import ContextManager, Iterator
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.control.models import TenantMember
 from app.crypto import SecretBox
 
 
@@ -72,6 +73,18 @@ class ControlStore:
             engine=self.maintenance_engine,
             session_factory=self._maintenance_session_factory,
         )
+
+    @contextmanager
+    def tenant_members_locked_session(self, tenant_id):
+        """Lock one tenant's members for invariant-preserving updates."""
+        with self._session_scope() as session:
+            members = session.scalars(
+                select(TenantMember)
+                .where(TenantMember.tenant_id == tenant_id)
+                .order_by(TenantMember.id)
+                .with_for_update()
+            ).all()
+            yield session, members
 
     @contextmanager
     def _session_scope(self, session_factory=None) -> Iterator[Session]:
