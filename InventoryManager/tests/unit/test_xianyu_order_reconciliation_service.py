@@ -80,7 +80,7 @@ def make_order(order_no, pay_amount, refund_status=0):
     }
 
 
-def make_rental(device_id, order_no):
+def make_rental(device_id, order_no, shop_id=None):
     from app import db
     from app.models.device import Device
     from app.models.rental import Rental
@@ -91,9 +91,13 @@ def make_rental(device_id, order_no):
     return Rental(
         device_id=device_id,
         warehouse_id=device.warehouse_id,
-        xianyu_shop_id=db.session.query(XianyuShop.id).order_by(
-            XianyuShop.id
-        ).scalar(),
+        xianyu_shop_id=(
+            shop_id
+            if shop_id is not None
+            else db.session.query(XianyuShop.id).order_by(
+                XianyuShop.id
+            ).scalar()
+        ),
         start_date=date(2026, 7, 25),
         end_date=date(2026, 7, 26),
         customer_name="已录入客户",
@@ -353,6 +357,43 @@ def test_failed_reconcile_keeps_existing_cache(
     assert result["sync"]["last_error"] == "闲鱼订单查询失败"
 
 
+def test_failed_reconcile_reuses_the_already_resolved_shop(
+    db_session,
+    monkeypatch,
+    tmp_path,
+):
+    from app.models.xianyu_shop import XianyuShop
+    from app.services.xianyu_order_reconciliation_service import (
+        XianyuOrderReconciliationService,
+    )
+    from app.services.xianyu_order_service import (
+        XianyuOrderServiceError,
+    )
+
+    shop = XianyuShop.query.order_by(XianyuShop.id).first()
+    service = XianyuOrderReconciliationService(
+        lock_path=str(tmp_path / "reconcile.lock")
+    )
+    lookup_count = 0
+
+    def resolve_once():
+        nonlocal lookup_count
+        lookup_count += 1
+        if lookup_count > 1:
+            raise RuntimeError("shop lookup repeated during error handling")
+        return shop
+
+    def fail():
+        raise XianyuOrderServiceError("timeout")
+
+    monkeypatch.setattr(service, "_current_shop", resolve_once)
+    monkeypatch.setattr(service.xianyu_service, "list_orders", fail)
+
+    result = service.reconcile()
+
+    assert result["sync"]["last_error"] == "闲鱼订单查询失败"
+
+
 def test_unexpected_reconcile_error_does_not_persist_or_log_pii(
     db_session,
     monkeypatch,
@@ -505,3 +546,52 @@ def test_snapshot_and_ignore_are_scoped_to_first_shop(
     ] == ["FIRST-SHOP"]
     with pytest.raises(LookupError):
         service.ignore("SECOND-SHOP", "不处理第二店铺")
+
+
+def test_other_shop_rental_cannot_hide_replace_or_block_first_shop_alert(
+    db_session,
+    device,
+    monkeypatch,
+    tmp_path,
+):
+    from app.models.xianyu_shop import XianyuShop
+    from app.services.xianyu_order_reconciliation_service import (
+        XianyuOrderReconciliationService,
+    )
+
+    first_shop = XianyuShop.query.order_by(XianyuShop.id).first()
+    second_shop = XianyuShop(
+        name="第二店铺",
+        app_key="second",
+        is_active=True,
+    )
+    db_session.add(second_shop)
+    db_session.flush()
+    db_session.add_all([
+        make_alert(
+            xianyu_shop_id=first_shop.id,
+            order_no="SHARED-ORDER",
+            state="pending",
+            pay_amount=8000,
+        ),
+        make_rental(
+            device.id,
+            "SHARED-ORDER",
+            shop_id=second_shop.id,
+        ),
+    ])
+    db_session.commit()
+    service = XianyuOrderReconciliationService(
+        lock_path=str(tmp_path / "reconcile.lock")
+    )
+    monkeypatch.setattr(
+        service.xianyu_service,
+        "list_orders",
+        lambda: [make_order("SHARED-ORDER", 8000)],
+    )
+
+    assert [
+        row["order_no"] for row in service.get_snapshot()["alerts"]
+    ] == ["SHARED-ORDER"]
+    assert service.reconcile()["count"] == 1
+    assert service.ignore("SHARED-ORDER", "首店自行处理")["count"] == 0

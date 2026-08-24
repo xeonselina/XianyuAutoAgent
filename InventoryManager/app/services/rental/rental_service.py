@@ -13,6 +13,10 @@ from app.models.warehouse import resolve_write_warehouse_id
 from app.utils.date_utils import parse_date_strings, validate_date_range
 
 
+class WarehouseMismatchError(ValueError):
+    """A requested inventory accessory belongs to another warehouse."""
+
+
 class RentalService:
     """租赁服务类"""
 
@@ -170,6 +174,19 @@ class RentalService:
             if device.warehouse_id != warehouse_id:
                 raise ValueError('主设备不属于所选仓库')
 
+            validated_accessories = []
+            for accessory_id in data.get('accessories') or []:
+                accessory_device = db.session.get(Device, accessory_id)
+                if accessory_device is None:
+                    raise ValueError('附件设备不存在')
+                if not accessory_device.is_accessory:
+                    raise ValueError('设备不是库存附件')
+                if accessory_device.warehouse_id != warehouse_id:
+                    raise WarehouseMismatchError(
+                        '附件设备不属于所选仓库'
+                    )
+                validated_accessories.append(accessory_device)
+
             # 解析日期
             start_date, end_date = parse_date_strings(data['start_date'], data['end_date'])
 
@@ -227,33 +244,39 @@ class RentalService:
 
             # 创建附件租赁记录（仅针对库存附件，不包括手柄和镜头支架）
             accessory_rentals = []
-            if data.get('accessories'):
-                for accessory_id in data['accessories']:
-                    accessory_device = Device.query.get(accessory_id)
-                    if accessory_device and accessory_device.is_accessory:
-                        # 跳过配套附件（手柄和镜头支架）
-                        if '手柄' in accessory_device.name or '镜头支架' in accessory_device.name:
-                            current_app.logger.info(f"跳过配套附件: {accessory_device.name}")
-                            continue
-                        
-                        # 仅为库存附件（手机支架、三脚架）创建子租赁
-                        accessory_rental = Rental(
-                            device_id=accessory_id,
-                            warehouse_id=warehouse_id,
-                            customer_name=data['customer_name'],
-                            customer_phone=data.get('customer_phone'),
-                            destination=data.get('destination', ''),
-                            start_date=start_date,
-                            end_date=end_date,
-                            ship_out_time=ship_out_time,
-                            ship_in_time=ship_in_time,
-                            ship_out_tracking_no=data.get('ship_out_tracking_no', ''),
-                            ship_in_tracking_no=data.get('ship_in_tracking_no', ''),
-                            status='not_shipped',
-                            parent_rental_id=main_rental.id
-                        )
-                        db.session.add(accessory_rental)
-                        accessory_rentals.append(accessory_rental)
+            for accessory_device in validated_accessories:
+                # 跳过配套附件（手柄和镜头支架）
+                if (
+                    '手柄' in accessory_device.name
+                    or '镜头支架' in accessory_device.name
+                ):
+                    current_app.logger.info(
+                        f"跳过配套附件: {accessory_device.name}"
+                    )
+                    continue
+
+                # 仅为库存附件（手机支架、三脚架）创建子租赁
+                accessory_rental = Rental(
+                    device_id=accessory_device.id,
+                    warehouse_id=warehouse_id,
+                    customer_name=data['customer_name'],
+                    customer_phone=data.get('customer_phone'),
+                    destination=data.get('destination', ''),
+                    start_date=start_date,
+                    end_date=end_date,
+                    ship_out_time=ship_out_time,
+                    ship_in_time=ship_in_time,
+                    ship_out_tracking_no=data.get(
+                        'ship_out_tracking_no', ''
+                    ),
+                    ship_in_tracking_no=data.get(
+                        'ship_in_tracking_no', ''
+                    ),
+                    status='not_shipped',
+                    parent_rental_id=main_rental.id
+                )
+                db.session.add(accessory_rental)
+                accessory_rentals.append(accessory_rental)
 
             db.session.commit()
             return main_rental, accessory_rentals

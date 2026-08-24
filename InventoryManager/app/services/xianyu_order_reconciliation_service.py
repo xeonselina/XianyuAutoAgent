@@ -17,6 +17,10 @@ from app.services.xianyu_order_service import (
 logger = logging.getLogger(__name__)
 
 
+class XianyuShopConfigIncompleteError(RuntimeError):
+    """The tenant has no shop to scope reconciliation state to."""
+
+
 class XianyuOrderReconciliationService:
     """维护可信的漏录订单缓存。"""
 
@@ -102,10 +106,13 @@ class XianyuOrderReconciliationService:
         )
 
     @staticmethod
-    def _existing_rental_order_numbers():
+    def _existing_rental_order_numbers(shop_id):
         rows = (
             db.session.query(Rental.xianyu_order_no)
-            .filter(Rental.xianyu_order_no.isnot(None))
+            .filter(
+                Rental.xianyu_shop_id == shop_id,
+                Rental.xianyu_order_no.isnot(None),
+            )
             .all()
         )
         return {
@@ -118,7 +125,7 @@ class XianyuOrderReconciliationService:
     def _current_shop():
         shop = XianyuShop.query.order_by(XianyuShop.id).first()
         if shop is None:
-            raise RuntimeError("未配置闲鱼店铺")
+            raise XianyuShopConfigIncompleteError("请先配置闲鱼店铺")
         return shop
 
     def _replace_pending(self, pending_orders, now, shop_id):
@@ -162,9 +169,10 @@ class XianyuOrderReconciliationService:
             )
             alert.last_seen_at = now
 
-    def get_snapshot(self):
-        shop = self._current_shop()
-        existing = self._existing_rental_order_numbers()
+    def get_snapshot(self, shop=None):
+        if shop is None:
+            shop = self._current_shop()
+        existing = self._existing_rental_order_numbers(shop.id)
         rows = (
             XianyuOrderAlert.query.filter_by(
                 xianyu_shop_id=shop.id,
@@ -196,19 +204,19 @@ class XianyuOrderReconciliationService:
 
     def reconcile(self):
         """执行一次完整对账；失败时只更新失败状态。"""
+        shop = self._current_shop()
         lock_handle = self._try_acquire_lock()
         if lock_handle is None:
-            snapshot = self.get_snapshot()
+            snapshot = self.get_snapshot(shop)
             snapshot["refreshing"] = True
             return snapshot
 
         try:
-            shop = self._current_shop()
             now = datetime.utcnow()
             eligible = self._eligible_orders(
                 self.xianyu_service.list_orders()
             )
-            existing = self._existing_rental_order_numbers()
+            existing = self._existing_rental_order_numbers(shop.id)
             ignored = {
                 order_no
                 for (order_no,) in db.session.query(
@@ -234,7 +242,6 @@ class XianyuOrderReconciliationService:
         except XianyuOrderServiceError:
             db.session.rollback()
             logger.error("闲鱼漏录订单对账失败，类型: XianyuOrderServiceError")
-            shop = self._current_shop()
             shop.last_error = "闲鱼订单查询失败"
             db.session.commit()
         except Exception as exc:
@@ -243,13 +250,12 @@ class XianyuOrderReconciliationService:
                 "闲鱼漏录订单对账失败，异常类型: %s",
                 type(exc).__name__,
             )
-            shop = self._current_shop()
             shop.last_error = "漏录订单检查失败"
             db.session.commit()
         finally:
             self._release_lock(lock_handle)
 
-        return self.get_snapshot()
+        return self.get_snapshot(shop)
 
     def ignore(self, order_no, reason):
         """永久忽略一个当前待处理告警。"""
@@ -281,4 +287,4 @@ class XianyuOrderReconciliationService:
         finally:
             self._release_lock(lock_handle)
 
-        return self.get_snapshot()
+        return self.get_snapshot(shop)

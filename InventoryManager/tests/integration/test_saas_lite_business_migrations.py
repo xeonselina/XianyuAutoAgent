@@ -815,3 +815,118 @@ def test_head_xianyu_alert_endpoint_reads_shop_sync_state(
         }
     finally:
         _dispose_business_api_app(application)
+
+
+def test_public_rental_rejects_cross_warehouse_accessory_before_insert(
+    empty_business_database,
+):
+    database_url, engine = empty_business_database
+    _upgrade(database_url, "head")
+    application = _business_api_app(database_url)
+    client = application.test_client()
+    try:
+        with engine.begin() as connection:
+            first_warehouse_id = connection.scalar(
+                text("SELECT id FROM warehouses ORDER BY id LIMIT 1")
+            )
+            second_warehouse_id = connection.execute(
+                text(
+                    "INSERT INTO warehouses "
+                    "(province, city, name, created_at, updated_at) VALUES "
+                    "('广东省', '广州市', '广州仓库', "
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) RETURNING id"
+                )
+            ).scalar_one()
+
+        main_response = client.post(
+            "/api/devices",
+            json={
+                "name": "主仓相机",
+                "serial_number": "CROSS-MAIN",
+                "warehouse_id": first_warehouse_id,
+            },
+        )
+        accessory_response = client.post(
+            "/api/devices",
+            json={
+                "name": "异仓三脚架",
+                "serial_number": "CROSS-TRIPOD",
+                "warehouse_id": second_warehouse_id,
+                "is_accessory": True,
+            },
+        )
+
+        response = client.post(
+            "/api/rentals",
+            json={
+                "device_id": main_response.get_json()["data"]["id"],
+                "warehouse_id": first_warehouse_id,
+                "accessories": [
+                    accessory_response.get_json()["data"]["id"]
+                ],
+                "customer_name": "跨仓测试",
+                "start_date": "2026-10-01",
+                "end_date": "2026-10-03",
+            },
+        )
+
+        assert response.status_code == 409
+        assert response.get_json() == {
+            "success": False,
+            "message": "附件设备不属于所选仓库",
+            "code": "WAREHOUSE_MISMATCH",
+        }
+        with engine.connect() as connection:
+            assert connection.scalar(
+                text("SELECT count(*) FROM rentals")
+            ) == 0
+    finally:
+        _dispose_business_api_app(application)
+
+
+def test_public_rental_rejects_one_missing_accessory_without_partial_rows(
+    empty_business_database,
+):
+    database_url, engine = empty_business_database
+    _upgrade(database_url, "head")
+    application = _business_api_app(database_url)
+    client = application.test_client()
+    try:
+        main_response = client.post(
+            "/api/devices",
+            json={"name": "主设备", "serial_number": "INVALID-MAIN"},
+        )
+        accessory_response = client.post(
+            "/api/devices",
+            json={
+                "name": "有效三脚架",
+                "serial_number": "VALID-TRIPOD",
+                "is_accessory": True,
+            },
+        )
+
+        response = client.post(
+            "/api/rentals",
+            json={
+                "device_id": main_response.get_json()["data"]["id"],
+                "accessories": [
+                    accessory_response.get_json()["data"]["id"],
+                    999999,
+                ],
+                "customer_name": "附件回滚测试",
+                "start_date": "2026-10-01",
+                "end_date": "2026-10-03",
+            },
+        )
+
+        assert response.status_code == 400
+        assert response.get_json() == {
+            "success": False,
+            "message": "附件设备不存在",
+        }
+        with engine.connect() as connection:
+            assert connection.scalar(
+                text("SELECT count(*) FROM rentals")
+            ) == 0
+    finally:
+        _dispose_business_api_app(application)

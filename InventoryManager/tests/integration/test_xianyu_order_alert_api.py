@@ -15,6 +15,17 @@ def client(app):
     return app.test_client()
 
 
+@pytest.fixture
+def empty_business_client(app):
+    from app import db
+
+    with app.app_context():
+        db.create_all()
+        yield app.test_client()
+        db.session.remove()
+        db.drop_all()
+
+
 def snapshot(order_no="XY-1"):
     alerts = [{"order_no": order_no}] if order_no else []
     return {
@@ -106,3 +117,31 @@ def test_ignore_maps_missing_alert_to_not_found(client, monkeypatch):
 
     assert response.status_code == 404
     assert response.get_json()["message"] == "待处理订单不存在"
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [
+        ("get", "/api/xianyu-order-alerts", None),
+        ("post", "/api/xianyu-order-alerts/refresh", None),
+        (
+            "post",
+            "/api/xianyu-order-alerts/XY-1/ignore",
+            {"reason": "无需处理"},
+        ),
+    ],
+)
+def test_missing_shop_returns_config_incomplete_without_500(
+    empty_business_client,
+    method,
+    path,
+    body,
+):
+    response = getattr(empty_business_client, method)(path, json=body)
+
+    assert response.status_code == 409
+    assert response.get_json() == {
+        "success": False,
+        "message": "请先配置闲鱼店铺",
+        "code": "CONFIG_INCOMPLETE",
+    }

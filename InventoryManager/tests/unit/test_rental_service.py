@@ -150,6 +150,38 @@ class TestRentalServiceBundledAccessories:
             # 验证库存附件子租赁
             assert len(accessory_rentals) == 1
             assert accessory_rentals[0].device_id == tripod.id
+
+    def test_create_rejects_non_accessory_before_any_rental(
+        self,
+        app,
+        db_session,
+    ):
+        """请求列表中的普通设备不能被静默忽略。"""
+        with app.app_context():
+            warehouse_id = _warehouse_id(db_session)
+            main_device = Device(
+                name='主相机',
+                is_accessory=False,
+                warehouse_id=warehouse_id,
+            )
+            not_accessory = Device(
+                name='备用相机',
+                is_accessory=False,
+                warehouse_id=warehouse_id,
+            )
+            db_session.add_all([main_device, not_accessory])
+            db_session.commit()
+
+            with pytest.raises(ValueError, match='不是库存附件'):
+                RentalService.create_rental_with_accessories({
+                    'device_id': main_device.id,
+                    'start_date': date.today(),
+                    'end_date': date.today() + timedelta(days=3),
+                    'customer_name': '无效附件测试',
+                    'accessories': [not_accessory.id],
+                })
+
+            assert db_session.query(Rental).count() == 0
     
     def test_get_all_accessories_for_display(self, app, db_session):
         """测试获取所有附件信息的显示方法"""

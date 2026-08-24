@@ -4,9 +4,11 @@ from flask import current_app, request
 
 from app.services.xianyu_order_reconciliation_service import (
     XianyuOrderReconciliationService,
+    XianyuShopConfigIncompleteError,
 )
 from app.utils.response import (
     bad_request,
+    error,
     not_found,
     server_error,
     success,
@@ -22,6 +24,12 @@ class XianyuOrderAlertHandlers:
     def get_alerts(cls):
         try:
             return success(data=cls.service.get_snapshot())
+        except XianyuShopConfigIncompleteError as exc:
+            return error(
+                str(exc),
+                status_code=409,
+                code="CONFIG_INCOMPLETE",
+            )
         except Exception as exc:
             current_app.logger.error(
                 "读取闲鱼漏单告警失败，异常类型: %s",
@@ -33,6 +41,12 @@ class XianyuOrderAlertHandlers:
     def refresh_alerts(cls):
         try:
             return success(data=cls.service.reconcile())
+        except XianyuShopConfigIncompleteError as exc:
+            return error(
+                str(exc),
+                status_code=409,
+                code="CONFIG_INCOMPLETE",
+            )
         except Exception as exc:
             current_app.logger.error(
                 "刷新闲鱼漏单告警失败，异常类型: %s",
@@ -52,6 +66,12 @@ class XianyuOrderAlertHandlers:
         try:
             snapshot = cls.service.ignore(order_no, reason)
             return success(data=snapshot, message="订单已永久忽略")
+        except XianyuShopConfigIncompleteError as exc:
+            return error(
+                str(exc),
+                status_code=409,
+                code="CONFIG_INCOMPLETE",
+            )
         except ValueError as exc:
             return bad_request(str(exc))
         except LookupError as exc:

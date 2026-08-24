@@ -5,7 +5,10 @@
 
 from datetime import datetime
 from flask import request, current_app
-from app.services.rental.rental_service import RentalService
+from app.services.rental.rental_service import (
+    RentalService,
+    WarehouseMismatchError,
+)
 from app.services.printing.rental_product_lines import (
     validate_combo,
     get_default_combo,
@@ -210,6 +213,12 @@ class RentalHandlers:
 
             return created(data=response_data, message='租赁记录创建成功')
 
+        except WarehouseMismatchError as e:
+            return error(
+                str(e),
+                status_code=409,
+                code='WAREHOUSE_MISMATCH',
+            )
         except ValueError as e:
             return bad_request(str(e))
         except Exception as e:
