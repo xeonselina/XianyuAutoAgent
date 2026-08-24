@@ -184,24 +184,12 @@ class InspectionService:
                     "租赁履约仓库已变化，请重试"
                 )
 
-            # Preview every real movement before adding any inspection row or
-            # changing inventory. Tokens are deliberately discarded because
-            # this transaction will make them stale.
             moving_devices = [
                 devices_by_id[item]
                 for item in selected_ids
                 if devices_by_id[item].warehouse_id != target_warehouse_id
             ]
-            warehouse_impacts = []
-            for moving_device in moving_devices:
-                preview = WarehouseMovementService.preview(
-                    moving_device.id, target_warehouse_id
-                )
-                warehouse_impacts.append({
-                    key: value
-                    for key, value in preview.items()
-                    if key != "token"
-                })
+            warehouse_impacts = None
 
             status = (
                 "normal"
@@ -236,6 +224,19 @@ class InspectionService:
                     "old_warehouse_id": old_warehouse_id,
                     "new_warehouse_id": target_warehouse_id,
                 })
+
+            # Build one repair plan from the complete post-receipt state. The
+            # surrounding transaction makes a preview failure roll back the
+            # inspection, its items, and every physical warehouse change.
+            db.session.flush()
+            if moving_devices:
+                warehouse_impacts = (
+                    WarehouseMovementService.preview_receipt_repair(
+                        device_id,
+                        [device.id for device in moving_devices],
+                        target_warehouse_id,
+                    )
+                )
 
             AuditLog.log_action(
                 action="inspection_warehouse_received",
@@ -276,22 +277,29 @@ class InspectionService:
 
     @staticmethod
     def _validate_check_items(check_items):
-        if not isinstance(check_items, list):
-            raise ValueError("check_items 必须是数组")
+        if not isinstance(check_items, list) or not check_items:
+            raise ValueError("check_items 必须是非空数组")
         normalized = []
         for item in check_items:
             if not isinstance(item, dict):
                 raise ValueError("检查项格式无效")
-            name = item.get("name")
-            checked = item.get("is_checked", False)
-            order = item.get("order", 0)
+            if not {"name", "is_checked", "order"}.issubset(item):
+                raise ValueError("检查项字段不完整")
+            name = item["name"]
+            checked = item["is_checked"]
+            order = item["order"]
             if not isinstance(name, str) or not name.strip():
                 raise ValueError("检查项名称无效")
             if len(name) > 1020:
                 raise ValueError("检查项名称无效")
             if not isinstance(checked, bool):
                 raise ValueError("检查项状态无效")
-            if isinstance(order, bool) or not isinstance(order, int):
+            if (
+                isinstance(order, bool)
+                or not isinstance(order, int)
+                or order < 0
+                or order > 2147483647
+            ):
                 raise ValueError("检查项顺序无效")
             normalized.append({
                 "name": name,

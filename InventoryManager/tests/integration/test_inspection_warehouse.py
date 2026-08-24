@@ -198,12 +198,13 @@ def test_missing_receiving_warehouse_uses_main_rental_warehouse(
 
     assert response.status_code == 201
     body = response.get_json()["data"]
-    assert len(body["warehouse_impacts"]) == 1
-    assert body["warehouse_impacts"][0]["source_device_id"] == case["main"]
-    assert body["warehouse_impacts"][0]["target_warehouse_id"] == (
+    impact = body["warehouse_impacts"]
+    assert impact["primary_device_id"] == case["main"]
+    assert impact["moved_device_ids"] == [case["main"]]
+    assert impact["target_warehouse_id"] == (
         case["source"]
     )
-    assert "token" not in body["warehouse_impacts"][0]
+    assert impact["token"]
     with app.app_context():
         assert db.session.get(Device, case["main"]).warehouse_id == (
             case["source"]
@@ -235,21 +236,20 @@ def test_selected_warehouse_moves_main_and_only_received_actual_children(
     body = response.get_json()["data"]
     assert body["rental"]["includes_handle"] is True
     assert body["rental"]["includes_lens_mount"] is True
-    impacts = body["warehouse_impacts"]
-    assert [item["source_device_id"] for item in impacts] == sorted(
+    impact = body["warehouse_impacts"]
+    assert impact["primary_device_id"] == case["main"]
+    assert impact["moved_device_ids"] == sorted(
         [case["main"], case["received"]]
     )
-    assert all("token" not in item for item in impacts)
-    assert all(
-        {"auto_fixable", "blocked", "shortages", "manual"} <= set(item)
-        for item in impacts
-    )
-    main_impact = next(
-        item for item in impacts if item["source_device_id"] == case["main"]
-    )
-    assert [item["rental_id"] for item in main_impact["auto_fixable"]] == [
-        case["future"]
-    ]
+    assert impact["token"]
+    assert impact["blocked"] == []
+    assert impact["shortages"] == []
+    assert impact["manual"] == []
+    assert impact["auto_fixable"] == [{
+        "rental_id": case["future"],
+        "fulfillment_warehouse_id": case["target"],
+        "replacements": [],
+    }]
 
     with app.app_context():
         assert db.session.get(Device, case["main"]).warehouse_id == (
@@ -289,6 +289,86 @@ def test_selected_warehouse_moves_main_and_only_received_actual_children(
                 "new_warehouse_id": case["target"],
             },
         ]
+
+    repaired = client.post(
+        f"/api/devices/{case['main']}/move",
+        json={"token": impact["token"]},
+    )
+    assert repaired.status_code == 200
+    with app.app_context():
+        assert db.session.get(Device, case["main"]).warehouse_id == (
+            case["target"]
+        )
+        assert db.session.get(Device, case["received"]).warehouse_id == (
+            case["target"]
+        )
+        assert db.session.get(Rental, case["future"]).warehouse_id == (
+            case["target"]
+        )
+        future_child = db.session.get(Rental, case["future_child"])
+        assert (future_child.device_id, future_child.warehouse_id) == (
+            case["received"], case["target"]
+        )
+        assert AuditLog.query.filter_by(
+            action="warehouse_receipt_rentals_repaired"
+        ).count() == 1
+
+    replay = client.post(
+        f"/api/devices/{case['main']}/move",
+        json={"token": impact["token"]},
+    )
+    assert replay.status_code == 409
+
+
+def test_child_only_receipt_repairs_moved_children_in_fulfillment_warehouse(
+    client, app
+):
+    with app.app_context():
+        case = _seed_case(with_future=True)
+        db.session.get(Device, case["main"]).warehouse_id = case["target"]
+        db.session.commit()
+
+    inspection = client.post(
+        "/api/inspections",
+        json=_payload(
+            case,
+            receiving_warehouse_id=case["target"],
+            received_device_ids=[case["received"]],
+        ),
+    )
+
+    assert inspection.status_code == 201
+    impact = inspection.get_json()["data"]["warehouse_impacts"]
+    assert impact["moved_device_ids"] == [case["received"]]
+    assert impact["auto_fixable"] == [{
+        "rental_id": case["future"],
+        "fulfillment_warehouse_id": case["source"],
+        "replacements": [{
+            "child_rental_id": case["future_child"],
+            "old_device_id": case["received"],
+            "new_device_id": case["not_received"],
+        }],
+    }]
+
+    repaired = client.post(
+        f"/api/devices/{case['main']}/move",
+        json={"token": impact["token"]},
+    )
+    assert repaired.status_code == 200
+    with app.app_context():
+        assert db.session.get(Rental, case["future"]).warehouse_id == (
+            case["source"]
+        )
+        child = db.session.get(Rental, case["future_child"])
+        assert (child.device_id, child.warehouse_id) == (
+            case["not_received"], case["source"]
+        )
+        assert db.session.get(Device, case["main"]).warehouse_id == (
+            case["target"]
+        )
+        assert db.session.get(Device, case["received"]).warehouse_id == (
+            case["target"]
+        )
 
 
 @pytest.mark.parametrize("received_key", ["unrelated", "missing", "other"])
@@ -398,6 +478,12 @@ def test_device_must_be_the_main_device_of_a_main_rental(client, app):
         [{"name": "", "is_checked": True, "order": 1}],
         [{"name": "x", "is_checked": "yes", "order": 1}],
         [{"name": "x", "is_checked": True, "order": True}],
+        [],
+        [{"name": "x", "is_checked": True, "order": -1}],
+        [{"name": "x", "is_checked": True, "order": 2147483648}],
+        [{"name": "x"}],
+        [{"name": "x", "is_checked": True}],
+        [{"name": "x", "order": 1}],
         [{"name": "x" * 1021, "is_checked": True, "order": 1}],
     ],
 )
@@ -416,6 +502,8 @@ def test_malformed_check_items_roll_back_everything(client, app, check_items):
     )
 
     assert response.status_code == 400
+    assert "INSERT INTO" not in str(response.get_json())
+    assert "parameters" not in str(response.get_json())
     with app.app_context():
         _assert_no_inspection_writes()
         assert db.session.get(Device, case["main"]).warehouse_id == (
@@ -464,10 +552,14 @@ def test_preview_failure_happens_before_any_write(client, app, monkeypatch):
     with app.app_context():
         case = _seed_case()
 
-    def fail_preview(_device_id, _warehouse_id):
+    def fail_preview(_device_id, _moved_ids, _warehouse_id):
         raise RuntimeError("preview unavailable")
 
-    monkeypatch.setattr(WarehouseMovementService, "preview", fail_preview)
+    monkeypatch.setattr(
+        WarehouseMovementService,
+        "preview_receipt_repair",
+        fail_preview,
+    )
     response = client.post(
         "/api/inspections",
         json=_payload(case, receiving_warehouse_id=case["target"]),
@@ -514,10 +606,11 @@ def test_concurrent_receipts_serialize_warehouse_changes(app):
         assert not thread.is_alive()
 
     assert sorted(status for status, _data in outcomes) == [201, 201]
-    impact_counts = sorted(
-        len(data["warehouse_impacts"]) for _status, data in outcomes
+    has_impact = sorted(
+        data["warehouse_impacts"] is not None
+        for _status, data in outcomes
     )
-    assert impact_counts == [0, 1]
+    assert has_impact == [False, True]
     with app.app_context():
         assert db.session.get(Device, case["main"]).warehouse_id == (
             case["target"]
@@ -527,3 +620,132 @@ def test_concurrent_receipts_serialize_warehouse_changes(app):
         assert AuditLog.query.filter_by(
             action="inspection_warehouse_received"
         ).count() == 2
+
+
+def test_aggregate_receipt_shortage_leaves_future_group_unchanged(
+    client, app
+):
+    with app.app_context():
+        case = _seed_case(with_future=True)
+        received_model_id = db.session.get(
+            Device, case["received"]
+        ).model_id
+        db.session.delete(db.session.get(Device, case["target_spare"]))
+        db.session.commit()
+
+    response = client.post(
+        "/api/inspections",
+        json=_payload(case, receiving_warehouse_id=case["target"]),
+    )
+
+    assert response.status_code == 201
+    impact = response.get_json()["data"]["warehouse_impacts"]
+    assert impact["auto_fixable"] == []
+    assert impact["manual"] == []
+    assert impact["shortages"] == [{
+        "rental_id": case["future"],
+        "code": "NO_AVAILABLE_REPLACEMENT",
+        "missing": [{
+            "child_rental_id": case["future_child"],
+            "model_id": received_model_id,
+            "model": "inspection-tripod",
+        }],
+    }]
+    assert impact["token"]
+
+    executed = client.post(
+        f"/api/devices/{case['main']}/move",
+        json={"token": impact["token"]},
+    )
+    assert executed.status_code == 200
+    with app.app_context():
+        assert db.session.get(Rental, case["future"]).warehouse_id == (
+            case["source"]
+        )
+        child = db.session.get(Rental, case["future_child"])
+        assert (child.device_id, child.warehouse_id) == (
+            case["received"], case["source"]
+        )
+
+    replay = client.post(
+        f"/api/devices/{case['main']}/move",
+        json={"token": impact["token"]},
+    )
+    assert replay.status_code == 409
+
+
+@pytest.mark.parametrize(
+    ("manual_kind", "expected_reason"),
+    [("tracking", "TRACKING_EXISTS"), ("shipped", "ALREADY_SHIPPED")],
+)
+def test_aggregate_receipt_marks_locked_future_groups_manual(
+    client, app, manual_kind, expected_reason
+):
+    with app.app_context():
+        case = _seed_case(with_future=True)
+        future = db.session.get(Rental, case["future"])
+        if manual_kind == "tracking":
+            future.ship_out_tracking_no = "SF-RECEIPT-LOCKED"
+        else:
+            future.status = "shipped"
+        db.session.commit()
+
+    response = client.post(
+        "/api/inspections",
+        json=_payload(case, receiving_warehouse_id=case["target"]),
+    )
+
+    assert response.status_code == 201
+    impact = response.get_json()["data"]["warehouse_impacts"]
+    assert impact["auto_fixable"] == []
+    assert impact["shortages"] == []
+    assert impact["manual"] == [{
+        "rental_id": case["future"],
+        "reason": expected_reason,
+    }]
+
+
+def test_concurrent_aggregate_repair_executes_once_and_other_is_stale(
+    client, app
+):
+    with app.app_context():
+        if db.engine.dialect.name != "mysql":
+            pytest.skip("receipt repair concurrency requires MariaDB")
+        case = _seed_case(with_future=True)
+
+    inspection = client.post(
+        "/api/inspections",
+        json=_payload(
+            case,
+            receiving_warehouse_id=case["target"],
+            received_device_ids=[case["received"]],
+        ),
+    )
+    token = inspection.get_json()["data"]["warehouse_impacts"]["token"]
+    barrier = Barrier(2)
+    outcomes = []
+
+    def execute():
+        with app.test_client() as thread_client:
+            barrier.wait()
+            response = thread_client.post(
+                f"/api/devices/{case['main']}/move",
+                json={"token": token},
+            )
+            outcomes.append(response.status_code)
+
+    threads = [Thread(target=execute) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+        assert not thread.is_alive()
+
+    assert sorted(outcomes) == [200, 409]
+    with app.app_context():
+        assert db.session.get(Rental, case["future"]).warehouse_id == (
+            case["target"]
+        )
+        assert AuditLog.query.filter_by(
+            action="warehouse_receipt_rentals_repaired"
+        ).count() == 1

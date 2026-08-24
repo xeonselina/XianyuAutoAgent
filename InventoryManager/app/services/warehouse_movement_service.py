@@ -510,6 +510,360 @@ class WarehouseMovementService:
         }
 
     @classmethod
+    def _load_receipt_groups(cls, moved_ids, now, lock):
+        direct_query = Rental.query.filter(
+            Rental.device_id.in_(moved_ids)
+        ).order_by(Rental.id)
+        direct = cls._locked(direct_query, lock).all()
+        relevant = [
+            rental for rental in direct
+            if rental.status not in {"completed", "cancelled"}
+            and cls._is_future(rental, now)
+        ]
+        main_ids = {
+            rental.parent_rental_id or rental.id for rental in relevant
+        }
+        group_rows = []
+        if main_ids:
+            group_query = Rental.query.filter(
+                db.or_(
+                    Rental.id.in_(main_ids),
+                    Rental.parent_rental_id.in_(main_ids),
+                )
+            ).order_by(Rental.id)
+            group_rows = cls._locked(group_query, lock).all()
+
+        rows_by_main = {main_id: [] for main_id in main_ids}
+        main_by_id = {}
+        direct_by_main = {main_id: [] for main_id in main_ids}
+        for rental in group_rows:
+            main_id = rental.parent_rental_id or rental.id
+            if main_id in rows_by_main:
+                rows_by_main[main_id].append(rental)
+            if rental.parent_rental_id is None:
+                main_by_id[rental.id] = rental
+        for rental in relevant:
+            main_id = rental.parent_rental_id or rental.id
+            direct_by_main[main_id].append(rental)
+
+        groups = []
+        blocked = []
+        for main_id in sorted(main_ids):
+            main = main_by_id.get(main_id)
+            if main is None:
+                blocked.append({
+                    "rental_id": min(
+                        rental.id for rental in direct_by_main[main_id]
+                    ),
+                    "reason": "PARENT_RENTAL_MISSING",
+                })
+                continue
+            groups.append({
+                "main": main,
+                "rows": rows_by_main[main_id],
+                "direct": direct_by_main[main_id],
+            })
+        return groups, blocked, direct
+
+    @classmethod
+    def _build_receipt_state(
+        cls,
+        primary_device_id,
+        moved_device_ids,
+        target_warehouse_id,
+        lock=False,
+    ):
+        now = datetime.utcnow()
+        moved_ids = sorted(set(moved_device_ids))
+        target_query = Warehouse.query.filter(
+            Warehouse.id == target_warehouse_id
+        )
+        target = cls._locked(target_query, lock).one_or_none()
+        if target is None:
+            raise LookupError("目标仓库不存在")
+
+        groups, blocked, direct_rows = cls._load_receipt_groups(
+            moved_ids, now, lock
+        )
+        group_rows = [row for group in groups for row in group["rows"]]
+        device_ids = {
+            primary_device_id,
+            *moved_ids,
+            *(row.device_id for row in group_rows),
+        }
+        device_query = Device.query.filter(
+            Device.id.in_(device_ids)
+        ).order_by(Device.id)
+        devices = cls._locked(device_query, lock).all()
+        devices_by_id = {device.id: device for device in devices}
+        if primary_device_id not in devices_by_id:
+            raise LookupError("设备不存在")
+        if any(item not in devices_by_id for item in moved_ids):
+            raise LookupError("收到的设备不存在")
+        if any(
+            devices_by_id[item].warehouse_id != target.id
+            for item in moved_ids
+        ):
+            raise ValueError("收到的设备仓位已变化")
+
+        automatic_groups = []
+        manual = []
+        need_keys = set()
+        need_warehouse_ids = set()
+        moved_set = set(moved_ids)
+        for group in groups:
+            main = group["main"]
+            children = [
+                row for row in group["rows"]
+                if row.parent_rental_id == main.id
+            ]
+            main_moved = main.device_id in moved_set
+            if main_moved:
+                fulfillment_id = target.id
+                affected_children = children
+                needs = [
+                    (child, devices_by_id.get(child.device_id))
+                    for child in children
+                    if (
+                        devices_by_id.get(child.device_id) is None
+                        or devices_by_id[child.device_id].warehouse_id
+                        != fulfillment_id
+                    )
+                ]
+                requires_repair = (
+                    main.warehouse_id != fulfillment_id
+                    or any(
+                        child.warehouse_id != fulfillment_id
+                        for child in children
+                    )
+                    or bool(needs)
+                )
+            else:
+                fulfillment_id = main.warehouse_id
+                affected_children = [
+                    child for child in children
+                    if child.device_id in moved_set
+                ]
+                needs = [
+                    (child, devices_by_id.get(child.device_id))
+                    for child in affected_children
+                    if (
+                        devices_by_id.get(child.device_id) is None
+                        or devices_by_id[child.device_id].warehouse_id
+                        != fulfillment_id
+                    )
+                ]
+                requires_repair = bool(needs)
+            if not requires_repair:
+                continue
+
+            reason = cls._manual_reason(group)
+            if reason is not None:
+                manual.append({
+                    "rental_id": main.id,
+                    "reason": reason,
+                })
+                continue
+            interval = cls._occupancy(main)
+            automatic_groups.append({
+                **group,
+                "main_moved": main_moved,
+                "fulfillment_warehouse_id": fulfillment_id,
+                "affected_children": affected_children,
+                "needs": needs,
+                "interval": interval,
+            })
+            for _child, old_device in needs:
+                model_key = cls._model_key(old_device)
+                if model_key is not None:
+                    need_keys.add(model_key)
+                    need_warehouse_ids.add(fulfillment_id)
+
+        candidates = cls._candidate_devices(
+            need_keys, need_warehouse_ids, -1, lock
+        )
+        occupancy_rows = cls._candidate_occupancies(
+            [device.id for device in candidates], lock
+        )
+        existing_by_device = {}
+        for rental in occupancy_rows:
+            existing_by_device.setdefault(rental.device_id, []).append(
+                rental
+            )
+
+        auto_fixable = []
+        shortages = []
+        operations = []
+        reservations = {}
+        automatic_groups.sort(
+            key=lambda item: (item["interval"][0], item["main"].id)
+        )
+        for group in automatic_groups:
+            replacements = []
+            missing = []
+            local_reservations = []
+            for child, old_device in sorted(
+                group["needs"], key=lambda item: item[0].id
+            ):
+                model_key = cls._model_key(old_device)
+                if model_key is None:
+                    missing.append({
+                        "child_rental_id": child.id,
+                        **cls._model_description(old_device),
+                    })
+                    continue
+                replacement = cls._select_candidate(
+                    candidates,
+                    existing_by_device,
+                    reservations,
+                    local_reservations,
+                    group["fulfillment_warehouse_id"],
+                    model_key,
+                    group["interval"],
+                )
+                if replacement is None:
+                    missing.append({
+                        "child_rental_id": child.id,
+                        **cls._model_description(old_device),
+                    })
+                    continue
+                replacements.append({
+                    "child_rental_id": child.id,
+                    "old_device_id": child.device_id,
+                    "new_device_id": replacement.id,
+                })
+                local_reservations.append(
+                    (replacement.id, group["interval"])
+                )
+
+            if missing:
+                shortages.append({
+                    "rental_id": group["main"].id,
+                    "code": (
+                        "MODEL_UNKNOWN"
+                        if any(
+                            item["model_id"] is None and not item["model"]
+                            for item in missing
+                        )
+                        else "NO_AVAILABLE_REPLACEMENT"
+                    ),
+                    "missing": missing,
+                })
+                continue
+
+            for replacement_id, interval in local_reservations:
+                reservations.setdefault(replacement_id, []).append(interval)
+            public_row = {
+                "rental_id": group["main"].id,
+                "fulfillment_warehouse_id": group[
+                    "fulfillment_warehouse_id"
+                ],
+                "replacements": replacements,
+            }
+            auto_fixable.append(public_row)
+            operations.append({
+                **public_row,
+                "affected_child_rental_ids": [
+                    child.id for child in group["affected_children"]
+                ],
+                "move_main_rental": group["main_moved"],
+            })
+
+        all_rentals = {
+            rental.id: rental
+            for rental in direct_rows + group_rows + occupancy_rows
+        }
+        all_devices = {
+            device.id: device for device in devices + candidates
+        }
+        warehouse_ids = {
+            target.id,
+            *(group["main"].warehouse_id for group in groups),
+            *(device.warehouse_id for device in all_devices.values()),
+        }
+        warehouse_query = Warehouse.query.filter(
+            Warehouse.id.in_(warehouse_ids)
+        ).order_by(Warehouse.id)
+        warehouses = cls._locked(warehouse_query, lock).all()
+        repair_audits = AuditLog.query.filter_by(
+            action="warehouse_receipt_rentals_repaired",
+            resource_type="device",
+            resource_id=str(primary_device_id),
+        ).order_by(AuditLog.id).all()
+        summary = {
+            "primary_device_id": primary_device_id,
+            "moved_device_ids": moved_ids,
+            "target_warehouse_id": target.id,
+            "auto_fixable": sorted(
+                auto_fixable, key=lambda item: item["rental_id"]
+            ),
+            "blocked": sorted(
+                blocked, key=lambda item: item["rental_id"]
+            ),
+            "shortages": sorted(
+                shortages, key=lambda item: item["rental_id"]
+            ),
+            "manual": sorted(manual, key=lambda item: item["rental_id"]),
+        }
+        snapshot = {
+            "warehouses": cls._fingerprints(warehouses),
+            "devices": cls._fingerprints(all_devices.values()),
+            "rentals": cls._fingerprints(all_rentals.values()),
+            "repair_audits": cls._fingerprints(repair_audits),
+        }
+        return {
+            "summary": summary,
+            "operations": sorted(
+                operations, key=lambda item: item["rental_id"]
+            ),
+            "snapshot": snapshot,
+            "related_device_ids": sorted(all_devices),
+            "related_rental_ids": sorted(all_rentals),
+            "related_warehouse_ids": sorted(warehouse_ids),
+        }
+
+    @classmethod
+    def preview_receipt_repair(
+        cls,
+        primary_device_id,
+        moved_device_ids,
+        target_warehouse_id,
+    ):
+        primary_device_id = cls._normalize_id(
+            primary_device_id, "设备ID"
+        )
+        if not isinstance(moved_device_ids, list) or not moved_device_ids:
+            raise ValueError("收到的设备ID无效")
+        moved_ids = sorted({
+            cls._normalize_id(item, "收到的设备ID")
+            for item in moved_device_ids
+        })
+        target_warehouse_id = cls._normalize_id(
+            target_warehouse_id, "目标仓库ID"
+        )
+        state = cls._build_receipt_state(
+            primary_device_id, moved_ids, target_warehouse_id
+        )
+        payload = {
+            "version": 1,
+            "mode": "receipt_repair",
+            "tenant_id": current_tenant_id(),
+            "primary_device_id": primary_device_id,
+            "moved_device_ids": moved_ids,
+            "target_warehouse_id": target_warehouse_id,
+            "summary": state["summary"],
+            "operations": state["operations"],
+            "snapshot": state["snapshot"],
+            "related_device_ids": state["related_device_ids"],
+            "related_rental_ids": state["related_rental_ids"],
+            "related_warehouse_ids": state["related_warehouse_ids"],
+        }
+        return {
+            **state["summary"],
+            "token": cls._serializer().dumps(payload),
+        }
+
+    @classmethod
     def preview(cls, device_id: int, target_warehouse_id: int) -> dict:
         device_id = cls._normalize_id(device_id, "设备ID")
         target_warehouse_id = cls._normalize_id(
@@ -576,8 +930,124 @@ class WarehouseMovementService:
             )
 
     @classmethod
+    def _execute_receipt_repair(
+        cls, payload, expected_device_id=None
+    ):
+        try:
+            primary_id = cls._normalize_id(
+                payload.get("primary_device_id"), "设备ID"
+            )
+            target_id = cls._normalize_id(
+                payload.get("target_warehouse_id"), "目标仓库ID"
+            )
+            raw_moved_ids = payload.get("moved_device_ids")
+            if not isinstance(raw_moved_ids, list) or not raw_moved_ids:
+                raise ValueError("收到的设备ID无效")
+            moved_ids = sorted({
+                cls._normalize_id(item, "收到的设备ID")
+                for item in raw_moved_ids
+            })
+        except ValueError as exc:
+            raise StaleMovementPreviewError(
+                "预览令牌无效，请重新预览"
+            ) from exc
+        if (
+            expected_device_id is not None
+            and cls._normalize_id(expected_device_id, "设备ID")
+            != primary_id
+        ):
+            raise StaleMovementPreviewError(
+                "预览令牌与当前设备不匹配，请重新预览"
+            )
+        if payload.get("tenant_id") != current_tenant_id():
+            raise StaleMovementPreviewError(
+                "预览令牌不属于当前租户，请重新预览"
+            )
+
+        try:
+            cls._lock_token_rows(payload)
+            try:
+                state = cls._build_receipt_state(
+                    primary_id, moved_ids, target_id, lock=True
+                )
+            except (LookupError, ValueError) as exc:
+                raise StaleMovementPreviewError(
+                    "设备、租赁或仓库状态已变化，请重新预览"
+                ) from exc
+            cls._assert_payload_matches(payload, state)
+
+            repaired_rental_ids = []
+            flattened_replacements = []
+            for operation in state["operations"]:
+                main = db.session.get(Rental, operation["rental_id"])
+                children = Rental.query.filter_by(
+                    parent_rental_id=main.id
+                ).order_by(Rental.id).all()
+                children_by_id = {
+                    child.id: child for child in children
+                }
+                if operation["move_main_rental"]:
+                    main.warehouse_id = operation[
+                        "fulfillment_warehouse_id"
+                    ]
+                    for child in children:
+                        child.warehouse_id = operation[
+                            "fulfillment_warehouse_id"
+                        ]
+                else:
+                    for child_id in operation[
+                        "affected_child_rental_ids"
+                    ]:
+                        children_by_id[child_id].warehouse_id = operation[
+                            "fulfillment_warehouse_id"
+                        ]
+
+                for replacement in operation["replacements"]:
+                    child = children_by_id[
+                        replacement["child_rental_id"]
+                    ]
+                    child.device_id = replacement["new_device_id"]
+                    child.warehouse_id = operation[
+                        "fulfillment_warehouse_id"
+                    ]
+                    flattened_replacements.append({
+                        "rental_id": main.id,
+                        **replacement,
+                    })
+                main.updated_at = datetime.utcnow()
+                repaired_rental_ids.append(main.id)
+
+            AuditLog.log_action(
+                action="warehouse_receipt_rentals_repaired",
+                resource_type="device",
+                resource_id=str(primary_id),
+                description="验货入仓后修正未来租赁",
+                details={
+                    "moved_device_ids": moved_ids,
+                    "target_warehouse_id": target_id,
+                    "repaired_rental_ids": repaired_rental_ids,
+                    "replacements": flattened_replacements,
+                },
+                commit=False,
+            )
+            db.session.commit()
+            return state["summary"]
+        except Exception:
+            db.session.rollback()
+            raise
+
+    @classmethod
     def execute(cls, token: str, expected_device_id=None) -> dict:
         payload = cls._load_token(token)
+        mode = payload.get("mode")
+        if mode == "receipt_repair":
+            return cls._execute_receipt_repair(
+                payload, expected_device_id=expected_device_id
+            )
+        if mode is not None:
+            raise StaleMovementPreviewError(
+                "预览令牌无效，请重新预览"
+            )
         try:
             device_id = cls._normalize_id(
                 payload.get("source_device_id"), "设备ID"
