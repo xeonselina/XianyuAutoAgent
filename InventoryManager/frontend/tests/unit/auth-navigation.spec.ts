@@ -77,6 +77,16 @@ const apiRejection = (message: string, status: number) => Object.assign(
   },
 )
 
+const deferred = <T>() => {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, reject, resolve }
+}
+
 const guardedRoutes: RouteRecordRaw[] = [
   { path: '/login', name: 'login', component: EmptyView, meta: { public: true } },
   {
@@ -229,6 +239,11 @@ describe('tenant navigation', () => {
     'https://attacker.example/mobile/gantt',
     '//attacker.example/mobile/gantt',
     '/platform/tenants',
+    '/PLATFORM/tenants',
+    '/mobile/%2e%2e/platform/tenants',
+    '/mobile/%2E%2E/%50LATFORM/tenants',
+    '/mobile%2F..%2Fplatform/tenants',
+    '/\\attacker.example/mobile/gantt',
   ])('rejects an unsafe tenant login next value: %s', async (next) => {
     const routerReplace = vi.fn()
     const browserReplace = vi.fn()
@@ -238,12 +253,28 @@ describe('tenant navigation', () => {
     expect(routerReplace).toHaveBeenCalledWith('/')
     expect(browserReplace).not.toHaveBeenCalled()
   })
+
+  it('keeps a valid encoded desktop tenant path inside the desktop router', async () => {
+    const routerReplace = vi.fn()
+    const browserReplace = vi.fn()
+
+    await navigateAfterTenantLogin(
+      '/search?keyword=%E6%B5%8B%E8%AF%95',
+      routerReplace,
+      browserReplace,
+    )
+
+    expect(routerReplace).toHaveBeenCalledWith(
+      '/search?keyword=%E6%B5%8B%E8%AF%95',
+    )
+    expect(browserReplace).not.toHaveBeenCalled()
+  })
 })
 
 describe('tenant auth store and login form', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
-    vi.clearAllMocks()
+    vi.resetAllMocks()
   })
 
   it('keeps tenant and platform CSRF values in memory without browser storage', async () => {
@@ -323,7 +354,7 @@ describe('tenant auth store and login form', () => {
 describe('authenticated shell and platform tenant actions', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
-    vi.clearAllMocks()
+    vi.resetAllMocks()
   })
 
   it('does not show the settings entry to an Operator', async () => {
@@ -410,10 +441,19 @@ describe('authenticated shell and platform tenant actions', () => {
     const wrapper = mount(PlatformTenantsView, {
       global: { plugins: [pinia, router] },
     })
-    await vi.waitFor(() => expect(apiMocks.listTenants).toHaveBeenCalledOnce())
+    await vi.waitFor(() => {
+      expect(apiMocks.listTenants).toHaveBeenCalledOnce()
+      expect(
+        (wrapper.get('[data-testid="new-tenant"]').element as HTMLButtonElement).disabled,
+      ).toBe(false)
+      expect(wrapper.find('[data-testid="status-8"]').exists()).toBe(true)
+    })
     await nextTick()
 
     await wrapper.get('[data-testid="new-tenant"]').trigger('click')
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="tenant-name"]').exists()).toBe(true)
+    })
     await wrapper.get('[data-testid="tenant-name"]').setValue('租户乙')
     await wrapper.get('[data-testid="admin-phone"]').setValue('13900139000')
     await wrapper.get('[data-testid="tenant-expiry"]').setValue('2026-10-01T08:00')
@@ -488,9 +528,18 @@ describe('authenticated shell and platform tenant actions', () => {
     const wrapper = mount(PlatformTenantsView, {
       global: { plugins: [pinia, router] },
     })
-    await vi.waitFor(() => expect(apiMocks.listTenants).toHaveBeenCalledOnce())
+    await vi.waitFor(() => {
+      expect(apiMocks.listTenants).toHaveBeenCalledOnce()
+      expect(
+        (wrapper.get('[data-testid="new-tenant"]').element as HTMLButtonElement).disabled,
+      ).toBe(false)
+      expect(wrapper.find('[data-testid="status-8"]').exists()).toBe(true)
+    })
 
     await wrapper.get('[data-testid="new-tenant"]').trigger('click')
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="tenant-name"]').exists()).toBe(true)
+    })
     await wrapper.get('[data-testid="tenant-name"]').setValue('租户乙')
     await wrapper.get('[data-testid="admin-phone"]').setValue('13900139000')
     await wrapper.get('[data-testid="tenant-expiry"]').setValue('2026-10-01T08:00')
@@ -551,5 +600,124 @@ describe('authenticated shell and platform tenant actions', () => {
     await wrapper.get('[data-testid="retry-8"]').trigger('click')
     await vi.waitFor(() => expect(apiMocks.retryTenant).toHaveBeenCalledTimes(2))
     expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+  })
+
+  it('locks duplicate create submissions and disables every tenant mutation control', async () => {
+    const failedTenant = {
+      id: 8,
+      name: '租户甲',
+      status: 'active',
+      expires_at: '2026-09-30T00:00:00Z',
+      db_name: 'inventory_tenant_00000008',
+      provisioning_status: 'failed',
+      provisioning_error: 'migration failed',
+      admin_phone: '+8613800138000',
+    }
+    const pendingCreate = deferred<typeof failedTenant>()
+    apiMocks.listTenants.mockResolvedValue([failedTenant])
+    apiMocks.createTenant.mockReturnValue(pendingCreate.promise)
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useAuthStore().applyPlatformSession(platformData)
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: PlatformTenantsView }],
+    })
+    await router.push('/')
+    await router.isReady()
+    const wrapper = mount(PlatformTenantsView, {
+      global: { plugins: [pinia, router] },
+    })
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="retry-8"]').exists()).toBe(true)
+    })
+
+    await wrapper.get('[data-testid="new-tenant"]').trigger('click')
+    await wrapper.get('[data-testid="tenant-name"]').setValue('租户乙')
+    await wrapper.get('[data-testid="admin-phone"]').setValue('13900139000')
+    await wrapper.get('[data-testid="tenant-expiry"]').setValue('2026-10-01T08:00')
+    await wrapper.get('.create-form').trigger('submit')
+    await vi.waitFor(() => expect(apiMocks.createTenant).toHaveBeenCalledOnce())
+
+    await vi.waitFor(() => {
+      expect(
+        (wrapper.get('[data-testid="create-tenant"]').element as HTMLButtonElement).disabled,
+      ).toBe(true)
+      expect(
+        (wrapper.get('[data-testid="status-8"]').element as HTMLButtonElement).disabled,
+      ).toBe(true)
+      expect(
+        (wrapper.get('[data-testid="retry-8"]').element as HTMLButtonElement).disabled,
+      ).toBe(true)
+    })
+    await wrapper.get('.create-form').trigger('submit')
+    expect(apiMocks.createTenant).toHaveBeenCalledOnce()
+
+    pendingCreate.resolve({ ...failedTenant, id: 9, provisioning_status: 'active' })
+    await vi.waitFor(() => {
+      expect(wrapper.find('.create-form').exists()).toBe(false)
+    })
+  })
+
+  it('serializes an older create failure before a later success without leaving stale error', async () => {
+    const tenant = {
+      id: 8,
+      name: '租户甲',
+      status: 'active',
+      expires_at: '2026-09-30T00:00:00Z',
+      db_name: 'inventory_tenant_00000008',
+      provisioning_status: 'active',
+      provisioning_error: null,
+      admin_phone: '+8613800138000',
+    }
+    const earlierFailure = deferred<typeof tenant>()
+    const laterSuccess = deferred<typeof tenant>()
+    apiMocks.listTenants.mockResolvedValue([tenant])
+    apiMocks.createTenant
+      .mockReturnValueOnce(earlierFailure.promise)
+      .mockReturnValueOnce(laterSuccess.promise)
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useAuthStore().applyPlatformSession(platformData)
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: PlatformTenantsView }],
+    })
+    await router.push('/')
+    await router.isReady()
+    const wrapper = mount(PlatformTenantsView, {
+      global: { plugins: [pinia, router] },
+    })
+    await vi.waitFor(() => {
+      expect(apiMocks.listTenants).toHaveBeenCalledOnce()
+      expect(
+        (wrapper.get('[data-testid="new-tenant"]').element as HTMLButtonElement).disabled,
+      ).toBe(false)
+      expect(wrapper.find('[data-testid="status-8"]').exists()).toBe(true)
+    })
+
+    await wrapper.get('[data-testid="new-tenant"]').trigger('click')
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="tenant-name"]').exists()).toBe(true)
+    })
+    await wrapper.get('[data-testid="tenant-name"]').setValue('租户乙')
+    await wrapper.get('[data-testid="admin-phone"]').setValue('13900139000')
+    await wrapper.get('[data-testid="tenant-expiry"]').setValue('2026-10-01T08:00')
+    await wrapper.get('.create-form').trigger('submit')
+    await wrapper.get('.create-form').trigger('submit')
+    expect(apiMocks.createTenant).toHaveBeenCalledOnce()
+
+    earlierFailure.reject(apiRejection('较早的创建失败', 409))
+    await vi.waitFor(() => {
+      expect(wrapper.get('[role="alert"]').text()).toBe('较早的创建失败')
+    })
+
+    await wrapper.get('.create-form').trigger('submit')
+    await vi.waitFor(() => expect(apiMocks.createTenant).toHaveBeenCalledTimes(2))
+    laterSuccess.resolve({ ...tenant, id: 9, name: '租户乙' })
+    await vi.waitFor(() => {
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+      expect(wrapper.find('.create-form').exists()).toBe(false)
+    })
   })
 })

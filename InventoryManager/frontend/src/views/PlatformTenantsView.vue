@@ -18,6 +18,7 @@ const auth = useAuthStore()
 const router = useRouter()
 const tenants = ref<PlatformTenant[]>([])
 const loading = ref(false)
+const mutationBusy = ref(false)
 const showCreate = ref(false)
 const errorMessage = ref('')
 const form = reactive({ name: '', adminPhone: '', expiresAt: '' })
@@ -47,6 +48,8 @@ const load = async () => {
 }
 
 const submitCreate = async () => {
+  if (mutationBusy.value) return
+  mutationBusy.value = true
   errorMessage.value = ''
   try {
     const created = await createTenant(
@@ -64,15 +67,21 @@ const submitCreate = async () => {
     const operationError = apiErrorMessage(error)
     await load()
     errorMessage.value = operationError
+  } finally {
+    mutationBusy.value = false
   }
 }
 
 const update = async (tenant: PlatformTenant, patch: TenantPatch) => {
+  if (mutationBusy.value) return
+  mutationBusy.value = true
   errorMessage.value = ''
   try {
     replaceTenant(await patchTenant(tenant.id, patch, csrf()))
   } catch (error) {
     errorMessage.value = apiErrorMessage(error)
+  } finally {
+    mutationBusy.value = false
   }
 }
 
@@ -83,6 +92,8 @@ const saveExpiry = async (tenant: PlatformTenant) => {
 }
 
 const retry = async (tenant: PlatformTenant) => {
+  if (mutationBusy.value) return
+  mutationBusy.value = true
   errorMessage.value = ''
   try {
     replaceTenant(await retryTenant(tenant.id, csrf()))
@@ -90,6 +101,8 @@ const retry = async (tenant: PlatformTenant) => {
     const operationError = apiErrorMessage(error)
     await load()
     errorMessage.value = operationError
+  } finally {
+    mutationBusy.value = false
   }
 }
 
@@ -110,7 +123,12 @@ onMounted(load)
       </div>
       <div class="header-actions">
         <span>{{ auth.platformAdmin?.username }}</span>
-        <button data-testid="new-tenant" type="button" @click="showCreate = !showCreate">
+        <button
+          data-testid="new-tenant"
+          type="button"
+          :disabled="loading || mutationBusy"
+          @click="showCreate = !showCreate"
+        >
           创建租户
         </button>
         <button type="button" class="secondary" @click="logout">退出</button>
@@ -118,10 +136,10 @@ onMounted(load)
     </header>
 
     <form v-if="showCreate" class="create-form" @submit.prevent="submitCreate">
-      <label>租户名称<input v-model.trim="form.name" data-testid="tenant-name" required></label>
-      <label>首个 Admin 手机号<input v-model.trim="form.adminPhone" data-testid="admin-phone" required></label>
-      <label>到期时间<input v-model="form.expiresAt" data-testid="tenant-expiry" type="datetime-local" required></label>
-      <button data-testid="create-tenant" type="submit">确认创建</button>
+      <label>租户名称<input v-model.trim="form.name" data-testid="tenant-name" :disabled="mutationBusy" required></label>
+      <label>首个 Admin 手机号<input v-model.trim="form.adminPhone" data-testid="admin-phone" :disabled="mutationBusy" required></label>
+      <label>到期时间<input v-model="form.expiresAt" data-testid="tenant-expiry" type="datetime-local" :disabled="mutationBusy" required></label>
+      <button data-testid="create-tenant" type="submit" :disabled="mutationBusy">确认创建</button>
     </form>
 
     <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
@@ -145,24 +163,27 @@ onMounted(load)
             :data-testid="`expiry-${tenant.id}`"
             type="datetime-local"
             aria-label="新的到期时间"
+            :disabled="mutationBusy"
           >
           <button
             :data-testid="`save-expiry-${tenant.id}`"
             type="button"
+            :disabled="mutationBusy"
             @click="saveExpiry(tenant)"
           >
             保存到期时间
           </button>
-          <button :data-testid="`extend-${tenant.id}`" type="button" @click="update(tenant, { extend_days: 30 })">
+          <button :data-testid="`extend-${tenant.id}`" type="button" :disabled="mutationBusy" @click="update(tenant, { extend_days: 30 })">
             增加 30 天
           </button>
-          <button :data-testid="`status-${tenant.id}`" type="button" @click="update(tenant, { status: tenant.status === 'active' ? 'suspended' : 'active' })">
+          <button :data-testid="`status-${tenant.id}`" type="button" :disabled="mutationBusy" @click="update(tenant, { status: tenant.status === 'active' ? 'suspended' : 'active' })">
             {{ tenant.status === 'active' ? '暂停' : '恢复' }}
           </button>
           <button
             v-if="tenant.provisioning_status === 'failed'"
             :data-testid="`retry-${tenant.id}`"
             type="button"
+            :disabled="mutationBusy"
             @click="retry(tenant)"
           >
             重试建库

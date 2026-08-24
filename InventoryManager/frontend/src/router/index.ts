@@ -38,26 +38,65 @@ type AuthGuardStore = Pick<
 type ReplaceRoute = (path: string) => unknown | Promise<unknown>
 type ReplaceDocument = (url: string) => void
 
-const safeTenantNext = (rawNext: unknown): string => (
-  typeof rawNext === 'string'
-    && rawNext.startsWith('/')
-    && !rawNext.startsWith('//')
-    && !rawNext.startsWith('/platform')
-    ? rawNext
-    : '/'
-)
+type TenantNext = { path: string; mobile: boolean }
+
+const safeTenantNext = (
+  rawNext: unknown,
+  origin: string,
+): TenantNext => {
+  const fallback = { path: '/', mobile: false }
+  if (
+    typeof rawNext !== 'string'
+    || !rawNext.startsWith('/')
+    || rawNext.startsWith('//')
+    || rawNext.includes('\\')
+  ) return fallback
+
+  try {
+    const base = new URL('/', origin)
+    const parsed = new URL(rawNext, base)
+    if (parsed.origin !== base.origin) return fallback
+
+    let decodedPath = parsed.pathname
+    while (decodedPath.includes('%')) {
+      const decoded = decodeURIComponent(decodedPath)
+      if (decoded === decodedPath) break
+      decodedPath = decoded
+    }
+    if (decodedPath.includes('\\') || /[?#]/.test(decodedPath)) return fallback
+
+    const normalized = new URL(decodedPath, base)
+    if (normalized.origin !== base.origin) return fallback
+    const lowerPath = normalized.pathname.toLowerCase()
+    if (lowerPath === '/platform' || lowerPath.startsWith('/platform/')) {
+      return fallback
+    }
+
+    const suffix = `${parsed.search}${parsed.hash}`
+    if (lowerPath === '/mobile' || lowerPath.startsWith('/mobile/')) {
+      return {
+        path: `/mobile${normalized.pathname.slice('/mobile'.length)}${suffix}`,
+        mobile: true,
+      }
+    }
+    return { path: `${normalized.pathname}${suffix}`, mobile: false }
+  } catch {
+    return fallback
+  }
+}
 
 export const navigateAfterTenantLogin = async (
   rawNext: unknown,
   replaceRoute: ReplaceRoute,
   replaceDocument: ReplaceDocument,
+  origin: string = window.location.origin,
 ) => {
-  const next = safeTenantNext(rawNext)
-  if (next === '/mobile' || next.startsWith('/mobile/')) {
-    replaceDocument(next)
+  const next = safeTenantNext(rawNext, origin)
+  if (next.mobile) {
+    replaceDocument(next.path)
     return
   }
-  await replaceRoute(next)
+  await replaceRoute(next.path)
 }
 
 export const installAuthGuards = (
