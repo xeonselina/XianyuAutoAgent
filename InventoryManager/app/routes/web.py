@@ -3,11 +3,9 @@
 from datetime import datetime
 
 from flask import Blueprint, current_app, g, jsonify, request
-from sqlalchemy import and_, select
 
 from app import db
-from app.control.models import AuthSession, Tenant, TenantMember
-from app.crypto import hash_token
+from app.auth import csrf_matches, resolve_tenant_session
 from app.routes.web_pages import bp as web_pages_bp
 from app.routes.gantt_api import bp as gantt_api_bp
 from app.routes.device_api import bp as device_api_bp
@@ -63,6 +61,8 @@ def bind_request_tenant():
     """Authenticate and bind tenant business routes before dispatch."""
     if not _requires_tenant_session(request.path):
         return None
+    if request.method == 'OPTIONS':
+        return None
     if current_app.extensions.get('tenant_auth_bypass_enabled', False):
         return None
 
@@ -83,40 +83,27 @@ def bind_request_tenant():
             500,
         )
 
-    now = datetime.utcnow()
-    with control_store.session() as session:
-        row = session.execute(
-            select(AuthSession, TenantMember, Tenant)
-            .select_from(AuthSession)
-            .join(
-                TenantMember,
-                and_(
-                    TenantMember.id == AuthSession.subject_id,
-                    TenantMember.tenant_id == AuthSession.tenant_id,
-                ),
-            )
-            .join(Tenant, Tenant.id == AuthSession.tenant_id)
-            .where(
-                AuthSession.kind == 'tenant',
-                AuthSession.token_hash == hash_token(raw_token),
-                AuthSession.expires_at > now,
-            )
-        ).one_or_none()
-
-    if row is None:
+    identity = resolve_tenant_session(control_store, raw_token)
+    if identity is None:
         return _tenant_error(
             'AUTH_REQUIRED',
             '租户会话无效或已过期',
             401,
         )
 
-    auth_session, member, tenant = row
-    if member.status != 'active':
+    auth_session = identity.auth_session
+    member = identity.member
+    tenant = identity.tenant
+    if request.method not in {'GET', 'HEAD', 'OPTIONS'} and not csrf_matches(
+        auth_session,
+        request.headers.get('X-CSRF-Token'),
+    ):
         return _tenant_error(
-            'AUTH_REQUIRED',
-            '租户成员已停用',
-            401,
+            'CSRF_INVALID',
+            'CSRF token 无效',
+            403,
         )
+    now = datetime.utcnow()
     if tenant.provisioning_status != 'active':
         return _tenant_error(
             'PROVISIONING_FAILED',

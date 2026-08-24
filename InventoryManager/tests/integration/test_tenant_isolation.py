@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from flask import g
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.engine import make_url
 
 from app import create_app, db
@@ -402,6 +402,25 @@ def test_invalid_tenant_access_state_is_rejected(
     finally:
         with store.session() as session:
             setattr(session.get(model, object_id), field, original)
+            if model is TenantMember and field == "status":
+                raw_token = tenant_databases["raw_tokens"]["a"]
+                existing_session = session.scalar(
+                    select(AuthSession).where(
+                        AuthSession.token_hash == hash_token(raw_token)
+                    )
+                )
+                if existing_session is None:
+                    session.add(
+                        AuthSession(
+                            kind="tenant",
+                            subject_id=object_id,
+                            tenant_id=tenant_databases["tenant_ids"]["a"],
+                            token_hash=hash_token(raw_token),
+                            csrf_token_hash=hash_token("csrf-a"),
+                            expires_at=datetime.utcnow()
+                            + timedelta(days=30),
+                        )
+                    )
 
     assert response.status_code == expected_status
     assert response.get_json()["code"] == expected_code

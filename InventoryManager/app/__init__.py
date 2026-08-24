@@ -2,17 +2,23 @@
 库存管理服务 Flask应用初始化
 """
 
+import base64
+import ipaddress
 import logging
 import os
+import re
 import weakref
 from logging.handlers import RotatingFileHandler
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 from flask import Flask
 from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
+from werkzeug.middleware.proxy_fix import ProxyFix
 
+from app.auth import AuthService, FakeSmsSender, TencentSmsSender
 from app.control.store import ControlStore
 from app.crypto import SecretBox
 from app.tenant_context import TenantEngineRegistry, TenantSession
@@ -27,6 +33,55 @@ from config import Config, config as config_map  # noqa: E402
 # 初始化扩展
 db = SQLAlchemy(session_options={"class_": TenantSession})
 migrate = Migrate()
+
+
+_DNS_LABEL = re.compile(
+    r'^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$'
+)
+
+
+def _is_exact_http_origin(origin):
+    if not isinstance(origin, str):
+        return False
+    try:
+        parsed = urlsplit(origin)
+        port = parsed.port
+    except ValueError:
+        return False
+    if (
+        parsed.scheme not in {'http', 'https'}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path
+        or parsed.query
+        or parsed.fragment
+        or (port is not None and not 1 <= port <= 65535)
+    ):
+        return False
+
+    hostname = parsed.hostname
+    try:
+        ipaddress.ip_address(hostname)
+        return True
+    except ValueError:
+        labels = hostname.split('.')
+        return len(hostname) <= 253 and all(
+            _DNS_LABEL.fullmatch(label) for label in labels
+        )
+
+
+def _validated_cors_origins(configured_origins):
+    if not configured_origins:
+        return []
+    if isinstance(configured_origins, str):
+        configured_origins = [configured_origins]
+    origins = list(configured_origins)
+    if not all(_is_exact_http_origin(origin) for origin in origins):
+        raise RuntimeError(
+            'Credentialed CORS requires exact HTTP origins'
+        )
+    return origins
 
 
 def _dispose_tenant_resources(control_store, tenant_engine_registry):
@@ -55,6 +110,16 @@ def create_app(config_class=Config):
     )
     app.config.from_object(config_class)
 
+    trusted_proxy_hops = int(app.config.get('TRUSTED_PROXY_HOPS') or 0)
+    if trusted_proxy_hops < 0:
+        raise RuntimeError('TRUSTED_PROXY_HOPS cannot be negative')
+    if trusted_proxy_hops:
+        app.wsgi_app = ProxyFix(
+            app.wsgi_app,
+            x_for=trusted_proxy_hops,
+            x_proto=trusted_proxy_hops,
+        )
+
     auth_bypass_requested = bool(
         app.config.get('AUTH_BYPASS_FOR_TESTS')
     )
@@ -82,6 +147,34 @@ def create_app(config_class=Config):
         if app.config.get('DEV_SMS_CODE'):
             raise RuntimeError('Production forbids DEV_SMS_CODE')
 
+    cors_origins = _validated_cors_origins(
+        app.config.get('CORS_ORIGINS')
+    )
+
+    sms_sender = app.config.get('SMS_SENDER')
+    if app.config.get('IS_PRODUCTION') and sms_sender is not None:
+        if not isinstance(sms_sender, TencentSmsSender):
+            raise RuntimeError(
+                'Production forbids FakeSmsSender or custom SMS senders'
+            )
+    if sms_sender is None:
+        tencent_settings = {
+            'secret_id': app.config.get('TENCENTCLOUD_SECRET_ID'),
+            'secret_key': app.config.get('TENCENTCLOUD_SECRET_KEY'),
+            'sdk_app_id': app.config.get('TENCENT_SMS_SDK_APP_ID'),
+            'sign_name': app.config.get('TENCENT_SMS_SIGN_NAME'),
+            'template_id': app.config.get('TENCENT_SMS_TEMPLATE_ID'),
+        }
+        if all(tencent_settings.values()):
+            sms_sender = TencentSmsSender(
+                **tencent_settings,
+                region=app.config.get('TENCENT_SMS_REGION'),
+            )
+        elif app.config.get('IS_PRODUCTION'):
+            raise RuntimeError('Production requires Tencent SMS configuration')
+        else:
+            sms_sender = FakeSmsSender()
+
     app.extensions['tenant_auth_bypass_enabled'] = bool(
         auth_bypass_requested
         and app.testing
@@ -92,7 +185,11 @@ def create_app(config_class=Config):
     control_database_url = app.config.get('CONTROL_DATABASE_URL')
     control_store = None
     if control_database_url:
-        control_store = ControlStore(control_database_url, secret_box)
+        control_store = ControlStore(
+            control_database_url,
+            secret_box,
+            pool_size=app.config.get('CONTROL_DB_POOL_SIZE', 5),
+        )
     tenant_engine_registry = TenantEngineRegistry(
         secret_box=secret_box,
         host=app.config['TENANT_DB_HOST'],
@@ -100,6 +197,21 @@ def create_app(config_class=Config):
         pool_size=app.config.get('TENANT_DB_POOL_SIZE', 2),
     )
     app.extensions['control_store'] = control_store
+    app.extensions['sms_sender'] = sms_sender
+    app.extensions['auth_service'] = (
+        AuthService(
+            store=control_store,
+            master_key=base64.b64decode(
+                app.config['SAAS_MASTER_KEY'],
+                validate=True,
+            ),
+            sender=sms_sender,
+            fixed_code=app.config.get('DEV_SMS_CODE'),
+            logger=app.logger,
+        )
+        if control_store is not None
+        else None
+    )
     app.extensions['tenant_engine_registry'] = tenant_engine_registry
     app.extensions['tenant_resource_finalizer'] = weakref.finalize(
         app,
@@ -112,11 +224,17 @@ def create_app(config_class=Config):
     db.init_app(app)
     migrate.init_app(app, db)
 
-    # 启用CORS
-    CORS(app)
+    # 默认同源；仅显式白名单允许携带 Cookie 的跨域请求。
+    if cors_origins:
+        CORS(
+            app,
+            origins=cors_origins,
+            supports_credentials=True,
+        )
 
     # 注册蓝图
     from app.routes import (
+        auth_api,
         device_model_api,
         external_api,
         inspection,
@@ -132,6 +250,7 @@ def create_app(config_class=Config):
     app.before_request(web.bind_request_tenant)
     app.teardown_request(web.reset_request_tenant)
 
+    app.register_blueprint(auth_api.bp)
     app.register_blueprint(web.bp)
     app.register_blueprint(external_api.bp, url_prefix='/external-api')
     app.register_blueprint(vue_app.bp)

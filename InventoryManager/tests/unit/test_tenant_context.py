@@ -216,6 +216,11 @@ def test_runtime_config_changes_cannot_enable_production_auth_bypass():
         AUTH_BYPASS_FOR_TESTS = False
         SAAS_MASTER_KEY = MASTER_KEY
         DEV_SMS_CODE = None
+        TENCENTCLOUD_SECRET_ID = "test-secret-id"
+        TENCENTCLOUD_SECRET_KEY = "test-secret-key"
+        TENCENT_SMS_SDK_APP_ID = "test-sdk-app-id"
+        TENCENT_SMS_SIGN_NAME = "test-sign"
+        TENCENT_SMS_TEMPLATE_ID = "test-template"
 
     application = create_app(ProductionRuntimeConfig)
 

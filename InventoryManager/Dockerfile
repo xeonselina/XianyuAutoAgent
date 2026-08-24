@@ -75,14 +75,14 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 # ── 环境变量 ──────────────────────────────────────────────────────────────────
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    FLASK_APP=app.py \
+    FLASK_APP=run.py \
     FLASK_ENV=production \
     LOG_LEVEL=INFO \
     LOG_FILE=logs/inventory_service.log \
-    SESSION_COOKIE_SECURE=false \
+    SESSION_COOKIE_SECURE=true \
     SESSION_COOKIE_HTTPONLY=true \
     SESSION_COOKIE_SAMESITE=Lax \
-    CORS_ORIGINS=* \
+    TRUSTED_PROXY_HOPS=1 \
     DEFAULT_RENTAL_DAYS=7 \
     MAX_RENTAL_DAYS=30 \
     MIN_ADVANCE_BOOKING_DAYS=1 \

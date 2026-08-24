@@ -30,6 +30,15 @@ def _get_database_uri():
         )
 
 
+def _get_cors_origins():
+    raw_origins = os.environ.get('CORS_ORIGINS', '')
+    return [
+        origin.strip()
+        for origin in raw_origins.split(',')
+        if origin.strip()
+    ]
+
+
 class Config:
     """基础配置类"""
 
@@ -43,7 +52,18 @@ class Config:
         os.environ.get('SAAS_MASTER_KEY') or DEFAULT_SAAS_MASTER_KEY
     )
     DEV_SMS_CODE = os.environ.get('DEV_SMS_CODE')
+    SMS_SENDER = None
     IS_PRODUCTION = False
+
+    # 腾讯云短信
+    TENCENTCLOUD_SECRET_ID = os.environ.get('TENCENTCLOUD_SECRET_ID')
+    TENCENTCLOUD_SECRET_KEY = os.environ.get('TENCENTCLOUD_SECRET_KEY')
+    TENCENT_SMS_SDK_APP_ID = os.environ.get('TENCENT_SMS_SDK_APP_ID')
+    TENCENT_SMS_SIGN_NAME = os.environ.get('TENCENT_SMS_SIGN_NAME')
+    TENCENT_SMS_TEMPLATE_ID = os.environ.get('TENCENT_SMS_TEMPLATE_ID')
+    TENCENT_SMS_REGION = (
+        os.environ.get('TENCENT_SMS_REGION') or 'ap-guangzhou'
+    )
 
     # 数据库配置
     SQLALCHEMY_DATABASE_URI = _get_database_uri()
@@ -60,6 +80,9 @@ class Config:
     )
     TENANT_DB_HOST = os.environ.get('TENANT_DB_HOST') or '127.0.0.1'
     TENANT_DB_PORT = int(os.environ.get('TENANT_DB_PORT') or 3306)
+    TRUSTED_PROXY_HOPS = int(
+        os.environ.get('TRUSTED_PROXY_HOPS') or 0
+    )
 
     # 应用配置
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
@@ -84,7 +107,7 @@ class Config:
     SESSION_COOKIE_SAMESITE = 'Lax'
 
     # 跨域配置
-    CORS_ORIGINS = os.environ.get('CORS_ORIGINS', '*').split(',')
+    CORS_ORIGINS = _get_cors_origins()
 
     # 业务配置
     DEFAULT_RENTAL_DAYS = 7
