@@ -17,10 +17,12 @@ class ControlStore:
         pool_size: int = 5,
         max_overflow: int = 10,
         pool_timeout: float = 30,
+        maintenance_pool_timeout: float = 0.2,
     ) -> None:
         self.secret_box = secret_box
+        is_mariadb = url.startswith(("mysql", "mariadb"))
         engine_options = {"pool_pre_ping": True}
-        if url.startswith(("mysql", "mariadb")):
+        if is_mariadb:
             engine_options.update(
                 pool_size=pool_size,
                 max_overflow=max_overflow,
@@ -32,6 +34,22 @@ class ControlStore:
             class_=Session,
             expire_on_commit=False,
         )
+        if is_mariadb:
+            self.maintenance_engine = create_engine(
+                url,
+                pool_pre_ping=True,
+                pool_size=1,
+                max_overflow=0,
+                pool_timeout=maintenance_pool_timeout,
+            )
+            self._maintenance_session_factory = sessionmaker(
+                bind=self.maintenance_engine,
+                class_=Session,
+                expire_on_commit=False,
+            )
+        else:
+            self.maintenance_engine = self.engine
+            self._maintenance_session_factory = self._session_factory
 
     def session(self) -> ContextManager[Session]:
         return self._session_scope()
@@ -43,9 +61,22 @@ class ControlStore:
     ) -> ContextManager[Session]:
         return self._locked_session_scope(names, timeout)
 
+    def maintenance_locked_session(
+        self,
+        names,
+        timeout=0,
+    ) -> ContextManager[Session]:
+        return self._locked_session_scope(
+            names,
+            timeout,
+            engine=self.maintenance_engine,
+            session_factory=self._maintenance_session_factory,
+        )
+
     @contextmanager
-    def _session_scope(self) -> Iterator[Session]:
-        session = self._session_factory()
+    def _session_scope(self, session_factory=None) -> Iterator[Session]:
+        session_factory = session_factory or self._session_factory
+        session = session_factory()
         try:
             yield session
             session.commit()
@@ -56,16 +87,24 @@ class ControlStore:
             session.close()
 
     @contextmanager
-    def _locked_session_scope(self, names, timeout) -> Iterator[Session]:
+    def _locked_session_scope(
+        self,
+        names,
+        timeout,
+        engine=None,
+        session_factory=None,
+    ) -> Iterator[Session]:
         """Serialize short MariaDB read-then-write transactions."""
-        if self.engine.dialect.name not in {"mysql", "mariadb"}:
-            with self._session_scope() as session:
+        engine = engine or self.engine
+        session_factory = session_factory or self._session_factory
+        if engine.dialect.name not in {"mysql", "mariadb"}:
+            with self._session_scope(session_factory) as session:
                 yield session
             return
 
         lock_names = sorted(set(names))
         acquired = []
-        with self.engine.connect() as connection:
+        with engine.connect() as connection:
             session = None
             try:
                 for lock_name in lock_names:
@@ -79,7 +118,7 @@ class ControlStore:
                         )
                     acquired.append(lock_name)
                 connection.commit()
-                session = self._session_factory(bind=connection)
+                session = session_factory(bind=connection)
                 try:
                     yield session
                     session.commit()
@@ -97,4 +136,6 @@ class ControlStore:
                 connection.commit()
 
     def dispose(self) -> None:
+        if self.maintenance_engine is not self.engine:
+            self.maintenance_engine.dispose()
         self.engine.dispose()

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from threading import Barrier, Event, Lock
 
 import pytest
-from sqlalchemy import create_engine, func, inspect, select
+from sqlalchemy import create_engine, event, func, inspect, select
 from sqlalchemy.engine import make_url
 
 from app import create_app, db
@@ -705,6 +705,123 @@ def test_slow_sms_provider_does_not_starve_authenticated_requests(
                 release_sender.set()
             assert slow_request.result(timeout=1).status_code == 200
     finally:
+        app.extensions["control_store"] = original_store
+        app.extensions["auth_service"].store = original_store
+        constrained_store.dispose()
+
+
+def test_locked_retention_cleanup_does_not_starve_distinct_auth_request(
+    auth_api_environment,
+    monkeypatch,
+):
+    app = auth_api_environment["app"]
+    original_store = app.extensions["control_store"]
+    stale_at = datetime.utcnow() - timedelta(days=8)
+    with original_store.session() as session:
+        stale_row = SmsLoginCode(
+            phone="+8613900139000",
+            code_digest="0" * 64,
+            requested_ip="203.0.113.10",
+            send_succeeded=False,
+            attempt_count=0,
+            expires_at=stale_at,
+            created_at=stale_at,
+        )
+        session.add(stale_row)
+        session.flush()
+        stale_id = stale_row.id
+
+    lock_connection = original_store.engine.connect()
+    lock_transaction = lock_connection.begin()
+    lock_connection.execute(
+        select(SmsLoginCode.id)
+        .where(SmsLoginCode.id == stale_id)
+        .with_for_update()
+    )
+
+    constrained_store = ControlStore(
+        app.config["CONTROL_DATABASE_URL"],
+        original_store.secret_box,
+        pool_size=1,
+        max_overflow=0,
+        pool_timeout=0.2,
+    )
+    app.extensions["control_store"] = constrained_store
+    app.extensions["auth_service"].store = constrained_store
+
+    cleanup_started = Event()
+    provider_entered = Event()
+    release_provider = Event()
+    sender = auth_api_environment["sender"]
+    original_send = sender.send_code
+
+    def observe_cleanup(
+        _connection,
+        _cursor,
+        statement,
+        parameters,
+        _context,
+        _executemany,
+    ):
+        if (
+            "GET_LOCK" in statement
+            and parameters.get("name") == "sms-retention-cleanup"
+        ):
+            cleanup_started.set()
+
+    observed_engines = [constrained_store.engine]
+    maintenance_engine = getattr(
+        constrained_store,
+        "maintenance_engine",
+        None,
+    )
+    if maintenance_engine is not None:
+        observed_engines.append(maintenance_engine)
+    for engine in observed_engines:
+        event.listen(engine, "before_cursor_execute", observe_cleanup)
+
+    def slow_send(*args):
+        provider_entered.set()
+        release_provider.wait(timeout=2)
+        return original_send(*args)
+
+    monkeypatch.setattr(sender, "send_code", slow_send)
+
+    def request_code(phone, client_ip):
+        with app.test_client() as client:
+            return client.post(
+                "/auth/sms/request",
+                json={"phone": phone},
+                environ_base={"REMOTE_ADDR": client_ip},
+            )
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            cleanup_caller = executor.submit(
+                request_code,
+                "13800138001",
+                "198.51.100.21",
+            )
+            assert cleanup_started.wait(timeout=1)
+            distinct_request = executor.submit(
+                request_code,
+                "13900000000",
+                "198.51.100.22",
+            )
+            try:
+                assert distinct_request.result(timeout=1).status_code == 200
+                assert provider_entered.wait(timeout=1)
+            finally:
+                release_provider.set()
+                lock_transaction.rollback()
+            assert cleanup_caller.result(timeout=2).status_code == 200
+        assert sender.send_count == 1
+    finally:
+        if lock_transaction.is_active:
+            lock_transaction.rollback()
+        lock_connection.close()
+        for engine in observed_engines:
+            event.remove(engine, "before_cursor_execute", observe_cleanup)
         app.extensions["control_store"] = original_store
         app.extensions["auth_service"].store = original_store
         constrained_store.dispose()

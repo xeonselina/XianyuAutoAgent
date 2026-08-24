@@ -433,7 +433,7 @@ class AuthService:
 
     def _best_effort_cleanup(self, now):
         try:
-            with self.store.locked_session(
+            with self.store.maintenance_locked_session(
                 ("sms-retention-cleanup",),
                 timeout=0,
             ) as session:
@@ -449,9 +449,14 @@ class AuthService:
                     .limit(500)
                 ).all()
                 if stale_ids:
+                    locked_ids = session.scalars(
+                        select(SmsLoginCode.id)
+                        .where(SmsLoginCode.id.in_(stale_ids))
+                        .with_for_update(nowait=True)
+                    ).all()
                     session.execute(
                         delete(SmsLoginCode).where(
-                            SmsLoginCode.id.in_(stale_ids)
+                            SmsLoginCode.id.in_(locked_ids)
                         )
                     )
         except (TimeoutError, SQLAlchemyError) as exc:
