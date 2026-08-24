@@ -100,6 +100,10 @@ def test_rejects_missing_source_without_replacing_existing_output(tmp_path):
         "DROP TABLE `mysql`.stolen_devices;\n",
         "INSERT INTO mysql.`stolen_devices` (id) VALUES (1);\n",
         "RENAME TABLE mysql.stolen_devices TO inventory_management_restore_test.stolen_devices;\n",
+        "DROP TABLE inventory_management_restore_test.safe, `mysql`.stolen_devices;\n",
+        "DROP VIEW `mysql`.`stolen_view`;\n",
+        "/*!50000 DROP VIEW `mysql`.`stolen_view` */;\n",
+        "DROP VIEW `inventory_management`.`devices`;\n",
     ],
 )
 def test_rejects_cross_database_sql_without_replacing_existing_output(
@@ -124,6 +128,26 @@ def test_rejects_cross_database_sql_without_replacing_existing_output(
 
     assert target.read_text(encoding="utf-8") == "keep this file"
     assert list(tmp_path.glob(".restore.sql.*.tmp")) == []
+
+
+def test_preserves_target_qualified_statement(tmp_path):
+    source = tmp_path / "backup.sql"
+    source.write_text(
+        "USE `inventory_management`;\n"
+        "DROP VIEW inventory_management_restore_test.safe_view;\n",
+        encoding="utf-8",
+    )
+    target = tmp_path / "restore.sql"
+
+    extract_database(
+        source,
+        target,
+        target_database="inventory_management_restore_test",
+    )
+
+    assert "DROP VIEW inventory_management_restore_test.safe_view;" in (
+        target.read_text(encoding="utf-8")
+    )
 
 
 def test_preserves_cross_database_looking_text_in_literals_and_comments(tmp_path):

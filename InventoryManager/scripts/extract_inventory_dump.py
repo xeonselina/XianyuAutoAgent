@@ -72,6 +72,7 @@ class _SqlSafetyScanner:
     """Stream SQL tokens while ignoring strings and comments."""
 
     _OBJECT_PREFIXES = {"FROM", "JOIN", "REFERENCES", "UPDATE"}
+    _OBJECT_TYPES = {"EVENT", "FUNCTION", "PROCEDURE", "TABLE", "TRIGGER", "VIEW"}
     _OBJECT_MODIFIERS = {
         "EXISTS",
         "IF",
@@ -84,6 +85,7 @@ class _SqlSafetyScanner:
         self.target_database = target_database.lower()
         self.string_quote: str | None = None
         self.in_block_comment = False
+        self.in_executable_comment = False
         self.quoted_identifier: list[str] | None = None
         self.words: list[str] = []
         self.expect_database = False
@@ -91,6 +93,9 @@ class _SqlSafetyScanner:
         self.candidate_database: str | None = None
         self.candidate_has_dot = False
         self.rename_table = False
+        self.object_list = False
+        self.forbidden_database_candidate: str | None = None
+        self.forbidden_candidate_has_dot = False
 
     def finish_statement(self) -> None:
         self.words.clear()
@@ -99,6 +104,9 @@ class _SqlSafetyScanner:
         self.candidate_database = None
         self.candidate_has_dot = False
         self.rename_table = False
+        self.object_list = False
+        self.forbidden_database_candidate = None
+        self.forbidden_candidate_has_dot = False
 
     def scan(self, line: str) -> None:
         index = 0
@@ -119,10 +127,18 @@ class _SqlSafetyScanner:
                 index = self._scan_quoted_identifier(line, index)
                 continue
 
+            if self.in_executable_comment and line.startswith("*/", index):
+                self.in_executable_comment = False
+                index += 2
+                continue
+
             character = line[index]
             if character in {"'", '"'}:
                 self.string_quote = character
                 index += 1
+            elif line.startswith("/*!", index):
+                self.in_executable_comment = True
+                index += 3
             elif line.startswith("/*", index):
                 self.in_block_comment = True
                 index += 2
@@ -145,11 +161,15 @@ class _SqlSafetyScanner:
             elif character == ".":
                 if self.candidate_database is not None:
                     self.candidate_has_dot = True
+                if self.forbidden_database_candidate is not None:
+                    self.forbidden_candidate_has_dot = True
                 index += 1
             else:
                 self._clear_unqualified_candidate()
                 if character == ";":
                     self.finish_statement()
+                elif character == "," and self.object_list:
+                    self.expect_object = True
                 index += 1
 
     def _scan_string(self, line: str, index: int) -> int:
@@ -186,6 +206,10 @@ class _SqlSafetyScanner:
 
     def _token(self, token: str) -> None:
         upper = token.upper()
+        if self.forbidden_candidate_has_dot:
+            raise UnsafeDatabaseError("提取结果包含其他数据库引用")
+        self.forbidden_database_candidate = None
+
         if self.expect_database:
             if upper not in {"EXISTS", "IF", "NOT"}:
                 if token.lower() != self.target_database:
@@ -220,16 +244,18 @@ class _SqlSafetyScanner:
             and previous_words[-1] in {"ALTER", "CREATE", "DROP"}
         ):
             self.expect_database = True
-        elif upper == "TABLE" and (
+        elif upper in self._OBJECT_TYPES and (
             previous_words
             and previous_words[-1]
             in {"ALTER", "CREATE", "DROP", "RENAME", "TRUNCATE"}
-            or len(previous_words) >= 2
+            or upper == "TABLE"
+            and len(previous_words) >= 2
             and previous_words[-1] == "TEMPORARY"
             and previous_words[-2] in {"CREATE", "DROP"}
         ):
             self.expect_object = True
             self.rename_table = "RENAME" in previous_words
+            self.object_list = previous_words[-1] in {"DROP", "RENAME"}
         elif upper == "INTO" and previous_words and previous_words[-1] in {
             "INSERT",
             "REPLACE",
@@ -237,16 +263,25 @@ class _SqlSafetyScanner:
             self.expect_object = True
         elif upper in self._OBJECT_PREFIXES:
             self.expect_object = True
+            self.object_list = upper == "FROM"
         elif upper == "TABLES" and previous_words and previous_words[-1] == "LOCK":
             self.expect_object = True
+            self.object_list = True
         elif upper == "TO" and self.rename_table:
             self.expect_object = True
         self._remember(upper)
+        if (
+            token.lower() in SYSTEM_DATABASES
+            and token.lower() != self.target_database
+        ):
+            self.forbidden_database_candidate = token.lower()
 
     def _clear_unqualified_candidate(self) -> None:
         if self.candidate_database is not None and not self.candidate_has_dot:
             self.candidate_database = None
             self.expect_object = False
+        if not self.forbidden_candidate_has_dot:
+            self.forbidden_database_candidate = None
 
     def _remember(self, token: str) -> None:
         self.words.append(token)
