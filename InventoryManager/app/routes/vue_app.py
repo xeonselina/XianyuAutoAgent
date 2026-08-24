@@ -65,6 +65,11 @@ def unified_favicon():
 @bp.route('/relay-management')
 @bp.route('/inspection')
 @bp.route('/inspection-records')
+@bp.route('/login')
+@bp.route('/access-restricted')
+@bp.route('/settings')
+@bp.route('/platform/login')
+@bp.route('/platform/tenants')
 def vue_router_routes(subpath=None):
     """处理所有 Vue Router 路由 - 返回 index.html 让前端路由处理"""
     dist_path = os.path.join(current_app.root_path, '..', 'static', 'vue-dist')

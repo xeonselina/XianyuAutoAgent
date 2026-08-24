@@ -3,6 +3,7 @@ import GanttView from '@/views/GanttView.vue'
 import BatchShippingView from '@/views/BatchShippingView.vue'
 import CreateRentalView from '@/views/CreateRentalView.vue'
 import EditRentalView from '@/views/EditRentalView.vue'
+import { createMobileAuthGuard, useMobileAuthStore } from '@/stores/auth'
 
 const router = createRouter({
   history: createWebHistory('/mobile/'),
@@ -59,5 +60,10 @@ const router = createRouter({
     return { top: 0 }
   }
 })
+
+router.beforeEach(createMobileAuthGuard(
+  () => useMobileAuthStore().bootstrap(),
+  (url) => window.location.assign(url),
+))
 
 export default router
