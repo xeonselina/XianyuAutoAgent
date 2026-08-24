@@ -154,6 +154,31 @@ def test_rejects_missing_source_without_replacing_existing_output(tmp_path):
             "DELIMITER ;\n",
             id="qualified-insert-inside-trigger-body",
         ),
+        pytest.param(
+            "DELIMITER $$\n"
+            "CREATE TRIGGER safe_trigger BEFORE INSERT ON devices\n"
+            "FOR EACH ROW BEGIN\n"
+            "  UPDATE other_database.stolen_devices SET id = 1;\n"
+            "END$$\n"
+            "DELIMITER ;\n",
+            id="first-update-inside-trigger-body",
+        ),
+        pytest.param(
+            "DELIMITER //\n"
+            "CREATE PROCEDURE safe_procedure()\n"
+            "BEGIN\n"
+            "  DROP TABLE other_database.stolen_devices;\n"
+            "END//\n"
+            "DELIMITER ;\n",
+            id="first-drop-inside-procedure-body",
+        ),
+        pytest.param(
+            "DELIMITER $$\n"
+            "CREATE EVENT safe_event ON SCHEDULE EVERY 1 DAY\n"
+            "DO UPDATE other_database.stolen_devices SET id = 1$$\n"
+            "DELIMITER ;\n",
+            id="event-do-update",
+        ),
     ],
 )
 def test_rejects_cross_database_sql_without_replacing_existing_output(
@@ -178,6 +203,47 @@ def test_rejects_cross_database_sql_without_replacing_existing_output(
 
     assert target.read_text(encoding="utf-8") == "keep this file"
     assert list(tmp_path.glob(".restore.sql.*.tmp")) == []
+
+
+@pytest.mark.parametrize(
+    "safe_statement",
+    [
+        "DELIMITER $$\n"
+        "CREATE TRIGGER safe_trigger BEFORE INSERT ON devices\n"
+        "FOR EACH ROW BEGIN\n"
+        "  UPDATE inventory_management_restore_test.devices SET id = 1;\n"
+        "END$$\n"
+        "DELIMITER ;\n",
+        "DELIMITER //\n"
+        "CREATE PROCEDURE safe_procedure()\n"
+        "BEGIN\n"
+        "  DROP TABLE inventory_management_restore_test.old_devices;\n"
+        "END//\n"
+        "DELIMITER ;\n",
+        "DELIMITER $$\n"
+        "CREATE EVENT safe_event ON SCHEDULE EVERY 1 DAY\n"
+        "DO UPDATE inventory_management_restore_test.devices SET id = 1$$\n"
+        "DELIMITER ;\n",
+    ],
+)
+def test_preserves_target_qualified_stored_program_body_commands(
+    tmp_path, safe_statement
+):
+    source = tmp_path / "backup.sql"
+    source.write_text(
+        "USE `inventory_management`;\n"
+        f"{safe_statement}",
+        encoding="utf-8",
+    )
+    target = tmp_path / "restore.sql"
+
+    extract_database(
+        source,
+        target,
+        target_database="inventory_management_restore_test",
+    )
+
+    assert safe_statement in target.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(

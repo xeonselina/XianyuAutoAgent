@@ -82,6 +82,7 @@ class _SqlSafetyScanner:
         "TRIGGER",
         "VIEW",
     }
+    _STORED_PROGRAM_TYPES = {"EVENT", "FUNCTION", "PROCEDURE", "TRIGGER"}
     _DDL_PREFIX_WORDS = {
         "ALGORITHM",
         "CURRENT_USER",
@@ -373,6 +374,17 @@ class _SqlSafetyScanner:
                 return
             self.ddl_seeking_type = False
             self.ddl_definer_part = None
+
+        if (
+            self.statement_command == "CREATE"
+            and self.ddl_object_type in self._STORED_PROGRAM_TYPES
+            and (
+                keyword == "BEGIN"
+                or self.ddl_object_type == "EVENT" and keyword == "DO"
+            )
+        ):
+            self.finish_statement()
+            return
 
         self._end_object_list_at_clause(keyword)
 
