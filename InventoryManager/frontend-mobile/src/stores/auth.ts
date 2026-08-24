@@ -43,9 +43,17 @@ type MobileTarget = { fullPath: string }
 export const createMobileAuthGuard = (
   bootstrap: () => Promise<boolean>,
   assign: (url: string) => void,
+  accessStatus: () => string | null | undefined = () => null,
 ) => async (to: MobileTarget): Promise<true | false> => {
-  if (await bootstrap()) return true
-  const next = `/mobile${to.fullPath}`
-  assign(`/login?next=${encodeURIComponent(next)}`)
-  return false
+  if (!await bootstrap()) {
+    const next = `/mobile${to.fullPath}`
+    assign(`/login?next=${encodeURIComponent(next)}`)
+    return false
+  }
+  const status = accessStatus()
+  if (status === 'expired' || status === 'suspended') {
+    assign(`/access-restricted?reason=${status}`)
+    return false
+  }
+  return true
 }

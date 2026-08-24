@@ -77,6 +77,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import axios from 'axios'
 import type { InspectionRecord } from '../../types/inspection'
 import dayjs from 'dayjs'
 import { WarningFilled, Close } from '@element-plus/icons-vue'
@@ -157,12 +158,15 @@ const handleCompleteDeposit = async () => {
     
     completingDeposit.value = true
     
-    const response = await fetch(`/api/rentals/${props.record.rental_id}/status`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'completed' })
-    })
-    const result = await response.json()
+    const response = await axios.put(
+      `/api/rentals/${props.record.rental_id}/status`,
+      { status: 'completed' },
+      {
+        headers: { 'Content-Type': 'application/json' },
+        validateStatus: () => true,
+      },
+    )
+    const result = response.data
     
     if (result.success) {
       ElMessage.success('退押完成')

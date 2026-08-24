@@ -235,6 +235,39 @@ describe('tenant navigation', () => {
     expect(routerReplace).not.toHaveBeenCalled()
   })
 
+  it.each(['expired', 'suspended'])(
+    'sends an authenticated %s mobile tenant to the desktop restricted page',
+    async (accessStatus) => {
+      const assign = vi.fn()
+      const guard = createMobileAuthGuard(
+        vi.fn().mockResolvedValue(true),
+        assign,
+        () => accessStatus,
+      )
+
+      const result = await guard({ fullPath: '/gantt' })
+
+      expect(result).toBe(false)
+      expect(assign).toHaveBeenCalledWith(
+        `/access-restricted?reason=${accessStatus}`,
+      )
+    },
+  )
+
+  it('allows an authenticated active mobile tenant to continue', async () => {
+    const assign = vi.fn()
+    const guard = createMobileAuthGuard(
+      vi.fn().mockResolvedValue(true),
+      assign,
+      () => 'active',
+    )
+
+    const result = await guard({ fullPath: '/gantt' })
+
+    expect(result).toBe(true)
+    expect(assign).not.toHaveBeenCalled()
+  })
+
   it.each([
     'https://attacker.example/mobile/gantt',
     '//attacker.example/mobile/gantt',

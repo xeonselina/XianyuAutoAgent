@@ -64,6 +64,7 @@ const router = createRouter({
 router.beforeEach(createMobileAuthGuard(
   () => useMobileAuthStore().bootstrap(),
   (url) => window.location.assign(url),
+  () => useMobileAuthStore().session?.tenant.access_status,
 ))
 
 export default router

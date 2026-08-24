@@ -2,6 +2,8 @@
  * 验货 API 服务
  */
 
+import axios from 'axios'
+
 import type {
   LatestRentalResponse,
   InspectionRecord,
@@ -39,14 +41,17 @@ export async function getLatestRentalByDeviceName(deviceName: string) {
  * @param data 验货记录数据
  */
 export async function createInspection(data: CreateInspectionRequest) {
-  const response = await fetch(API_BASE_URL, {
-    method: 'POST',
+  const response = await axios.post<{
+    success: boolean
+    data?: InspectionRecord
+    message?: string
+  }>(API_BASE_URL, data, {
     headers: {
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify(data)
+    validateStatus: () => true,
   })
-  return await response.json() as { success: boolean; data?: InspectionRecord; message?: string }
+  return response.data
 }
 
 /**
@@ -64,14 +69,17 @@ export async function getInspectionById(id: number) {
  * @param data 更新数据
  */
 export async function updateInspection(id: number, data: UpdateInspectionRequest) {
-  const response = await fetch(`${API_BASE_URL}/${id}`, {
-    method: 'PUT',
+  const response = await axios.put<{
+    success: boolean
+    data?: InspectionRecord
+    message?: string
+  }>(`${API_BASE_URL}/${id}`, data, {
     headers: {
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify(data)
+    validateStatus: () => true,
   })
-  return await response.json() as { success: boolean; data?: InspectionRecord; message?: string }
+  return response.data
 }
 
 /**
