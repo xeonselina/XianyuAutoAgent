@@ -21,6 +21,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from app.auth import AuthService, FakeSmsSender, TencentSmsSender
 from app.control.store import ControlStore
 from app.crypto import SecretBox
+from app.provisioning import TenantProvisioner
 from app.tenant_context import TenantEngineRegistry, TenantSession
 
 # 提前加载 .env，确保 Config 读取到环境变量
@@ -84,8 +85,14 @@ def _validated_cors_origins(configured_origins):
     return origins
 
 
-def _dispose_tenant_resources(control_store, tenant_engine_registry):
+def _dispose_tenant_resources(
+    control_store,
+    tenant_engine_registry,
+    tenant_provisioner,
+):
     tenant_engine_registry.dispose_all()
+    if tenant_provisioner is not None:
+        tenant_provisioner.dispose()
     if control_store is not None:
         control_store.dispose()
 
@@ -196,6 +203,25 @@ def create_app(config_class=Config):
         port=app.config['TENANT_DB_PORT'],
         pool_size=app.config.get('TENANT_DB_POOL_SIZE', 2),
     )
+    provisioner_database_url = app.config.get(
+        'PROVISIONER_DATABASE_URL'
+    )
+    tenant_provisioner = (
+        TenantProvisioner(
+            store=control_store,
+            provisioner_database_url=provisioner_database_url,
+            migrations_directory=app.config[
+                'BUSINESS_MIGRATIONS_DIRECTORY'
+            ],
+            tenant_db_host=app.config['TENANT_DB_HOST'],
+            tenant_db_port=app.config['TENANT_DB_PORT'],
+            database_prefix=app.config['TENANT_DB_NAME_PREFIX'],
+            user_prefix=app.config['TENANT_DB_USER_PREFIX'],
+            logger=app.logger,
+        )
+        if control_store is not None and provisioner_database_url
+        else None
+    )
     app.extensions['control_store'] = control_store
     app.extensions['sms_sender'] = sms_sender
     app.extensions['auth_service'] = (
@@ -213,11 +239,13 @@ def create_app(config_class=Config):
         else None
     )
     app.extensions['tenant_engine_registry'] = tenant_engine_registry
+    app.extensions['tenant_provisioner'] = tenant_provisioner
     app.extensions['tenant_resource_finalizer'] = weakref.finalize(
         app,
         _dispose_tenant_resources,
         control_store,
         tenant_engine_registry,
+        tenant_provisioner,
     )
 
     # 初始化扩展
@@ -238,6 +266,7 @@ def create_app(config_class=Config):
         device_model_api,
         external_api,
         inspection,
+        platform_api,
         rental_stats_api,
         sf_test_api,
         sf_tracking_api,
@@ -251,6 +280,8 @@ def create_app(config_class=Config):
     app.teardown_request(web.reset_request_tenant)
 
     app.register_blueprint(auth_api.bp)
+    app.register_blueprint(platform_api.bp)
+    platform_api.register_platform_commands(app)
     app.register_blueprint(web.bp)
     app.register_blueprint(external_api.bp, url_prefix='/external-api')
     app.register_blueprint(vue_app.bp)

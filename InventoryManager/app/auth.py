@@ -15,6 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.control.models import (
     AuthSession,
+    PlatformAdmin,
     SmsLoginCode,
     Tenant,
     TenantMember,
@@ -57,6 +58,12 @@ class TenantSessionIdentity:
     auth_session: AuthSession
     member: TenantMember
     tenant: Tenant
+
+
+@dataclass(frozen=True)
+class PlatformSessionIdentity:
+    auth_session: AuthSession
+    admin: PlatformAdmin
 
 
 class SmsRateLimitExceeded(Exception):
@@ -245,6 +252,35 @@ def resolve_tenant_session(store, raw_token, now=None):
             auth_session=auth_session,
             member=member,
             tenant=tenant,
+        )
+
+
+def resolve_platform_session(store, raw_token, now=None):
+    if not raw_token:
+        return None
+    now = now or _utcnow()
+    with store.session() as session:
+        row = session.execute(
+            select(AuthSession, PlatformAdmin)
+            .select_from(AuthSession)
+            .join(
+                PlatformAdmin,
+                PlatformAdmin.id == AuthSession.subject_id,
+            )
+            .where(
+                AuthSession.kind == "platform",
+                AuthSession.tenant_id.is_(None),
+                AuthSession.token_hash == hash_token(raw_token),
+                AuthSession.expires_at > now,
+            )
+        ).one_or_none()
+        if row is None:
+            return None
+        auth_session, admin = row
+        auth_session.last_seen_at = now
+        return PlatformSessionIdentity(
+            auth_session=auth_session,
+            admin=admin,
         )
 
 

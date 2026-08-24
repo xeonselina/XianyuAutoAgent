@@ -74,12 +74,26 @@ class Config:
         'pool_pre_ping': True
     }
     CONTROL_DATABASE_URL = os.environ.get('CONTROL_DATABASE_URL')
+    PROVISIONER_DATABASE_URL = os.environ.get(
+        'PROVISIONER_DATABASE_URL'
+    )
     CONTROL_DB_POOL_SIZE = int(os.environ.get('CONTROL_DB_POOL_SIZE') or 5)
     TENANT_DB_POOL_SIZE = int(
         os.environ.get('TENANT_DB_POOL_SIZE') or 2
     )
     TENANT_DB_HOST = os.environ.get('TENANT_DB_HOST') or '127.0.0.1'
     TENANT_DB_PORT = int(os.environ.get('TENANT_DB_PORT') or 3306)
+    TENANT_DB_NAME_PREFIX = (
+        os.environ.get('TENANT_DB_NAME_PREFIX')
+        or 'inventory_tenant_'
+    )
+    TENANT_DB_USER_PREFIX = (
+        os.environ.get('TENANT_DB_USER_PREFIX') or 'im_t'
+    )
+    BUSINESS_MIGRATIONS_DIRECTORY = (
+        os.environ.get('BUSINESS_MIGRATIONS_DIRECTORY')
+        or os.path.join(os.path.dirname(__file__), 'migrations')
+    )
     TRUSTED_PROXY_HOPS = int(
         os.environ.get('TRUSTED_PROXY_HOPS') or 0
     )
