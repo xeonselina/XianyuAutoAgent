@@ -2,10 +2,10 @@ import base64
 import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
-from threading import Event, Lock
+from threading import Barrier, Event, Lock
 
 import pytest
-from sqlalchemy import create_engine, inspect, select
+from sqlalchemy import create_engine, func, inspect, select
 from sqlalchemy.engine import make_url
 
 from app import create_app, db
@@ -560,6 +560,101 @@ def test_concurrent_sms_requests_are_serialized_by_persisted_limits(
         assert len(session.scalars(select(SmsLoginCode)).all()) == 1
 
 
+def test_distinct_sms_requests_do_not_deadlock_during_retention_cleanup(
+    auth_api_environment,
+):
+    start = Barrier(5)
+
+    def request_code(index):
+        start.wait(timeout=2)
+        with auth_api_environment["app"].test_client() as client:
+            return client.post(
+                "/auth/sms/request",
+                json={"phone": f"1390000{index:04d}"},
+                environ_base={
+                    "REMOTE_ADDR": f"198.51.100.{index + 10}",
+                },
+            ).status_code
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        statuses = list(executor.map(request_code, range(5)))
+
+    assert statuses == [200] * 5
+
+
+@pytest.mark.parametrize(
+    "scope",
+    ["phone_minute", "phone_hour", "phone_day", "ip_hour"],
+)
+def test_rate_limits_include_datetime_zero_boundary(
+    auth_api_environment,
+    scope,
+):
+    app = auth_api_environment["app"]
+    service = app.extensions["auth_service"]
+    store = app.extensions["control_store"]
+    now = datetime(2026, 8, 24, 12, 0, 0, 900000)
+    stored_now = now.replace(microsecond=0)
+    target_phone = "+8613800138000"
+    target_ip = "198.51.100.200"
+
+    if scope == "phone_minute":
+        created_times = [stored_now - timedelta(seconds=60)]
+        phones = [target_phone]
+        ips = ["198.51.100.201"]
+    elif scope == "phone_hour":
+        created_times = [stored_now - timedelta(hours=1)] + [
+            stored_now - timedelta(minutes=10 * index)
+            for index in range(1, 5)
+        ]
+        phones = [target_phone] * 5
+        ips = [f"198.51.100.{index + 1}" for index in range(5)]
+    elif scope == "phone_day":
+        created_times = [stored_now - timedelta(days=1)] + [
+            stored_now - timedelta(hours=2 * index)
+            for index in range(1, 10)
+        ]
+        phones = [target_phone] * 10
+        ips = [f"198.51.100.{index + 1}" for index in range(10)]
+    else:
+        created_times = [stored_now - timedelta(hours=1)] + [
+            stored_now - timedelta(minutes=2)
+            for _index in range(29)
+        ]
+        phones = ["+8613900139000"] * 30
+        ips = [target_ip] * 30
+
+    with store.session() as session:
+        session.add_all(
+            [
+                SmsLoginCode(
+                    phone=phone,
+                    code_digest="0" * 64,
+                    requested_ip=requested_ip,
+                    send_succeeded=False,
+                    attempt_count=0,
+                    expires_at=now + timedelta(minutes=5),
+                    created_at=created_at,
+                )
+                for phone, requested_ip, created_at in zip(
+                    phones,
+                    ips,
+                    created_times,
+                )
+            ]
+        )
+    service.now = lambda: now
+
+    response = app.test_client().post(
+        "/auth/sms/request",
+        json={"phone": target_phone},
+        environ_base={"REMOTE_ADDR": target_ip},
+    )
+
+    assert response.status_code == 429
+    assert response.get_json()["code"] == "RATE_LIMITED"
+
+
 def test_slow_sms_provider_does_not_starve_authenticated_requests(
     auth_api_environment,
     monkeypatch,
@@ -661,6 +756,43 @@ def test_concurrent_correct_verification_consumes_code_once(
     store = app.extensions["control_store"]
     with store.session() as session:
         assert len(session.scalars(select(AuthSession)).all()) == 1
+
+
+def test_consumed_newest_code_never_falls_back_to_older_generation(
+    auth_api_environment,
+):
+    app = auth_api_environment["app"]
+    service = app.extensions["auth_service"]
+    client = app.test_client()
+
+    service.fixed_code = "111111"
+    assert client.post(
+        "/auth/sms/request",
+        json={"phone": "13800138000"},
+    ).status_code == 200
+    store = app.extensions["control_store"]
+    with store.session() as session:
+        first_code = session.scalars(select(SmsLoginCode)).one()
+        first_code.created_at = datetime.utcnow() - timedelta(seconds=61)
+
+    service.fixed_code = "222222"
+    assert client.post(
+        "/auth/sms/request",
+        json={"phone": "13800138000"},
+    ).status_code == 200
+    assert client.post(
+        "/auth/sms/verify",
+        json={"phone": "13800138000", "code": "222222"},
+    ).status_code == 200
+
+    older_response = client.post(
+        "/auth/sms/verify",
+        json={"phone": "13800138000", "code": "111111"},
+    )
+
+    assert older_response.status_code == 401
+    with store.session() as session:
+        assert session.scalar(select(func.count(AuthSession.id))) == 1
 
 
 def test_concurrent_wrong_guesses_cannot_exceed_five_attempts(

@@ -11,6 +11,7 @@ from typing import Callable, Optional
 
 from flask import g, request
 from sqlalchemy import and_, delete, func, select
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.control.models import (
     AuthSession,
@@ -356,10 +357,11 @@ class AuthService:
             ),
         )
         for scope, identity_filter, cutoff, maximum in limits:
+            cutoff = cutoff.replace(microsecond=0)
             count = session.scalar(
                 select(func.count(SmsLoginCode.id)).where(
                     identity_filter,
-                    SmsLoginCode.created_at > cutoff,
+                    SmsLoginCode.created_at >= cutoff,
                 )
             )
             if count >= maximum:
@@ -389,6 +391,8 @@ class AuthService:
                 )
         except TimeoutError as exc:
             raise SmsRateLimitExceeded("busy") from exc
+
+        self._best_effort_cleanup(now)
 
         if not should_send:
             return None
@@ -427,6 +431,35 @@ class AuthService:
             )
         return None
 
+    def _best_effort_cleanup(self, now):
+        try:
+            with self.store.locked_session(
+                ("sms-retention-cleanup",),
+                timeout=0,
+            ) as session:
+                stale_ids = session.scalars(
+                    select(SmsLoginCode.id)
+                    .where(
+                        SmsLoginCode.created_at
+                        < (
+                            now - timedelta(days=SMS_RETENTION_DAYS)
+                        ).replace(microsecond=0)
+                    )
+                    .order_by(SmsLoginCode.id)
+                    .limit(500)
+                ).all()
+                if stale_ids:
+                    session.execute(
+                        delete(SmsLoginCode).where(
+                            SmsLoginCode.id.in_(stale_ids)
+                        )
+                    )
+        except (TimeoutError, SQLAlchemyError) as exc:
+            self.logger.warning(
+                "SMS retention cleanup skipped (%s)",
+                type(exc).__name__,
+            )
+
     def _persist_code_request(
         self,
         session,
@@ -435,12 +468,6 @@ class AuthService:
         code,
         now,
     ):
-        session.execute(
-            delete(SmsLoginCode).where(
-                SmsLoginCode.created_at
-                < now - timedelta(days=SMS_RETENTION_DAYS)
-            )
-        )
         self._check_rate_limits(session, phone, requested_ip, now)
         member = session.scalar(
             select(TenantMember).where(
@@ -473,11 +500,7 @@ class AuthService:
         with self.store.session() as session:
             code_row = session.scalar(
                 select(SmsLoginCode)
-                .where(
-                    SmsLoginCode.phone == phone,
-                    SmsLoginCode.consumed_at.is_(None),
-                    SmsLoginCode.expires_at > now,
-                )
+                .where(SmsLoginCode.phone == phone)
                 .order_by(SmsLoginCode.created_at.desc(),
                           SmsLoginCode.id.desc())
                 .with_for_update()
@@ -485,6 +508,8 @@ class AuthService:
             )
             if (
                 code_row is None
+                or code_row.consumed_at is not None
+                or code_row.expires_at <= now
                 or not code_row.send_succeeded
                 or code_row.attempt_count >= SMS_MAX_ATTEMPTS
             ):

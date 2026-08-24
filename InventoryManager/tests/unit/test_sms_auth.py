@@ -505,6 +505,7 @@ def test_gunicorn_entrypoint_selects_production_security_profile():
         }
     )
     environment.pop("DEV_SMS_CODE", None)
+    environment.pop("TRUSTED_PROXY_HOPS", None)
     project_root = Path(__file__).resolve().parents[2]
     script = """
 import json
@@ -514,6 +515,7 @@ print('ENTRYPOINT_CONFIG=' + json.dumps({
     'is_production': run.app.config['IS_PRODUCTION'],
     'secure_cookie': run.app.config['SESSION_COOKIE_SECURE'],
     'sender': type(run.app.extensions['sms_sender']).__name__,
+    'trusted_proxy_hops': run.app.config['TRUSTED_PROXY_HOPS'],
 }), flush=True)
 os._exit(0)
 """
@@ -537,4 +539,5 @@ os._exit(0)
         "is_production": True,
         "secure_cookie": True,
         "sender": "TencentSmsSender",
+        "trusted_proxy_hops": 0,
     }
