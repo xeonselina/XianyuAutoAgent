@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { apiErrorMessage } from '@/api/auth'
+import { navigateAfterTenantLogin } from '@/router'
 import { useAuthStore } from '@/stores/auth'
 
 
@@ -15,16 +16,6 @@ const codeRequested = ref(false)
 const busy = ref(false)
 const message = ref('')
 const errorMessage = ref('')
-
-const safeNext = () => {
-  const next = route.query.next
-  return typeof next === 'string'
-    && next.startsWith('/')
-    && !next.startsWith('//')
-    && !next.startsWith('/platform')
-    ? next
-    : '/'
-}
 
 const requestCode = async () => {
   errorMessage.value = ''
@@ -45,7 +36,11 @@ const login = async () => {
   busy.value = true
   try {
     await auth.verifyCode(phone.value, code.value)
-    await router.replace(safeNext())
+    await navigateAfterTenantLogin(
+      route.query.next,
+      (next) => router.replace(next),
+      (next) => window.location.replace(next),
+    )
   } catch (error) {
     errorMessage.value = apiErrorMessage(error)
   } finally {

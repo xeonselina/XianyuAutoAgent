@@ -35,6 +35,31 @@ type AuthGuardStore = Pick<
   | 'platformAuthenticated'
 >
 
+type ReplaceRoute = (path: string) => unknown | Promise<unknown>
+type ReplaceDocument = (url: string) => void
+
+const safeTenantNext = (rawNext: unknown): string => (
+  typeof rawNext === 'string'
+    && rawNext.startsWith('/')
+    && !rawNext.startsWith('//')
+    && !rawNext.startsWith('/platform')
+    ? rawNext
+    : '/'
+)
+
+export const navigateAfterTenantLogin = async (
+  rawNext: unknown,
+  replaceRoute: ReplaceRoute,
+  replaceDocument: ReplaceDocument,
+) => {
+  const next = safeTenantNext(rawNext)
+  if (next === '/mobile' || next.startsWith('/mobile/')) {
+    replaceDocument(next)
+    return
+  }
+  await replaceRoute(next)
+}
+
 export const installAuthGuards = (
   router: Router,
   getAuth: () => AuthGuardStore = useAuthStore,

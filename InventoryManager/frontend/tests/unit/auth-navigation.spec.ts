@@ -15,7 +15,10 @@ import AccessRestrictedView from '@/views/AccessRestrictedView.vue'
 import LoginView from '@/views/LoginView.vue'
 import PlatformLoginView from '@/views/PlatformLoginView.vue'
 import PlatformTenantsView from '@/views/PlatformTenantsView.vue'
-import { installAuthGuards } from '@/router'
+import {
+  installAuthGuards,
+  navigateAfterTenantLogin,
+} from '@/router'
 import { createMobileAuthGuard } from '../../../frontend-mobile/src/stores/auth'
 
 
@@ -62,6 +65,17 @@ const platformData = {
   csrf_token: 'platform-csrf',
   admin: { id: 1, username: 'root-admin' },
 }
+
+const apiRejection = (message: string, status: number) => Object.assign(
+  new Error(message),
+  {
+    isAxiosError: true,
+    response: {
+      status,
+      data: { success: false, message, code: 'INVALID_REQUEST' },
+    },
+  },
+)
 
 const guardedRoutes: RouteRecordRaw[] = [
   { path: '/login', name: 'login', component: EmptyView, meta: { public: true } },
@@ -182,7 +196,7 @@ describe('tenant navigation', () => {
     expect(router.currentRoute.value.query.next).toBe('/platform/tenants')
   })
 
-  it('sends an unauthenticated mobile visit to the desktop login with its mobile next path', async () => {
+  it('returns an unauthenticated mobile visit through desktop login to the mobile SPA', async () => {
     const assign = vi.fn()
     const guard = createMobileAuthGuard(
       vi.fn().mockResolvedValue(false),
@@ -195,6 +209,34 @@ describe('tenant navigation', () => {
     expect(assign).toHaveBeenCalledWith(
       '/login?next=%2Fmobile%2Fedit-rental%2F9%3Fsource%3Dscan',
     )
+
+    const desktopLoginUrl = new URL(assign.mock.calls[0][0], 'https://example.test')
+    const routerReplace = vi.fn()
+    const browserReplace = vi.fn()
+    await navigateAfterTenantLogin(
+      desktopLoginUrl.searchParams.get('next'),
+      routerReplace,
+      browserReplace,
+    )
+
+    expect(browserReplace).toHaveBeenCalledWith(
+      '/mobile/edit-rental/9?source=scan',
+    )
+    expect(routerReplace).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    'https://attacker.example/mobile/gantt',
+    '//attacker.example/mobile/gantt',
+    '/platform/tenants',
+  ])('rejects an unsafe tenant login next value: %s', async (next) => {
+    const routerReplace = vi.fn()
+    const browserReplace = vi.fn()
+
+    await navigateAfterTenantLogin(next, routerReplace, browserReplace)
+
+    expect(routerReplace).toHaveBeenCalledWith('/')
+    expect(browserReplace).not.toHaveBeenCalled()
   })
 })
 
@@ -417,5 +459,97 @@ describe('authenticated shell and platform tenant actions', () => {
 
     await wrapper.get('[data-testid="retry-8"]').trigger('click')
     expect(apiMocks.retryTenant).toHaveBeenCalledWith(8, 'platform-csrf')
+  })
+
+  it('preserves a rejected create error after refreshing and clears it on success', async () => {
+    const tenant = {
+      id: 8,
+      name: '租户甲',
+      status: 'active',
+      expires_at: '2026-09-30T00:00:00Z',
+      db_name: 'inventory_tenant_00000008',
+      provisioning_status: 'active',
+      provisioning_error: null,
+      admin_phone: '+8613800138000',
+    }
+    apiMocks.listTenants.mockResolvedValue([tenant])
+    apiMocks.createTenant
+      .mockRejectedValueOnce(apiRejection('该手机号已属于其他租户', 409))
+      .mockResolvedValueOnce({ ...tenant, id: 9, name: '租户乙' })
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useAuthStore().applyPlatformSession(platformData)
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: PlatformTenantsView }],
+    })
+    await router.push('/')
+    await router.isReady()
+    const wrapper = mount(PlatformTenantsView, {
+      global: { plugins: [pinia, router] },
+    })
+    await vi.waitFor(() => expect(apiMocks.listTenants).toHaveBeenCalledOnce())
+
+    await wrapper.get('[data-testid="new-tenant"]').trigger('click')
+    await wrapper.get('[data-testid="tenant-name"]').setValue('租户乙')
+    await wrapper.get('[data-testid="admin-phone"]').setValue('13900139000')
+    await wrapper.get('[data-testid="tenant-expiry"]').setValue('2026-10-01T08:00')
+    await wrapper.get('.create-form').trigger('submit')
+
+    await vi.waitFor(() => {
+      expect(apiMocks.listTenants).toHaveBeenCalledTimes(2)
+      expect(wrapper.get('[role="alert"]').text()).toBe('该手机号已属于其他租户')
+    })
+
+    await wrapper.get('.create-form').trigger('submit')
+    await vi.waitFor(() => expect(apiMocks.createTenant).toHaveBeenCalledTimes(2))
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+  })
+
+  it('preserves a rejected retry error after refreshing and clears it on success', async () => {
+    const failedTenant = {
+      id: 8,
+      name: '租户甲',
+      status: 'active',
+      expires_at: '2026-09-30T00:00:00Z',
+      db_name: 'inventory_tenant_00000008',
+      provisioning_status: 'failed',
+      provisioning_error: 'migration failed',
+      admin_phone: '+8613800138000',
+    }
+    apiMocks.listTenants.mockResolvedValue([failedTenant])
+    apiMocks.retryTenant
+      .mockRejectedValueOnce(apiRejection('租户当前状态不能重试', 400))
+      .mockResolvedValueOnce({
+        ...failedTenant,
+        provisioning_status: 'active',
+        provisioning_error: null,
+      })
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useAuthStore().applyPlatformSession(platformData)
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: PlatformTenantsView }],
+    })
+    await router.push('/')
+    await router.isReady()
+    const wrapper = mount(PlatformTenantsView, {
+      global: { plugins: [pinia, router] },
+    })
+    await vi.waitFor(() => {
+      expect(apiMocks.listTenants).toHaveBeenCalledOnce()
+      expect(wrapper.find('[data-testid="retry-8"]').exists()).toBe(true)
+    })
+
+    await wrapper.get('[data-testid="retry-8"]').trigger('click')
+    await vi.waitFor(() => {
+      expect(apiMocks.listTenants).toHaveBeenCalledTimes(2)
+      expect(wrapper.get('[role="alert"]').text()).toBe('租户当前状态不能重试')
+    })
+
+    await wrapper.get('[data-testid="retry-8"]').trigger('click')
+    await vi.waitFor(() => expect(apiMocks.retryTenant).toHaveBeenCalledTimes(2))
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
   })
 })

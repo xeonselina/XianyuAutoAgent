@@ -61,8 +61,9 @@ const submitCreate = async () => {
     Object.assign(form, { name: '', adminPhone: '', expiresAt: '' })
     showCreate.value = false
   } catch (error) {
-    errorMessage.value = apiErrorMessage(error)
+    const operationError = apiErrorMessage(error)
     await load()
+    errorMessage.value = operationError
   }
 }
 
@@ -86,8 +87,9 @@ const retry = async (tenant: PlatformTenant) => {
   try {
     replaceTenant(await retryTenant(tenant.id, csrf()))
   } catch (error) {
-    errorMessage.value = apiErrorMessage(error)
+    const operationError = apiErrorMessage(error)
     await load()
+    errorMessage.value = operationError
   }
 }
 
