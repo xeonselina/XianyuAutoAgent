@@ -189,7 +189,7 @@ def test_production_rejects_auth_bypass_even_when_testing_is_true():
         create_app(ProductionTestingConfig)
 
 
-def test_runtime_production_flag_never_honors_test_auth_bypass():
+def test_runtime_config_changes_do_not_revoke_authorized_test_bypass():
     class BypassTestingConfig(TestingConfig):
         AUTH_BYPASS_FOR_TESTS = True
 
@@ -199,10 +199,35 @@ def test_runtime_production_flag_never_honors_test_auth_bypass():
     def runtime_production_probe():
         return {"bypassed": True}
 
+    application.config["AUTH_BYPASS_FOR_TESTS"] = False
     application.config["IS_PRODUCTION"] = True
 
     response = application.test_client().get(
         "/api/_runtime-production-probe"
+    )
+
+    assert response.status_code == 200
+    assert response.get_json() == {"bypassed": True}
+
+
+def test_runtime_config_changes_cannot_enable_production_auth_bypass():
+    class ProductionRuntimeConfig(ProductionConfig):
+        TESTING = True
+        AUTH_BYPASS_FOR_TESTS = False
+        SAAS_MASTER_KEY = MASTER_KEY
+        DEV_SMS_CODE = None
+
+    application = create_app(ProductionRuntimeConfig)
+
+    @application.get("/api/_runtime-production-enable-probe")
+    def runtime_production_enable_probe():
+        return {"bypassed": True}
+
+    application.config["AUTH_BYPASS_FOR_TESTS"] = True
+    application.config["IS_PRODUCTION"] = False
+
+    response = application.test_client().get(
+        "/api/_runtime-production-enable-probe"
     )
 
     assert response.status_code == 401

@@ -55,8 +55,11 @@ def create_app(config_class=Config):
     )
     app.config.from_object(config_class)
 
-    if (
+    auth_bypass_requested = bool(
         app.config.get('AUTH_BYPASS_FOR_TESTS')
+    )
+    if (
+        auth_bypass_requested
         and (
             not app.testing
             or app.config.get('IS_PRODUCTION')
@@ -78,6 +81,12 @@ def create_app(config_class=Config):
             )
         if app.config.get('DEV_SMS_CODE'):
             raise RuntimeError('Production forbids DEV_SMS_CODE')
+
+    app.extensions['tenant_auth_bypass_enabled'] = bool(
+        auth_bypass_requested
+        and app.testing
+        and not app.config.get('IS_PRODUCTION')
+    )
 
     secret_box = SecretBox.from_base64(app.config['SAAS_MASTER_KEY'])
     control_database_url = app.config.get('CONTROL_DATABASE_URL')

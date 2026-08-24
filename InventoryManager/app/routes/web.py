@@ -63,11 +63,7 @@ def bind_request_tenant():
     """Authenticate and bind tenant business routes before dispatch."""
     if not _requires_tenant_session(request.path):
         return None
-    if (
-        current_app.testing
-        and current_app.config.get('AUTH_BYPASS_FOR_TESTS')
-        and not current_app.config.get('IS_PRODUCTION')
-    ):
+    if current_app.extensions.get('tenant_auth_bypass_enabled', False):
         return None
 
     raw_token = request.cookies.get('tenant_session')
