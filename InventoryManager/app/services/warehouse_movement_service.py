@@ -271,24 +271,13 @@ class WarehouseMovementService:
         ]
 
     @classmethod
-    def _candidate_occupancies(
-        cls, candidate_ids, lock, excluded_main_rental_id=None
-    ):
+    def _candidate_occupancies(cls, candidate_ids, lock):
         if not candidate_ids:
             return []
         query = Rental.query.filter(
             Rental.device_id.in_(candidate_ids),
             Rental.status.in_(cls.OCCUPANCY_STATUSES),
-        )
-        if excluded_main_rental_id is not None:
-            query = query.filter(
-                Rental.id != excluded_main_rental_id,
-                db.or_(
-                    Rental.parent_rental_id.is_(None),
-                    Rental.parent_rental_id != excluded_main_rental_id,
-                ),
-            )
-        query = query.order_by(Rental.id)
+        ).order_by(Rental.id)
         return cls._locked(query, lock).all()
 
     @classmethod
@@ -702,10 +691,13 @@ class WarehouseMovementService:
             need_keys, need_warehouse_ids, -1, lock
         )
         occupancy_rows = cls._candidate_occupancies(
-            [device.id for device in candidates],
-            lock,
-            excluded_main_rental_id=excluded_main_rental_id,
+            [device.id for device in candidates], lock
         )
+        snapshot_occupancy_rows = [
+            rental for rental in occupancy_rows
+            if rental.id != excluded_main_rental_id
+            and rental.parent_rental_id != excluded_main_rental_id
+        ]
         existing_by_device = {}
         for rental in occupancy_rows:
             existing_by_device.setdefault(rental.device_id, []).append(
@@ -792,7 +784,9 @@ class WarehouseMovementService:
 
         all_rentals = {
             rental.id: rental
-            for rental in direct_rows + group_rows + occupancy_rows
+            for rental in (
+                direct_rows + group_rows + snapshot_occupancy_rows
+            )
         }
         all_devices = {
             device.id: device for device in devices + candidates

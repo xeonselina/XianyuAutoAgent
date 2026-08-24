@@ -180,6 +180,27 @@ def _seed_case(*, with_future=False):
     }
 
 
+def _configure_child_only_candidate(case, *, overlaps_future):
+    db.session.get(Device, case["main"]).warehouse_id = case["target"]
+    db.session.get(Device, case["unrelated"]).lifecycle_status = "retired"
+    if overlaps_future:
+        start = date.today() + timedelta(days=9)
+        end = date.today() + timedelta(days=11)
+    else:
+        start = date.today() - timedelta(days=2)
+        end = date.today()
+    for rental_id in (
+        case["rental"],
+        case["received_child"],
+        case["not_received_child"],
+    ):
+        rental = db.session.get(Rental, rental_id)
+        rental.start_date = start
+        rental.end_date = end
+        rental.status = "returned"
+    db.session.commit()
+
+
 def _assert_no_inspection_writes():
     assert InspectionRecord.query.count() == 0
     assert InspectionCheckItem.query.count() == 0
@@ -777,6 +798,109 @@ def test_returned_inspected_group_is_not_reported_as_manual(client, app):
             "auto_fixable", "blocked", "shortages", "manual"
         ) for row in impact[key]
     } == {case["future"]}
+
+
+def test_child_only_receipt_keeps_excluded_overlapping_candidate_occupied(
+    client, app
+):
+    with app.app_context():
+        case = _seed_case(with_future=True)
+        _configure_child_only_candidate(case, overlaps_future=True)
+        model = db.session.get(Device, case["not_received"]).model
+        model_id = db.session.get(Device, case["not_received"]).model_id
+
+    inspection = client.post(
+        "/api/inspections",
+        json=_payload(
+            case,
+            receiving_warehouse_id=case["target"],
+            received_device_ids=[case["received"]],
+        ),
+    )
+
+    assert inspection.status_code == 201
+    impact = inspection.get_json()["data"]["warehouse_impacts"]
+    assert impact["moved_device_ids"] == [case["received"]]
+    assert impact["auto_fixable"] == []
+    assert impact["manual"] == []
+    assert impact["shortages"] == [{
+        "rental_id": case["future"],
+        "code": "NO_AVAILABLE_REPLACEMENT",
+        "missing": [{
+            "child_rental_id": case["future_child"],
+            "model_id": model_id,
+            "model": model,
+        }],
+    }]
+    excluded_ids = {
+        case["rental"],
+        case["received_child"],
+        case["not_received_child"],
+    }
+    with app.app_context():
+        payload = WarehouseMovementService._load_token(impact["token"])
+        assert excluded_ids.isdisjoint(payload["related_rental_ids"])
+        assert excluded_ids.isdisjoint(
+            row["id"] for row in payload["snapshot"]["rentals"]
+        )
+
+    executed = client.post(
+        f"/api/devices/{case['main']}/move",
+        json={"token": impact["token"]},
+    )
+
+    assert executed.status_code == 200
+    with app.app_context():
+        assert db.session.get(
+            Rental, case["not_received_child"]
+        ).device_id == case["not_received"]
+        assert db.session.get(
+            Rental, case["future_child"]
+        ).device_id == case["received"]
+
+
+def test_child_only_receipt_can_reuse_non_overlapping_excluded_candidate(
+    client, app
+):
+    with app.app_context():
+        case = _seed_case(with_future=True)
+        _configure_child_only_candidate(case, overlaps_future=False)
+
+    inspection = client.post(
+        "/api/inspections",
+        json=_payload(
+            case,
+            receiving_warehouse_id=case["target"],
+            received_device_ids=[case["received"]],
+        ),
+    )
+
+    assert inspection.status_code == 201
+    impact = inspection.get_json()["data"]["warehouse_impacts"]
+    assert impact["shortages"] == []
+    assert impact["auto_fixable"] == [{
+        "rental_id": case["future"],
+        "fulfillment_warehouse_id": case["source"],
+        "replacements": [{
+            "child_rental_id": case["future_child"],
+            "old_device_id": case["received"],
+            "new_device_id": case["not_received"],
+        }],
+    }]
+
+    executed = client.post(
+        f"/api/devices/{case['main']}/move",
+        json={"token": impact["token"]},
+    )
+
+    assert executed.status_code == 200
+    with app.app_context():
+        assert db.session.get(
+            Rental, case["not_received_child"]
+        ).device_id == case["not_received"]
+        assert db.session.get(
+            Rental, case["future_child"]
+        ).device_id == case["not_received"]
 
 
 @pytest.mark.parametrize(
