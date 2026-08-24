@@ -57,10 +57,14 @@ def create_app(config_class=Config):
 
     if (
         app.config.get('AUTH_BYPASS_FOR_TESTS')
-        and not app.testing
+        and (
+            not app.testing
+            or app.config.get('IS_PRODUCTION')
+        )
     ):
         raise RuntimeError(
-            'AUTH_BYPASS_FOR_TESTS requires TESTING=True'
+            'AUTH_BYPASS_FOR_TESTS requires TESTING=True '
+            'and non-production configuration'
         )
 
     if app.config.get('IS_PRODUCTION'):
@@ -116,6 +120,9 @@ def create_app(config_class=Config):
         vue_app,
         web,
     )
+    app.before_request(web.bind_request_tenant)
+    app.teardown_request(web.reset_request_tenant)
+
     app.register_blueprint(web.bp)
     app.register_blueprint(external_api.bp, url_prefix='/external-api')
     app.register_blueprint(vue_app.bp)

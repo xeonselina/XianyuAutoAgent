@@ -59,7 +59,6 @@ def _tenant_error(code, message, status_code):
     ).to_flask_response()
 
 
-@bp.before_app_request
 def bind_request_tenant():
     """Authenticate and bind tenant business routes before dispatch."""
     if not _requires_tenant_session(request.path):
@@ -67,6 +66,7 @@ def bind_request_tenant():
     if (
         current_app.testing
         and current_app.config.get('AUTH_BYPASS_FOR_TESTS')
+        and not current_app.config.get('IS_PRODUCTION')
     ):
         return None
 
@@ -149,7 +149,6 @@ def bind_request_tenant():
     return None
 
 
-@bp.teardown_app_request
 def reset_request_tenant(_exception):
     """Release the tenant session before restoring the prior context."""
     token = getattr(g, 'tenant_context_token', None)

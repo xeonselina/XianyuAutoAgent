@@ -5,6 +5,7 @@ from threading import Barrier
 from types import SimpleNamespace
 
 import pytest
+from flask import Blueprint, Flask, request
 from sqlalchemy import create_engine
 
 from app import create_app
@@ -19,7 +20,7 @@ from app.tenant_context import (
     reset_tenant,
 )
 from app.utils.response import error
-from config import TestingConfig
+from config import ProductionConfig, TestingConfig
 
 
 MASTER_KEY = base64.b64encode(bytes(range(32))).decode("ascii")
@@ -175,6 +176,82 @@ def test_auth_bypass_is_allowed_only_in_testing():
 
     with pytest.raises(RuntimeError, match="AUTH_BYPASS_FOR_TESTS"):
         create_app(UnsafeBypassConfig)
+
+
+def test_production_rejects_auth_bypass_even_when_testing_is_true():
+    class ProductionTestingConfig(ProductionConfig):
+        TESTING = True
+        AUTH_BYPASS_FOR_TESTS = True
+        SAAS_MASTER_KEY = MASTER_KEY
+        DEV_SMS_CODE = None
+
+    with pytest.raises(RuntimeError, match="AUTH_BYPASS_FOR_TESTS"):
+        create_app(ProductionTestingConfig)
+
+
+def test_runtime_production_flag_never_honors_test_auth_bypass():
+    class BypassTestingConfig(TestingConfig):
+        AUTH_BYPASS_FOR_TESTS = True
+
+    application = create_app(BypassTestingConfig)
+
+    @application.get("/api/_runtime-production-probe")
+    def runtime_production_probe():
+        return {"bypassed": True}
+
+    application.config["IS_PRODUCTION"] = True
+
+    response = application.test_client().get(
+        "/api/_runtime-production-probe"
+    )
+
+    assert response.status_code == 401
+    assert response.get_json()["code"] == "AUTH_REQUIRED"
+
+
+def test_tenant_gate_runs_before_early_short_circuit_blueprint(monkeypatch):
+    early_blueprint = Blueprint("early_short_circuit", __name__)
+
+    @early_blueprint.before_app_request
+    def short_circuit_business_request():
+        if request.path == "/api/_early-short-circuit-probe":
+            return {"short_circuited": True}
+        return None
+
+    original_register_blueprint = Flask.register_blueprint
+    early_blueprint_registered = False
+
+    def register_blueprint_with_early_app_hook(
+        application,
+        blueprint,
+        **options,
+    ):
+        nonlocal early_blueprint_registered
+        if not early_blueprint_registered:
+            early_blueprint_registered = True
+            original_register_blueprint(application, early_blueprint)
+        return original_register_blueprint(
+            application,
+            blueprint,
+            **options,
+        )
+
+    monkeypatch.setattr(
+        Flask,
+        "register_blueprint",
+        register_blueprint_with_early_app_hook,
+    )
+
+    class SecuredTestingConfig(TestingConfig):
+        AUTH_BYPASS_FOR_TESTS = False
+
+    application = create_app(SecuredTestingConfig)
+    response = application.test_client().get(
+        "/api/_early-short-circuit-probe"
+    )
+
+    assert response.status_code == 401
+    assert response.get_json()["code"] == "AUTH_REQUIRED"
 
 
 def test_app_extensions_own_and_dispose_database_resources(tmp_path):
