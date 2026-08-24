@@ -5,7 +5,7 @@
       
       <!-- 设备搜索 - 仅在非编辑模式显示 -->
       <DeviceSearchInput 
-        v-if="!isEditMode"
+        v-if="!isEditMode && !inspectionStore.submitted"
         ref="deviceSearchRef"
         :loading="inspectionStore.loading"
         @search="handleSearch"
@@ -13,12 +13,12 @@
       
       <!-- 租赁信息 -->
       <RentalInfoCard 
-        v-if="inspectionStore.currentRental"
+        v-if="inspectionStore.currentRental && (!inspectionStore.submitted || isEditMode)"
         :rental="inspectionStore.currentRental"
       />
 
       <el-card
-        v-if="inspectionStore.currentRental && !isEditMode"
+        v-if="inspectionStore.currentRental && !isEditMode && !inspectionStore.submitted"
         class="receipt-card"
       >
         <template #header>收货仓库与实际附件</template>
@@ -52,7 +52,7 @@
       
       <!-- 验货清单 -->
       <ChecklistForm 
-        v-if="inspectionStore.checkItems.length > 0"
+        v-if="inspectionStore.checkItems.length > 0 && (!inspectionStore.submitted || isEditMode)"
         :check-items="inspectionStore.checkItems"
         :loading="inspectionStore.loading"
         :submit-text="isEditMode ? '保存修改' : '确认验机'"
@@ -162,14 +162,7 @@ const handleSubmit = async () => {
     // 创建模式: 创建新的验货记录
     success = await inspectionStore.submitInspection()
     if (success) {
-      if (inspectionStore.warehouseImpacts) {
-        showSuccessResult.value = true
-      } else {
-        inspectionStore.reset()
-        setTimeout(() => {
-          deviceSearchRef.value?.clearAndFocus()
-        }, 100)
-      }
+      showSuccessResult.value = true
     }
   }
 }
@@ -199,7 +192,7 @@ const handleReset = () => {
 
 // 生命周期 - 检查是否是编辑模式
 onMounted(async () => {
-  await tenantStore.loadWarehouses()
+  await tenantStore.initialize()
   const editId = route.query.edit
   if (editId) {
     isEditMode.value = true

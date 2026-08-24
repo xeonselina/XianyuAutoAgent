@@ -55,7 +55,7 @@
     </div>
 
     <!-- 底部操作栏 -->
-    <div class="bottom-action-bar" v-if="selectedCount > 0">
+    <div class="bottom-action-bar" v-if="selectedCount > 0 && canWrite">
       <van-button
         type="primary"
         block
@@ -113,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, onMounted, reactive, watch } from 'vue'
 import { showToast, showDialog } from 'vant'
 import dayjs from 'dayjs'
 import axios from 'axios'
@@ -152,6 +152,8 @@ const scheduleTimeParts = ref([
 const statusFilter = ref<string>('all')
 const rentals = ref<Rental[]>([])
 const checkedIds = reactive<Record<number, boolean>>({})
+const canWrite = computed(() => tenantStore.currentWarehouseId !== 'all')
+let queryGeneration = 0
 
 const filteredRentals = computed(() => {
   if (statusFilter.value === 'all') return rentals.value
@@ -159,6 +161,7 @@ const filteredRentals = computed(() => {
 })
 
 const isSelectableRental = (rental: Rental) => (
+  canWrite.value &&
   !['shipped', 'returned', 'completed'].includes(rental.status) &&
   !rental.is_relay_shipping
 )
@@ -211,26 +214,36 @@ const onScheduleTimeConfirm = ({ selectedValues }: any) => {
 }
 
 const onQuery = async () => {
+  const requestGeneration = ++queryGeneration
   loading.value = true
   // 清空选中状态
   Object.keys(checkedIds).forEach(k => { checkedIds[Number(k)] = false })
   try {
+    await tenantStore.initialize()
+    if (requestGeneration !== queryGeneration) return
+    const warehouseId = tenantStore.currentWarehouseId
     const res = await axios.get('/api/rentals/by-ship-date', {
       params: {
         start_date: startDate.value,
         end_date: endDate.value,
-        warehouse_id: tenantStore.currentWarehouseId,
+        warehouse_id: warehouseId,
       }
     })
-    if (res.data.success) {
+    if (
+      requestGeneration === queryGeneration
+      && warehouseId === tenantStore.currentWarehouseId
+      && res.data.success
+    ) {
       rentals.value = res.data.data?.rentals || []
-    } else {
+    } else if (requestGeneration === queryGeneration && !res.data.success) {
       showToast({ message: res.data.error || '查询失败', type: 'fail' })
     }
   } catch (e: any) {
-    showToast({ message: e.message || '网络错误', type: 'fail' })
+    if (requestGeneration === queryGeneration) {
+      showToast({ message: e.message || '网络错误', type: 'fail' })
+    }
   } finally {
-    loading.value = false
+    if (requestGeneration === queryGeneration) loading.value = false
   }
 }
 
@@ -246,6 +259,12 @@ const toggleSelectAll = () => {
 }
 
 const onSchedule = async () => {
+  try {
+    tenantStore.requireConcreteWarehouse()
+  } catch (error: any) {
+    showToast({ message: error.message, type: 'fail' })
+    return
+  }
   scheduling.value = true
   try {
     const res = await axios.post('/api/shipping-batch/schedule', {
@@ -266,6 +285,12 @@ const onSchedule = async () => {
 }
 
 const onPrint = async () => {
+  try {
+    tenantStore.requireConcreteWarehouse()
+  } catch (error: any) {
+    showToast({ message: error.message, type: 'fail' })
+    return
+  }
   printing.value = true
   try {
     const res = await axios.post('/api/shipping-batch/print-waybills', { rental_ids: selectedIds.value })
@@ -283,6 +308,10 @@ const onPrint = async () => {
 
 onMounted(() => {
   onQuery()
+})
+
+watch(() => tenantStore.currentWarehouseId, () => {
+  void onQuery()
 })
 </script>
 

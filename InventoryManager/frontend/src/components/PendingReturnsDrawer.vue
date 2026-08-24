@@ -56,7 +56,7 @@
                       type="success"
                       size="small"
                       :loading="updatingIds.has(rental.id)"
-                      :disabled="updatingIds.has(rental.id)"
+                      :disabled="readOnly || updatingIds.has(rental.id)"
                       @click="emit('mark-returned', rental.id)"
                     >
                       标记为已寄回
@@ -82,6 +82,7 @@ const props = defineProps<{
   rentals: PendingReturn[]
   loading: boolean
   updatingIds: Set<number>
+  readOnly?: boolean
 }>()
 
 const emit = defineEmits<{

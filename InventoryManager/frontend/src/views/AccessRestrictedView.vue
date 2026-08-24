@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 
 import { useAuthStore } from '@/stores/auth'
 
 
 const auth = useAuthStore()
 const route = useRoute()
-const router = useRouter()
 const reason = computed(() => route.query.reason || auth.accessStatus)
 const title = computed(() => {
   if (reason.value === 'expired') return '租户已到期'
@@ -19,8 +18,7 @@ const detail = computed(() => reason.value === 'forbidden'
   ? '当前账号为 Operator，只有 Admin 可以进入设置。'
   : '业务数据仍会保留，请联系平台管理员处理租户状态或到期时间。')
 const logout = async () => {
-  await auth.logout()
-  await router.replace('/login')
+  await auth.logoutTo('/login')
 }
 </script>
 

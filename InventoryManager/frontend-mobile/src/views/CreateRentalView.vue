@@ -197,6 +197,7 @@
             block
             native-type="submit"
             :loading="submitting"
+            :disabled="tenantStore.currentWarehouseId === 'all'"
             data-testid="create-rental"
           >创建租赁</van-button>
         </div>
@@ -664,17 +665,26 @@ const handleConfirmationClosed = () => {
 }
 
 // 加载设备型号列表和配件列表
+let initDataGeneration = 0
 const loadInitData = async () => {
+  const requestGeneration = ++initDataGeneration
   try {
+    await tenantStore.initialize()
+    if (requestGeneration !== initDataGeneration) return
+    const warehouseId = tenantStore.currentWarehouseId
     const [modelsRes, accessoriesRes] = await Promise.all([
       axios.get('/api/device-models'),
       axios.get('/api/devices', {
         params: {
           is_accessory: true,
-          warehouse_id: tenantStore.currentWarehouseId,
+          warehouse_id: warehouseId,
         },
       })
     ])
+    if (
+      requestGeneration !== initDataGeneration
+      || warehouseId !== tenantStore.currentWarehouseId
+    ) return
     if (modelsRes.data.success) {
       deviceModels.value = modelsRes.data.data || []
     }

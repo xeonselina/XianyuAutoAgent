@@ -11,14 +11,18 @@ import {
   type Ref,
 } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
-import { createPinia } from 'pinia'
+import { createPinia, setActivePinia } from 'pinia'
+import axios from 'axios'
 
 import BatchShippingView from '@/views/BatchShippingView.vue'
+import { useTenantStore } from '@/stores/tenant'
 
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() }),
 }))
+
+vi.mock('axios')
 
 
 type PreviousRentalState = {
@@ -117,9 +121,11 @@ const mountWithRental = async (
   previousState: PreviousRentalState,
   overrides: Partial<RentalRow> = {},
 ) => {
+  const pinia = createPinia()
+  setActivePinia(pinia)
   const wrapper = mount(BatchShippingView, {
     global: {
-      plugins: [createPinia(), ElementPlus],
+      plugins: [pinia, ElementPlus],
       stubs: {
         ElTable: ElTableStub,
         ElTableColumn: ElTableColumnStub,
@@ -140,6 +146,39 @@ const mountWithRental = async (
 
 
 describe('BatchShippingView device status', () => {
+  it('blocks scheduling, express changes and printing when all warehouses is selected', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const wrapper = await mountWithRental({
+      has_previous_rental: true,
+      previous_rental_status: 'completed',
+      previous_rental_completed: true,
+    }, {
+      status: 'scheduled_for_shipping',
+      ship_out_tracking_no: 'SF123' as never,
+      scheduled_ship_time: '2026-08-26T10:00:00' as never,
+    })
+    const tenant = useTenantStore()
+    tenant.setWarehousesForSession([
+      { id: 1, name: 'A 仓', province: '广东省', city: '深圳市' },
+      { id: 2, name: 'B 仓', province: '浙江省', city: '杭州市' },
+    ])
+    tenant.selectWarehouse('all')
+    const setup = wrapper.vm.$.setupState as any
+    setup.dateRange = [new Date('2026-08-25'), new Date('2026-08-26')]
+    setup.selectedRentals = [{ id: 101 }]
+
+    await setup.confirmSchedule()
+    await setup.updateExpressType(101, 2)
+    await setup.showWaybillPrintDialog()
+    await setup.printSingle(101)
+    setup.printAll()
+
+    expect(axios.post).not.toHaveBeenCalled()
+    expect(axios.patch).not.toHaveBeenCalled()
+    expect(open).not.toHaveBeenCalled()
+    open.mockRestore()
+  })
+
   it('shows a returned previous rental as purple return-in-transit', async () => {
     const wrapper = await mountWithRental({
       has_previous_rental: true,

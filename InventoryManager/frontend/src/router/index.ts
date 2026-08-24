@@ -10,7 +10,6 @@ import RentalContractView from '@/views/RentalContractView.vue'
 import ShippingOrderView from '@/views/ShippingOrderView.vue'
 import BatchShippingOrderView from '@/views/BatchShippingOrderView.vue'
 import BatchShippingView from '@/views/BatchShippingView.vue'
-import StatisticsView from '@/views/StatisticsView.vue'
 import RentalStatsView from '@/views/RentalStatsView.vue'
 import SFTrackingView from '@/views/SFTrackingView.vue'
 import InspectionView from '@/views/InspectionView.vue'
@@ -94,16 +93,12 @@ const safeTenantNext = (
 
 export const navigateAfterTenantLogin = async (
   rawNext: unknown,
-  replaceRoute: ReplaceRoute,
+  _replaceRoute: ReplaceRoute,
   replaceDocument: ReplaceDocument,
   origin: string = window.location.origin,
 ) => {
   const next = safeTenantNext(rawNext, origin)
-  if (next.mobile) {
-    replaceDocument(next.path)
-    return
-  }
-  await replaceRoute(next.path)
+  replaceDocument(next.path)
 }
 
 export const installAuthGuards = (
@@ -216,8 +211,7 @@ const router = createRouter({
     {
       path: '/statistics',
       name: 'statistics',
-      component: StatisticsView,
-      meta: requiresTenant,
+      redirect: '/rental-stats',
     },
     {
       path: '/rental-stats',

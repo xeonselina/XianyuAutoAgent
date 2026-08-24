@@ -11,6 +11,9 @@ import { defineComponent, nextTick } from 'vue'
 
 import App from '@/App.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useGanttStore } from '@/stores/gantt'
+import { useInspectionStore } from '@/stores/inspection'
+import { useTenantStore } from '@/stores/tenant'
 import AccessRestrictedView from '@/views/AccessRestrictedView.vue'
 import LoginView from '@/views/LoginView.vue'
 import PlatformLoginView from '@/views/PlatformLoginView.vue'
@@ -19,7 +22,12 @@ import {
   installAuthGuards,
   navigateAfterTenantLogin,
 } from '@/router'
-import { createMobileAuthGuard } from '../../../frontend-mobile/src/stores/auth'
+import appRouter from '@/router'
+import {
+  createMobileAuthGuard,
+  useMobileAuthStore,
+} from '../../../frontend-mobile/src/stores/auth'
+import { useMobileTenantStore } from '../../../frontend-mobile/src/stores/tenant'
 
 
 const apiMocks = vi.hoisted(() => ({
@@ -43,7 +51,11 @@ vi.mock('@/api/auth', async (importOriginal) => ({
 
 const EmptyView = defineComponent({ template: '<div />' })
 
-const tenantData = (accessStatus = 'active', role = 'admin') => ({
+const tenantData = (
+  accessStatus = 'active',
+  role = 'admin',
+  tenantId = 3,
+) => ({
   csrf_token: 'tenant-csrf',
   member: {
     id: 7,
@@ -52,8 +64,8 @@ const tenantData = (accessStatus = 'active', role = 'admin') => ({
     status: 'active',
   },
   tenant: {
-    id: 3,
-    name: '测试租户',
+    id: tenantId,
+    name: tenantId === 3 ? '测试租户' : `测试租户${tenantId}`,
     status: accessStatus === 'suspended' ? 'suspended' : 'active',
     provisioning_status: 'active',
     expires_at: '2026-09-30T00:00:00Z',
@@ -131,6 +143,13 @@ const makeGuardedRouter = (auth: Record<string, unknown>) => {
 }
 
 describe('tenant navigation', () => {
+  it('redirects the legacy statistics path to warehouse-aware rental statistics', () => {
+    const legacy = appRouter.getRoutes().find((route) => route.path === '/statistics')
+
+    expect(legacy?.redirect).toBe('/rental-stats')
+    expect(legacy?.components).toBeUndefined()
+  })
+
   it('redirects an unauthenticated business route to login with the complete next path', async () => {
     const auth = {
       bootstrap: vi.fn().mockResolvedValue(false),
@@ -311,11 +330,11 @@ describe('tenant navigation', () => {
 
     await navigateAfterTenantLogin(next, routerReplace, browserReplace)
 
-    expect(routerReplace).toHaveBeenCalledWith('/')
-    expect(browserReplace).not.toHaveBeenCalled()
+    expect(browserReplace).toHaveBeenCalledWith('/')
+    expect(routerReplace).not.toHaveBeenCalled()
   })
 
-  it('keeps a valid encoded desktop tenant path inside the desktop router', async () => {
+  it('hard reloads a valid encoded desktop tenant path after login', async () => {
     const routerReplace = vi.fn()
     const browserReplace = vi.fn()
 
@@ -325,10 +344,10 @@ describe('tenant navigation', () => {
       browserReplace,
     )
 
-    expect(routerReplace).toHaveBeenCalledWith(
+    expect(browserReplace).toHaveBeenCalledWith(
       '/search?keyword=%E6%B5%8B%E8%AF%95',
     )
-    expect(browserReplace).not.toHaveBeenCalled()
+    expect(routerReplace).not.toHaveBeenCalled()
   })
 })
 
@@ -355,7 +374,114 @@ describe('tenant auth store and login form', () => {
     expect(sessionStorage.length).toBe(0)
   })
 
-  it('submits the SMS form and returns to a safe next route after verification', async () => {
+  it('fails closed and resets only tenant state when a different tenant session arrives', () => {
+    const auth = useAuthStore()
+    const tenant = useTenantStore()
+    auth.applyTenantSession(tenantData('active', 'admin', 3))
+    auth.applyPlatformSession(platformData)
+    tenant.setWarehousesForSession([{
+      id: 31,
+      name: 'A 仓',
+      province: '广东省',
+      city: '深圳市',
+    }])
+    const reload = vi.fn()
+
+    const applied = auth.applyTenantSession(
+      tenantData('active', 'admin', 4),
+      reload,
+    )
+
+    expect(applied).toBe(false)
+    expect(auth.authenticated).toBe(false)
+    expect(tenant.warehouses).toEqual([])
+    expect(reload).toHaveBeenCalledOnce()
+    expect(auth.platformAdmin).toEqual(platformData.admin)
+  })
+
+  it('clears and hides tenant A business state before a hard-reset logout to tenant B login', async () => {
+    apiMocks.logoutTenantSession.mockResolvedValue(undefined)
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const auth = useAuthStore()
+    const tenant = useTenantStore()
+    const gantt = useGanttStore()
+    const inspection = useInspectionStore()
+    auth.applyTenantSession(tenantData('active', 'admin', 3))
+    auth.applyPlatformSession(platformData)
+    tenant.setWarehousesForSession([{
+      id: 31,
+      name: 'A 仓',
+      province: '广东省',
+      city: '深圳市',
+    }])
+    gantt.devices = [{ id: 301, name: 'A 设备' }] as never
+    inspection.currentRental = { id: 302, customer_name: 'A 验货客户' } as never
+    const BusinessState = defineComponent({
+      setup: () => ({ gantt, inspection, tenant }),
+      template: '<div data-testid="business-state">{{ tenant.warehouses[0]?.name }} {{ gantt.devices[0]?.name }} {{ inspection.currentRental?.customer_name }}</div>',
+    })
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{
+        path: '/business',
+        component: BusinessState,
+        meta: { requiresTenant: true },
+      }],
+    })
+    await router.push('/business')
+    await router.isReady()
+    const wrapper = mount(App, { global: { plugins: [pinia, router] } })
+    expect(wrapper.get('[data-testid="business-state"]').text()).toContain('A 设备')
+    const replaceDocument = vi.fn()
+
+    await auth.logoutTo('/login', replaceDocument)
+    await nextTick()
+
+    expect(wrapper.find('[data-testid="business-state"]').exists()).toBe(false)
+    expect(auth.authenticated).toBe(false)
+    expect(tenant.warehouses).toEqual([])
+    expect(replaceDocument).toHaveBeenCalledWith('/login')
+    expect(auth.platformAdmin).toEqual(platformData.admin)
+  })
+
+  it('mobile logout uses the current CSRF then hard-resets through desktop login with mobile next', async () => {
+    const mobilePinia = createPinia() as never
+    const auth = useMobileAuthStore(mobilePinia)
+    const tenant = useMobileTenantStore(mobilePinia)
+    auth.applySession({
+      csrf_token: 'mobile-csrf',
+      member: { id: 7, phone: '+8613800138000', role: 'operator', status: 'active' },
+      tenant: { id: 3, name: '移动租户', access_status: 'active' },
+    })
+    tenant.setWarehousesForSession([{
+      id: 31,
+      name: '移动 A 仓',
+      province: '广东省',
+      city: '深圳市',
+    }])
+    const postLogout = vi.fn().mockResolvedValue({ data: { success: true } })
+    const replaceDocument = vi.fn()
+
+    await auth.logoutToDesktopLogin(
+      '/mobile/edit-rental/9?source=scan',
+      replaceDocument,
+      postLogout,
+    )
+
+    expect(postLogout).toHaveBeenCalledWith(
+      '/auth/logout',
+      undefined,
+      { headers: { 'X-CSRF-Token': 'mobile-csrf' } },
+    )
+    expect(auth.session).toBeNull()
+    expect(tenant.warehouses).toEqual([])
+    expect(replaceDocument).toHaveBeenCalledWith(
+      '/login?next=%2Fmobile%2Fedit-rental%2F9%3Fsource%3Dscan',
+    )
+  })
+
+  it('submits the SMS form before hard-reset navigation', async () => {
     apiMocks.requestTenantCode.mockResolvedValue(undefined)
     apiMocks.verifyTenantCode.mockResolvedValue(tenantData())
     const pinia = createPinia()
@@ -387,9 +513,7 @@ describe('tenant auth store and login form', () => {
       '13800138000',
       '123456',
     )
-    await vi.waitFor(() => {
-      expect(router.currentRoute.value.fullPath).toBe('/business')
-    })
+    expect(router.currentRoute.value.fullPath).toBe('/login?next=/business')
   })
 
   it('explains an expired tenant without exposing business content', async () => {

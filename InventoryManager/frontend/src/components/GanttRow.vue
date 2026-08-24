@@ -19,6 +19,7 @@
             :model-value="device.lifecycle_status || 'active'"
             size="small"
             style="width: 100px;"
+            :disabled="readOnly"
             @change="updateLifecycleStatus"
           >
             <el-option label="🟢 使用中" value="active" />
@@ -48,8 +49,8 @@
         v-show="shouldShowRentalBar(rental, date)"
         class="rental-bar"
         :style="getShipRangeStyle(rental, date)"
-        @click="$emit('edit-rental', rental)"
-        @dblclick="$emit('delete-rental', rental)"
+        @click="!readOnly && $emit('edit-rental', rental)"
+        @dblclick="!readOnly && $emit('delete-rental', rental)"
         @mouseenter="handleRentalHover(rental, $event)"
         @mouseleave="handleRentalLeave"
       >
@@ -121,6 +122,7 @@ interface Props {
   device: Device
   rentals: Rental[]
   dates: Date[]
+  readOnly?: boolean
 }
 
 interface ConflictInfo {

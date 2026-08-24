@@ -32,14 +32,14 @@
       <div class="table-header">
         <h3>订单列表 (共 {{ rentals.length }} 个)</h3>
         <div class="actions">
-          <el-button @click="printAll" type="success">
+          <el-button @click="printAll" type="success" :disabled="!canWrite">
             <el-icon><Printer /></el-icon>
             批量打印发货单
           </el-button>
           <el-button
             @click="showWaybillPrintDialog"
             type="primary"
-            :disabled="!hasWaybills"
+            :disabled="!hasWaybills || !canWrite"
           >
             <el-icon><Printer /></el-icon>
             批量打印快递面单 ({{ waybillCount }})
@@ -47,7 +47,7 @@
           <el-button
             @click="showScheduleDialog"
             type="warning"
-            :disabled="selectedRentals.length === 0"
+            :disabled="selectedRentals.length === 0 || !canWrite"
           >
             <el-icon><Clock /></el-icon>
             预约发货 ({{ selectedRentals.length }})
@@ -128,6 +128,7 @@
             <el-select
               v-model="row.express_type_id"
               size="small"
+              :disabled="!canWrite"
               @change="updateExpressType(row.id, row.express_type_id)"
             >
               <el-option :value="1" label="特快" />
@@ -149,6 +150,7 @@
               type="primary"
               size="small"
               link
+              :disabled="!canWrite"
             >
               <el-icon><Printer /></el-icon>
               打印
@@ -182,7 +184,7 @@
 
       <template #footer>
         <el-button @click="scheduleDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="confirmSchedule" :loading="scheduling">
+        <el-button type="primary" @click="confirmSchedule" :loading="scheduling" :disabled="!canWrite">
           确认预约
         </el-button>
       </template>
@@ -231,7 +233,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Search, Printer, Clock } from '@element-plus/icons-vue'
@@ -257,11 +259,23 @@ const printing = ref(false)
 const printProgress = ref(0)
 const printResults = ref<any>(null)
 const RELAY_SELECTION_REASON = '接力订单由前一位客户直接寄出，无需在批量发货中处理'
+let previewGeneration = 0
 
 // Computed
 // 统计预约发货状态且有运单号和预约时间的订单（用于打印面单）
 const hasWaybills = computed(() => rentals.value.some(r => r.status === 'scheduled_for_shipping' && r.ship_out_tracking_no && r.scheduled_ship_time))
 const waybillCount = computed(() => rentals.value.filter(r => r.status === 'scheduled_for_shipping' && r.ship_out_tracking_no && r.scheduled_ship_time).length)
+const canWrite = computed(() => tenantStore.currentWarehouseId !== 'all')
+
+const ensureConcreteWarehouse = () => {
+  try {
+    tenantStore.requireConcreteWarehouse()
+    return true
+  } catch (error: any) {
+    ElMessage.warning(error.message)
+    return false
+  }
+}
 
 // Methods
 const goBack = () => {
@@ -275,6 +289,7 @@ const handleSelectionChange = (selection: any[]) => {
 
 const isSelectableRow = (row: any) => {
   return (
+    canWrite.value &&
     row.status !== 'shipped' &&
     row.status !== 'scheduled_for_shipping' &&
     !row.is_relay_shipping
@@ -299,18 +314,26 @@ const previewOrders = async () => {
     return
   }
 
+  const requestGeneration = ++previewGeneration
   try {
     loading.value = true
+    await tenantStore.initialize()
+    if (requestGeneration !== previewGeneration) return
     const [start, end] = dateRange.value
+    const warehouseId = tenantStore.currentWarehouseId
     const response = await axios.get('/api/rentals/by-ship-date', {
       params: {
         start_date: dayjs(start).format('YYYY-MM-DD'),
         end_date: dayjs(end).format('YYYY-MM-DD'),
-        warehouse_id: tenantStore.currentWarehouseId,
+        warehouse_id: warehouseId,
       }
     })
 
-    if (response.data.success) {
+    if (
+      requestGeneration === previewGeneration
+      && warehouseId === tenantStore.currentWarehouseId
+      && response.data.success
+    ) {
       rentals.value = response.data.data.rentals.map((r: any) => ({
         ...r,
         express_type_id: r.express_type_id || 2  // 默认为标快
@@ -323,13 +346,14 @@ const previewOrders = async () => {
     }
   } catch (error: any) {
     console.error('加载订单失败:', error)
-    ElMessage.error('加载订单失败')
+    if (requestGeneration === previewGeneration) ElMessage.error('加载订单失败')
   } finally {
-    loading.value = false
+    if (requestGeneration === previewGeneration) loading.value = false
   }
 }
 
 const printAll = () => {
+  if (!ensureConcreteWarehouse()) return
   if (!dateRange.value) return
   const [start, end] = dateRange.value
   const url = `/batch-shipping-order?start_date=${dayjs(start).format('YYYY-MM-DD')}&end_date=${dayjs(end).format('YYYY-MM-DD')}`
@@ -338,10 +362,12 @@ const printAll = () => {
 }
 
 const showScheduleDialog = () => {
+  if (!ensureConcreteWarehouse()) return
   scheduleDialogVisible.value = true
 }
 
 const confirmSchedule = async () => {
+  if (!ensureConcreteWarehouse()) return
   // 使用选中的订单
   const rentalIds = selectedRentals.value.map(r => r.id)
 
@@ -384,6 +410,7 @@ const formatDateTime = (dateStr: string) => {
 }
 
 const updateExpressType = async (rentalId: number, expressTypeId: number) => {
+  if (!ensureConcreteWarehouse()) return
   try {
     const response = await axios.patch('/api/shipping-batch/express-type', {
       rental_id: rentalId,
@@ -403,6 +430,7 @@ const updateExpressType = async (rentalId: number, expressTypeId: number) => {
 
 // Waybill Printing Methods
 const showWaybillPrintDialog = async () => {
+  if (!ensureConcreteWarehouse()) return
   // 只打印预约发货状态且有运单号和预约时间的订单
   const rentalIds = rentals.value
     .filter(r => r.status === 'scheduled_for_shipping' && r.ship_out_tracking_no && r.scheduled_ship_time)
@@ -462,8 +490,15 @@ const closeWaybillPrintDialog = () => {
   printProgress.value = 0
 }
 
+watch(() => tenantStore.currentWarehouseId, () => {
+  selectedRentals.value = []
+  if (dateRange.value) void previewOrders()
+  else rentals.value = []
+})
+
 // Individual Print Method
 const printSingle = async (rentalId: number) => {
+  if (!ensureConcreteWarehouse()) return
   try {
     const response = await axios.post('/api/shipping-batch/print-waybills', {
       rental_ids: [rentalId]

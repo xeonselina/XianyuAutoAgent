@@ -67,7 +67,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMobileTenantStore } from '@/stores/tenant'
 import axios from 'axios'
@@ -81,6 +81,7 @@ const loading = ref(false)
 const searched = ref(false)
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
+let searchGeneration = 0
 
 const STATUS_LABELS: Record<string, string> = {
   not_shipped:            '待发货',
@@ -101,25 +102,33 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 const doSearch = async () => {
+  const requestGeneration = ++searchGeneration
   const q = keyword.value.trim()
   if (!q) return
   loading.value = true
   searched.value = true
   try {
+    await tenantStore.initialize()
+    if (requestGeneration !== searchGeneration) return
+    const warehouseId = tenantStore.currentWarehouseId
     const res = await axios.post('/api/rentals/search', {
       q,
       per_page: 50,
-      warehouse_id: tenantStore.currentWarehouseId,
+      warehouse_id: warehouseId,
     })
-    if (res.data.success) {
+    if (
+      requestGeneration === searchGeneration
+      && warehouseId === tenantStore.currentWarehouseId
+      && res.data.success
+    ) {
       results.value = res.data.data?.rentals ?? res.data.data?.items ?? res.data.data ?? []
-    } else {
+    } else if (requestGeneration === searchGeneration) {
       results.value = []
     }
   } catch {
-    results.value = []
+    if (requestGeneration === searchGeneration) results.value = []
   } finally {
-    loading.value = false
+    if (requestGeneration === searchGeneration) loading.value = false
   }
 }
 
@@ -136,6 +145,11 @@ const onInput = () => {
 const goEdit = (id: number) => {
   router.push({ name: 'edit-rental', params: { id } })
 }
+
+watch(() => tenantStore.currentWarehouseId, () => {
+  if (keyword.value.trim()) void doSearch()
+  else results.value = []
+})
 </script>
 
 <style scoped>

@@ -21,11 +21,13 @@
         </option>
       </select>
       <span>{{ auth.session.member.role === 'admin' ? 'Admin' : 'Operator' }}</span>
+      <button type="button" class="logout-button" @click="logout">退出</button>
     </header>
     <!-- 主内容区 -->
     <main
       class="app-content"
       :class="{ 'app-content--with-tabbar': showTabbar }"
+      v-if="auth.session"
       data-testid="app-content"
     >
       <router-view v-slot="{ Component }">
@@ -37,7 +39,7 @@
 
     <!-- 底部标签栏（仅在主视图显示） -->
     <van-tabbar
-      v-if="showTabbar"
+      v-if="auth.session && showTabbar"
       v-model="activeTab"
       @change="onTabChange"
       safe-area-inset-bottom
@@ -66,6 +68,10 @@ const selectWarehouse = (event: Event) => {
   tenant.selectWarehouse(value === 'all' ? 'all' : Number(value))
 }
 
+const logout = async () => {
+  await auth.logoutToDesktopLogin(`/mobile${route.fullPath}`)
+}
+
 const showTabbar = computed(() => {
   return route.name === 'gantt' || route.name === 'batch-shipping' || route.name === 'relay'
 })
@@ -87,7 +93,7 @@ const onTabChange = (name: string) => {
 watch(
   () => auth.session,
   (session) => {
-    if (session) void tenant.loadWarehouses().catch(() => undefined)
+    if (session) void tenant.initialize().catch(() => undefined)
   },
   { immediate: true },
 )
@@ -123,6 +129,7 @@ html, body, #app {
 
 .mobile-tenant-header strong { margin-right: auto; }
 .mobile-tenant-header select { max-width: 145px; }
+.logout-button { border: 0; color: #57606a; background: transparent; }
 
 /* 标签栏是 fixed 定位，需要给页面内容留出等高空间，避免最后一行被遮挡。 */
 .app-content--with-tabbar {

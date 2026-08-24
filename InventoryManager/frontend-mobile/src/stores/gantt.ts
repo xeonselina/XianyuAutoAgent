@@ -112,6 +112,7 @@ export interface AvailableSlot {
 
 export const useGanttStore = defineStore('gantt', () => {
   const tenantStore = useMobileTenantStore()
+  let loadGeneration = 0
   // 状态
   const devices = ref<Device[]>([])
   const rentals = ref<Rental[]>([])
@@ -149,29 +150,37 @@ export const useGanttStore = defineStore('gantt', () => {
 
   // 方法
   const loadData = async () => {
+    const requestGeneration = ++loadGeneration
     loading.value = true
     error.value = null
     
     try {
+      await tenantStore.initialize()
+      if (requestGeneration !== loadGeneration) return
+      const warehouseId = tenantStore.currentWarehouseId
       const response = await axios.get('/api/gantt/data', {
         params: {
           start_date: toDateString(dateRange.value.start),
           end_date: toDateString(dateRange.value.end),
-          warehouse_id: tenantStore.currentWarehouseId,
+          warehouse_id: warehouseId,
         }
       })
       
-      if (response.data.success) {
+      if (
+        requestGeneration === loadGeneration
+        && warehouseId === tenantStore.currentWarehouseId
+        && response.data.success
+      ) {
         devices.value = response.data.data.devices
         rentals.value = response.data.data.rentals
-      } else {
+      } else if (requestGeneration === loadGeneration && !response.data.success) {
         throw new Error(response.data.error || '加载数据失败')
       }
     } catch (err: any) {
-      error.value = err.message
+      if (requestGeneration === loadGeneration) error.value = err.message
       console.error('加载数据失败:', err)
     } finally {
-      loading.value = false
+      if (requestGeneration === loadGeneration) loading.value = false
     }
   }
 
@@ -285,6 +294,7 @@ export const useGanttStore = defineStore('gantt', () => {
 
   const deleteRental = async (rentalId: number) => {
     try {
+      tenantStore.requireConcreteWarehouse()
       const response = await axios.delete(`/web/rentals/${rentalId}`)
       if (response.data.success) {
         await loadData()
@@ -315,6 +325,7 @@ export const useGanttStore = defineStore('gantt', () => {
   // 发货到闲鱼
   const shipRentalToXianyu = async (rentalId: number) => {
     try {
+      tenantStore.requireConcreteWarehouse()
       const response = await axios.post(`/api/rentals/${rentalId}/ship-to-xianyu`)
       if (response.data.success) {
         await loadData()
@@ -331,6 +342,7 @@ export const useGanttStore = defineStore('gantt', () => {
   // 更新设备生命周期状态
   const updateDeviceLifecycle = async (deviceId: number, lifecycleStatus: string, reason?: string) => {
     try {
+      tenantStore.requireConcreteWarehouse()
       const response = await axios.put(`/api/devices/${deviceId}/lifecycle`, {
         lifecycle_status: lifecycleStatus,
         lifecycle_reason: reason

@@ -27,6 +27,7 @@ export const useInspectionStore = defineStore('inspection', () => {
   const receivingWarehouseId = ref<number | null>(null)
   const receivedDeviceIds = ref<number[]>([])
   const warehouseImpacts = ref<WarehouseImpacts | null>(null)
+  const submitted = ref(false)
 
   const prepareWarehouseReceipt = (rental: Rental) => {
     receivingWarehouseId.value = rental.warehouse_id
@@ -34,6 +35,7 @@ export const useInspectionStore = defineStore('inspection', () => {
       .map((item) => item.id)
       .filter((id): id is number => typeof id === 'number')
     warehouseImpacts.value = null
+    submitted.value = false
   }
   
   // 验货记录列表状态
@@ -123,6 +125,7 @@ export const useInspectionStore = defineStore('inspection', () => {
    * 创建验货记录
    */
   const submitInspection = async () => {
+    if (loading.value || submitted.value) return false
     if (!currentRental.value) {
       ElMessage.error('未找到租赁记录')
       return false
@@ -145,6 +148,7 @@ export const useInspectionStore = defineStore('inspection', () => {
       if (response.success && response.data) {
         currentInspection.value = response.data
         warehouseImpacts.value = response.data.warehouse_impacts || null
+        submitted.value = true
 
         // 判断验货状态
         const status = response.data.status
@@ -241,6 +245,7 @@ export const useInspectionStore = defineStore('inspection', () => {
     receivingWarehouseId.value = null
     receivedDeviceIds.value = []
     warehouseImpacts.value = null
+    submitted.value = false
   }
 
   const repairWarehouseImpacts = async () => {
@@ -341,6 +346,7 @@ export const useInspectionStore = defineStore('inspection', () => {
     receivingWarehouseId,
     receivedDeviceIds,
     warehouseImpacts,
+    submitted,
     inspectionRecords,
     pagination,
     filters,

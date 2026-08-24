@@ -229,6 +229,66 @@ describe('Gantt Store', () => {
   })
 
   describe('Rental Management', () => {
+    it('keeps the newest warehouse response when an older request finishes last', async () => {
+      let resolveFirst!: (value: any) => void
+      let resolveSecond!: (value: any) => void
+      const first = new Promise((resolve) => { resolveFirst = resolve })
+      const second = new Promise((resolve) => { resolveSecond = resolve })
+      const tenant = useTenantStore()
+      tenant.setWarehousesForSession([
+        { id: 1, name: 'A 仓', province: '广东省', city: '深圳市' },
+        { id: 2, name: 'B 仓', province: '浙江省', city: '杭州市' },
+      ])
+      vi.mocked(axios.get)
+        .mockReturnValueOnce(first as never)
+        .mockReturnValueOnce(second as never)
+      const store = useGanttStore()
+
+      const loadA = store.loadData()
+      await vi.waitFor(() => expect(axios.get).toHaveBeenCalledOnce())
+      tenant.selectWarehouse(2)
+      const loadB = store.loadData()
+      await vi.waitFor(() => expect(axios.get).toHaveBeenCalledTimes(2))
+      resolveSecond({
+        data: { success: true, data: { devices: [{ id: 2, name: 'B 设备' }], rentals: [] } },
+      })
+      await loadB
+      expect(store.devices[0]?.name).toBe('B 设备')
+      expect(store.loading).toBe(false)
+
+      resolveFirst({
+        data: { success: true, data: { devices: [{ id: 1, name: 'A 设备' }], rentals: [] } },
+      })
+      await loadA
+
+      expect(store.devices[0]?.name).toBe('B 设备')
+      expect(store.loading).toBe(false)
+    })
+
+    it('blocks every Gantt write action while all warehouses is selected', async () => {
+      const tenant = useTenantStore()
+      tenant.setWarehousesForSession([
+        { id: 1, name: 'A 仓', province: '广东省', city: '深圳市' },
+        { id: 2, name: 'B 仓', province: '浙江省', city: '杭州市' },
+      ])
+      tenant.selectWarehouse('all')
+      const store = useGanttStore()
+
+      const actions = [
+        () => store.deleteRental(1),
+        () => store.shipRentalToXianyu(1),
+        () => store.updateDeviceLifecycle(1, 'sold'),
+        () => store.executeScheduleReorder('signed'),
+      ]
+      for (const action of actions) {
+        await expect(action()).rejects.toThrow('请选择具体仓库')
+      }
+
+      expect(axios.delete).not.toHaveBeenCalled()
+      expect(axios.post).not.toHaveBeenCalled()
+      expect(axios.put).not.toHaveBeenCalled()
+    })
+
     it('should load rental data from API', async () => {
       const store = useGanttStore()
       

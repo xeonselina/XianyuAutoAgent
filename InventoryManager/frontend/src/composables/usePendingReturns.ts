@@ -17,13 +17,18 @@ export const usePendingReturns = () => {
   const loading = ref(false)
   const updatingIds = ref<Set<number>>(new Set())
   const returnedIds = new Set<number>()
+  let loadGeneration = 0
   const count = computed(() => rentals.value.length)
 
   const load = async () => {
+    const requestGeneration = ++loadGeneration
     loading.value = true
     try {
+      await tenantStore.initialize()
+      if (requestGeneration !== loadGeneration) return
+      const warehouseId = tenantStore.currentWarehouseId
       const response = await axios.get('/api/rentals/pending-returns', {
-        params: { warehouse_id: tenantStore.currentWarehouseId },
+        params: { warehouse_id: warehouseId },
       })
       if (!response.data.success) {
         throw new Error(
@@ -33,17 +38,23 @@ export const usePendingReturns = () => {
         )
       }
       const loadedRentals: PendingReturn[] = response.data.data?.rentals || []
-      rentals.value = loadedRentals.filter(
-        (rental) => !returnedIds.has(rental.id),
-      )
+      if (
+        requestGeneration === loadGeneration
+        && warehouseId === tenantStore.currentWarehouseId
+      ) {
+        rentals.value = loadedRentals.filter(
+          (rental) => !returnedIds.has(rental.id),
+        )
+      }
     } catch (error: any) {
       throw new Error(errorMessage(error, '获取待归还列表失败'))
     } finally {
-      loading.value = false
+      if (requestGeneration === loadGeneration) loading.value = false
     }
   }
 
   const markReturned = async (rentalId: number) => {
+    tenantStore.requireConcreteWarehouse()
     if (updatingIds.value.has(rentalId)) return
 
     updatingIds.value = new Set(updatingIds.value).add(rentalId)

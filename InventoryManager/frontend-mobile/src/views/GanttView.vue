@@ -106,13 +106,18 @@ const selectedRental = ref<Rental | null>(null)
 const dailyStats = ref<Record<string, { available_count: number; ship_out_count: number; accessory_ship_out_count: number }>>({})
 
 const DAYS = 14
+let statsGeneration = 0
 
 const fetchDailyStats = async () => {
+  const requestGeneration = ++statsGeneration
+  await tenantStore.initialize()
+  if (requestGeneration !== statsGeneration) return
+  const warehouseId = tenantStore.currentWarehouseId
   const start = dayjs(windowStart.value)
   const dates = Array.from({ length: DAYS }, (_, i) => start.add(i, 'day').format('YYYY-MM-DD'))
   const results = await Promise.allSettled(
     dates.map(date => axios.get('/api/gantt/daily-stats', {
-      params: { date, warehouse_id: tenantStore.currentWarehouseId },
+      params: { date, warehouse_id: warehouseId },
     }))
   )
   const stats: typeof dailyStats.value = {}
@@ -121,7 +126,10 @@ const fetchDailyStats = async () => {
       stats[dates[i]] = result.value.data.data
     }
   })
-  dailyStats.value = stats
+  if (
+    requestGeneration === statsGeneration
+    && warehouseId === tenantStore.currentWarehouseId
+  ) dailyStats.value = stats
 }
 
 const shiftWindow = (days: number) => {

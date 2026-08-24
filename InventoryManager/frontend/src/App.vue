@@ -11,12 +11,15 @@ const route = useRoute()
 const showTenantHeader = computed(
   () => Boolean(route.meta.requiresTenant && auth.authenticated),
 )
+const showRouteContent = computed(
+  () => Boolean(!route.meta.requiresTenant || auth.authenticated),
+)
 </script>
 
 <template>
   <div id="app">
     <AppHeader v-if="showTenantHeader" />
-    <RouterView />
+    <RouterView v-if="showRouteContent" />
   </div>
 </template>
 

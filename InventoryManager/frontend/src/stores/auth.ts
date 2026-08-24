@@ -16,6 +16,7 @@ import {
   type Tenant,
   type TenantSessionData,
 } from '@/api/auth'
+import { useTenantStore } from '@/stores/tenant'
 
 
 export const useAuthStore = defineStore('auth', () => {
@@ -32,12 +33,21 @@ export const useAuthStore = defineStore('auth', () => {
   const platformAuthenticated = computed(() => platformAdmin.value !== null)
   const accessStatus = computed(() => tenant.value?.access_status || null)
 
-  const applyTenantSession = (data: TenantSessionData) => {
+  const applyTenantSession = (
+    data: TenantSessionData,
+    reloadDocument: () => void = () => window.location.reload(),
+  ) => {
+    if (tenant.value && tenant.value.id !== data.tenant.id) {
+      clearTenantSession()
+      reloadDocument()
+      return false
+    }
     member.value = data.member
     tenant.value = data.tenant
     csrfToken.value = data.csrf_token
     tenantBootstrapped.value = true
     setTenantCsrfHeader(data.csrf_token)
+    return true
   }
 
   const clearTenantSession = () => {
@@ -46,12 +56,13 @@ export const useAuthStore = defineStore('auth', () => {
     csrfToken.value = null
     tenantBootstrapped.value = true
     setTenantCsrfHeader(null)
+    useTenantStore().reset()
   }
 
   const bootstrap = async (): Promise<boolean> => {
     if (tenantBootstrapped.value) return authenticated.value
     try {
-      applyTenantSession(await fetchTenantSession())
+      if (!applyTenantSession(await fetchTenantSession())) return false
     } catch (error) {
       if (!isAxiosError(error) || error.response?.status !== 401) throw error
       clearTenantSession()
@@ -62,12 +73,26 @@ export const useAuthStore = defineStore('auth', () => {
   const requestCode = async (phone: string) => requestTenantCode(phone)
 
   const verifyCode = async (phone: string, code: string) => {
-    applyTenantSession(await verifyTenantCode(phone, code))
+    return applyTenantSession(await verifyTenantCode(phone, code))
   }
 
   const logout = async () => {
-    if (csrfToken.value) await logoutTenantSession(csrfToken.value)
-    clearTenantSession()
+    try {
+      if (csrfToken.value) await logoutTenantSession(csrfToken.value)
+    } finally {
+      clearTenantSession()
+    }
+  }
+
+  const logoutTo = async (
+    destination: string,
+    replaceDocument: (url: string) => void = (url) => window.location.replace(url),
+  ) => {
+    try {
+      await logout()
+    } finally {
+      replaceDocument(destination)
+    }
   }
 
   const applyPlatformSession = (data: PlatformSessionData) => {
@@ -113,6 +138,7 @@ export const useAuthStore = defineStore('auth', () => {
     bootstrapPlatform,
     csrfToken,
     logout,
+    logoutTo,
     logoutPlatform,
     member,
     platformAdmin,

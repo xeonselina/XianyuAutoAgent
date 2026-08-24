@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import type { PendingReturn } from '@/types/pendingReturn'
 import { usePendingReturns } from '@/composables/usePendingReturns'
+import { useTenantStore } from '@/stores/tenant'
 
 const { axiosGet, axiosPut } = vi.hoisted(() => ({
   axiosGet: vi.fn(),
@@ -51,6 +52,12 @@ describe('usePendingReturns', () => {
     setActivePinia(createPinia())
     axiosGet.mockReset()
     axiosPut.mockReset()
+    useTenantStore().setWarehousesForSession([{
+      id: 1,
+      name: '测试仓库',
+      province: '广东省',
+      city: '深圳市',
+    }])
   })
 
   it('loads the complete pending-returns list', async () => {
@@ -60,11 +67,24 @@ describe('usePendingReturns', () => {
     await state.load()
 
     expect(axiosGet).toHaveBeenCalledWith('/api/rentals/pending-returns', {
-      params: { warehouse_id: 'all' },
+      params: { warehouse_id: 1 },
     })
     expect(state.rentals.value).toEqual([pendingReturn])
     expect(state.count.value).toBe(1)
     expect(state.loading.value).toBe(false)
+  })
+
+  it('blocks a direct returned-status write from the all-warehouses view', async () => {
+    const tenant = useTenantStore()
+    tenant.setWarehousesForSession([
+      { id: 1, name: 'A 仓', province: '广东省', city: '深圳市' },
+      { id: 2, name: 'B 仓', province: '浙江省', city: '杭州市' },
+    ])
+    tenant.selectWarehouse('all')
+    const state = usePendingReturns()
+
+    await expect(state.markReturned(7)).rejects.toThrow('请选择具体仓库')
+    expect(axiosPut).not.toHaveBeenCalled()
   })
 
   it('marks one rental returned and reloads the list', async () => {

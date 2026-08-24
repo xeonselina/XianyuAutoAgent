@@ -25,6 +25,9 @@ export const useTenantStore = defineStore('tenant', () => {
   const currentWarehouseId = ref<number | 'all'>('all')
   const loading = ref(false)
   const loaded = ref(false)
+  const ready = ref(false)
+  let sessionGeneration = 0
+  let initializePromise: Promise<Warehouse[]> | null = null
 
   const currentWarehouse = computed(() => (
     typeof currentWarehouseId.value === 'number'
@@ -49,22 +52,31 @@ export const useTenantStore = defineStore('tenant', () => {
       currentWarehouseId.value = rows[0].id
     }
     loaded.value = true
+    ready.value = true
   }
 
-  const loadWarehouses = async (force = false) => {
-    if (loaded.value && !force) return warehouses.value
+  const initialize = (force = false): Promise<Warehouse[]> => {
+    if (ready.value && !force) return Promise.resolve(warehouses.value)
+    if (initializePromise) return initializePromise
+    const requestGeneration = sessionGeneration
     loading.value = true
-    try {
-      const response = await axios.get<WarehouseEnvelope>('/api/warehouses')
+    initializePromise = axios.get<WarehouseEnvelope>('/api/warehouses').then((response) => {
       if (!response.data.success || !Array.isArray(response.data.data)) {
         throw new Error(response.data.message || '仓库加载失败')
       }
+      if (requestGeneration !== sessionGeneration) return warehouses.value
       setWarehousesForSession(response.data.data)
       return warehouses.value
-    } finally {
-      loading.value = false
-    }
+    }).finally(() => {
+      if (requestGeneration === sessionGeneration) {
+        loading.value = false
+        initializePromise = null
+      }
+    })
+    return initializePromise
   }
+
+  const loadWarehouses = (force = false) => initialize(force)
 
   const selectWarehouse = (warehouseId: number | 'all') => {
     if (warehouseId === 'all') {
@@ -77,19 +89,31 @@ export const useTenantStore = defineStore('tenant', () => {
     currentWarehouseId.value = warehouseId
   }
 
+  const requireConcreteWarehouse = () => {
+    if (currentWarehouseId.value === 'all') throw new Error('请选择具体仓库')
+    return currentWarehouseId.value
+  }
+
   const reset = () => {
+    sessionGeneration += 1
+    initializePromise = null
     warehouses.value = []
     currentWarehouseId.value = 'all'
     loaded.value = false
+    ready.value = false
+    loading.value = false
   }
 
   return {
     currentWarehouse,
     currentWarehouseId,
+    initialize,
     loadWarehouses,
     loaded,
     loading,
+    ready,
     reset,
+    requireConcreteWarehouse,
     selectWarehouse,
     setWarehousesForSession,
     warehouses,

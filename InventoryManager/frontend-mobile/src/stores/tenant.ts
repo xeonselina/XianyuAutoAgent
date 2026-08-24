@@ -16,6 +16,10 @@ export const useMobileTenantStore = defineStore('mobile-tenant', () => {
   const warehouses = ref<MobileWarehouse[]>([])
   const currentWarehouseId = ref<number | 'all'>('all')
   const loaded = ref(false)
+  const loading = ref(false)
+  const ready = ref(false)
+  let sessionGeneration = 0
+  let initializePromise: Promise<MobileWarehouse[]> | null = null
 
   const setWarehousesForSession = (rows: MobileWarehouse[]) => {
     const previous = currentWarehouseId.value
@@ -34,17 +38,31 @@ export const useMobileTenantStore = defineStore('mobile-tenant', () => {
       currentWarehouseId.value = rows[0].id
     }
     loaded.value = true
+    ready.value = true
   }
 
-  const loadWarehouses = async (force = false) => {
-    if (loaded.value && !force) return warehouses.value
-    const response = await axios.get('/api/warehouses')
-    if (!response.data.success || !Array.isArray(response.data.data)) {
-      throw new Error(response.data.message || '仓库加载失败')
-    }
-    setWarehousesForSession(response.data.data)
-    return warehouses.value
+  const initialize = (force = false): Promise<MobileWarehouse[]> => {
+    if (ready.value && !force) return Promise.resolve(warehouses.value)
+    if (initializePromise) return initializePromise
+    const requestGeneration = sessionGeneration
+    loading.value = true
+    initializePromise = axios.get('/api/warehouses').then((response) => {
+      if (!response.data.success || !Array.isArray(response.data.data)) {
+        throw new Error(response.data.message || '仓库加载失败')
+      }
+      if (requestGeneration !== sessionGeneration) return warehouses.value
+      setWarehousesForSession(response.data.data)
+      return warehouses.value
+    }).finally(() => {
+      if (requestGeneration === sessionGeneration) {
+        loading.value = false
+        initializePromise = null
+      }
+    })
+    return initializePromise
   }
+
+  const loadWarehouses = (force = false) => initialize(force)
 
   const selectWarehouse = (warehouseId: number | 'all') => {
     if (warehouseId === 'all') {
@@ -64,10 +82,25 @@ export const useMobileTenantStore = defineStore('mobile-tenant', () => {
     return currentWarehouseId.value
   }
 
+  const reset = () => {
+    sessionGeneration += 1
+    initializePromise = null
+    warehouses.value = []
+    currentWarehouseId.value = 'all'
+    loaded.value = false
+    loading.value = false
+    ready.value = false
+  }
+
   return {
     currentWarehouseId,
+    initialize,
     loadWarehouses,
+    loaded,
+    loading,
+    ready,
     requireConcreteWarehouse,
+    reset,
     selectWarehouse,
     setWarehousesForSession,
     warehouses,

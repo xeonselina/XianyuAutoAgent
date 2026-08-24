@@ -61,6 +61,14 @@ const warehouses = [
   },
 ]
 
+const deferred = <T>() => {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
 const mountHeader = async (role: 'admin' | 'operator') => {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -104,6 +112,39 @@ describe('warehouse-aware tenant navigation', () => {
     setActivePinia(createPinia())
     axiosGet.mockReset()
     axiosPut.mockReset()
+  })
+
+  it('shares one warehouse initialization and marks the session ready only after it resolves', async () => {
+    const response = deferred<{ data: { success: boolean; data: typeof warehouses } }>()
+    axiosGet.mockReturnValue(response.promise)
+    const tenant = useTenantStore()
+
+    const first = tenant.initialize()
+    const second = tenant.initialize()
+
+    expect(tenant.ready).toBe(false)
+    expect(axiosGet).toHaveBeenCalledOnce()
+
+    response.resolve({ data: { success: true, data: warehouses } })
+    await Promise.all([first, second])
+
+    expect(tenant.ready).toBe(true)
+    expect(tenant.currentWarehouseId).toBe(11)
+  })
+
+  it('ignores a late warehouse response after tenant state is reset', async () => {
+    const response = deferred<{ data: { success: boolean; data: typeof warehouses } }>()
+    axiosGet.mockReturnValue(response.promise)
+    const tenant = useTenantStore()
+    const pending = tenant.initialize()
+
+    tenant.reset()
+    response.resolve({ data: { success: true, data: warehouses } })
+    await pending
+
+    expect(tenant.ready).toBe(false)
+    expect(tenant.warehouses).toEqual([])
+    expect(tenant.currentWarehouseId).toBe('all')
   })
 
   it('auto-selects the sole warehouse without rendering another control', async () => {

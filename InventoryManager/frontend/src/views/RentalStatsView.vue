@@ -266,13 +266,25 @@ function formatMoney(val: number) {
 }
 
 // ── 型号列表 ──────────────────────────────────────
+let modelsGeneration = 0
+let statsGeneration = 0
+let forecastGeneration = 0
+
 async function fetchModels() {
+  const requestGeneration = ++modelsGeneration
   try {
+    await tenantStore.initialize()
+    if (requestGeneration !== modelsGeneration) return
+    const warehouseId = tenantStore.currentWarehouseId
     const res = await fetch(
-      `/api/rental-stats/models?warehouse_id=${tenantStore.currentWarehouseId}`,
+      `/api/rental-stats/models?warehouse_id=${warehouseId}`,
     )
     const json = await res.json()
-    if (json.success) {
+    if (
+      requestGeneration === modelsGeneration
+      && warehouseId === tenantStore.currentWarehouseId
+      && json.success
+    ) {
       modelOptions.value = json.data
     }
   } catch (e) {
@@ -282,12 +294,16 @@ async function fetchModels() {
 
 // ── 数据获取 ──────────────────────────────────────
 async function fetchStats() {
+  const requestGeneration = ++statsGeneration
   loading.value = true
   try {
+    await tenantStore.initialize()
+    if (requestGeneration !== statsGeneration) return
+    const warehouseId = tenantStore.currentWarehouseId
     const params = new URLSearchParams({
       period_type: periodType.value,
       model: modelFilter.value === 'all' ? 'all' : String(modelFilter.value),
-      warehouse_id: String(tenantStore.currentWarehouseId),
+      warehouse_id: String(warehouseId),
     })
     if (dateRange.value) {
       params.set('start_date', dateRange.value[0])
@@ -295,31 +311,43 @@ async function fetchStats() {
     }
     const res = await fetch(`/api/rental-stats/periodic?${params}`)
     const json = await res.json()
-    if (json.success) {
+    if (
+      requestGeneration === statsGeneration
+      && warehouseId === tenantStore.currentWarehouseId
+      && json.success
+    ) {
       statsData.value = json.data
       summary.value = json.summary
     }
   } catch (e) {
     console.error('获取统计数据失败', e)
   } finally {
-    loading.value = false
+    if (requestGeneration === statsGeneration) loading.value = false
   }
 }
 
 async function fetchForecast() {
+  const requestGeneration = ++forecastGeneration
   forecastLoading.value = true
   try {
+    await tenantStore.initialize()
+    if (requestGeneration !== forecastGeneration) return
+    const warehouseId = tenantStore.currentWarehouseId
     const res = await fetch(
-      `/api/rental-stats/x200u-forecast?warehouse_id=${tenantStore.currentWarehouseId}`,
+      `/api/rental-stats/x200u-forecast?warehouse_id=${warehouseId}`,
     )
     const json = await res.json()
-    if (json.success) {
+    if (
+      requestGeneration === forecastGeneration
+      && warehouseId === tenantStore.currentWarehouseId
+      && json.success
+    ) {
       forecastData.value = json
     }
   } catch (e) {
     console.error('获取预测数据失败', e)
   } finally {
-    forecastLoading.value = false
+    if (requestGeneration === forecastGeneration) forecastLoading.value = false
   }
 }
 

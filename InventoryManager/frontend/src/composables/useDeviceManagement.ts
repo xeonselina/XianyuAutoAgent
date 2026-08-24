@@ -22,6 +22,7 @@ export function useDeviceManagement() {
   const devices = ref<DeviceWithStatus[]>([])
   const accessories = ref<DeviceWithStatus[]>([])
   const deviceModels = ref<DeviceModel[]>([])
+  let accessoriesGeneration = 0
 
   /**
    * 加载所有设备（非附件）
@@ -44,22 +45,31 @@ export function useDeviceManagement() {
    * 加载所有附件
    */
   const loadAccessories = async () => {
+    const requestGeneration = ++accessoriesGeneration
     loading.value = true
     try {
+      await tenantStore.initialize()
+      if (requestGeneration !== accessoriesGeneration) return
+      const warehouseId = tenantStore.currentWarehouseId
       const response = await axios.get('/api/devices', {
         params: {
           is_accessory: true,
           per_page: 100,
-          warehouse_id: tenantStore.currentWarehouseId,
+          warehouse_id: warehouseId,
         },
       })
-      accessories.value = (response.data.devices || [])
-        .map((device: Device) => ({ ...device }))
+      if (
+        requestGeneration === accessoriesGeneration
+        && warehouseId === tenantStore.currentWarehouseId
+      ) {
+        accessories.value = (response.data.devices || [])
+          .map((device: Device) => ({ ...device }))
+      }
     } catch (error) {
       console.error('加载附件列表失败:', error)
       throw error
     } finally {
-      loading.value = false
+      if (requestGeneration === accessoriesGeneration) loading.value = false
     }
   }
 

@@ -87,10 +87,6 @@
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="statistics">
-                  <el-icon><DataAnalysis /></el-icon>
-                  统计数据
-                </el-dropdown-item>
                 <el-dropdown-item command="rental-stats">
                   <el-icon><TrendCharts /></el-icon>
                   出租周期统计
@@ -134,6 +130,7 @@
       :rentals="pendingReturns"
       :loading="pendingReturnsLoading"
       :updating-ids="pendingReturnUpdatingIds"
+      :read-only="tenantStore.currentWarehouseId === 'all'"
       @mark-returned="handleMarkPendingReturnReturned"
     />
 
@@ -271,6 +268,7 @@
                 :device="device"
                 :rentals="ganttStore.getRentalsForDevice(device.id)"
                 :dates="dateArray"
+                :read-only="tenantStore.currentWarehouseId === 'all'"
                 :style="{ height: `${itemHeight}px` }"
                 @edit-rental="handleEditRental"
                 @delete-rental="handleDeleteRental"
@@ -432,7 +430,7 @@ import { ref, computed, onMounted, watch, nextTick, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGanttStore, type Device, type Rental, type DeviceModel, type ModelAccessory } from '@/stores/gantt'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, ArrowLeft, ArrowRight, Search, DataAnalysis, ArrowDown, Location, CircleCheck, TrendCharts, User, Sort, Bell } from '@element-plus/icons-vue'
+import { Plus, Refresh, ArrowLeft, ArrowRight, Search, ArrowDown, Location, CircleCheck, TrendCharts, User, Sort, Bell } from '@element-plus/icons-vue'
 import axios from 'axios'
 import GanttRow from './GanttRow.vue'
 import BookingDialog from './BookingDialog.vue'
@@ -880,6 +878,10 @@ const handleScheduleReorderCompleted = async () => {
 }
 
 const handleEditRental = (rental: Rental) => {
+  if (tenantStore.currentWarehouseId === 'all') {
+    ElMessage.warning('请选择具体仓库')
+    return
+  }
   selectedRental.value = rental
   showEditDialog.value = true
 }
@@ -989,6 +991,10 @@ const handleAddDevice = async () => {
 }
 
 const handleDeleteRental = async (rental: Rental) => {
+  if (tenantStore.currentWarehouseId === 'all') {
+    ElMessage.warning('请选择具体仓库')
+    return
+  }
   try {
     await ElMessageBox.confirm(
       '确定要删除这个租赁记录吗？此操作不可恢复。',
@@ -1017,6 +1023,10 @@ const handleDeleteRental = async (rental: Rental) => {
 }
 
 const handleUpdateDeviceLifecycle = async (device: Device, newLifecycle: string) => {
+  if (tenantStore.currentWarehouseId === 'all') {
+    ElMessage.warning('请选择具体仓库')
+    return
+  }
   try {
     await ganttStore.updateDeviceLifecycle(device.id, newLifecycle)
     const labels: Record<string, string> = {
@@ -1077,9 +1087,6 @@ const handleMarkPendingReturnReturned = async (rentalId: number) => {
 // 处理"更多"菜单命令
 const handleMoreCommand = (command: string) => {
   switch (command) {
-    case 'statistics':
-      router.push('/statistics')
-      break
     case 'rental-stats':
       router.push('/rental-stats')
       break
@@ -1098,9 +1105,11 @@ const handleMoreCommand = (command: string) => {
 // 统计数据缓存
 const statsCache = new Map<string, any>()
 let loadStatsTimer: number | null = null
+let statsGeneration = 0
 
 // 获取每日统计信息（带缓存和防抖）
 const loadDailyStats = async () => {
+  const requestGeneration = ++statsGeneration
   // 防抖处理
   if (loadStatsTimer) {
     clearTimeout(loadStatsTimer)
@@ -1108,11 +1117,16 @@ const loadDailyStats = async () => {
 
   loadStatsTimer = setTimeout(async () => {
     try {
-      const cacheKey = `${tenantStore.currentWarehouseId}_${selectedDeviceModel.value || 'all'}_${dateArray.value[0]?.getTime() || 0}_${dateArray.value[dateArray.value.length - 1]?.getTime() || 0}`
+      await tenantStore.initialize()
+      if (requestGeneration !== statsGeneration) return
+      const warehouseId = tenantStore.currentWarehouseId
+      const cacheKey = `${warehouseId}_${selectedDeviceModel.value || 'all'}_${dateArray.value[0]?.getTime() || 0}_${dateArray.value[dateArray.value.length - 1]?.getTime() || 0}`
 
       // 检查缓存
       if (statsCache.has(cacheKey)) {
-        dailyStats.value = statsCache.get(cacheKey)
+        if (requestGeneration === statsGeneration) {
+          dailyStats.value = statsCache.get(cacheKey)
+        }
         return
       }
 
@@ -1120,7 +1134,7 @@ const loadDailyStats = async () => {
         dateArray.value.map(async (date) => {
           const dateStr = toSystemDateString(date)
           const params: any = { date: dateStr }
-          params.warehouse_id = tenantStore.currentWarehouseId
+          params.warehouse_id = warehouseId
 
           // 如果选择了设备型号，添加到参数中
           if (selectedDeviceModel.value) {
@@ -1165,7 +1179,10 @@ const loadDailyStats = async () => {
         }
       }
 
-      dailyStats.value = statsMap
+      if (
+        requestGeneration === statsGeneration
+        && warehouseId === tenantStore.currentWarehouseId
+      ) dailyStats.value = statsMap
     } catch (error) {
       console.error('加载每日统计失败:', error)
     }
@@ -1238,8 +1255,13 @@ watch(selectedDeviceModel, () => {
 
 watch(() => tenantStore.currentWarehouseId, async () => {
   statsCache.clear()
-  await ganttStore.loadData()
-  await loadDailyStats()
+  await Promise.all([
+    ganttStore.loadData(),
+    loadDailyStats(),
+    loadPendingReturns().catch((error) => {
+      ElMessage.error((error as Error).message)
+    }),
+  ])
 })
 
 // 监听设备数据变化，重新计算虚拟滚动

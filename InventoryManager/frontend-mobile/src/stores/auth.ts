@@ -1,9 +1,10 @@
 import axios, { isAxiosError } from 'axios'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { useMobileTenantStore } from './tenant'
 
 
-type MobileSession = {
+export type MobileSession = {
   csrf_token: string
   member: { id: number; phone: string; role: 'admin' | 'operator'; status: string }
   tenant: { id: number; name: string; access_status: string }
@@ -19,23 +20,72 @@ export const useMobileAuthStore = defineStore('mobile-auth', () => {
   const bootstrapped = ref(false)
   const authenticated = computed(() => session.value !== null)
 
+  const clearSession = () => {
+    session.value = null
+    bootstrapped.value = true
+    delete axios.defaults.headers.common['X-CSRF-Token']
+    useMobileTenantStore().reset()
+  }
+
+  const applySession = (
+    data: MobileSession,
+    reloadDocument: () => void = () => window.location.reload(),
+  ) => {
+    if (session.value && session.value.tenant.id !== data.tenant.id) {
+      clearSession()
+      reloadDocument()
+      return false
+    }
+    session.value = data
+    bootstrapped.value = true
+    axios.defaults.headers.common['X-CSRF-Token'] = data.csrf_token
+    return true
+  }
+
   const bootstrap = async (): Promise<boolean> => {
     if (bootstrapped.value) return authenticated.value
     try {
       const response = await axios.get<SessionEnvelope>('/auth/me')
-      session.value = response.data.data || null
-      const csrf = session.value?.csrf_token
-      if (csrf) axios.defaults.headers.common['X-CSRF-Token'] = csrf
+      const data = response.data.data
+      if (!data) clearSession()
+      else if (!applySession(data)) return false
     } catch (error) {
       if (!isAxiosError(error) || error.response?.status !== 401) throw error
-      session.value = null
+      clearSession()
     } finally {
       bootstrapped.value = true
     }
     return authenticated.value
   }
 
-  return { authenticated, bootstrap, session }
+  const logoutToDesktopLogin = async (
+    mobileNext: string,
+    replaceDocument: (url: string) => void = (url) => window.location.replace(url),
+    postLogout: typeof axios.post = axios.post,
+  ) => {
+    const csrf = session.value?.csrf_token
+    try {
+      if (csrf) {
+        await postLogout(
+          '/auth/logout',
+          undefined,
+          { headers: { 'X-CSRF-Token': csrf } },
+        )
+      }
+    } finally {
+      clearSession()
+      replaceDocument(`/login?next=${encodeURIComponent(mobileNext)}`)
+    }
+  }
+
+  return {
+    applySession,
+    authenticated,
+    bootstrap,
+    clearSession,
+    logoutToDesktopLogin,
+    session,
+  }
 })
 
 type MobileTarget = { fullPath: string }

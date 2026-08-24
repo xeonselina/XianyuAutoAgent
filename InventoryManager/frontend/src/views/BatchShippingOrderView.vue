@@ -7,7 +7,7 @@
         返回甘特图
       </el-button>
       <span class="order-count">共 {{ rentals.length }} 个订单</span>
-      <el-button @click="handlePrint" type="success" :disabled="rentals.length === 0">
+      <el-button @click="handlePrint" type="success" :disabled="rentals.length === 0 || !canWrite">
         <el-icon><Printer /></el-icon>
         打印所有发货单
       </el-button>
@@ -181,7 +181,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { computed, ref, onMounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -211,17 +211,26 @@ const tenantStore = useTenantStore()
 const rentals = ref<any[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
+const canWrite = computed(() => tenantStore.currentWarehouseId !== 'all')
+let requestGeneration = 0
 
 // Mounted
 onMounted(() => {
   fetchRentals()
 })
 
+watch(() => tenantStore.currentWarehouseId, () => {
+  void fetchRentals()
+})
+
 // Methods
 const fetchRentals = async () => {
+  const currentRequest = ++requestGeneration
   try {
     loading.value = true
     error.value = null
+    await tenantStore.initialize()
+    if (currentRequest !== requestGeneration) return
 
     const startDate = route.query.start_date as string
     const endDate = route.query.end_date as string
@@ -231,15 +240,20 @@ const fetchRentals = async () => {
       return
     }
 
+    const warehouseId = tenantStore.currentWarehouseId
     const response = await axios.get('/api/rentals/by-ship-date', {
       params: {
         start_date: startDate,
         end_date: endDate,
-        warehouse_id: tenantStore.currentWarehouseId,
+        warehouse_id: warehouseId,
       }
     })
 
-    if (response.data.success) {
+    if (
+      currentRequest === requestGeneration
+      && warehouseId === tenantStore.currentWarehouseId
+      && response.data.success
+    ) {
       // 过滤掉已发货的订单，只打印未发货的发货单
       rentals.value = response.data.data.rentals.filter((r: any) => r.status !== 'shipped')
       if (rentals.value.length === 0) {
@@ -254,13 +268,17 @@ const fetchRentals = async () => {
         }, 100)
       }
     } else {
-      error.value = response.data.message || '加载订单失败'
+      if (currentRequest === requestGeneration) {
+        error.value = response.data.message || '加载订单失败'
+      }
     }
   } catch (err: any) {
     console.error('获取租赁记录失败:', err)
-    error.value = '加载订单失败,请检查网络连接'
+    if (currentRequest === requestGeneration) {
+      error.value = '加载订单失败,请检查网络连接'
+    }
   } finally {
-    loading.value = false
+    if (currentRequest === requestGeneration) loading.value = false
   }
 }
 
@@ -294,6 +312,12 @@ const goBack = () => {
 }
 
 const handlePrint = () => {
+  try {
+    tenantStore.requireConcreteWarehouse()
+  } catch (error: any) {
+    ElMessage.warning(error.message)
+    return
+  }
   window.print()
 }
 

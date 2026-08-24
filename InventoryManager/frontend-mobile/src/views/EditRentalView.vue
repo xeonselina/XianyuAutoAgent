@@ -252,6 +252,7 @@
             block
             native-type="submit"
             :loading="submitting"
+            :disabled="tenantStore.currentWarehouseId === 'all'"
             data-testid="save-rental"
           >保存修改</van-button>
           <van-button
@@ -259,6 +260,7 @@
             type="warning"
             block
             :loading="shippingToXianyu"
+            :disabled="tenantStore.currentWarehouseId === 'all'"
             style="margin-top: 8px"
             @click="onShipToXianyu"
           >发货到闲鱼</van-button>
@@ -848,15 +850,24 @@ const onShipToXianyu = async () => {
   }
 }
 
+let accessoriesGeneration = 0
 const loadAccessories = async () => {
+  const requestGeneration = ++accessoriesGeneration
   try {
+    await tenantStore.initialize()
+    if (requestGeneration !== accessoriesGeneration) return
+    const warehouseId = tenantStore.currentWarehouseId
     const res = await axios.get('/api/devices', {
       params: {
         is_accessory: true,
         per_page: 100,
-        warehouse_id: tenantStore.currentWarehouseId,
+        warehouse_id: warehouseId,
       },
     })
+    if (
+      requestGeneration !== accessoriesGeneration
+      || warehouseId !== tenantStore.currentWarehouseId
+    ) return
     const all: Device[] = res.data.devices || []
     accessories.value.phoneHolders = all.filter(d =>
       d.model?.toLowerCase().includes('phone_holder') ||

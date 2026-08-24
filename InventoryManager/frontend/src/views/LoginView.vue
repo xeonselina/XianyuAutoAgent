@@ -35,7 +35,7 @@ const login = async () => {
   errorMessage.value = ''
   busy.value = true
   try {
-    await auth.verifyCode(phone.value, code.value)
+    if (!await auth.verifyCode(phone.value, code.value)) return
     await navigateAfterTenantLogin(
       route.query.next,
       (next) => router.replace(next),

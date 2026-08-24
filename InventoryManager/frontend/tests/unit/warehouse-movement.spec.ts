@@ -1,8 +1,11 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { defineComponent } from 'vue'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
 import WarehouseMovementDialog from '@/components/WarehouseMovementDialog.vue'
+import InspectionView from '@/views/InspectionView.vue'
 import { useTenantStore } from '@/stores/tenant'
 import { useInspectionStore } from '@/stores/inspection'
 
@@ -31,6 +34,14 @@ const preview = (token = 'preview-token') => ({
   blocked: [{ rental_id: 104, reason: 'SOURCE_ROLE_MISMATCH' }],
   token,
 })
+
+const deferred = <T>() => {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
 
 const mountDialog = async () => {
   const pinia = createPinia()
@@ -184,5 +195,102 @@ describe('warehouse movement confirmation', () => {
     expect(axiosPost.mock.calls.some(
       ([url]) => String(url).includes('movement-preview'),
     )).toBe(false)
+  })
+
+  it('locks an inspection immediately after one successful submission until reset', async () => {
+    const response = deferred<any>()
+    axiosPost.mockReturnValue(response.promise)
+    setActivePinia(createPinia())
+    const store = useInspectionStore()
+    store.currentRental = { id: 101, device_id: 9, warehouse_id: 1 } as never
+    store.checkItems = [{ item_name: '外观', is_checked: true, item_order: 1 }]
+    store.receivingWarehouseId = 1
+
+    const first = store.submitInspection()
+    const duplicateWhileLoading = store.submitInspection()
+    expect(axiosPost).toHaveBeenCalledOnce()
+
+    response.resolve({
+      data: {
+        success: true,
+        data: {
+          id: 77,
+          rental_id: 101,
+          device_id: 9,
+          status: 'normal',
+          check_items: [],
+          created_at: '2026-08-25T00:00:00Z',
+          updated_at: '2026-08-25T00:00:00Z',
+        },
+      },
+    })
+    expect(await first).toBe(true)
+    expect(await duplicateWhileLoading).toBe(false)
+    expect(store.submitted).toBe(true)
+    expect(await store.submitInspection()).toBe(false)
+    expect(axiosPost).toHaveBeenCalledOnce()
+
+    store.reset()
+    expect(store.submitted).toBe(false)
+  })
+
+  it('hides the receipt checklist after success even when there are no warehouse impacts', async () => {
+    axiosPost.mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          id: 77,
+          rental_id: 101,
+          device_id: 9,
+          status: 'normal',
+          check_items: [],
+          created_at: '2026-08-25T00:00:00Z',
+          updated_at: '2026-08-25T00:00:00Z',
+        },
+      },
+    })
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useTenantStore().setWarehousesForSession(publicWarehouses)
+    const store = useInspectionStore()
+    store.currentRental = { id: 101, device_id: 9, warehouse_id: 1 } as never
+    store.checkItems = [{ item_name: '外观', is_checked: true, item_order: 1 }]
+    store.receivingWarehouseId = 1
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/inspection', component: InspectionView }],
+    })
+    await router.push('/inspection')
+    await router.isReady()
+    const wrapper = mount(InspectionView, {
+      global: {
+        plugins: [pinia, router],
+        stubs: {
+          DeviceSearchInput: true,
+          RentalInfoCard: true,
+          ChecklistForm: defineComponent({
+            emits: ['submit'],
+            template: '<button data-testid="submit-inspection" @click="$emit(\'submit\')">提交</button>',
+          }),
+          ElCard: { template: '<section><slot name="header"/><slot/></section>' },
+          ElForm: { template: '<form><slot/></form>' },
+          ElFormItem: { template: '<div><slot/></div>' },
+          ElSelect: true,
+          ElOption: true,
+          ElCheckboxGroup: true,
+          ElCheckbox: true,
+          ElResult: { template: '<section data-testid="success-result"><slot name="extra"/></section>' },
+          ElButton: { emits: ['click'], template: '<button @click="$emit(\'click\')"><slot/></button>' },
+        },
+      },
+    })
+
+    await wrapper.get('[data-testid="submit-inspection"]').trigger('click')
+    await flushPromises()
+
+    expect(store.submitted).toBe(true)
+    expect(wrapper.find('[data-testid="submit-inspection"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="success-result"]').text()).toContain('继续验货')
+    expect(axiosPost).toHaveBeenCalledOnce()
   })
 })

@@ -188,12 +188,8 @@ const apiErrorMessage = (err: any, fallback: string) => {
 
 export const useGanttStore = defineStore('gantt', () => {
   const tenantStore = useTenantStore()
-  const concreteWarehouseId = () => {
-    if (tenantStore.currentWarehouseId === 'all') {
-      throw new Error('请选择具体仓库')
-    }
-    return tenantStore.currentWarehouseId
-  }
+  const concreteWarehouseId = () => tenantStore.requireConcreteWarehouse()
+  let loadGeneration = 0
 
   // 状态
   const devices = ref<Device[]>([])
@@ -232,29 +228,37 @@ export const useGanttStore = defineStore('gantt', () => {
 
   // 方法
   const loadData = async () => {
+    const requestGeneration = ++loadGeneration
     loading.value = true
     error.value = null
-    
+
     try {
+      await tenantStore.initialize()
+      if (requestGeneration !== loadGeneration) return
+      const warehouseId = tenantStore.currentWarehouseId
       const response = await axios.get('/api/gantt/data', {
         params: {
           start_date: toDateString(dateRange.value.start),
           end_date: toDateString(dateRange.value.end),
-          warehouse_id: tenantStore.currentWarehouseId,
+          warehouse_id: warehouseId,
         }
       })
-      
-      if (response.data.success) {
+
+      if (
+        requestGeneration === loadGeneration
+        && warehouseId === tenantStore.currentWarehouseId
+        && response.data.success
+      ) {
         devices.value = response.data.data.devices
         rentals.value = response.data.data.rentals
-      } else {
+      } else if (requestGeneration === loadGeneration && !response.data.success) {
         throw new Error(response.data.error || '加载数据失败')
       }
     } catch (err: any) {
-      error.value = err.message
+      if (requestGeneration === loadGeneration) error.value = err.message
       console.error('加载数据失败:', err)
     } finally {
-      loading.value = false
+      if (requestGeneration === loadGeneration) loading.value = false
     }
   }
 
@@ -368,6 +372,7 @@ export const useGanttStore = defineStore('gantt', () => {
 
   const deleteRental = async (rentalId: number) => {
     try {
+      concreteWarehouseId()
       const response = await axios.delete(`/web/rentals/${rentalId}`)
       if (response.data.success) {
         await loadData()
@@ -398,6 +403,7 @@ export const useGanttStore = defineStore('gantt', () => {
   // 发货到闲鱼
   const shipRentalToXianyu = async (rentalId: number) => {
     try {
+      concreteWarehouseId()
       const response = await axios.post(`/api/rentals/${rentalId}/ship-to-xianyu`)
       if (response.data.success) {
         await loadData()
@@ -414,6 +420,7 @@ export const useGanttStore = defineStore('gantt', () => {
   // 更新设备生命周期状态
   const updateDeviceLifecycle = async (deviceId: number, lifecycleStatus: string, reason?: string) => {
     try {
+      concreteWarehouseId()
       const response = await axios.put(`/api/devices/${deviceId}/lifecycle`, {
         lifecycle_status: lifecycleStatus,
         lifecycle_reason: reason
@@ -497,6 +504,7 @@ export const useGanttStore = defineStore('gantt', () => {
     token: string
   ): Promise<ReorderExecuteResult> => {
     try {
+      concreteWarehouseId()
       const response = await axios.post('/api/gantt/reorder/execute', { token })
       if (!response.data.success) {
         throw new Error(response.data.message || response.data.error || '执行档期重排失败')

@@ -98,7 +98,7 @@
         <el-button
           type="primary"
           @click="handleStartPrint"
-          :disabled="previewOrders.length === 0"
+          :disabled="previewOrders.length === 0 || tenantStore.currentWarehouseId === 'all'"
         >
           开始打印
         </el-button>
@@ -108,7 +108,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
@@ -149,6 +149,7 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const previewed = ref(false)
 const previewOrders = ref<any[]>([])
+let previewGeneration = 0
 
 // Handlers
 const handleClose = () => {
@@ -164,6 +165,7 @@ const handleClose = () => {
 }
 
 const handlePreview = async () => {
+  const requestGeneration = ++previewGeneration
   try {
     error.value = null
     loading.value = true
@@ -173,6 +175,9 @@ const handlePreview = async () => {
       error.value = '请选择开始和结束日期'
       return
     }
+
+    await tenantStore.initialize()
+    if (requestGeneration !== previewGeneration) return
 
     // 验证日期范围
     if (form.value.endDate < form.value.startDate) {
@@ -184,15 +189,20 @@ const handlePreview = async () => {
     const startDateStr = dayjs(form.value.startDate).format('YYYY-MM-DD')
     const endDateStr = dayjs(form.value.endDate).format('YYYY-MM-DD')
 
+    const warehouseId = tenantStore.currentWarehouseId
     const response = await axios.get('/api/rentals/by-ship-date', {
       params: {
         start_date: startDateStr,
         end_date: endDateStr,
-        warehouse_id: tenantStore.currentWarehouseId,
+        warehouse_id: warehouseId,
       }
     })
 
-    if (response.data.success) {
+    if (
+      requestGeneration === previewGeneration
+      && warehouseId === tenantStore.currentWarehouseId
+      && response.data.success
+    ) {
       previewOrders.value = response.data.data.rentals
       previewed.value = true
 
@@ -201,18 +211,26 @@ const handlePreview = async () => {
       } else {
         ElMessage.success(`找到 ${previewOrders.value.length} 个待打印订单`)
       }
-    } else {
+    } else if (requestGeneration === previewGeneration) {
       error.value = response.data.message || '加载订单失败'
     }
   } catch (err: any) {
     console.error('预览订单失败:', err)
-    error.value = err.response?.data?.message || '加载订单失败,请检查网络连接'
+    if (requestGeneration === previewGeneration) {
+      error.value = err.response?.data?.message || '加载订单失败,请检查网络连接'
+    }
   } finally {
-    loading.value = false
+    if (requestGeneration === previewGeneration) loading.value = false
   }
 }
 
 const handleStartPrint = () => {
+  try {
+    tenantStore.requireConcreteWarehouse()
+  } catch (error: any) {
+    ElMessage.warning(error.message)
+    return
+  }
   if (previewOrders.value.length === 0) return
 
   const startDateStr = dayjs(form.value.startDate).format('YYYY-MM-DD')
@@ -229,6 +247,13 @@ const handleStartPrint = () => {
 
   handleClose()
 }
+
+watch(() => tenantStore.currentWarehouseId, () => {
+  previewGeneration += 1
+  previewOrders.value = []
+  previewed.value = false
+  loading.value = false
+})
 
 const formatShipTime = (shipTime: string | null) => {
   if (!shipTime) return '未设置'

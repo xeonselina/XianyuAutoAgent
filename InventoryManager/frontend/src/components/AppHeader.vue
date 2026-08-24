@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink } from 'vue-router'
 
 import { useAuthStore } from '@/stores/auth'
 import { useTenantStore } from '@/stores/tenant'
@@ -8,20 +8,17 @@ import { useTenantStore } from '@/stores/tenant'
 
 const auth = useAuthStore()
 const tenant = useTenantStore()
-const router = useRouter()
 
 const roleLabel = computed(() => (
   auth.member?.role === 'admin' ? 'Admin' : 'Operator'
 ))
 
 const logout = async () => {
-  await auth.logout()
-  tenant.reset()
-  await router.replace('/login')
+  await auth.logoutTo('/login')
 }
 
 onMounted(() => {
-  void tenant.loadWarehouses().catch(() => undefined)
+  void tenant.initialize().catch(() => undefined)
 })
 </script>
 

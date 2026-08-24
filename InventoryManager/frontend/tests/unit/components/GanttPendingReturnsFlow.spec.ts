@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import PendingReturnsDrawer from '@/components/PendingReturnsDrawer.vue'
 import GanttChart from '@/components/GanttChart.vue'
 import { useGanttStore, type Device } from '@/stores/gantt'
+import { useTenantStore } from '@/stores/tenant'
 
 const { axiosGet, axiosPost, axiosPut } = vi.hoisted(() => ({
   axiosGet: vi.fn(),
@@ -84,6 +85,12 @@ const mountGantt = async (devices: Device[] = []) => {
   const pinia = createPinia()
   setActivePinia(pinia)
   const store = useGanttStore()
+  useTenantStore().setWarehousesForSession([{
+    id: 1,
+    name: '测试仓库',
+    province: '广东省',
+    city: '深圳市',
+  }])
   store.devices = devices
   const loadData = vi.spyOn(store, 'loadData').mockResolvedValue(undefined)
   const wrapper = shallowMount(GanttChart, {
@@ -230,7 +237,7 @@ describe('GanttChart pending-returns flow', () => {
 
     expect(wrapper.get('.pending-returns-badge').attributes('data-value')).toBe('1')
     expect(axiosGet).toHaveBeenCalledWith('/api/rentals/pending-returns', {
-      params: { warehouse_id: 'all' },
+      params: { warehouse_id: 1 },
     })
     expect(wrapper.get('[data-testid="pending-returns-button"]').text()).toContain(
       '待归还',

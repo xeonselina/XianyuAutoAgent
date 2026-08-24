@@ -57,20 +57,21 @@
 
       <!-- 操作按钮 -->
       <div class="action-bar">
-        <van-button block type="primary" size="normal" @click="onEdit">编辑</van-button>
-        <van-button block type="danger" size="normal" @click="onDelete" :loading="deleting">删除</van-button>
+        <van-button block type="primary" size="normal" :disabled="!canWrite" @click="onEdit">编辑</van-button>
+        <van-button block type="danger" size="normal" :disabled="!canWrite" @click="onDelete" :loading="deleting">删除</van-button>
       </div>
     </div>
   </van-popup>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { showConfirmDialog, showToast } from 'vant'
 import dayjs from 'dayjs'
 import type { Rental } from '@/stores/gantt'
 import { useGanttStore } from '@/stores/gantt'
+import { useMobileTenantStore } from '@/stores/tenant'
 
 const props = defineProps<{
   modelValue: boolean
@@ -85,7 +86,9 @@ const emit = defineEmits<{
 
 const router = useRouter()
 const ganttStore = useGanttStore()
+const tenantStore = useMobileTenantStore()
 const deleting = ref(false)
+const canWrite = computed(() => tenantStore.currentWarehouseId !== 'all')
 
 const visible = ref(props.modelValue)
 watch(() => props.modelValue, v => { visible.value = v })
@@ -110,12 +113,24 @@ const statusColor = (s: string) => STATUS_MAP[s]?.color ?? '#999'
 
 const onEdit = () => {
   if (!props.rental) return
+  try {
+    tenantStore.requireConcreteWarehouse()
+  } catch (error: any) {
+    showToast({ message: error.message, type: 'fail' })
+    return
+  }
   visible.value = false
   router.push({ name: 'edit-rental', params: { id: props.rental.id } })
 }
 
 const onDelete = async () => {
   if (!props.rental) return
+  try {
+    tenantStore.requireConcreteWarehouse()
+  } catch (error: any) {
+    showToast({ message: error.message, type: 'fail' })
+    return
+  }
   try {
     await showConfirmDialog({
       title: '确认删除',
