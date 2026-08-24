@@ -1,6 +1,7 @@
 """Admin-only member and warehouse settings routes."""
 
 from flask import Blueprint, current_app, g, request
+from sqlalchemy.exc import DataError, IntegrityError
 
 from app import db
 from app.auth import require_role
@@ -67,6 +68,21 @@ def _handle_settings_error(exc):
     raise exc
 
 
+def _handle_business_database_error(exc):
+    db.session.rollback()
+    if isinstance(exc, DataError):
+        return error(
+            "设置内容超出允许范围",
+            status_code=400,
+            code="INVALID_REQUEST",
+        ).to_flask_response()
+    return error(
+        "设置保存冲突，请重试",
+        status_code=409,
+        code="INVALID_REQUEST",
+    ).to_flask_response()
+
+
 @bp.get("/members")
 @require_role("admin")
 def list_members():
@@ -125,6 +141,8 @@ def create_warehouse():
     except (SettingsValidationError, SettingsNotFoundError) as exc:
         db.session.rollback()
         return _handle_settings_error(exc)
+    except (DataError, IntegrityError) as exc:
+        return _handle_business_database_error(exc)
 
 
 @bp.patch("/warehouses/<int:warehouse_id>")
@@ -140,6 +158,8 @@ def update_warehouse(warehouse_id):
     except (SettingsValidationError, SettingsNotFoundError) as exc:
         db.session.rollback()
         return _handle_settings_error(exc)
+    except (DataError, IntegrityError) as exc:
+        return _handle_business_database_error(exc)
 
 
 @bp.put("/warehouses/<int:warehouse_id>/sf")
@@ -163,6 +183,8 @@ def upsert_sf_config(warehouse_id):
     except (SettingsValidationError, SettingsNotFoundError) as exc:
         db.session.rollback()
         return _handle_settings_error(exc)
+    except (DataError, IntegrityError) as exc:
+        return _handle_business_database_error(exc)
 
 
 @bp.put("/warehouses/<int:warehouse_id>/kuaimai")
@@ -176,3 +198,5 @@ def upsert_kuaimai_config(warehouse_id):
     except (SettingsValidationError, SettingsNotFoundError) as exc:
         db.session.rollback()
         return _handle_settings_error(exc)
+    except (DataError, IntegrityError) as exc:
+        return _handle_business_database_error(exc)

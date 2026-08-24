@@ -2,19 +2,21 @@
 
 import base64
 import json
+import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
-from threading import Barrier
+from threading import Barrier, Event
 
 import pytest
 from alembic import command
 from flask import Flask
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import create_engine, delete, inspect, text
+from sqlalchemy import create_engine, delete, event, inspect, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.engine import Engine
 
 from app import create_app
 from app.auth import create_auth_session
@@ -422,6 +424,21 @@ def test_member_role_rejects_non_string_json_values(
     assert response.get_json()["code"] == "INVALID_REQUEST"
 
 
+@pytest.mark.parametrize("payload", [{"role": None}, {"status": None}])
+def test_member_patch_rejects_explicit_null_role_or_status(
+    settings_api_environment,
+    payload,
+):
+    response = settings_api_environment["admin_client"].patch(
+        f"/api/settings/members/{settings_api_environment['operator_id']}",
+        json=payload,
+        headers=_csrf(settings_api_environment),
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["code"] == "INVALID_REQUEST"
+
+
 @pytest.mark.parametrize(
     "payload", [{"status": "disabled"}, {"role": "operator"}]
 )
@@ -547,6 +564,66 @@ def test_warehouse_default_name_tracks_location_until_customized(
     )
     assert preserved.status_code == 200
     assert preserved.get_json()["data"]["name"] == "华南维修仓"
+
+
+def test_create_rejects_overlong_generated_name_without_writing(
+    settings_api_environment,
+):
+    response = settings_api_environment["admin_client"].post(
+        "/api/settings/warehouses",
+        json={"province": "省" * 50, "city": "市" * 50},
+        headers=_csrf(settings_api_environment),
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["code"] == "INVALID_REQUEST"
+    with settings_api_environment["tenant_engine"].connect() as connection:
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM warehouses")
+        ).scalar_one() == 0
+
+
+def test_update_rejects_overlong_automatic_name_but_preserves_custom_name(
+    settings_api_environment,
+):
+    automatic = _create_warehouse(settings_api_environment)
+    custom_response = settings_api_environment["admin_client"].post(
+        "/api/settings/warehouses",
+        json={
+            "province": "广东省",
+            "city": "深圳市",
+            "name": "华南自定义仓",
+        },
+        headers=_csrf(settings_api_environment),
+    )
+    assert custom_response.status_code == 201
+    custom = custom_response.get_json()["data"]
+    oversized_location = {"province": "省" * 50, "city": "市" * 50}
+
+    rejected = settings_api_environment["admin_client"].patch(
+        f"/api/settings/warehouses/{automatic['id']}",
+        json=oversized_location,
+        headers=_csrf(settings_api_environment),
+    )
+    preserved = settings_api_environment["admin_client"].patch(
+        f"/api/settings/warehouses/{custom['id']}",
+        json=oversized_location,
+        headers=_csrf(settings_api_environment),
+    )
+
+    assert rejected.status_code == 400
+    assert rejected.get_json()["code"] == "INVALID_REQUEST"
+    assert preserved.status_code == 200
+    assert preserved.get_json()["data"]["name"] == "华南自定义仓"
+    listed = settings_api_environment["admin_client"].get(
+        "/api/settings/warehouses"
+    ).get_json()["data"]
+    stored_automatic = next(
+        row for row in listed if row["id"] == automatic["id"]
+    )
+    assert stored_automatic["province"] == "广东省"
+    assert stored_automatic["city"] == "深圳市"
+    assert stored_automatic["name"] == "广东省深圳市仓库"
 
 
 def test_warehouse_delete_is_not_supported(settings_api_environment):
@@ -688,6 +765,265 @@ def test_first_empty_secrets_remain_unconfigured_and_kuaimai_keeps_secret(
             {"id": warehouse["id"]},
         ).scalar_one()
     assert secret_after == secret_before
+
+
+def _run_concurrent_config_puts(
+    environment,
+    endpoint,
+    config_table,
+    payloads,
+):
+    barrier = Barrier(2)
+    locking_query_seen = Event()
+
+    def synchronize_config_race(
+        _connection,
+        _cursor,
+        statement,
+        _parameters,
+        _context,
+        _executemany,
+    ):
+        normalized = " ".join(statement.lower().split())
+        if "from warehouses" in normalized and "for update" in normalized:
+            locking_query_seen.set()
+            barrier.wait(timeout=10)
+        elif (
+            not locking_query_seen.is_set()
+            and f"from {config_table}" in normalized
+        ):
+            barrier.wait(timeout=10)
+
+    def put_config(payload):
+        client = _new_client(
+            environment["app"], environment["admin_credentials"]
+        )
+        return client.put(
+            endpoint,
+            json=payload,
+            headers=_csrf(environment),
+        )
+
+    event.listen(Engine, "before_cursor_execute", synchronize_config_race)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(put_config, body) for body in payloads]
+            return [future.result(timeout=20) for future in futures]
+    finally:
+        event.remove(
+            Engine, "before_cursor_execute", synchronize_config_race
+        )
+
+
+def test_concurrent_sf_upserts_are_serialized_and_redacted(
+    settings_api_environment,
+    caplog,
+):
+    warehouse = _create_warehouse(settings_api_environment)
+    payloads = (
+        {
+            "partner_id": "partner-a",
+            "checkword": "sf-checkword-sensitive-A9x2",
+            "monthly_card": "sf-monthly-sensitive-A7q4",
+            "sender_name": "寄件人A",
+        },
+        {
+            "partner_id": "partner-b",
+            "checkword": "sf-checkword-sensitive-B8m3",
+            "monthly_card": "sf-monthly-sensitive-B6p5",
+            "sender_name": "寄件人B",
+        },
+    )
+    endpoint = f"/api/settings/warehouses/{warehouse['id']}/sf"
+
+    with caplog.at_level(logging.DEBUG):
+        responses = _run_concurrent_config_puts(
+            settings_api_environment,
+            endpoint,
+            "warehouse_sf_configs",
+            payloads,
+        )
+
+    assert [response.status_code for response in responses] == [200, 200]
+    with settings_api_environment["tenant_engine"].connect() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT partner_id, checkword_ciphertext, "
+                "monthly_card_ciphertext, sender_name "
+                "FROM warehouse_sf_configs WHERE warehouse_id = :id"
+            ),
+            {"id": warehouse["id"]},
+        ).all()
+    assert len(rows) == 1
+    row = rows[0]
+    box = SecretBox.from_base64(TEST_MASTER_KEY)
+    final_values = (
+        row.partner_id,
+        box.decrypt(
+            row.checkword_ciphertext, purpose="warehouse-sf-checkword"
+        ),
+        box.decrypt(
+            row.monthly_card_ciphertext,
+            purpose="warehouse-sf-monthly-card",
+        ),
+        row.sender_name,
+    )
+    assert final_values in {
+        (
+            payload["partner_id"],
+            payload["checkword"],
+            payload["monthly_card"],
+            payload["sender_name"],
+        )
+        for payload in payloads
+    }
+    serialized = json.dumps(
+        [response.get_json() for response in responses], ensure_ascii=False
+    )
+    for payload in payloads:
+        for field in ("checkword", "monthly_card"):
+            assert payload[field] not in serialized
+            assert payload[field] not in caplog.text
+    assert "ciphertext" not in serialized
+
+
+def test_concurrent_kuaimai_upserts_are_serialized_and_redacted(
+    settings_api_environment,
+    caplog,
+):
+    warehouse = _create_warehouse(settings_api_environment)
+    payloads = (
+        {
+            "app_id": "kuaimai-a",
+            "app_secret": "kuaimai-sensitive-A2v7",
+            "printer_sn": "PRINTER-A",
+        },
+        {
+            "app_id": "kuaimai-b",
+            "app_secret": "kuaimai-sensitive-B3n8",
+            "printer_sn": "PRINTER-B",
+        },
+    )
+    endpoint = f"/api/settings/warehouses/{warehouse['id']}/kuaimai"
+
+    with caplog.at_level(logging.DEBUG):
+        responses = _run_concurrent_config_puts(
+            settings_api_environment,
+            endpoint,
+            "warehouse_kuaimai_configs",
+            payloads,
+        )
+
+    assert [response.status_code for response in responses] == [200, 200]
+    with settings_api_environment["tenant_engine"].connect() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT app_id, app_secret_ciphertext, printer_sn "
+                "FROM warehouse_kuaimai_configs WHERE warehouse_id = :id"
+            ),
+            {"id": warehouse["id"]},
+        ).all()
+    assert len(rows) == 1
+    row = rows[0]
+    final_values = (
+        row.app_id,
+        SecretBox.from_base64(TEST_MASTER_KEY).decrypt(
+            row.app_secret_ciphertext,
+            purpose="warehouse-kuaimai-app-secret",
+        ),
+        row.printer_sn,
+    )
+    assert final_values in {
+        (payload["app_id"], payload["app_secret"], payload["printer_sn"])
+        for payload in payloads
+    }
+    serialized = json.dumps(
+        [response.get_json() for response in responses], ensure_ascii=False
+    )
+    for payload in payloads:
+        assert payload["app_secret"] not in serialized
+        assert payload["app_secret"] not in caplog.text
+    assert "ciphertext" not in serialized
+
+
+def test_config_database_errors_are_rolled_back_and_redacted(
+    settings_api_environment,
+    caplog,
+):
+    first = _create_warehouse(settings_api_environment)
+    second = _create_warehouse(
+        settings_api_environment, province="浙江省", city="杭州市"
+    )
+    client = settings_api_environment["admin_client"]
+    headers = _csrf(settings_api_environment)
+    seeded = client.put(
+        f"/api/settings/warehouses/{first['id']}/sf",
+        json={"partner_id": "duplicate-for-error-test"},
+        headers=headers,
+    )
+    assert seeded.status_code == 200
+
+    with settings_api_environment["tenant_engine"].begin() as connection:
+        connection.exec_driver_sql(
+            "CREATE UNIQUE INDEX uq_test_sf_partner "
+            "ON warehouse_sf_configs (partner_id)"
+        )
+        connection.exec_driver_sql(
+            "ALTER TABLE warehouse_kuaimai_configs "
+            "MODIFY app_id VARCHAR(3) NULL"
+        )
+    sf_secret = "integrity-sensitive-sf-Z8k1"
+    kuaimai_secret = "data-error-sensitive-kuaimai-Y7j2"
+    try:
+        with caplog.at_level(logging.DEBUG):
+            integrity_response = client.put(
+                f"/api/settings/warehouses/{second['id']}/sf",
+                json={
+                    "partner_id": "duplicate-for-error-test",
+                    "checkword": sf_secret,
+                },
+                headers=headers,
+            )
+            data_response = client.put(
+                f"/api/settings/warehouses/{second['id']}/kuaimai",
+                json={"app_id": "too-long", "app_secret": kuaimai_secret},
+                headers=headers,
+            )
+    finally:
+        with settings_api_environment["tenant_engine"].begin() as connection:
+            connection.exec_driver_sql(
+                "DROP INDEX uq_test_sf_partner ON warehouse_sf_configs"
+            )
+            connection.exec_driver_sql(
+                "ALTER TABLE warehouse_kuaimai_configs "
+                "MODIFY app_id VARCHAR(100) NULL"
+            )
+
+    assert integrity_response.status_code == 409
+    assert data_response.status_code == 400
+    for response in (integrity_response, data_response):
+        serialized = json.dumps(response.get_json(), ensure_ascii=False)
+        assert response.get_json()["code"] == "INVALID_REQUEST"
+        assert "sql" not in serialized.lower()
+        assert "ciphertext" not in serialized.lower()
+        assert "secret" not in serialized.lower()
+    assert sf_secret not in caplog.text
+    assert kuaimai_secret not in caplog.text
+    with settings_api_environment["tenant_engine"].connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT COUNT(*) FROM warehouse_sf_configs "
+                "WHERE warehouse_id = :id"
+            ),
+            {"id": second["id"]},
+        ).scalar_one() == 0
+        assert connection.execute(
+            text(
+                "SELECT COUNT(*) FROM warehouse_kuaimai_configs "
+                "WHERE warehouse_id = :id"
+            ),
+            {"id": second["id"]},
+        ).scalar_one() == 0
 
 
 def test_settings_responses_never_expose_secret_values_or_ciphertexts(

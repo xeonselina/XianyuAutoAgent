@@ -64,6 +64,13 @@ def _optional_text(value, field, maximum):
     return value
 
 
+def _automatic_warehouse_name(province, city):
+    name = f"{province}{city}仓库"
+    if len(name) > 100:
+        raise SettingsValidationError("自动生成的仓库名称过长")
+    return name
+
+
 class SettingsService:
     def __init__(self, business_session, control_store, tenant_id):
         self.business_session = business_session
@@ -107,12 +114,12 @@ class SettingsService:
     def update_member(self, member_id, payload):
         role = payload.get("role")
         status = payload.get("status")
-        if role is not None and (
+        if "role" in payload and (
             not isinstance(role, str)
             or role not in {"admin", "operator"}
         ):
             raise SettingsValidationError("role 必须是 admin 或 operator")
-        if status is not None and (
+        if "status" in payload and (
             not isinstance(status, str)
             or status not in {"active", "disabled"}
         ):
@@ -133,8 +140,8 @@ class SettingsService:
             )
             if member is None:
                 raise SettingsNotFoundError("成员不存在")
-            next_role = role if role is not None else member.role
-            next_status = status if status is not None else member.status
+            next_role = payload.get("role", member.role)
+            next_status = payload.get("status", member.status)
             removes_active_admin = (
                 member.role == "admin"
                 and member.status == "active"
@@ -165,7 +172,7 @@ class SettingsService:
         province = _required_text(province, "province", 64)
         city = _required_text(city, "city", 64)
         if name is None or (isinstance(name, str) and not name.strip()):
-            name = f"{province}{city}仓库"
+            name = _automatic_warehouse_name(province, city)
         else:
             name = _required_text(name, "name", 100)
         warehouse = Warehouse(province=province, city=city, name=name)
@@ -195,11 +202,11 @@ class SettingsService:
             if raw_name is None or (
                 isinstance(raw_name, str) and not raw_name.strip()
             ):
-                name = f"{province}{city}仓库"
+                name = _automatic_warehouse_name(province, city)
             else:
                 name = _required_text(raw_name, "name", 100)
         elif warehouse.name == old_default_name:
-            name = f"{province}{city}仓库"
+            name = _automatic_warehouse_name(province, city)
         else:
             name = warehouse.name
         warehouse.province = province
@@ -209,11 +216,17 @@ class SettingsService:
         return warehouse
 
     def upsert_sf_config(self, warehouse_id, payload, secret_box=None):
-        warehouse = self.business_session.get(Warehouse, warehouse_id)
+        warehouse = self.business_session.scalar(
+            select(Warehouse)
+            .where(Warehouse.id == warehouse_id)
+            .with_for_update()
+        )
         if warehouse is None:
             raise SettingsNotFoundError("仓库不存在")
-        config = self.business_session.get(
-            WarehouseSFConfig, warehouse_id
+        config = self.business_session.scalar(
+            select(WarehouseSFConfig)
+            .where(WarehouseSFConfig.warehouse_id == warehouse_id)
+            .with_for_update()
         )
         if config is None:
             config = WarehouseSFConfig(warehouse_id=warehouse_id)
@@ -260,11 +273,17 @@ class SettingsService:
     def upsert_kuaimai_config(
         self, warehouse_id, payload, secret_box=None
     ):
-        warehouse = self.business_session.get(Warehouse, warehouse_id)
+        warehouse = self.business_session.scalar(
+            select(Warehouse)
+            .where(Warehouse.id == warehouse_id)
+            .with_for_update()
+        )
         if warehouse is None:
             raise SettingsNotFoundError("仓库不存在")
-        config = self.business_session.get(
-            WarehouseKuaimaiConfig, warehouse_id
+        config = self.business_session.scalar(
+            select(WarehouseKuaimaiConfig)
+            .where(WarehouseKuaimaiConfig.warehouse_id == warehouse_id)
+            .with_for_update()
         )
         if config is None:
             config = WarehouseKuaimaiConfig(warehouse_id=warehouse_id)
