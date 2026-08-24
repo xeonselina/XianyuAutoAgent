@@ -51,9 +51,10 @@ export const createMobileAuthGuard = (
     return false
   }
   const status = accessStatus()
-  if (status === 'expired' || status === 'suspended') {
-    assign(`/access-restricted?reason=${status}`)
-    return false
-  }
-  return true
+  if (status === 'active') return true
+  const reason = status === 'expired' || status === 'suspended'
+    ? status
+    : 'restricted'
+  assign(`/access-restricted?reason=${reason}`)
+  return false
 }

@@ -269,6 +269,30 @@ describe('tenant navigation', () => {
   })
 
   it.each([
+    { label: 'provisioning', accessStatus: 'provisioning' },
+    { label: 'failed', accessStatus: 'failed' },
+    { label: 'missing', accessStatus: undefined },
+    { label: 'future unknown', accessStatus: 'future-server-state' },
+  ])(
+    'fails closed for an authenticated mobile tenant with $label status',
+    async ({ accessStatus }) => {
+      const assign = vi.fn()
+      const guard = createMobileAuthGuard(
+        vi.fn().mockResolvedValue(true),
+        assign,
+        () => accessStatus,
+      )
+
+      const result = await guard({ fullPath: '/gantt' })
+
+      expect(result).toBe(false)
+      expect(assign).toHaveBeenCalledWith(
+        '/access-restricted?reason=restricted',
+      )
+    },
+  )
+
+  it.each([
     'https://attacker.example/mobile/gantt',
     '//attacker.example/mobile/gantt',
     '/platform/tenants',
