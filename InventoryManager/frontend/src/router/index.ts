@@ -39,6 +39,7 @@ type ReplaceRoute = (path: string) => unknown | Promise<unknown>
 type ReplaceDocument = (url: string) => void
 
 type TenantNext = { path: string; mobile: boolean }
+const MAX_NEXT_PATH_DECODE_PASSES = 8
 
 const safeTenantNext = (
   rawNext: unknown,
@@ -58,16 +59,22 @@ const safeTenantNext = (
     if (parsed.origin !== base.origin) return fallback
 
     let decodedPath = parsed.pathname
-    while (decodedPath.includes('%')) {
+    for (let pass = 0; pass < MAX_NEXT_PATH_DECODE_PASSES && decodedPath.includes('%'); pass += 1) {
       const decoded = decodeURIComponent(decodedPath)
       if (decoded === decodedPath) break
       decodedPath = decoded
     }
-    if (decodedPath.includes('\\') || /[?#]/.test(decodedPath)) return fallback
+    if (decodedPath.includes('%') || decodedPath.includes('\\') || /[?#]/.test(decodedPath)) {
+      return fallback
+    }
 
     const normalized = new URL(decodedPath, base)
     if (normalized.origin !== base.origin) return fallback
-    const lowerPath = normalized.pathname.toLowerCase()
+    const canonicalPath = normalized.pathname
+    if (!canonicalPath.startsWith('/') || canonicalPath.startsWith('//')) {
+      return fallback
+    }
+    const lowerPath = canonicalPath.toLowerCase()
     if (lowerPath === '/platform' || lowerPath.startsWith('/platform/')) {
       return fallback
     }
@@ -75,11 +82,11 @@ const safeTenantNext = (
     const suffix = `${parsed.search}${parsed.hash}`
     if (lowerPath === '/mobile' || lowerPath.startsWith('/mobile/')) {
       return {
-        path: `/mobile${normalized.pathname.slice('/mobile'.length)}${suffix}`,
+        path: `/mobile${canonicalPath.slice('/mobile'.length)}${suffix}`,
         mobile: true,
       }
     }
-    return { path: `${normalized.pathname}${suffix}`, mobile: false }
+    return { path: `${canonicalPath}${suffix}`, mobile: false }
   } catch {
     return fallback
   }

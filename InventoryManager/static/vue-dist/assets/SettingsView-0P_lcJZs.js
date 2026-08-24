@@ -1,0 +1,1 @@
+import{_ as t,c,a as s,o as n}from"./index-B8VmVlMO.js";const o={},a={class:"settings-shell"};function r(l,e){return n(),c("main",a,[...e[0]||(e[0]=[s("h1",null,"租户设置",-1),s("p",null,"成员、仓库与闲鱼店铺配置将在下一阶段接入。",-1)])])}const i=t(o,[["render",r],["__scopeId","data-v-9ef1cccb"]]);export{i as default};

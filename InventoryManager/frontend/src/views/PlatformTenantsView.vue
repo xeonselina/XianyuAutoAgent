@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import {
@@ -20,7 +20,11 @@ const tenants = ref<PlatformTenant[]>([])
 const loading = ref(false)
 const mutationBusy = ref(false)
 const showCreate = ref(false)
-const errorMessage = ref('')
+const operationErrorMessage = ref('')
+const listErrorMessage = ref('')
+const errorMessage = computed(() => (
+  [operationErrorMessage.value, listErrorMessage.value].filter(Boolean).join('；')
+))
 const form = reactive({ name: '', adminPhone: '', expiresAt: '' })
 const expiryDrafts = reactive<Record<number, string>>({})
 
@@ -35,13 +39,16 @@ const replaceTenant = (tenant: PlatformTenant) => {
   else tenants.value.push(tenant)
 }
 
-const load = async () => {
+const load = async (refreshAfterOperationFailure = false) => {
   loading.value = true
-  errorMessage.value = ''
+  listErrorMessage.value = ''
   try {
     tenants.value = await listTenants()
   } catch (error) {
-    errorMessage.value = apiErrorMessage(error)
+    const detail = apiErrorMessage(error)
+    listErrorMessage.value = refreshAfterOperationFailure
+      ? `列表刷新失败，数据可能已过期：${detail}`
+      : `列表加载失败：${detail}`
   } finally {
     loading.value = false
   }
@@ -50,7 +57,7 @@ const load = async () => {
 const submitCreate = async () => {
   if (mutationBusy.value) return
   mutationBusy.value = true
-  errorMessage.value = ''
+  operationErrorMessage.value = ''
   try {
     const created = await createTenant(
       {
@@ -64,9 +71,8 @@ const submitCreate = async () => {
     Object.assign(form, { name: '', adminPhone: '', expiresAt: '' })
     showCreate.value = false
   } catch (error) {
-    const operationError = apiErrorMessage(error)
-    await load()
-    errorMessage.value = operationError
+    operationErrorMessage.value = apiErrorMessage(error)
+    await load(true)
   } finally {
     mutationBusy.value = false
   }
@@ -75,11 +81,11 @@ const submitCreate = async () => {
 const update = async (tenant: PlatformTenant, patch: TenantPatch) => {
   if (mutationBusy.value) return
   mutationBusy.value = true
-  errorMessage.value = ''
+  operationErrorMessage.value = ''
   try {
     replaceTenant(await patchTenant(tenant.id, patch, csrf()))
   } catch (error) {
-    errorMessage.value = apiErrorMessage(error)
+    operationErrorMessage.value = apiErrorMessage(error)
   } finally {
     mutationBusy.value = false
   }
@@ -94,13 +100,12 @@ const saveExpiry = async (tenant: PlatformTenant) => {
 const retry = async (tenant: PlatformTenant) => {
   if (mutationBusy.value) return
   mutationBusy.value = true
-  errorMessage.value = ''
+  operationErrorMessage.value = ''
   try {
     replaceTenant(await retryTenant(tenant.id, csrf()))
   } catch (error) {
-    const operationError = apiErrorMessage(error)
-    await load()
-    errorMessage.value = operationError
+    operationErrorMessage.value = apiErrorMessage(error)
+    await load(true)
   } finally {
     mutationBusy.value = false
   }

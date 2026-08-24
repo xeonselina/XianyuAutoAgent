@@ -243,6 +243,10 @@ describe('tenant navigation', () => {
     '/mobile/%2e%2e/platform/tenants',
     '/mobile/%2E%2E/%50LATFORM/tenants',
     '/mobile%2F..%2Fplatform/tenants',
+    '/mobile/%252e%252e/%252e%252e//attacker.example/x',
+    '/mobile/%252e%252e/%252e%252e//platform/tenants',
+    '/mobile/%25252e%25252e/%25252e%25252e//platform/tenants',
+    '/mobile/%252e%252e/%252e%252e/%252f%252fplatform/tenants',
     '/\\attacker.example/mobile/gantt',
   ])('rejects an unsafe tenant login next value: %s', async (next) => {
     const routerReplace = vi.fn()
@@ -501,6 +505,30 @@ describe('authenticated shell and platform tenant actions', () => {
     expect(apiMocks.retryTenant).toHaveBeenCalledWith(8, 'platform-csrf')
   })
 
+  it('labels an ordinary tenant list load failure clearly', async () => {
+    apiMocks.listTenants.mockRejectedValue(
+      apiRejection('控制库暂时不可用', 503),
+    )
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useAuthStore().applyPlatformSession(platformData)
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: PlatformTenantsView }],
+    })
+    await router.push('/')
+    await router.isReady()
+    const wrapper = mount(PlatformTenantsView, {
+      global: { plugins: [pinia, router] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.get('[role="alert"]').text()).toBe(
+        '列表加载失败：控制库暂时不可用',
+      )
+    })
+  })
+
   it('preserves a rejected create error after refreshing and clears it on success', async () => {
     const tenant = {
       id: 8,
@@ -600,6 +628,100 @@ describe('authenticated shell and platform tenant actions', () => {
     await wrapper.get('[data-testid="retry-8"]').trigger('click')
     await vi.waitFor(() => expect(apiMocks.retryTenant).toHaveBeenCalledTimes(2))
     expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+  })
+
+  it('shows both the create failure and a failed follow-up list refresh', async () => {
+    const tenant = {
+      id: 8,
+      name: '租户甲',
+      status: 'active',
+      expires_at: '2026-09-30T00:00:00Z',
+      db_name: 'inventory_tenant_00000008',
+      provisioning_status: 'active',
+      provisioning_error: null,
+      admin_phone: '+8613800138000',
+    }
+    apiMocks.listTenants
+      .mockResolvedValueOnce([tenant])
+      .mockRejectedValueOnce(apiRejection('控制库暂时不可用', 503))
+    apiMocks.createTenant.mockRejectedValue(
+      apiRejection('该手机号已属于其他租户', 409),
+    )
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useAuthStore().applyPlatformSession(platformData)
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: PlatformTenantsView }],
+    })
+    await router.push('/')
+    await router.isReady()
+    const wrapper = mount(PlatformTenantsView, {
+      global: { plugins: [pinia, router] },
+    })
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="status-8"]').exists()).toBe(true)
+    })
+
+    await wrapper.get('[data-testid="new-tenant"]').trigger('click')
+    await wrapper.get('[data-testid="tenant-name"]').setValue('租户乙')
+    await wrapper.get('[data-testid="admin-phone"]').setValue('13900139000')
+    await wrapper.get('[data-testid="tenant-expiry"]').setValue('2026-10-01T08:00')
+    await wrapper.get('.create-form').trigger('submit')
+
+    await vi.waitFor(() => {
+      expect(apiMocks.listTenants).toHaveBeenCalledTimes(2)
+      expect(wrapper.get('[role="alert"]').text()).toContain('该手机号已属于其他租户')
+      expect(wrapper.get('[role="alert"]').text()).toContain(
+        '列表刷新失败，数据可能已过期：控制库暂时不可用',
+      )
+    })
+  })
+
+  it('shows both the retry failure and a failed follow-up list refresh', async () => {
+    const failedTenant = {
+      id: 8,
+      name: '租户甲',
+      status: 'active',
+      expires_at: '2026-09-30T00:00:00Z',
+      db_name: 'inventory_tenant_00000008',
+      provisioning_status: 'failed',
+      provisioning_error: 'migration failed',
+      admin_phone: '+8613800138000',
+    }
+    apiMocks.listTenants
+      .mockResolvedValueOnce([failedTenant])
+      .mockRejectedValueOnce(apiRejection('控制库暂时不可用', 503))
+    apiMocks.retryTenant.mockRejectedValue(
+      apiRejection('租户当前状态不能重试', 400),
+    )
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useAuthStore().applyPlatformSession(platformData)
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: PlatformTenantsView }],
+    })
+    await router.push('/')
+    await router.isReady()
+    const wrapper = mount(PlatformTenantsView, {
+      global: { plugins: [pinia, router] },
+    })
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="retry-8"]').exists()).toBe(true)
+    })
+
+    await wrapper.get('[data-testid="retry-8"]').trigger('click')
+
+    await vi.waitFor(() => {
+      expect(apiMocks.listTenants).toHaveBeenCalledTimes(2)
+      expect(wrapper.get('[role="alert"]').text()).toContain(
+        '租户当前状态不能重试',
+      )
+      expect(wrapper.get('[role="alert"]').text()).toContain(
+        '列表刷新失败，数据可能已过期：控制库暂时不可用',
+      )
+    })
   })
 
   it('locks duplicate create submissions and disables every tenant mutation control', async () => {
