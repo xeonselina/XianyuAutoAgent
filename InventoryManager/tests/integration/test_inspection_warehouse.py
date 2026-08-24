@@ -552,7 +552,9 @@ def test_preview_failure_happens_before_any_write(client, app, monkeypatch):
     with app.app_context():
         case = _seed_case()
 
-    def fail_preview(_device_id, _moved_ids, _warehouse_id):
+    def fail_preview(
+        _device_id, _moved_ids, _warehouse_id, _excluded_main_rental_id
+    ):
         raise RuntimeError("preview unavailable")
 
     monkeypatch.setattr(
@@ -672,6 +674,109 @@ def test_aggregate_receipt_shortage_leaves_future_group_unchanged(
         json={"token": impact["token"]},
     )
     assert replay.status_code == 409
+
+
+def test_receipt_repair_excludes_inspected_group_and_survives_completion(
+    client, app
+):
+    with app.app_context():
+        case = _seed_case(with_future=True)
+        current = db.session.get(Rental, case["rental"])
+        current.start_date = date.today() - timedelta(days=1)
+        current.end_date = date.today()
+        current.status = "not_shipped"
+        db.session.commit()
+
+    inspection = client.post(
+        "/api/inspections",
+        json=_payload(
+            case,
+            receiving_warehouse_id=case["target"],
+            received_device_ids=[case["received"]],
+        ),
+    )
+
+    assert inspection.status_code == 201
+    impact = inspection.get_json()["data"]["warehouse_impacts"]
+    assert impact["auto_fixable"] == [{
+        "rental_id": case["future"],
+        "fulfillment_warehouse_id": case["target"],
+        "replacements": [],
+    }]
+    assert impact["blocked"] == []
+    assert impact["shortages"] == []
+    assert impact["manual"] == []
+
+    with app.app_context():
+        payload = WarehouseMovementService._load_token(impact["token"])
+        assert payload["excluded_main_rental_id"] == case["rental"]
+        excluded_ids = {
+            case["rental"],
+            case["received_child"],
+            case["not_received_child"],
+        }
+        assert excluded_ids.isdisjoint(payload["related_rental_ids"])
+        assert excluded_ids.isdisjoint(
+            row["id"] for row in payload["snapshot"]["rentals"]
+        )
+
+        current_rows = [
+            db.session.get(Rental, rental_id)
+            for rental_id in sorted(excluded_ids)
+        ]
+        before = {
+            row.id: (row.device_id, row.warehouse_id)
+            for row in current_rows
+        }
+        current = db.session.get(Rental, case["rental"])
+        current.status = "completed"
+        db.session.commit()
+
+    repaired = client.post(
+        f"/api/devices/{case['main']}/move",
+        json={"token": impact["token"]},
+    )
+
+    assert repaired.status_code == 200
+    with app.app_context():
+        assert {
+            rental_id: (
+                db.session.get(Rental, rental_id).device_id,
+                db.session.get(Rental, rental_id).warehouse_id,
+            )
+            for rental_id in sorted(before)
+        } == before
+        assert db.session.get(Rental, case["future"]).warehouse_id == (
+            case["target"]
+        )
+        future_child = db.session.get(Rental, case["future_child"])
+        assert (future_child.device_id, future_child.warehouse_id) == (
+            case["received"], case["target"]
+        )
+
+
+def test_returned_inspected_group_is_not_reported_as_manual(client, app):
+    with app.app_context():
+        case = _seed_case(with_future=True)
+        current = db.session.get(Rental, case["rental"])
+        current.start_date = date.today() - timedelta(days=2)
+        current.end_date = date.today()
+        current.status = "returned"
+        db.session.commit()
+
+    inspection = client.post(
+        "/api/inspections",
+        json=_payload(case, receiving_warehouse_id=case["target"]),
+    )
+
+    assert inspection.status_code == 201
+    impact = inspection.get_json()["data"]["warehouse_impacts"]
+    assert impact["manual"] == []
+    assert {
+        row["rental_id"] for key in (
+            "auto_fixable", "blocked", "shortages", "manual"
+        ) for row in impact[key]
+    } == {case["future"]}
 
 
 @pytest.mark.parametrize(

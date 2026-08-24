@@ -271,13 +271,24 @@ class WarehouseMovementService:
         ]
 
     @classmethod
-    def _candidate_occupancies(cls, candidate_ids, lock):
+    def _candidate_occupancies(
+        cls, candidate_ids, lock, excluded_main_rental_id=None
+    ):
         if not candidate_ids:
             return []
         query = Rental.query.filter(
             Rental.device_id.in_(candidate_ids),
             Rental.status.in_(cls.OCCUPANCY_STATUSES),
-        ).order_by(Rental.id)
+        )
+        if excluded_main_rental_id is not None:
+            query = query.filter(
+                Rental.id != excluded_main_rental_id,
+                db.or_(
+                    Rental.parent_rental_id.is_(None),
+                    Rental.parent_rental_id != excluded_main_rental_id,
+                ),
+            )
+        query = query.order_by(Rental.id)
         return cls._locked(query, lock).all()
 
     @classmethod
@@ -510,9 +521,16 @@ class WarehouseMovementService:
         }
 
     @classmethod
-    def _load_receipt_groups(cls, moved_ids, now, lock):
+    def _load_receipt_groups(
+        cls, moved_ids, now, lock, excluded_main_rental_id
+    ):
         direct_query = Rental.query.filter(
-            Rental.device_id.in_(moved_ids)
+            Rental.device_id.in_(moved_ids),
+            Rental.id != excluded_main_rental_id,
+            db.or_(
+                Rental.parent_rental_id.is_(None),
+                Rental.parent_rental_id != excluded_main_rental_id,
+            ),
         ).order_by(Rental.id)
         direct = cls._locked(direct_query, lock).all()
         relevant = [
@@ -571,6 +589,7 @@ class WarehouseMovementService:
         primary_device_id,
         moved_device_ids,
         target_warehouse_id,
+        excluded_main_rental_id,
         lock=False,
     ):
         now = datetime.utcnow()
@@ -583,7 +602,7 @@ class WarehouseMovementService:
             raise LookupError("目标仓库不存在")
 
         groups, blocked, direct_rows = cls._load_receipt_groups(
-            moved_ids, now, lock
+            moved_ids, now, lock, excluded_main_rental_id
         )
         group_rows = [row for group in groups for row in group["rows"]]
         device_ids = {
@@ -683,7 +702,9 @@ class WarehouseMovementService:
             need_keys, need_warehouse_ids, -1, lock
         )
         occupancy_rows = cls._candidate_occupancies(
-            [device.id for device in candidates], lock
+            [device.id for device in candidates],
+            lock,
+            excluded_main_rental_id=excluded_main_rental_id,
         )
         existing_by_device = {}
         for rental in occupancy_rows:
@@ -828,6 +849,7 @@ class WarehouseMovementService:
         primary_device_id,
         moved_device_ids,
         target_warehouse_id,
+        excluded_main_rental_id,
     ):
         primary_device_id = cls._normalize_id(
             primary_device_id, "设备ID"
@@ -841,8 +863,14 @@ class WarehouseMovementService:
         target_warehouse_id = cls._normalize_id(
             target_warehouse_id, "目标仓库ID"
         )
+        excluded_main_rental_id = cls._normalize_id(
+            excluded_main_rental_id, "当前租赁ID"
+        )
         state = cls._build_receipt_state(
-            primary_device_id, moved_ids, target_warehouse_id
+            primary_device_id,
+            moved_ids,
+            target_warehouse_id,
+            excluded_main_rental_id,
         )
         payload = {
             "version": 1,
@@ -851,6 +879,7 @@ class WarehouseMovementService:
             "primary_device_id": primary_device_id,
             "moved_device_ids": moved_ids,
             "target_warehouse_id": target_warehouse_id,
+            "excluded_main_rental_id": excluded_main_rental_id,
             "summary": state["summary"],
             "operations": state["operations"],
             "snapshot": state["snapshot"],
@@ -940,6 +969,9 @@ class WarehouseMovementService:
             target_id = cls._normalize_id(
                 payload.get("target_warehouse_id"), "目标仓库ID"
             )
+            excluded_main_rental_id = cls._normalize_id(
+                payload.get("excluded_main_rental_id"), "当前租赁ID"
+            )
             raw_moved_ids = payload.get("moved_device_ids")
             if not isinstance(raw_moved_ids, list) or not raw_moved_ids:
                 raise ValueError("收到的设备ID无效")
@@ -968,7 +1000,11 @@ class WarehouseMovementService:
             cls._lock_token_rows(payload)
             try:
                 state = cls._build_receipt_state(
-                    primary_id, moved_ids, target_id, lock=True
+                    primary_id,
+                    moved_ids,
+                    target_id,
+                    excluded_main_rental_id,
+                    lock=True,
                 )
             except (LookupError, ValueError) as exc:
                 raise StaleMovementPreviewError(

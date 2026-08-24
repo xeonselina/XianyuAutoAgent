@@ -235,6 +235,7 @@ class InspectionService:
                         device_id,
                         [device.id for device in moving_devices],
                         target_warehouse_id,
+                        excluded_main_rental_id=locked_main.id,
                     )
                 )
 
