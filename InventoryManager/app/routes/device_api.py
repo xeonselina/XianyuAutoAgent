@@ -10,12 +10,19 @@ from app.models.warehouse import (
     resolve_write_warehouse_id,
 )
 from app.services.inventory_service import InventoryService
+from app.services.warehouse_movement_service import (
+    StaleMovementPreviewError,
+    WarehouseMovementService,
+)
 from app.handlers.device_handlers import DeviceHandlers
 from app.utils.response import (
     bad_request,
     created,
+    error,
     handle_response,
+    not_found,
     server_error,
+    success,
 )
 from app import db
 from datetime import datetime, date, timedelta
@@ -206,6 +213,49 @@ def update_device(device_id):
             'success': False,
             'error': '更新设备失败'
         }), 500
+
+
+@bp.post('/api/devices/<int:device_id>/movement-preview')
+@handle_response
+def preview_device_movement(device_id):
+    """Preview future-rental repairs before moving a device."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return bad_request('缺少请求数据')
+    if data.get('target_warehouse_id') is None:
+        return bad_request('缺少目标仓库')
+    try:
+        return success(data=WarehouseMovementService.preview(
+            device_id, data['target_warehouse_id']
+        ))
+    except LookupError as exc:
+        return not_found(str(exc))
+    except ValueError as exc:
+        return bad_request(str(exc))
+
+
+@bp.post('/api/devices/<int:device_id>/move')
+@handle_response
+def move_device(device_id):
+    """Apply one signed warehouse movement preview atomically."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not data.get('token'):
+        return bad_request('缺少预览令牌')
+    try:
+        return success(
+            data=WarehouseMovementService.execute(
+                data['token'], expected_device_id=device_id
+            ),
+            message='设备移仓完成',
+        )
+    except StaleMovementPreviewError as exc:
+        return error(str(exc), status_code=409)
+    except ValueError as exc:
+        return bad_request(str(exc))
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('设备移仓执行失败')
+        return server_error('设备移仓失败，所有修改已回滚')
 
 
 @bp.route('/api/devices/<device_id>', methods=['DELETE'])

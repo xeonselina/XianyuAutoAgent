@@ -53,7 +53,8 @@ class AuditLog(db.Model):
     
     @classmethod
     def log_action(cls, action, resource_type=None, resource_id=None, 
-                   description=None, details=None, ip_address=None, user_agent=None):
+                   description=None, details=None, ip_address=None,
+                   user_agent=None, commit=True):
         """记录操作日志"""
         log = cls(
             action=action,
@@ -66,7 +67,8 @@ class AuditLog(db.Model):
         )
         
         db.session.add(log)
-        db.session.commit()
+        if commit:
+            db.session.commit()
         
         return log
     
