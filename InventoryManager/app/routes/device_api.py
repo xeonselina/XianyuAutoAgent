@@ -5,7 +5,10 @@
 from flask import Blueprint, request, jsonify, current_app
 from app.models.device import Device
 from app.models.rental import Rental
-from app.models.warehouse import resolve_write_warehouse_id
+from app.models.warehouse import (
+    resolve_read_warehouse_id,
+    resolve_write_warehouse_id,
+)
 from app.services.inventory_service import InventoryService
 from app.handlers.device_handlers import DeviceHandlers
 from app.utils.response import (
@@ -349,8 +352,14 @@ def mark_device_sold(device_id):
 def get_lifecycle_summary():
     """获取设备生命周期状态汇总"""
     try:
+        warehouse_id = resolve_read_warehouse_id(
+            request.args.get('warehouse_id')
+        )
+        devices = Device.query
+        if isinstance(warehouse_id, int):
+            devices = devices.filter(Device.warehouse_id == warehouse_id)
         # 按生命周期状态统计
-        stats = Device.query.with_entities(
+        stats = devices.with_entities(
             Device.lifecycle_status,
             db.func.count(Device.id).label('count')
         ).group_by(Device.lifecycle_status).all()
@@ -369,12 +378,12 @@ def get_lifecycle_summary():
             summary['total'] += count
         
         # 计算在服务中的设备
-        active_devices = Device.query.filter(
+        active_devices = devices.filter(
             Device.lifecycle_status == 'active'
         ).count()
         
         # 计算应从统计中排除的设备
-        excluded_devices = Device.query.filter(
+        excluded_devices = devices.filter(
             Device.lifecycle_status.in_(['sold', 'decommissioned', 'damaged', 'retired'])
         ).count()
         
@@ -388,6 +397,8 @@ def get_lifecycle_summary():
             }
         })
         
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
         current_app.logger.error(f"获取生命周期汇总失败: {e}")
         return jsonify({
@@ -402,9 +413,14 @@ def get_devices_by_lifecycle_status():
     try:
         # 获取查询参数
         status = request.args.get('status', 'all')  # all, active, sold, decommissioned, damaged, retired
+        warehouse_id = resolve_read_warehouse_id(
+            request.args.get('warehouse_id')
+        )
         
         # 构建查询
         query = Device.query
+        if isinstance(warehouse_id, int):
+            query = query.filter(Device.warehouse_id == warehouse_id)
         
         if status != 'all':
             valid_statuses = ['active', 'sold', 'decommissioned', 'damaged', 'retired']
@@ -415,7 +431,11 @@ def get_devices_by_lifecycle_status():
                 }), 400
             query = query.filter(Device.lifecycle_status == status)
         
-        devices = query.order_by(Device.lifecycle_date.desc().nullsfirst(), Device.created_at.desc()).all()
+        devices = query.order_by(
+            Device.lifecycle_date.isnot(None),
+            Device.lifecycle_date.desc(),
+            Device.created_at.desc(),
+        ).all()
         
         device_list = []
         for device in devices:
@@ -431,6 +451,8 @@ def get_devices_by_lifecycle_status():
             'filter': status
         })
         
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
         current_app.logger.error(f"获取设备列表失败: {e}")
         return jsonify({

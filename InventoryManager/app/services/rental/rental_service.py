@@ -2,7 +2,7 @@
 租赁业务逻辑服务层
 """
 
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, time, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 from flask import current_app
 from sqlalchemy.orm import joinedload
@@ -25,6 +25,10 @@ class DeviceUnavailableError(ValueError):
 
 class RentalService:
     """租赁服务类"""
+
+    ACTIVE_OCCUPANCY_STATUSES = (
+        'not_shipped', 'scheduled_for_shipping', 'shipped', 'returned',
+    )
 
     @staticmethod
     def get_pending_returns(
@@ -179,6 +183,20 @@ class RentalService:
         raise ValueError('时间格式错误')
 
     @staticmethod
+    def _effective_occupancy(
+        start_date, end_date, ship_out_time=None, ship_in_time=None
+    ):
+        occupancy_start = ship_out_time or datetime.combine(
+            start_date, time.min
+        )
+        occupancy_end = ship_in_time or datetime.combine(
+            end_date, time.max
+        )
+        if occupancy_start >= occupancy_end:
+            raise ValueError('寄出时间必须早于收回时间')
+        return occupancy_start, occupancy_end
+
+    @staticmethod
     def _resolve_shop(order_no, requested_shop_id, exclude_rental_id=None):
         order_no = str(order_no or '').strip() or None
         if order_no is None:
@@ -233,11 +251,34 @@ class RentalService:
         warehouse_id,
         device_id,
         accessory_ids,
-        start_date,
-        end_date,
+        occupancy_start,
+        occupancy_end,
         exclude_rental_ids=(),
     ):
-        device = db.session.get(Device, device_id)
+        try:
+            normalized_device_id = int(device_id)
+        except (TypeError, ValueError):
+            raise ValueError('设备不存在') from None
+        normalized_ids = []
+        for raw_id in accessory_ids or []:
+            try:
+                accessory_id = int(raw_id)
+            except (TypeError, ValueError):
+                raise ValueError('附件设备不存在') from None
+            if accessory_id in normalized_ids:
+                raise ValueError('附件设备不能重复选择')
+            normalized_ids.append(accessory_id)
+
+        selected_ids = sorted({normalized_device_id, *normalized_ids})
+        locked_devices = (
+            Device.query.filter(Device.id.in_(selected_ids))
+            .order_by(Device.id)
+            .populate_existing()
+            .with_for_update()
+            .all()
+        )
+        device_by_id = {item.id: item for item in locked_devices}
+        device = device_by_id.get(normalized_device_id)
         if device is None:
             raise ValueError('设备不存在')
         if device.is_accessory:
@@ -247,17 +288,9 @@ class RentalService:
         if not device.is_in_service():
             raise DeviceUnavailableError('主设备当前不可用于新租赁')
 
-        normalized_ids = []
         accessories = []
-        for raw_id in accessory_ids or []:
-            try:
-                accessory_id = int(raw_id)
-            except (TypeError, ValueError):
-                raise ValueError('附件设备不存在') from None
-            if accessory_id in normalized_ids:
-                raise ValueError('附件设备不能重复选择')
-            normalized_ids.append(accessory_id)
-            accessory = db.session.get(Device, accessory_id)
+        for accessory_id in normalized_ids:
+            accessory = device_by_id.get(accessory_id)
             if accessory is None:
                 raise ValueError('附件设备不存在')
             if not accessory.is_accessory:
@@ -268,24 +301,35 @@ class RentalService:
                 raise DeviceUnavailableError('附件设备当前不可用于新租赁')
             accessories.append(accessory)
 
-        selected_ids = [device.id] + normalized_ids
         conflict_query = Rental.query.filter(
             Rental.device_id.in_(selected_ids),
-            Rental.status.in_([
-                'not_shipped', 'scheduled_for_shipping', 'shipped',
-                'returned',
-            ]),
-            Rental.start_date <= end_date,
-            Rental.end_date >= start_date,
+            Rental.status.in_(RentalService.ACTIVE_OCCUPANCY_STATUSES),
         )
         excluded = tuple(exclude_rental_ids)
         if excluded:
             conflict_query = conflict_query.filter(~Rental.id.in_(excluded))
-        conflict = conflict_query.first()
-        if conflict is not None:
-            raise DeviceUnavailableError(
-                f'设备 {conflict.device_id} 在所选租期内不可用'
+        conflicts = (
+            conflict_query.order_by(Rental.id)
+            .populate_existing()
+            .with_for_update()
+            .all()
+        )
+        for conflict in conflicts:
+            existing_start, existing_end = (
+                RentalService._effective_occupancy(
+                    conflict.start_date,
+                    conflict.end_date,
+                    conflict.ship_out_time,
+                    conflict.ship_in_time,
+                )
             )
+            if (
+                occupancy_start < existing_end
+                and occupancy_end > existing_start
+            ):
+                raise DeviceUnavailableError(
+                    f'设备 {conflict.device_id} 在所选租期内不可用'
+                )
         return device, accessories
 
     @staticmethod
@@ -317,24 +361,33 @@ class RentalService:
             if validation_error:
                 raise ValueError(validation_error)
 
-            _device, validated_accessories = (
-                RentalService._validate_selection(
-                    warehouse_id,
-                    data['device_id'],
-                    data.get('accessories') or [],
-                    start_date,
-                    end_date,
-                )
-            )
-            order_no, shop_id = RentalService._resolve_shop(
-                data.get('xianyu_order_no'),
-                data.get('xianyu_shop_id'),
-            )
             ship_out_time = RentalService._parse_datetime(
                 data.get('ship_out_time')
             )
             ship_in_time = RentalService._parse_datetime(
                 data.get('ship_in_time')
+            )
+            occupancy_start, occupancy_end = (
+                RentalService._effective_occupancy(
+                    start_date,
+                    end_date,
+                    ship_out_time,
+                    ship_in_time,
+                )
+            )
+
+            _device, validated_accessories = (
+                RentalService._validate_selection(
+                    warehouse_id,
+                    data['device_id'],
+                    data.get('accessories') or [],
+                    occupancy_start,
+                    occupancy_end,
+                )
+            )
+            order_no, shop_id = RentalService._resolve_shop(
+                data.get('xianyu_order_no'),
+                data.get('xianyu_shop_id'),
             )
 
             # 创建主租赁记录（包含配套附件标记）
@@ -594,6 +647,37 @@ class RentalService:
             if validation_error:
                 raise ValueError(validation_error)
 
+            status = data.get('status', rental.status)
+            valid_statuses = {
+                'not_shipped', 'scheduled_for_shipping', 'shipped',
+                'returned', 'completed', 'cancelled',
+            }
+            if status not in valid_statuses:
+                raise ValueError(f'无效的状态值: {status}')
+            ship_out_time = (
+                RentalService._parse_datetime(data['ship_out_time'])
+                if 'ship_out_time' in data
+                else rental.ship_out_time
+            )
+            ship_in_time = (
+                RentalService._parse_datetime(data['ship_in_time'])
+                if 'ship_in_time' in data
+                else rental.ship_in_time
+            )
+            if status != rental.status:
+                if status == 'shipped' and not ship_out_time:
+                    ship_out_time = datetime.utcnow()
+                if status == 'completed' and not ship_in_time:
+                    ship_in_time = datetime.utcnow()
+            occupancy_start, occupancy_end = (
+                RentalService._effective_occupancy(
+                    start_date,
+                    end_date,
+                    ship_out_time,
+                    ship_in_time,
+                )
+            )
+
             children = list(rental.child_rentals)
             accessory_ids = data.get(
                 'accessories', [child.device_id for child in children]
@@ -603,8 +687,8 @@ class RentalService:
                 warehouse_id,
                 device_id,
                 accessory_ids,
-                start_date,
-                end_date,
+                occupancy_start,
+                occupancy_end,
                 exclude_rental_ids=[rental.id] + [
                     child.id for child in children
                 ],
@@ -619,14 +703,6 @@ class RentalService:
             else:
                 order_no = rental.xianyu_order_no
                 shop_id = rental.xianyu_shop_id
-
-            status = data.get('status', rental.status)
-            valid_statuses = {
-                'not_shipped', 'scheduled_for_shipping', 'shipped',
-                'returned', 'completed', 'cancelled',
-            }
-            if status not in valid_statuses:
-                raise ValueError(f'无效的状态值: {status}')
 
             rental.warehouse_id = warehouse_id
             rental.device_id = device_id
@@ -643,21 +719,9 @@ class RentalService:
             ):
                 if field in data:
                     setattr(rental, field, data[field])
-            if 'ship_out_time' in data:
-                rental.ship_out_time = RentalService._parse_datetime(
-                    data['ship_out_time']
-                )
-            if 'ship_in_time' in data:
-                rental.ship_in_time = RentalService._parse_datetime(
-                    data['ship_in_time']
-                )
-            old_status = rental.status
+            rental.ship_out_time = ship_out_time
+            rental.ship_in_time = ship_in_time
             rental.status = status
-            if old_status != status:
-                if status == 'shipped' and not rental.ship_out_time:
-                    rental.ship_out_time = datetime.utcnow()
-                if status == 'completed' and not rental.ship_in_time:
-                    rental.ship_in_time = datetime.utcnow()
 
             RentalService.update_rental_accessories(rental, accessory_ids)
             db.session.commit()

@@ -14,6 +14,7 @@ from app.models.device import Device
 from app.models.audit_log import AuditLog
 from app.models.rental import Rental
 from app.models.rental_relay_binding import RentalRelayBinding
+from app.models.warehouse import resolve_write_warehouse_id
 from app.services.gantt.reorder_solver import GanttReorderSolver
 from app.services.gantt.reorder_types import ScheduleBlock
 
@@ -48,18 +49,29 @@ class GanttReorderService:
             and rental.ship_out_time is not None
             and rental.ship_out_time.date() >= today
             and rental.device is not None
-            and rental.device.model_id is not None
+            and GanttReorderService._model_key(rental.device) is not None
         )
 
+    @staticmethod
+    def _model_key(device):
+        if device is None:
+            return None
+        if device.model_id is not None:
+            return ("id", device.model_id)
+        normalized = str(device.model or "").strip().casefold()
+        return ("model", normalized) if normalized else None
+
     @classmethod
-    def analyze(cls, today=None):
+    def analyze(cls, today=None, warehouse_id=None):
         today = today or date.today()
+        warehouse_id = resolve_write_warehouse_id(warehouse_id)
         day_start = datetime.combine(today, time.min)
         bindings = {
             (item.predecessor_rental_id, item.successor_rental_id): item
             for item in RentalRelayBinding.query.all()
         }
         rentals = Rental.query.filter(
+            Rental.warehouse_id == warehouse_id,
             Rental.parent_rental_id.is_(None),
             Rental.status != "cancelled",
             Rental.ship_out_time.isnot(None),
@@ -101,6 +113,7 @@ class GanttReorderService:
                         "id": predecessor.device.id,
                         "name": predecessor.device.name,
                         "model_id": predecessor.device.model_id,
+                        "warehouse_id": warehouse_id,
                     },
                     "predecessor": cls._customer(predecessor),
                     "successor": cls._customer(successor),
@@ -139,8 +152,12 @@ class GanttReorderService:
         )
 
     @classmethod
-    def _validate_overlap_decisions(cls, decisions, today):
-        analysis = cls.analyze(today=today)
+    def _validate_overlap_decisions(
+        cls, decisions, today, warehouse_id
+    ):
+        analysis = cls.analyze(
+            today=today, warehouse_id=warehouse_id
+        )
         overlap_by_pair = {
             (
                 item["predecessor"]["id"],
@@ -181,9 +198,10 @@ class GanttReorderService:
         return query.with_for_update() if lock else query
 
     @classmethod
-    def _load_reorder_graph(cls, today, lock=False):
+    def _load_reorder_graph(cls, today, warehouse_id, lock=False):
         day_start = datetime.combine(today, time.min)
         main_query = Rental.query.filter(
+            Rental.warehouse_id == warehouse_id,
             Rental.parent_rental_id.is_(None),
             Rental.status != "cancelled",
             db.or_(
@@ -222,19 +240,33 @@ class GanttReorderService:
                 binding_query, lock
             ).all()
 
-        model_ids = {
-            rental.device.model_id
+        model_keys = {
+            cls._model_key(rental.device)
             for rental in main_rentals
-            if rental.device and rental.device.model_id is not None
+            if cls._model_key(rental.device) is not None
         }
         referenced_device_ids = {
             rental.device_id for rental in main_rentals + child_rentals
         }
+        candidate_conditions = []
+        model_ids = [
+            value for kind, value in model_keys if kind == "id"
+        ]
+        model_names = [
+            value for kind, value in model_keys if kind == "model"
+        ]
+        if model_ids:
+            candidate_conditions.append(Device.model_id.in_(model_ids))
+        if model_names:
+            candidate_conditions.append(
+                db.func.lower(db.func.trim(Device.model)).in_(model_names)
+            )
         device_query = Device.query.filter(
             db.or_(
                 Device.id.in_(referenced_device_ids or {-1}),
                 db.and_(
-                    Device.model_id.in_(model_ids or {-1}),
+                    Device.warehouse_id == warehouse_id,
+                    db.or_(*(candidate_conditions or [db.false()])),
                     Device.is_accessory.is_(False),
                     Device.lifecycle_status == "active",
                 ),
@@ -248,13 +280,16 @@ class GanttReorderService:
         return value.isoformat() if value is not None else None
 
     @classmethod
-    def _snapshot(cls, rentals, devices, bindings, decisions, today):
+    def _snapshot(
+        cls, rentals, devices, bindings, decisions, today, warehouse_id
+    ):
         rental_rows = []
         for rental in sorted(rentals, key=lambda item: item.id):
             rental_rows.append({
                 "id": rental.id,
                 "device_id": rental.device_id,
                 "model_id": rental.device.model_id if rental.device else None,
+                "warehouse_id": rental.warehouse_id,
                 "parent_rental_id": rental.parent_rental_id,
                 "start_date": cls._iso(rental.start_date),
                 "end_date": cls._iso(rental.end_date),
@@ -270,6 +305,8 @@ class GanttReorderService:
             {
                 "id": device.id,
                 "model_id": device.model_id,
+                "model": device.model,
+                "warehouse_id": device.warehouse_id,
                 "is_accessory": device.is_accessory,
                 "lifecycle_status": device.lifecycle_status,
                 "updated_at": cls._iso(device.updated_at),
@@ -287,6 +324,7 @@ class GanttReorderService:
         ]
         return {
             "today": today.isoformat(),
+            "warehouse_id": warehouse_id,
             "rentals": rental_rows,
             "devices": device_rows,
             "bindings": binding_rows,
@@ -311,7 +349,7 @@ class GanttReorderService:
 
     @classmethod
     def _sign_preview(
-        cls, snapshot_hash, decisions, assignments, today
+        cls, snapshot_hash, decisions, assignments, today, warehouse_id
     ):
         return cls._serializer().dumps({
             "snapshot_hash": snapshot_hash,
@@ -320,6 +358,7 @@ class GanttReorderService:
                 str(key): value for key, value in assignments.items()
             },
             "today": today.isoformat(),
+            "warehouse_id": warehouse_id,
             "solver_version": cls.SOLVER_VERSION,
         })
 
@@ -360,7 +399,7 @@ class GanttReorderService:
 
     @classmethod
     def _build_blocks(
-        cls, rentals, devices, bindings, decisions, today
+        cls, rentals, devices, bindings, decisions, today, warehouse_id
     ):
         main_rentals = {
             rental.id: rental
@@ -395,11 +434,11 @@ class GanttReorderService:
             if (
                 not device.is_accessory
                 and device.lifecycle_status == "active"
-                and device.model_id is not None
+                and device.warehouse_id == warehouse_id
+                and cls._model_key(device) is not None
             ):
-                active_candidates.setdefault(device.model_id, []).append(
-                    device.id
-                )
+                group = (warehouse_id, cls._model_key(device))
+                active_candidates.setdefault(group, []).append(device.id)
 
         skipped = []
         models = {}
@@ -409,7 +448,9 @@ class GanttReorderService:
                 rental.ship_out_time is None
                 or rental.ship_in_time is None
                 or rental.device is None
-                or rental.device.model_id is None
+                or cls._model_key(rental.device) is None
+                or rental.warehouse_id != warehouse_id
+                or rental.device.warehouse_id != warehouse_id
                 for rental in component
             ):
                 for rental in component:
@@ -420,11 +461,14 @@ class GanttReorderService:
                         })
                 continue
 
-            model_ids = {rental.device.model_id for rental in component}
+            model_keys = {
+                cls._model_key(rental.device) for rental in component
+            }
             current_device_ids = {rental.device_id for rental in component}
-            if len(model_ids) != 1 or len(current_device_ids) != 1:
+            if len(model_keys) != 1 or len(current_device_ids) != 1:
                 raise ValueError("接力链必须属于同型号且位于同一设备")
-            model_id = next(iter(model_ids))
+            model_key = next(iter(model_keys))
+            group = (warehouse_id, model_key)
             current_device_id = next(iter(current_device_ids))
             fixed = any(
                 not cls._is_movable(rental, today) for rental in component
@@ -432,7 +476,7 @@ class GanttReorderService:
             allowed_device_ids = (
                 (current_device_id,)
                 if fixed
-                else tuple(sorted(active_candidates.get(model_id, [])))
+                else tuple(sorted(active_candidates.get(group, [])))
             )
             if not allowed_device_ids:
                 for rental in component:
@@ -451,7 +495,7 @@ class GanttReorderService:
                     str(rental.id) for rental in ordered
                 ),
                 rental_ids=tuple(rental.id for rental in ordered),
-                model_id=model_id,
+                model_id=model_key,
                 start_day=min(
                     rental.ship_out_time.date().toordinal()
                     for rental in component
@@ -464,20 +508,20 @@ class GanttReorderService:
                 allowed_device_ids=allowed_device_ids,
                 fixed=fixed,
             )
-            model_data = models.setdefault(model_id, {
+            model_data = models.setdefault(group, {
                 "blocks": [],
                 "device_ids": set(),
             })
             model_data["blocks"].append(block)
             model_data["device_ids"].update(allowed_device_ids)
 
-        for model_id in list(models):
-            model_data = models[model_id]
+        for group in list(models):
+            model_data = models[group]
             has_movable = any(
                 not block.fixed for block in model_data["blocks"]
             )
             if not has_movable:
-                del models[model_id]
+                del models[group]
                 continue
             model_data["blocks"].sort(key=lambda block: block.key)
             model_data["device_ids"] = tuple(
@@ -486,7 +530,9 @@ class GanttReorderService:
         return models, skipped
 
     @staticmethod
-    def _model_summary(model_id, model_data, result):
+    def _model_summary(group, model_data, result):
+        warehouse_id, model_key = group
+        key_kind, key_value = model_key
         movable_ids = {
             rental_id
             for block in model_data["blocks"]
@@ -504,7 +550,9 @@ class GanttReorderService:
             if rental_id in result.assignments
         }
         return {
-            "model_id": model_id,
+            "warehouse_id": warehouse_id,
+            "model_id": key_value if key_kind == "id" else None,
+            "model": key_value if key_kind == "model" else None,
             "status": result.status,
             "before_devices": len(before_devices),
             "after_devices": len(after_devices),
@@ -541,23 +589,26 @@ class GanttReorderService:
         return sorted(changes, key=lambda item: item["rental_id"])
 
     @classmethod
-    def preview(cls, decisions, today=None):
+    def preview(cls, decisions, today=None, warehouse_id=None):
         today = today or date.today()
+        warehouse_id = resolve_write_warehouse_id(warehouse_id)
         normalized = cls._validate_decisions(decisions)
-        analysis = cls._validate_overlap_decisions(normalized, today)
+        analysis = cls._validate_overlap_decisions(
+            normalized, today, warehouse_id
+        )
         rentals, devices, bindings = cls._load_reorder_graph(
-            today=today, lock=False
+            today=today, warehouse_id=warehouse_id, lock=False
         )
         snapshot = cls._snapshot(
-            rentals, devices, bindings, normalized, today
+            rentals, devices, bindings, normalized, today, warehouse_id
         )
         models, skipped = cls._build_blocks(
-            rentals, devices, bindings, normalized, today
+            rentals, devices, bindings, normalized, today, warehouse_id
         )
 
         assignments = {}
         model_results = []
-        for model_id, model_data in sorted(models.items()):
+        for group, model_data in sorted(models.items()):
             result = GanttReorderSolver.solve(
                 model_data["blocks"],
                 model_data["device_ids"],
@@ -566,7 +617,7 @@ class GanttReorderService:
             if result.status in {"OPTIMAL", "FEASIBLE"}:
                 assignments.update(result.assignments)
             model_results.append(
-                cls._model_summary(model_id, model_data, result)
+                cls._model_summary(group, model_data, result)
             )
 
         changes = cls._changes(rentals, devices, assignments, today)
@@ -575,6 +626,7 @@ class GanttReorderService:
             normalized,
             assignments,
             today,
+            warehouse_id,
         )
         return {
             "token": token,
@@ -730,7 +782,7 @@ class GanttReorderService:
 
     @classmethod
     def _apply_device_assignments(
-        cls, rentals, devices, assignments, today
+        cls, rentals, devices, assignments, today, warehouse_id
     ):
         main_by_id = {
             rental.id: rental
@@ -742,10 +794,6 @@ class GanttReorderService:
             rental = main_by_id.get(rental_id)
             if rental is None:
                 raise ValueError("预览包含非主 rental")
-            if target_device_id == rental.device_id:
-                continue
-            if not cls._is_movable(rental, today):
-                raise ValueError("预览试图移动固定 rental")
             target = device_by_id.get(target_device_id)
             if target is None:
                 raise ValueError("目标设备不存在")
@@ -754,8 +802,24 @@ class GanttReorderService:
                 or target.lifecycle_status != "active"
             ):
                 raise ValueError("目标设备不是使用中的主设备")
-            if target.model_id != rental.device.model_id:
+            if rental.device is None:
+                raise StalePreviewError(
+                    "设备仓库已变化，请重新预览"
+                )
+            if cls._model_key(target) != cls._model_key(rental.device):
                 raise ValueError("禁止跨型号重排")
+            if (
+                rental.warehouse_id != warehouse_id
+                or target.warehouse_id != warehouse_id
+                or rental.device.warehouse_id != warehouse_id
+            ):
+                raise StalePreviewError(
+                    "设备仓库已变化，请重新预览"
+                )
+            if target_device_id == rental.device_id:
+                continue
+            if not cls._is_movable(rental, today):
+                raise ValueError("预览试图移动固定 rental")
             rental.device_id = target_device_id
 
     @staticmethod
@@ -815,16 +879,29 @@ class GanttReorderService:
         if payload.get("solver_version") != cls.SOLVER_VERSION:
             raise StalePreviewError("求解器版本已变化，请重新预览")
         preview_today = date.fromisoformat(payload["today"])
+        try:
+            warehouse_id = resolve_write_warehouse_id(
+                payload["warehouse_id"]
+            )
+        except (KeyError, ValueError) as exc:
+            raise StalePreviewError("预览缺少仓库边界，请重新预览") from exc
         if preview_today != date.today():
             raise StalePreviewError("预览日期已变化，请重新预览")
 
         try:
             decisions = cls._validate_decisions(payload["decisions"])
             rentals, devices, bindings = cls._load_reorder_graph(
-                today=preview_today, lock=True
+                today=preview_today,
+                warehouse_id=warehouse_id,
+                lock=True,
             )
             snapshot = cls._snapshot(
-                rentals, devices, bindings, decisions, preview_today
+                rentals,
+                devices,
+                bindings,
+                decisions,
+                preview_today,
+                warehouse_id,
             )
             if cls._hash_snapshot(snapshot) != payload["snapshot_hash"]:
                 raise StalePreviewError("档期或设备状态已变化，请重新预览")
@@ -839,6 +916,7 @@ class GanttReorderService:
                 bindings,
                 decisions,
                 preview_today,
+                warehouse_id,
             )
             cls._validate_pinned_assignments(models, assignments)
             before = cls._integrity_snapshot(rentals, preview_today)
@@ -849,7 +927,11 @@ class GanttReorderService:
                 decisions, rentals, bindings
             )
             cls._apply_device_assignments(
-                rentals, devices, assignments, preview_today
+                rentals,
+                devices,
+                assignments,
+                preview_today,
+                warehouse_id,
             )
             cls._write_audit_rows(device_changes, relay_changes)
             db.session.flush()

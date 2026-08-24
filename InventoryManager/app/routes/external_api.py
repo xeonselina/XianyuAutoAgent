@@ -3,9 +3,11 @@
 """
 
 from flask import Blueprint, request, jsonify, current_app
+from app import db
 from app.models import Device, Rental
 from app.services.inventory_service import InventoryService
 from app.services.rental_service import RentalService
+from app.models.warehouse import resolve_read_warehouse_id
 from datetime import datetime, date
 from functools import wraps
 import json
@@ -46,6 +48,9 @@ def get_available_inventory():
         ship_out_time_str = request.args.get('ship_out_time')
         ship_in_time_str = request.args.get('ship_in_time')
         device_type = request.args.get('device_type')
+        warehouse_id = resolve_read_warehouse_id(
+            request.args.get('warehouse_id')
+        )
         
         # 验证必填参数
         if not ship_out_time_str or not ship_in_time_str:
@@ -78,7 +83,9 @@ def get_available_inventory():
             }), 400
         
         # 查询可用设备
-        available_devices = Device.get_available_devices(ship_out_time, ship_in_time)
+        available_devices = InventoryService.get_available_devices(
+            ship_out_time, ship_in_time, warehouse_id
+        )
         
         # 按设备类型过滤（如果指定）
         if device_type:
@@ -102,12 +109,15 @@ def get_available_inventory():
             'query_params': {
                 'ship_out_time': ship_out_time_str,
                 'ship_in_time': ship_in_time_str,
-                'device_type': device_type
+                'device_type': device_type,
+                'warehouse_id': warehouse_id,
             },
             'total_available': len(response_data),
             'timestamp': datetime.utcnow().isoformat()
         })
         
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
         current_app.logger.error(f"查询可用库存失败: {e}")
         return jsonify({
@@ -155,9 +165,14 @@ def check_inventory_availability():
                 ship_out_time = datetime.fromisoformat(query['ship_out_time'])
                 ship_in_time = datetime.fromisoformat(query['ship_in_time'])
                 device_type = query.get('device_type')
+                warehouse_id = resolve_read_warehouse_id(
+                    query.get('warehouse_id')
+                )
                 
                 # 查询可用设备
-                available_devices = Device.get_available_devices(ship_out_time, ship_in_time)
+                available_devices = InventoryService.get_available_devices(
+                    ship_out_time, ship_in_time, warehouse_id
+                )
                 
                 # 按设备类型过滤（如果指定）
                 if device_type:
@@ -335,9 +350,14 @@ def get_devices():
                 'error': 'status 参数已移除，请使用 lifecycle_status'
             }), 400
         lifecycle_filter = request.args.get('lifecycle_status')
+        warehouse_id = resolve_read_warehouse_id(
+            request.args.get('warehouse_id')
+        )
         location_filter = request.args.get('location')  # 已废弃
         
         query = Device.query
+        if isinstance(warehouse_id, int):
+            query = query.filter(Device.warehouse_id == warehouse_id)
         
         if lifecycle_filter:
             query = query.filter(
@@ -357,6 +377,7 @@ def get_devices():
                 'name': device.name,
                 'serial_number': device.serial_number,
                 'lifecycle_status': device.lifecycle_status,
+                'warehouse_id': device.warehouse_id,
                 'location': None,  # location字段已移除
                 'created_at': device.created_at.isoformat(),
                 'updated_at': device.updated_at.isoformat()
@@ -373,6 +394,8 @@ def get_devices():
             }
         })
         
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
         current_app.logger.error(f"获取设备列表失败: {e}")
         return jsonify({
@@ -422,18 +445,33 @@ def get_device(device_id):
 def get_statistics():
     """获取统计信息"""
     try:
-        # 设备统计
-        total_devices = Device.query.count()
-        lifecycle_counts = dict(
-            Device.get_device_count_by_lifecycle_status()
+        warehouse_id = resolve_read_warehouse_id(
+            request.args.get('warehouse_id')
         )
+        device_query = Device.query
+        rental_query = Rental.query
+        if isinstance(warehouse_id, int):
+            device_query = device_query.filter(
+                Device.warehouse_id == warehouse_id
+            )
+            rental_query = rental_query.filter(
+                Rental.warehouse_id == warehouse_id
+            )
+        # 设备统计
+        total_devices = device_query.count()
+        lifecycle_counts = dict(device_query.with_entities(
+            Device.lifecycle_status,
+            db.func.count(Device.id),
+        ).group_by(Device.lifecycle_status).all())
         
         # 租赁统计
-        total_rentals = Rental.query.count()
-        active_rentals = Rental.query.filter_by(status='active').count()
-        pending_rentals = Rental.query.filter_by(status='pending').count()
-        completed_rentals = Rental.query.filter_by(status='completed').count()
-        overdue_rentals = Rental.query.filter_by(status='overdue').count()
+        total_rentals = rental_query.count()
+        active_rentals = rental_query.filter_by(status='active').count()
+        pending_rentals = rental_query.filter_by(status='pending').count()
+        completed_rentals = rental_query.filter_by(
+            status='completed'
+        ).count()
+        overdue_rentals = rental_query.filter_by(status='overdue').count()
         
         stats = {
             'devices': {
@@ -459,6 +497,8 @@ def get_statistics():
             'data': stats
         })
         
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
         current_app.logger.error(f"获取统计信息失败: {e}")
         return jsonify({

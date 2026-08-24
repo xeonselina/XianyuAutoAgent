@@ -32,8 +32,6 @@ X200U_PURCHASE_DATE = date(2025, 8, 1)
 def _get_excluded_device_ids_from_db(warehouse_id=None):
     """返回永久排除的代发设备 ID 集合。"""
     query = Device.query.filter(Device.name.in_(EXCLUDED_DEVICE_NAMES))
-    if isinstance(warehouse_id, int):
-        query = query.filter(Device.warehouse_id == warehouse_id)
     excluded_by_name = query.all()
     return {d.id for d in excluded_by_name}
 
@@ -206,14 +204,45 @@ def get_periodic_stats():
             price = float(d.device_model.device_value) if d.device_model and d.device_model.device_value else 0.0
             device_price[d.id] = price
 
-        # 查询范围内所有主租赁订单（排除 cancelled，排除黑名单设备）
+        historical_devices = Device.query.filter(
+            Device.is_accessory.is_(False),
+            ~Device.id.in_(excluded),
+        )
+        if model_filter != 'all':
+            historical_devices = historical_devices.filter(
+                Device.model_id == filter_model_id
+            )
+        historical_devices = historical_devices.all()
+        historical_device_ids = {
+            device.id for device in historical_devices
+        }
+        historical_service_end = {
+            device.id: lifecycle_end_date(device)
+            for device in historical_devices
+        }
+        historical_first_order = {}
+        for rental in Rental.query.filter(
+            Rental.parent_rental_id.is_(None),
+            Rental.status != 'cancelled',
+            Rental.device_id.in_(historical_device_ids),
+        ).order_by(Rental.start_date).all():
+            historical_first_order.setdefault(
+                rental.device_id, rental.start_date
+            )
+
+        # 历史订单按下单时保存的仓库归属，不随设备当前仓移动。
         rentals_query = Rental.query.filter(
             Rental.parent_rental_id.is_(None),
             Rental.status != 'cancelled',
-            Rental.device_id.in_(all_device_ids),
+            Rental.device_id.in_(historical_device_ids),
             Rental.start_date <= end_date,
             Rental.end_date >= start_date
-        ).all()
+        )
+        if isinstance(warehouse_id, int):
+            rentals_query = rentals_query.filter(
+                Rental.warehouse_id == warehouse_id
+            )
+        rentals_query = rentals_query.all()
 
         # 建立 device_id -> first_order_start_date 映射，用于确定设备"投入时间"
         device_first_order = {}
@@ -256,11 +285,11 @@ def get_periodic_stats():
             period_rentals = [
                 r for r in rentals_query
                 if r.start_date >= p_start and r.start_date <= p_end
-                and r.device_id in active_device_ids
+                and r.device_id in historical_first_order
                 and is_order_within_service(
                     r.start_date,
-                    device_first_order[r.device_id],
-                    device_service_end.get(r.device_id),
+                    historical_first_order[r.device_id],
+                    historical_service_end.get(r.device_id),
                 )
             ]
 
@@ -366,6 +395,23 @@ def get_x200u_forecast():
         # ── 设备信息 ──────────────────────────────────────────
         excluded = _get_excluded_device_ids_from_db(warehouse_id)
         x200u_model_id = _get_model_id_by_name('x200u')
+        model_devices = Device.query.filter(
+            Device.is_accessory.is_(False),
+            Device.model_id == x200u_model_id,
+            ~Device.id.in_(excluded),
+        ).all()
+        model_device_ids = {device.id for device in model_devices}
+        model_service_end = {
+            device.id: lifecycle_end_date(device)
+            for device in model_devices
+        }
+        model_first_order = {}
+        for rental in Rental.query.filter(
+            Rental.parent_rental_id.is_(None),
+            Rental.status != 'cancelled',
+            Rental.device_id.in_(model_device_ids),
+        ).order_by(Rental.start_date).all():
+            model_first_order.setdefault(rental.device_id, rental.start_date)
 
         historical_devices = Device.query.filter(
             Device.is_accessory == False,
@@ -383,10 +429,32 @@ def get_x200u_forecast():
             if device.lifecycle_status == 'active'
         ]
         device_count = len(devices)
-        if not historical_devices:
+        scoped_history = Rental.query.filter(
+            Rental.parent_rental_id.is_(None),
+            Rental.device_id.in_(model_device_ids),
+        )
+        if isinstance(warehouse_id, int):
+            scoped_history = scoped_history.filter(
+                Rental.warehouse_id == warehouse_id
+            )
+        if not historical_devices and scoped_history.first() is None:
             return jsonify({'success': False, 'error': '无 x200u 设备'}), 400
 
-        purchase_price = float(historical_devices[0].device_model.device_value) if historical_devices[0].device_model and historical_devices[0].device_model.device_value else X200U_PURCHASE_PRICE
+        price_device = (
+            historical_devices[0]
+            if historical_devices
+            else model_devices[0]
+        )
+        configured_price = (
+            price_device.device_model.device_value
+            if price_device.device_model
+            else None
+        )
+        purchase_price = (
+            float(configured_price)
+            if configured_price
+            else X200U_PURCHASE_PRICE
+        )
         total_cost = purchase_price * len(historical_devices)  # 历史总购买成本
         historical_device_ids = {d.id for d in historical_devices}
         active_device_ids = {d.id for d in devices}
@@ -415,21 +483,29 @@ def get_x200u_forecast():
             Rental.parent_rental_id.is_(None),
             Rental.status != 'cancelled',
             Rental.order_amount.isnot(None),
-            Rental.device_id.in_(historical_device_ids),
+            Rental.device_id.in_(model_device_ids),
             Rental.start_date < first_of_this_month
-        ).order_by(Rental.start_date).all()
+        )
+        if isinstance(warehouse_id, int):
+            price_rentals = price_rentals.filter(
+                Rental.warehouse_id == warehouse_id
+            )
+        price_rentals = price_rentals.order_by(Rental.start_date).all()
         monthly_amounts = {}
         for rental in price_rentals:
-            first_order = device_first_order.get(rental.device_id)
-            if first_order and is_order_within_service(
-                rental.start_date,
-                first_order,
-                device_service_end.get(rental.device_id),
-            ):
-                month_key = rental.start_date.strftime('%Y-%m')
-                monthly_amounts.setdefault(month_key, []).append(
-                    float(rental.order_amount)
+            if (
+                rental.device_id not in model_first_order
+                or not is_order_within_service(
+                    rental.start_date,
+                    model_first_order[rental.device_id],
+                    model_service_end.get(rental.device_id),
                 )
+            ):
+                continue
+            month_key = rental.start_date.strftime('%Y-%m')
+            monthly_amounts.setdefault(month_key, []).append(
+                float(rental.order_amount)
+            )
         rows = [
             sum(amounts) / len(amounts)
             for _, amounts in sorted(monthly_amounts.items())
@@ -466,17 +542,20 @@ def get_x200u_forecast():
             Rental.parent_rental_id.is_(None),
             Rental.status != 'cancelled',
             Rental.order_amount.isnot(None),
-            Rental.device_id.in_(historical_device_ids),
+            Rental.device_id.in_(model_device_ids),
             Rental.start_date <= hist_end
-        ).all()
+        )
+        if isinstance(warehouse_id, int):
+            hist_rentals = hist_rentals.filter(
+                Rental.warehouse_id == warehouse_id
+            )
         hist_rentals = [
-            rental
-            for rental in hist_rentals
-            if rental.device_id in device_first_order
+            rental for rental in hist_rentals.all()
+            if rental.device_id in model_first_order
             and is_order_within_service(
                 rental.start_date,
-                device_first_order[rental.device_id],
-                device_service_end.get(rental.device_id),
+                model_first_order[rental.device_id],
+                model_service_end.get(rental.device_id),
             )
         ]
 
@@ -558,7 +637,11 @@ def get_x200u_forecast():
                 period_end_months = (m_end.year - earliest_first_order.year) * 12 + (m_end.month - earliest_first_order.month) + 1
                 years_operated = period_end_months / 12.0
                 cum_cost = total_cost + (purchase_price * new_devices_july if new_devices_july > 0 and m_start >= date(2026, 7, 1) else 0)
-                cum_annualized_roi = (cumulative_net / cum_cost / years_operated) * 100 if years_operated > 0 else 0.0
+                cum_annualized_roi = (
+                    (cumulative_net / cum_cost / years_operated) * 100
+                    if years_operated > 0 and cum_cost > 0
+                    else 0.0
+                )
 
                 months_data.append({
                     'month': m['label'],

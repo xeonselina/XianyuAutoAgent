@@ -23,7 +23,10 @@ from app.services.gantt.reorder_service import (
     GanttReorderService,
     StalePreviewError,
 )
-from app.models.warehouse import resolve_read_warehouse_id
+from app.models.warehouse import (
+    resolve_read_warehouse_id,
+    resolve_write_warehouse_id,
+)
 
 
 class GanttHandlers:
@@ -139,15 +142,32 @@ class GanttHandlers:
     @staticmethod
     def handle_analyze_reorder() -> ApiResponse:
         """扫描需要人工确认的接力关系。"""
-        return success(data=GanttReorderService.analyze())
+        data = request.get_json(silent=True) or {}
+        try:
+            warehouse_id = resolve_write_warehouse_id(
+                data.get(
+                    "warehouse_id", request.args.get("warehouse_id")
+                )
+            )
+            return success(data=GanttReorderService.analyze(
+                warehouse_id=warehouse_id
+            ))
+        except ValueError as exc:
+            return bad_request(str(exc))
 
     @staticmethod
     def handle_preview_reorder() -> ApiResponse:
         """生成零写入的档期重排预览。"""
         data = request.get_json(silent=True) or {}
         try:
+            warehouse_id = resolve_write_warehouse_id(
+                data.get("warehouse_id")
+            )
             return success(
-                data=GanttReorderService.preview(data.get("decisions", []))
+                data=GanttReorderService.preview(
+                    data.get("decisions", []),
+                    warehouse_id=warehouse_id,
+                )
             )
         except ValueError as exc:
             return bad_request(str(exc))

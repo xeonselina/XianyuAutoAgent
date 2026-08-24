@@ -15,7 +15,7 @@ class RelayDecision:
 class ScheduleBlock:
     key: str
     rental_ids: tuple[int, ...]
-    model_id: int
+    model_id: object
     start_day: int
     end_day: int
     current_device_id: int

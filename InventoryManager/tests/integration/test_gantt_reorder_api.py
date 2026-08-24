@@ -3,16 +3,20 @@ from datetime import date, datetime, time, timedelta
 
 from app import create_app, db
 from app.models.audit_log import AuditLog
+from app.models.device import Device
 from app.models.rental import Rental
 from app.models.rental_relay_binding import RentalRelayBinding
+from app.models.warehouse import Warehouse
 from app.services.gantt.reorder_service import GanttReorderService
-from tests.support.reorder_fixtures import seeded_reorder_case
 from tests.support.test_database import (
     assert_current_user_has_test_only_grants,
     build_mysql_test_config,
 )
 
 import pytest
+
+
+pytest_plugins = ("tests.support.reorder_fixtures",)
 
 
 @pytest.fixture
@@ -265,3 +269,154 @@ def test_reusing_preview_token_has_no_duplicate_side_effect(
     assert first.status_code == 200
     assert second.status_code == 409
     assert AuditLog.query.count() == first_audit_count
+
+
+def test_multi_warehouse_reorder_requires_concrete_warehouse(
+    client, db_session, seeded_reorder_case
+):
+    db_session.add(Warehouse(
+        province="浙江省", city="杭州市", name="杭州仓库"
+    ))
+    db_session.commit()
+
+    analyze = client.post("/api/gantt/reorder/analyze")
+    preview = client.post(
+        "/api/gantt/reorder/preview", json={"decisions": []}
+    )
+
+    assert analyze.status_code == 400
+    assert preview.status_code == 400
+
+
+def test_reorder_never_uses_idle_device_from_another_warehouse(
+    client, db_session, seeded_reorder_case
+):
+    warehouse_b = Warehouse(
+        province="浙江省", city="杭州市", name="杭州仓库"
+    )
+    db_session.add(warehouse_b)
+    db_session.flush()
+    warehouse_a_id = seeded_reorder_case.first_device.warehouse_id
+    foreign_device_id = seeded_reorder_case.second_device.id
+    seeded_reorder_case.second_device.warehouse_id = warehouse_b.id
+    seeded_reorder_case.second.device_id = seeded_reorder_case.first_device.id
+    seeded_reorder_case.second.ship_out_time = (
+        seeded_reorder_case.first.ship_in_time - timedelta(days=1)
+    )
+    db_session.commit()
+
+    analysis = client.post(
+        "/api/gantt/reorder/analyze",
+        json={"warehouse_id": warehouse_a_id},
+    )
+    overlap = analysis.get_json()["data"]["overlaps"][0]
+    preview = client.post(
+        "/api/gantt/reorder/preview",
+        json={
+            "warehouse_id": warehouse_a_id,
+            "decisions": [{
+                "predecessor_rental_id": overlap["predecessor"]["id"],
+                "successor_rental_id": overlap["successor"]["id"],
+                "action": "separate",
+            }],
+        },
+    )
+
+    assert analysis.status_code == 200
+    assert preview.status_code == 200
+    data = preview.get_json()["data"]
+    assert all(
+        change["to_device_id"] != foreign_device_id
+        for change in data["changes"]
+    )
+    token_payload = GanttReorderService._serializer().loads(data["token"])
+    assert token_payload["warehouse_id"] == warehouse_a_id
+
+
+def test_reorder_groups_legacy_models_by_normalized_name(
+    client, db_session, seeded_reorder_case
+):
+    warehouse_id = seeded_reorder_case.first_device.warehouse_id
+    seeded_reorder_case.first_device.model_id = None
+    seeded_reorder_case.first_device.model = " Legacy-X200 "
+    seeded_reorder_case.second_device.model_id = None
+    seeded_reorder_case.second_device.model = "legacy-x200"
+    db_session.commit()
+
+    response = client.post(
+        "/api/gantt/reorder/preview",
+        json={"warehouse_id": warehouse_id, "decisions": []},
+    )
+
+    assert response.status_code == 200
+    model = response.get_json()["data"]["models"][0]
+    assert model["model_id"] is None
+    assert model["model"] == "legacy-x200"
+
+
+def test_execute_rejects_target_moved_across_preview_warehouse(
+    client, db_session, seeded_reorder_case
+):
+    warehouse_a_id = seeded_reorder_case.first_device.warehouse_id
+    preview = client.post(
+        "/api/gantt/reorder/preview",
+        json={"warehouse_id": warehouse_a_id, "decisions": []},
+    ).get_json()["data"]
+    target_id = preview["changes"][0]["to_device_id"]
+    rental_id = preview["changes"][0]["rental_id"]
+    warehouse_b = Warehouse(
+        province="浙江省", city="杭州市", name="杭州仓库"
+    )
+    db_session.add(warehouse_b)
+    db_session.flush()
+    db_session.get(Device, target_id).warehouse_id = warehouse_b.id
+    db_session.commit()
+
+    response = client.post(
+        "/api/gantt/reorder/execute", json={"token": preview["token"]}
+    )
+
+    assert response.status_code == 409
+    db_session.expire_all()
+    rental = db_session.get(Rental, rental_id)
+    assert rental.warehouse_id == warehouse_a_id
+
+
+def test_execute_rechecks_every_target_against_signed_warehouse(
+    client, db_session, seeded_reorder_case
+):
+    warehouse_a_id = seeded_reorder_case.first_device.warehouse_id
+    preview = client.post(
+        "/api/gantt/reorder/preview",
+        json={"warehouse_id": warehouse_a_id, "decisions": []},
+    ).get_json()["data"]
+    payload = GanttReorderService._serializer().loads(preview["token"])
+    warehouse_b = Warehouse(
+        province="浙江省", city="杭州市", name="杭州仓库"
+    )
+    db_session.add(warehouse_b)
+    db_session.flush()
+    seeded_reorder_case.first_device.warehouse_id = warehouse_b.id
+    db_session.commit()
+    rentals, devices, bindings = GanttReorderService._load_reorder_graph(
+        date.today(), warehouse_a_id
+    )
+    snapshot = GanttReorderService._snapshot(
+        rentals,
+        devices,
+        bindings,
+        payload["decisions"],
+        date.today(),
+        warehouse_a_id,
+    )
+    payload["snapshot_hash"] = GanttReorderService._hash_snapshot(snapshot)
+    payload["assignments"] = {
+        str(seeded_reorder_case.first.id): seeded_reorder_case.first_device.id
+    }
+    resigned = GanttReorderService._serializer().dumps(payload)
+
+    response = client.post(
+        "/api/gantt/reorder/execute", json={"token": resigned}
+    )
+
+    assert response.status_code == 409

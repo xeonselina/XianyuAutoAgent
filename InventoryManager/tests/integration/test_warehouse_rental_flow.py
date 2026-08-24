@@ -2,6 +2,7 @@
 
 import os
 from datetime import date, datetime, time, timedelta
+from threading import Barrier, Thread
 
 import pytest
 
@@ -722,3 +723,333 @@ def test_invalid_slot_warehouse_is_a_stable_bad_request(
         },
     )
     assert response.status_code == 400
+
+
+def test_rental_create_uses_effective_logistics_occupancy(
+    client, app, warehouse_case
+):
+    with app.app_context():
+        existing = _create_existing_rental(warehouse_case, "warehouse_a")
+        later_start = existing.end_date + timedelta(days=3)
+        overlapping_ship_out = existing.ship_in_time - timedelta(hours=1)
+
+    response = client.post(
+        "/api/rentals",
+        json=_rental_payload(
+            warehouse_case,
+            start_date=later_start.isoformat(),
+            end_date=(later_start + timedelta(days=2)).isoformat(),
+            ship_out_time=overlapping_ship_out.isoformat(),
+            ship_in_time=datetime.combine(
+                later_start + timedelta(days=4), time(12)
+            ).isoformat(),
+        ),
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["code"] == "DEVICE_UNAVAILABLE"
+
+
+def test_rental_create_rejects_invalid_effective_occupancy_interval(
+    client, app, warehouse_case
+):
+    start = date.today() + timedelta(days=10)
+    response = client.post(
+        "/api/rentals",
+        json=_rental_payload(
+            warehouse_case,
+            ship_out_time=datetime.combine(start, time(12)).isoformat(),
+            ship_in_time=datetime.combine(start, time(11)).isoformat(),
+        ),
+    )
+
+    assert response.status_code == 400
+    with app.app_context():
+        assert Rental.query.count() == 0
+
+
+def test_rental_update_merges_logistics_before_conflict_check(
+    client, app, warehouse_case
+):
+    with app.app_context():
+        existing = _create_existing_rental(warehouse_case, "warehouse_a")
+        later_start = existing.end_date + timedelta(days=10)
+        later = Rental(
+            device_id=warehouse_case["main_a"],
+            warehouse_id=warehouse_case["warehouse_a"],
+            start_date=later_start,
+            end_date=later_start + timedelta(days=2),
+            ship_out_time=datetime.combine(
+                later_start - timedelta(days=2), time(19)
+            ),
+            ship_in_time=datetime.combine(
+                later_start + timedelta(days=4), time(12)
+            ),
+            customer_name="稍后客户",
+            status="not_shipped",
+        )
+        db.session.add(later)
+        db.session.commit()
+        later_id = later.id
+        original_ship_out = later.ship_out_time
+        overlapping_ship_out = existing.ship_in_time - timedelta(hours=1)
+
+    response = client.put(
+        f"/api/rentals/{later_id}",
+        json={
+            "warehouse_id": warehouse_case["warehouse_a"],
+            "ship_out_time": overlapping_ship_out.isoformat(),
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["code"] == "DEVICE_UNAVAILABLE"
+    with app.app_context():
+        assert db.session.get(Rental, later_id).ship_out_time == (
+            original_ship_out
+        )
+
+
+def _concurrent_create(app, payloads):
+    barrier = Barrier(len(payloads))
+    results = []
+
+    def submit(payload):
+        client = app.test_client()
+        barrier.wait()
+        response = client.post("/api/rentals", json=payload)
+        body = response.get_json()
+        results.append((response.status_code, body.get("code")))
+
+    threads = [Thread(target=submit, args=(payload,)) for payload in payloads]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+        assert not thread.is_alive()
+    return sorted(results)
+
+
+def test_concurrent_rental_create_serializes_main_device(
+    app, warehouse_case
+):
+    with app.app_context():
+        if db.engine.dialect.name != "mysql":
+            pytest.skip("row-lock concurrency probe requires MariaDB")
+    payload = _rental_payload(warehouse_case)
+
+    results = _concurrent_create(
+        app,
+        [
+            {**payload, "customer_name": "并发客户甲"},
+            {**payload, "customer_name": "并发客户乙"},
+        ],
+    )
+
+    assert results == [(201, None), (409, "DEVICE_UNAVAILABLE")]
+
+
+def test_concurrent_rental_create_serializes_shared_accessory(
+    app, warehouse_case
+):
+    with app.app_context():
+        if db.engine.dialect.name != "mysql":
+            pytest.skip("row-lock concurrency probe requires MariaDB")
+        model = db.session.get(DeviceModel, warehouse_case["model"])
+        other_main = Device(
+            name="深圳备用主机",
+            serial_number="WH-MAIN-A2",
+            model=model.name,
+            model_id=model.id,
+            is_accessory=False,
+            warehouse_id=warehouse_case["warehouse_a"],
+        )
+        db.session.add(other_main)
+        db.session.commit()
+        other_main_id = other_main.id
+    payload = _rental_payload(
+        warehouse_case, accessories=[warehouse_case["accessory_a"]]
+    )
+
+    results = _concurrent_create(
+        app,
+        [
+            {**payload, "customer_name": "附件并发甲"},
+            {
+                **payload,
+                "device_id": other_main_id,
+                "customer_name": "附件并发乙",
+            },
+        ],
+    )
+
+    assert results == [(201, None), (409, "DEVICE_UNAVAILABLE")]
+
+
+def test_lifecycle_reads_cover_concrete_all_omitted_and_invalid_warehouse(
+    client, warehouse_case
+):
+    scoped_summary = client.get(
+        "/api/devices/lifecycle/summary",
+        query_string={"warehouse_id": warehouse_case["warehouse_a"]},
+    )
+    all_summary = client.get(
+        "/api/devices/lifecycle/summary",
+        query_string={"warehouse_id": "all"},
+    )
+    omitted_summary = client.get("/api/devices/lifecycle/summary")
+    scoped_list = client.get(
+        "/api/devices/lifecycle/list",
+        query_string={"warehouse_id": warehouse_case["warehouse_a"]},
+    )
+
+    assert scoped_summary.get_json()["data"][
+        "lifecycle_status_summary"
+    ]["total"] == 2
+    assert all_summary.get_json()["data"][
+        "lifecycle_status_summary"
+    ]["total"] == 4
+    assert omitted_summary.get_json()["data"][
+        "lifecycle_status_summary"
+    ]["total"] == 4
+    assert {row["id"] for row in scoped_list.get_json()["data"]} == {
+        warehouse_case["main_a"], warehouse_case["accessory_a"]
+    }
+    for warehouse_id in ("bad", 999999):
+        assert client.get(
+            "/api/devices/lifecycle/list",
+            query_string={"warehouse_id": warehouse_id},
+        ).status_code == 400
+
+
+def test_external_reads_keep_api_key_and_support_warehouse_scope(
+    client, app, warehouse_case
+):
+    with app.app_context():
+        app.config["API_KEY"] = "scope-test-key"
+        rental_a = _create_existing_rental(warehouse_case, "warehouse_a")
+        _create_existing_rental(warehouse_case, "warehouse_b")
+        rental_a_id = rental_a.id
+    headers = {"X-API-Key": "scope-test-key"}
+
+    scoped_devices = client.get(
+        "/external-api/devices",
+        query_string={"warehouse_id": warehouse_case["warehouse_a"]},
+        headers=headers,
+    )
+    all_devices = client.get(
+        "/external-api/devices",
+        query_string={"warehouse_id": "all"},
+        headers=headers,
+    )
+    omitted_devices = client.get("/external-api/devices", headers=headers)
+    scoped_stats = client.get(
+        "/external-api/statistics",
+        query_string={"warehouse_id": warehouse_case["warehouse_a"]},
+        headers=headers,
+    )
+
+    assert {row["id"] for row in scoped_devices.get_json()["data"]} == {
+        warehouse_case["main_a"], warehouse_case["accessory_a"]
+    }
+    assert len(all_devices.get_json()["data"]) == 4
+    assert len(omitted_devices.get_json()["data"]) == 4
+    assert scoped_stats.get_json()["data"]["devices"]["total"] == 2
+    assert scoped_stats.get_json()["data"]["rentals"]["total"] == 1
+    assert rental_a_id is not None
+    assert client.get(
+        "/external-api/devices",
+        query_string={"warehouse_id": "bad"},
+        headers=headers,
+    ).status_code == 400
+    assert client.get(
+        "/external-api/statistics",
+        query_string={"warehouse_id": 999999},
+        headers=headers,
+    ).status_code == 400
+    assert client.get(
+        "/external-api/devices",
+        query_string={"warehouse_id": warehouse_case["warehouse_a"]},
+    ).status_code == 401
+
+
+def test_external_inventory_available_is_warehouse_scoped(
+    client, app, warehouse_case
+):
+    with app.app_context():
+        app.config["API_KEY"] = "scope-test-key"
+    future = datetime.now() + timedelta(days=30)
+    response = client.get(
+        "/external-api/inventory/available",
+        query_string={
+            "warehouse_id": warehouse_case["warehouse_a"],
+            "ship_out_time": future.isoformat(),
+            "ship_in_time": (future + timedelta(days=2)).isoformat(),
+        },
+        headers={"X-API-Key": "scope-test-key"},
+    )
+
+    assert response.status_code == 200
+    assert {row["device_id"] for row in response.get_json()["data"]} == {
+        warehouse_case["main_a"]
+    }
+
+
+def test_periodic_history_stays_with_rental_warehouse_after_device_move(
+    client, app, warehouse_case
+):
+    with app.app_context():
+        rental = _create_existing_rental(warehouse_case, "warehouse_a")
+        rental.order_amount = 321
+        start_date = rental.start_date
+        db.session.get(Device, warehouse_case["main_a"]).warehouse_id = (
+            warehouse_case["warehouse_b"]
+        )
+        db.session.commit()
+
+    response = client.get(
+        "/api/rental-stats/periodic",
+        query_string={
+            "period_type": "week",
+            "start_date": start_date.isoformat(),
+            "end_date": (start_date + timedelta(days=6)).isoformat(),
+            "warehouse_id": warehouse_case["warehouse_a"],
+        },
+    )
+
+    row = response.get_json()["data"][0]
+    assert row["device_count"] == 0
+    assert row["order_count"] == 1
+    assert row["order_amount"] == 321
+
+
+def test_x200_history_stays_with_rental_warehouse_after_device_move(
+    client, app, warehouse_case
+):
+    with app.app_context():
+        model = db.session.get(DeviceModel, warehouse_case["model"])
+        model.device_value = 1000
+        historical = Rental(
+            device_id=warehouse_case["main_a"],
+            warehouse_id=warehouse_case["warehouse_a"],
+            start_date=date(2026, 7, 1),
+            end_date=date(2026, 7, 3),
+            customer_name="历史仓客户",
+            order_amount=100,
+            status="completed",
+        )
+        db.session.add(historical)
+        db.session.flush()
+        db.session.get(Device, warehouse_case["main_a"]).warehouse_id = (
+            warehouse_case["warehouse_b"]
+        )
+        db.session.commit()
+
+    response = client.get(
+        "/api/rental-stats/x200u-forecast",
+        query_string={"warehouse_id": warehouse_case["warehouse_a"]},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["device_count"] == 0
+    assert response.get_json()["hist_net_profit"] == 85
