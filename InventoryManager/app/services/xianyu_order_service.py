@@ -91,11 +91,6 @@ class XianyuOrderService:
         # MD5哈希
         sign = hashlib.md5(sign_str.encode('utf-8')).hexdigest()
 
-        logger.debug(
-            "已生成闲鱼API参数签名，参数字段: %s",
-            sorted(params.keys()),
-        )
-
         return sign
 
     def _request_with_body_sign(self, url: str, data: dict, timeout: int = 30) -> Optional[Dict[str, Any]]:
@@ -110,8 +105,6 @@ class XianyuOrderService:
         Returns:
             API响应的JSON数据,失败返回None
         """
-        import sys
-
         try:
             # 将json对象转成json字符串
             # 特别注意：使用 json.dumps 函数时必须补充第二个参数 separators=(',', ':') 用于过滤空格，否则会签名错误
@@ -129,41 +122,15 @@ class XianyuOrderService:
             # 设置请求头
             headers = {"Content-Type": "application/json"}
 
-            logger.debug("闲鱼API请求路径: %s", url)
-
-            # 详细的请求前日志
-            logger.info(f"[REQUEST START] 准备发送闲鱼API请求")
-            logger.info("[REQUEST] API路径: %s", url)
-            logger.info(f"[REQUEST] 超时设置: {timeout}秒")
-            logger.info(f"[REQUEST] Python版本: {sys.version}")
-            logger.info(f"[REQUEST] Requests库版本: {requests.__version__}")
-
-            # 检查是否在gevent环境
-            try:
-                import gevent
-                logger.info(f"[REQUEST] Gevent版本: {gevent.__version__}")
-                logger.info(f"[REQUEST] 当前Greenlet: {gevent.getcurrent()}")
-            except ImportError:
-                logger.info(f"[REQUEST] Gevent未安装")
-
-            # 检查SSL配置
-            try:
-                import ssl
-                logger.info(f"[REQUEST] SSL版本: {ssl.OPENSSL_VERSION}")
-            except Exception as ssl_err:
-                logger.warning(f"[REQUEST] 无法获取SSL版本: {ssl_err}")
-
             # 使用requests发送请求
-            logger.info(f"[REQUEST] 正在调用 requests.post()...")
             response = requests.post(full_url, data=body, headers=headers, timeout=timeout)
-            logger.info(f"[REQUEST SUCCESS] requests.post() 调用完成，状态码: {response.status_code}")
+            logger.info("闲鱼API HTTP状态码: %s", response.status_code)
 
             response.raise_for_status()
-            logger.info(f"[REQUEST] HTTP状态检查通过")
 
             result = response.json()
             logger.info(
-                "[REQUEST] JSON解析成功，业务状态码: %s",
+                "闲鱼API业务状态码: %s",
                 result.get("code"),
             )
             return result
@@ -190,7 +157,6 @@ class XianyuOrderService:
             return None
         except RecursionError:
             logger.error("[REQUEST ERROR] 闲鱼API请求递归深度超限")
-            logger.error("[REQUEST ERROR] 递归限制: %s", sys.getrecursionlimit())
             return None
         except Exception as e:
             logger.error(
@@ -231,9 +197,7 @@ class XianyuOrderService:
             if not result:
                 raise XianyuOrderServiceError("闲鱼订单列表无响应")
             if result.get("code") != 0:
-                raise XianyuOrderServiceError(
-                    result.get("msg") or "闲鱼订单列表查询失败"
-                )
+                raise XianyuOrderServiceError("闲鱼订单列表查询失败")
 
             data = result.get("data") or {}
             page = data.get("list")
@@ -312,17 +276,15 @@ class XianyuOrderService:
         }
 
         # 调用API
-        logger.info(f"正在获取闲鱼订单详情: {order_no}")
         result = self._request_with_body_sign("/api/open/order/detail", request_data)
 
         if not result:
-            logger.error(f"获取订单详情失败: 无响应")
+            logger.error("获取订单详情失败: 无响应")
             return None
 
         # 检查响应码
         if result.get('code') != 0:
-            error_msg = result.get('msg', '未知错误')
-            logger.error(f"获取订单详情失败: {error_msg}")
+            logger.error("获取订单详情失败")
             return None
 
         # 提取订单数据
@@ -331,7 +293,7 @@ class XianyuOrderService:
             logger.error(f"订单详情数据为空")
             return None
 
-        logger.info(f"成功获取订单详情: {order_no}")
+        logger.info("成功获取订单详情")
         return order_data
 
     def ship_order(self, rental) -> Dict:
@@ -377,8 +339,7 @@ class XianyuOrderService:
             'express_name': '顺丰速运'
         }
 
-        logger.info(f"闲鱼发货通知: Rental {rental.id}, Order {rental.xianyu_order_no}")
-        logger.debug(f"请求数据: {request_data}")
+        logger.info(f"闲鱼发货通知: Rental {rental.id}")
 
         # 使用与 get_order_detail 相同的签名方式
         result = self._request_with_body_sign("/api/open/order/ship", request_data)
@@ -399,11 +360,10 @@ class XianyuOrderService:
                 'data': result.get('data')
             }
         else:
-            error_msg = result.get('msg', '未知错误')
-            logger.error(f"闲鱼发货失败: Rental {rental.id}, 错误: {error_msg}")
+            logger.error(f"闲鱼发货失败: Rental {rental.id}")
             return {
                 'success': False,
-                'message': error_msg,
+                'message': '闲鱼发货失败',
                 'code': result.get('code')
             }
 

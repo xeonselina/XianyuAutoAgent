@@ -62,9 +62,7 @@ class KuaimaiPrintService:
         sign_str += self.app_secret
 
         # 计算MD5
-        md5_hash = hashlib.md5(sign_str.encode('utf-8')).hexdigest()
-        logger.debug(f"生成签名: {md5_hash}")
-        return md5_hash
+        return hashlib.md5(sign_str.encode('utf-8')).hexdigest()
 
     def _make_request(
         self,
@@ -104,9 +102,6 @@ class KuaimaiPrintService:
 
         # 构建完整URL
         url = f"{self.BASE_URL}{endpoint}"
-
-        logger.info(f"调用快麦API: {method} -> {url}")
-        logger.debug(f"请求参数: {params}")
 
         try:
             # 直接发送params作为请求体，不嵌套在data字段中
@@ -175,13 +170,9 @@ class KuaimaiPrintService:
                 'error': error_msg
             }
 
-        logger.info(f"发起打印任务，打印机SN: {sn}, 份数: {copies}, 尺寸: {width}x{height}mm")
-
         try:
             # 构建XML字符串，将base64图像嵌入到<img>标签中
             xml_str = f'''<page><render width="{width}" height="{height}"><img x='1' y='1'>{base64_image}</img></render></page>'''
-
-            logger.debug(f"XML长度: {len(xml_str)} 字符")
 
             # 构建打印参数（按照快麦API文档要求）
             params = {
@@ -195,8 +186,6 @@ class KuaimaiPrintService:
 
             # 从响应中获取job_id（如果有的话）
             job_id = result.get('jobId', '')
-            logger.info(f"打印任务提交成功，任务ID: {job_id}")
-
             return {
                 'success': True,
                 'job_id': job_id
@@ -223,17 +212,13 @@ class KuaimaiPrintService:
                 'timestamp': str (可选)
             }
         """
-        logger.info(f"查询打印任务状态: {job_id}")
-
         try:
             params = {'jobId': job_id}
             result = self._make_request('getPrintJobStatus', params)
 
             status = result.get('status', 'unknown')
-            message = result.get('message', '')
+            message = ''
             timestamp = result.get('timestamp', '')
-
-            logger.info(f"打印任务 {job_id} 状态: {status}")
 
             return {
                 'status': status,
@@ -241,11 +226,11 @@ class KuaimaiPrintService:
                 'timestamp': timestamp
             }
 
-        except Exception as e:
-            logger.error(f"查询打印任务状态失败: {e}")
+        except Exception:
+            logger.error("查询打印任务状态失败")
             return {
                 'status': 'error',
-                'message': str(e)
+                'message': '快麦打印服务调用失败'
             }
 
 

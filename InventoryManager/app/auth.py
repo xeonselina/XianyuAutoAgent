@@ -125,7 +125,10 @@ class TencentSmsSender:
         sms_request.SignName = self.sign_name
         sms_request.TemplateId = self.template_id
         sms_request.TemplateParamSet = [code, str(minutes)]
-        response = self.client.SendSms(sms_request)
+        try:
+            response = self.client.SendSms(sms_request)
+        except Exception:
+            raise RuntimeError("短信服务调用失败") from None
         statuses = response.SendStatusSet or []
         response_code = statuses[0].Code if statuses else "EmptyResponse"
         return SmsSendResult(
@@ -150,6 +153,10 @@ def normalize_china_phone(raw_phone):
 
 
 def mask_phone(phone_e164):
+    if not isinstance(phone_e164, str) or not re.fullmatch(
+        r"\+861[3-9][0-9]{9}", phone_e164
+    ):
+        return "[hidden]"
     return f"{phone_e164[:6]}****{phone_e164[-4:]}"
 
 

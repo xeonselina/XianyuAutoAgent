@@ -71,13 +71,9 @@ class SFExpressSDK:
             msgDigest = base64.b64encode(md5Str).decode('utf-8')
             data = {"partnerID": self.partner_id,"requestID": request_id,"serviceCode": service_code,"timestamp": timestamp,"msgDigest": msgDigest,"msgData": msg_data_str}
             # 发送post请求
-            logger.info(f"调用顺丰API : {service_code} with ")
-            logger.info("msg_data_str: " + msg_data_str)
-            logger.info("msgDigest: " + msgDigest)
-            logger.info(f"请求数据: {data}")
-            logger.info(f"req_url: {self.req_url}")
+            logger.info("调用顺丰API: %s", service_code)
             response = requests.post(self.req_url, data=data)
-            logger.info(f"HTTP状态码: {response.status_code}")
+            logger.info("顺丰API HTTP状态码: %s", response.status_code)
 
             response.raise_for_status()
             result = response.json()
@@ -114,7 +110,7 @@ class SFExpressSDK:
         if response.get('apiResultCode') != 'A1000':
             return {
                 'success': False,
-                'message': response.get('apiErrorMsg', '下单失败'),
+                'message': '顺丰服务调用失败',
                 'code': response.get('apiResultCode')
             }
 
@@ -151,7 +147,6 @@ class SFExpressSDK:
                     'code': response.get('apiResultCode')
                 }
 
-            logger.info(f"顺丰下单成功，运单号: {waybill_no}")
             return {
                 'success': True,
                 'message': '下单成功',
