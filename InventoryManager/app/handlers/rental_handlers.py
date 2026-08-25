@@ -498,6 +498,7 @@ class RentalHandlers:
         try:
             from app.services.xianyu_order_service import get_xianyu_service
             from app.services.integration_resolver import ConfigurationIncomplete
+            from app.models.xianyu_shop import XianyuShop
 
             data = request.get_json()
             if not data:
@@ -509,9 +510,12 @@ class RentalHandlers:
             shop_id = data.get('xianyu_shop_id')
             if not isinstance(shop_id, int) or isinstance(shop_id, bool):
                 return bad_request('请选择闲鱼店铺')
+            shop = XianyuShop.query.filter_by(id=shop_id, is_active=True).one_or_none()
+            if shop is None:
+                return error('闲鱼店铺配置不完整', 409, code='CONFIG_INCOMPLETE')
 
             # 调用闲鱼API服务
-            order_data = get_xianyu_service(shop=shop_id).get_order_detail(order_no)
+            order_data = get_xianyu_service(shop=shop).get_order_detail(order_no)
 
             if not order_data:
                 return error('闲鱼订单服务调用失败', 502, code='EXTERNAL_SERVICE_ERROR')

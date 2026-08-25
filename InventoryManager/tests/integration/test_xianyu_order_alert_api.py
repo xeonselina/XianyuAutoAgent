@@ -140,6 +140,22 @@ def test_ignore_passes_compound_shop_order_identity(client, monkeypatch):
     assert called == {"shop_id": 9, "order_no": "SAME", "reason": "不处理"}
 
 
+@pytest.mark.parametrize("exists", [False, True])
+def test_order_detail_rejects_missing_or_inactive_shop(empty_business_client, app, monkeypatch, exists):
+    from app import db
+    from app.models.xianyu_shop import XianyuShop
+    shop_id = 999
+    if exists:
+        with app.app_context():
+            shop = XianyuShop(name="停用店", app_key="key", is_active=False)
+            db.session.add(shop); db.session.commit()
+            shop_id = shop.id
+    monkeypatch.setattr("app.services.xianyu_order_service.get_xianyu_service",
+                        lambda **_: pytest.fail("不应调用外部闲鱼服务"))
+    response = empty_business_client.post("/api/rentals/fetch-xianyu-order", json={"order_no": "XY-1", "xianyu_shop_id": shop_id})
+    assert (response.status_code, response.get_json()["code"]) == (409, "CONFIG_INCOMPLETE")
+
+
 @pytest.mark.parametrize(
     ("method", "path", "body"),
     [

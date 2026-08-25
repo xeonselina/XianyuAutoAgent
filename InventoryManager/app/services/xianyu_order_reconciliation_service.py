@@ -164,8 +164,8 @@ class XianyuOrderReconciliationService:
         shops = list(session.scalars(select(XianyuShop).order_by(XianyuShop.id)))
         if not shops:
             raise XianyuShopConfigIncompleteError("请先配置闲鱼店铺")
-        selected = [shop for shop in shops if shop_id is None or shop.id == shop_id]
-        if not selected:
+        selected = [shop for shop in shops if (shop.is_active if shop_id is None else shop.id == shop_id)]
+        if shop_id is not None and not selected:
             raise XianyuShopConfigIncompleteError("闲鱼店铺不存在")
         ids = [shop.id for shop in selected]
         existing = {

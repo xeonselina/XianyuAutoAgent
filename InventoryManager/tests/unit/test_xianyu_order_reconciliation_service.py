@@ -363,13 +363,14 @@ def test_snapshot_and_ignore_use_compound_shop_order_identity(
     shops = XianyuShop.query.order_by(XianyuShop.id).all()
     first = shops[0]
     first.is_active = True
-    second = XianyuShop(name="第二店铺", app_key="second", is_active=True)
+    second = XianyuShop(name="第二店铺", app_key="second", is_active=False)
     first.last_success_at = second.last_success_at = datetime(2026, 8, 25, 8)
     db_session.add(second)
     db_session.flush()
     db_session.add_all((
         make_alert(xianyu_shop_id=first.id, order_no="SAME", state="pending", pay_amount=6000),
         make_alert(xianyu_shop_id=second.id, order_no="SAME", state="pending", pay_amount=7000),
+        make_alert(xianyu_shop_id=second.id, order_no="HIDDEN", state="pending", pay_amount=8000),
         make_rental(device.id, "SAME", shop_id=second.id),
     ))
     db_session.commit()
@@ -380,10 +381,13 @@ def test_snapshot_and_ignore_use_compound_shop_order_identity(
     assert [(row["xianyu_shop_id"], row["order_no"]) for row in snapshot["alerts"]] == [(first.id, "SAME")]
     assert snapshot["shops"] == [
         {"id": first.id, "name": "默认闲鱼店铺"},
-        {"id": second.id, "name": "第二店铺"},
     ]
     assert snapshot["sync"]["last_success_at"] == "2026-08-25T08:00:00Z"
-    assert service.ignore(first.id, "SAME", "首店忽略")["count"] == 0
+    second.is_active = True
+    db_session.commit()
+    assert {(row["xianyu_shop_id"], row["order_no"]) for row in service.get_snapshot()["alerts"]} == {
+        (first.id, "SAME"), (second.id, "HIDDEN")}
+    assert service.ignore(first.id, "SAME", "首店忽略")["count"] == 1
     assert service._lock_name("tenant_a", 1) != service._lock_name("tenant_a", 2)
     assert service._lock_name("tenant_a", 1) != service._lock_name("tenant_b", 1)
 
