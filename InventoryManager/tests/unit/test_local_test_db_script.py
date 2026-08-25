@@ -23,7 +23,9 @@ if a[:2] == ["volume", "create"]: v.touch(); print(a[2]); raise SystemExit
 if a[0] == "inspect":
     mode, fmt = c.read_text(), a[2]
     if "Config.Image" in fmt: print("wrong:1" if mode == "bad-image" else "mariadb:10.11")
-    elif "PortBindings" in fmt: print("0.0.0.0:33316" if mode == "bad-port" else "127.0.0.1:33316")
+    elif "PortBindings" in fmt:
+        if "json" not in fmt: print("0.0.0.0:33316" if mode == "bad-port" else "127.0.0.1:33316")
+        else: print('{"3306/tcp":[{"HostIp":"0.0.0.0","HostPort":"33316"}]}' if mode == "bad-port" else '{"3306/tcp":[{"HostIp":"127.0.0.1","HostPort":"33316"},{"HostIp":"0.0.0.0","HostPort":"33316"}]}' if mode == "extra-binding" else '{"3306/tcp":[{"HostIp":"127.0.0.1","HostPort":"33316"}]}')
     elif "Mounts" in fmt: print("other-volume" if mode == "bad-volume" else "xianyu-saas-lite-mariadb-test-data")
     elif "State.Status" in fmt: print("running")
     raise SystemExit
@@ -37,7 +39,7 @@ raise SystemExit(9)
 """
 
 
-def invoke(tmp_path, command, *, container=None, volume=False, password="silent-secret"):
+def invoke(tmp_path, command, *, container=None, volume=False, password="silent-secret", trace=False):
     fake_bin, state = tmp_path / "bin", tmp_path / "state"
     fake_bin.mkdir(parents=True); state.mkdir()
     docker = fake_bin / "docker"
@@ -48,14 +50,14 @@ def invoke(tmp_path, command, *, container=None, volume=False, password="silent-
     env.update(PATH=f"{fake_bin}:{env['PATH']}", FAKE_DOCKER_STATE=str(state))
     if password is None: env.pop("TEST_MARIADB_ROOT_PASSWORD", None)
     else: env["TEST_MARIADB_ROOT_PASSWORD"] = password
-    result = subprocess.run(["bash", SCRIPT, command], env=env, text=True,
+    result = subprocess.run(["bash", *(["-x"] if trace else []), SCRIPT, command], env=env, text=True,
                             capture_output=True, timeout=10, check=False)
     calls = [json.loads(line) for line in ((state / "calls").read_text() if (state / "calls").exists() else "").splitlines()]
     return result, calls, state
 
 
-def test_up_creates_exact_loopback_container_without_leaking_secret(tmp_path):
-    result, calls, _ = invoke(tmp_path, "up")
+def test_xtraced_up_creates_exact_loopback_container_without_leaking_secret(tmp_path):
+    result, calls, _ = invoke(tmp_path, "up", trace=True)
     assert result.returncode == 0
     assert "silent-secret" not in result.stdout + result.stderr + json.dumps(calls)
     assert ["volume", "create", VOLUME] in calls
@@ -72,14 +74,16 @@ def test_up_adopts_exact_container_without_recreating_it(tmp_path):
     assert not any(call[0] in {"run", "rm"} or call[:2] == ["volume", "create"] for call in calls)
 
 
-@pytest.mark.parametrize("volume", [False, True])
-def test_up_requires_supplied_secret_when_creating_container(tmp_path, volume):
-    result, calls, _ = invoke(tmp_path, "up", volume=volume, password=None)
+@pytest.mark.parametrize("command,container,volume", [
+    ("up", None, False), ("up", None, True), ("reset", "ok", True),
+])
+def test_creation_requires_supplied_secret_before_mutation(tmp_path, command, container, volume):
+    result, calls, _ = invoke(tmp_path, command, container=container, volume=volume, password=None)
     assert result.returncode != 0 and "requires TEST_MARIADB_ROOT_PASSWORD" in result.stderr
-    assert not any(call[0] == "run" for call in calls)
+    assert not any(call[0] in {"run", "rm"} or call[:2] == ["volume", "rm"] for call in calls)
 
 
-@pytest.mark.parametrize("mode", ["bad-image", "bad-port", "bad-volume"])
+@pytest.mark.parametrize("mode", ["bad-image", "bad-port", "extra-binding", "bad-volume"])
 def test_up_rejects_misconfigured_existing_container_without_mutation(tmp_path, mode):
     result, calls, _ = invoke(tmp_path, "up", container=mode, volume=True)
     assert result.returncode != 0

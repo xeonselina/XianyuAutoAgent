@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set +x
 set -euo pipefail
 
 readonly CONTAINER="xianyu-saas-lite-mariadb-test"
@@ -9,11 +10,11 @@ die() { printf 'local test database: %s\n' "$1" >&2; exit 1; }
 container_exists() { docker container inspect "$CONTAINER" >/dev/null 2>&1; }
 
 validate_container() {
-    local image binding volume
+    local image ports volume
     image=$(docker inspect --format '{{.Config.Image}}' "$CONTAINER")
-    binding=$(docker inspect --format '{{(index (index .HostConfig.PortBindings "3306/tcp") 0).HostIp}}:{{(index (index .HostConfig.PortBindings "3306/tcp") 0).HostPort}}' "$CONTAINER")
+    ports=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$CONTAINER")
     volume=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/mysql"}}{{.Name}}{{end}}{{end}}' "$CONTAINER")
-    [[ "$image" == "$IMAGE" && "$binding" == "127.0.0.1:33316" && "$volume" == "$VOLUME" ]] ||
+    [[ "$image" == "$IMAGE" && "$ports" == '{"3306/tcp":[{"HostIp":"127.0.0.1","HostPort":"33316"}]}' && "$volume" == "$VOLUME" ]] ||
         die "existing container does not match the required image, port, and volume"
 }
 
@@ -63,6 +64,7 @@ down() {
 }
 
 reset() {
+    [[ -n "${TEST_MARIADB_ROOT_PASSWORD:-}" ]] || die "reset requires TEST_MARIADB_ROOT_PASSWORD"
     if container_exists; then
         [[ "$CONTAINER" == "xianyu-saas-lite-mariadb-test" ]] || die "unsafe container target"
         docker rm --force "$CONTAINER" >/dev/null
