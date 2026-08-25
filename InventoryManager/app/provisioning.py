@@ -218,6 +218,22 @@ class TenantProvisioner:
         with self._tenant_lock(tenant.id):
             return self._upgrade_unlocked(tenant)
 
+    def adopt_existing(self, tenant):
+        """Grant and migrate an existing database without creating it."""
+        with self._tenant_lock(tenant.id) as connection:
+            database_name = _validated_identifier(tenant.db_name, 64)
+            exists = connection.scalar(
+                text(
+                    "SELECT 1 FROM information_schema.SCHEMATA "
+                    "WHERE SCHEMA_NAME = :database_name"
+                ),
+                {"database_name": database_name},
+            )
+            if exists != 1:
+                raise LookupError("tenant database does not exist")
+            self._ensure_user_and_grants(tenant, connection)
+            return self._upgrade_unlocked(tenant)
+
     def _upgrade_unlocked(self, tenant):
         database_url = self._tenant_database_url(tenant)
         run_business_migrations(
@@ -297,19 +313,20 @@ class TenantProvisioner:
 
     def _ensure_database_and_user(self, tenant, connection):
         database_name = _validated_identifier(tenant.db_name, 64)
-        database_username = _validated_identifier(
-            tenant.db_username,
-            32,
-        )
-        password = self.store.secret_box.decrypt(
-            tenant.db_password_ciphertext,
-            purpose="tenant-db-password",
-        )
         connection.execute(
             text(
                 f"CREATE DATABASE IF NOT EXISTS `{database_name}` "
                 "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
             )
+        )
+        self._ensure_user_and_grants(tenant, connection)
+
+    def _ensure_user_and_grants(self, tenant, connection):
+        database_name = _validated_identifier(tenant.db_name, 64)
+        database_username = _validated_identifier(tenant.db_username, 32)
+        password = self.store.secret_box.decrypt(
+            tenant.db_password_ciphertext,
+            purpose="tenant-db-password",
         )
         connection.execute(
             text(

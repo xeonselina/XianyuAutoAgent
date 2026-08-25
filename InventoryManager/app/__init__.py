@@ -317,6 +317,10 @@ def create_app(config_class=Config, worker_mode=False):
         app.register_blueprint(platform_api.bp)
         app.register_blueprint(settings_api.bp)
         platform_api.register_platform_commands(app)
+        from app.default_tenant_migration import (
+            register_default_tenant_command,
+        )
+        register_default_tenant_command(app)
         app.register_blueprint(web.bp)
         app.register_blueprint(external_api.bp, url_prefix='/external-api')
         app.register_blueprint(vue_app.bp)
