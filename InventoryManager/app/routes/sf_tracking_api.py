@@ -10,6 +10,8 @@ from app.services.shipping.sf_tracking_service import (
     TrackingNotFoundError,
 )
 from app.services.integration_resolver import ConfigurationIncomplete
+from app.services.rental.rental_service import WarehouseMismatchError
+from app.models.warehouse import resolve_read_warehouse_id
 from datetime import datetime, timedelta
 import logging
 
@@ -31,6 +33,9 @@ def get_rental_list():
     - data: 租赁订单列表
     """
     try:
+        warehouse_id = resolve_read_warehouse_id(
+            request.args.get('warehouse_id')
+        )
         # 获取查询参数
         start_date_str = request.args.get('start_date')
         end_date_str = request.args.get('end_date')
@@ -51,6 +56,8 @@ def get_rental_list():
             Rental.ship_out_tracking_no.isnot(None),
             Rental.ship_out_tracking_no != ''
         )
+        if isinstance(warehouse_id, int):
+            query = query.filter(Rental.warehouse_id == warehouse_id)
 
         # 应用日期筛选
         query = query.filter(
@@ -91,11 +98,13 @@ def get_rental_list():
             'total': len(rental_list)
         }), 200
 
+    except ValueError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
     except Exception as e:
-        logger.error(f"获取租赁列表失败: {e}")
+        logger.error(f"获取租赁列表失败: {type(e).__name__}")
         return jsonify({
             'success': False,
-            'message': f'获取列表失败: {str(e)}'
+            'message': '获取列表失败'
         }), 500
 
 
@@ -144,6 +153,12 @@ def query_tracking():
                 'code': 'CONFIG_INCOMPLETE',
                 'message': '仓库顺丰配置不完整',
             }), 400
+        except WarehouseMismatchError as exc:
+            return jsonify({
+                'success': False,
+                'code': 'WAREHOUSE_MISMATCH',
+                'message': str(exc),
+            }), 409
         except TrackingNotFoundError:
             logger.warning(f"运单 {tracking_number} 未找到物流信息")
             return jsonify({
@@ -244,8 +259,9 @@ def batch_query_tracking():
         }), 200
 
     except Exception as e:
-        logger.error(f"批量查询失败: {e}")
+        logger.error(f"批量查询失败: {type(e).__name__}")
         return jsonify({
             'success': False,
-            'message': f'批量查询失败: {str(e)}'
-        }), 500
+            'code': 'EXTERNAL_SERVICE_ERROR',
+            'message': '顺丰服务调用失败'
+        }), 502

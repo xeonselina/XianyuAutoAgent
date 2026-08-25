@@ -118,6 +118,8 @@ class SFExpressService:
                         'contactType': 1,  # 寄件人
                         'contact': self.sender_name,
                         'mobile': self.sender_phone,
+                        'province': self.config.province,
+                        'city': self.config.city,
                         'address': self.sender_address,
                         'country': 'CN'
                     },
@@ -156,14 +158,14 @@ class SFExpressService:
                 logger.info(f"顺丰下单成功: Rental {rental.id}")
                 return result
             else:
-                logger.error(f"顺丰下单失败: Rental {rental.id}, {result.get('message')}")
+                logger.error(f"顺丰下单失败: Rental {rental.id}")
                 return result
 
         except Exception as e:
-            logger.error(f"顺丰下单异常: Rental {rental.id}, {e}")
+            logger.error(f"顺丰下单异常: Rental {rental.id}, {type(e).__name__}")
             return {
                 'success': False,
-                'message': f'下单异常: {str(e)}'
+                'message': '顺丰服务调用失败'
             }
 
     def create_order(self, order_data: Dict) -> Dict:
@@ -182,10 +184,10 @@ class SFExpressService:
             return result
 
         except Exception as e:
-            logger.error(f"顺丰SDK调用失败: {e}")
+            logger.error(f"顺丰SDK调用失败: {type(e).__name__}")
             return {
                 'success': False,
-                'message': f'SDK调用失败: {str(e)}'
+                'message': '顺丰服务调用失败'
             }
 
     def _download_pdf(self, pdf_url: str, pdf_token: str, waybill_no: str) -> bytes:
@@ -239,15 +241,15 @@ class SFExpressService:
                 else:
                     logger.error(f"文件写入后不存在: {temp_file_path}")
             except Exception as write_error:
-                logger.error(f"写入文件失败: {write_error}", exc_info=True)
+                logger.error(f"写入文件失败: {type(write_error).__name__}")
 
             return pdf_data
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"下载面单PDF失败: {waybill_no}, {e}")
-            raise Exception(f"下载面单PDF失败: {str(e)}") from e
+            logger.error(f"下载面单PDF失败: {waybill_no}, {type(e).__name__}")
+            raise Exception("下载面单PDF失败") from None
         except Exception as e:
-            logger.error(f"保存面单PDF到临时文件失败: {waybill_no}, {e}")
+            logger.error(f"保存面单PDF失败: {waybill_no}, {type(e).__name__}")
             raise
 
     def get_waybill_pdf(self, rental) -> Dict:
@@ -350,16 +352,14 @@ class SFExpressService:
             # 调用顺丰SDK
             logger.info(f"Rental {rental.id}: 开始调用顺丰SDK")
             result = self.client._call_sf_express_service('COM_RECE_CLOUD_PRINT_WAYBILLS', waybill_data)
-            logger.info(f"Rental {rental.id}: 顺丰API原始响应: {result}")
 
             # 检查API调用结果
             logger.info(f"Rental {rental.id}: 检查API响应码")
             if result.get('apiResultCode') != 'A1000':
-                error_msg = result.get('apiErrorMsg', '未知错误')
-                logger.error(f"Rental {rental.id}: 获取面单PDF失败，API错误码: {result.get('apiResultCode')}, 错误: {error_msg}")
+                logger.error(f"Rental {rental.id}: 获取面单PDF失败，API错误码: {result.get('apiResultCode')}")
                 return {
                     'success': False,
-                    'message': f'顺丰API错误: {error_msg}'
+                    'message': '顺丰服务调用失败'
                 }
             logger.info(f"Rental {rental.id}: API响应码正常 (A1000)")
 
@@ -371,14 +371,12 @@ class SFExpressService:
             if isinstance(api_result_data, str):
                 logger.info(f"Rental {rental.id}: apiResultData是字符串，进行JSON解析")
                 api_result_data = json.loads(api_result_data)
-            logger.info(f"Rental {rental.id}: 解析后的apiResultData: {api_result_data}")
 
             if not api_result_data.get('success', False):
-                error_msg = api_result_data.get('errorMsg', '未知错误')
-                logger.error(f"Rental {rental.id}: 业务处理失败: {error_msg}")
+                logger.error(f"Rental {rental.id}: 顺丰面单业务处理失败")
                 return {
                     'success': False,
-                    'message': error_msg
+                    'message': '顺丰服务调用失败'
                 }
             logger.info(f"Rental {rental.id}: 业务处理成功")
 
@@ -413,12 +411,10 @@ class SFExpressService:
             }
 
         except Exception as e:
-            import traceback
-            logger.error(f"获取面单PDF异常: Rental {rental.id}, {e}")
-            logger.error(f"完整堆栈:\n{traceback.format_exc()}")
+            logger.error(f"获取面单PDF异常: Rental {rental.id}, {type(e).__name__}")
             return {
                 'success': False,
-                'message': f'获取面单异常: {str(e)}'
+                'message': '顺丰服务调用失败'
             }
 
     def _parse_destination(self, destination: str) -> Dict[str, str]:

@@ -12,6 +12,8 @@ from app.models.device import Device
 from app.models.rental import Rental
 from app.models.rental_relay_binding import RentalRelayBinding
 from app.models.rental_relay_case import RentalRelayCase
+from app.services.integration_resolver import ConfigurationIncomplete
+from app.services.rental.rental_service import WarehouseMismatchError
 from app.services.shipping.sf_tracking_service import SFTrackingService
 
 
@@ -701,6 +703,7 @@ class RelayCaseService:
             route_info = SFTrackingService.query(
                 relay_case.sf_tracking_number,
                 phone_digits[-4:],
+                rental=relay_case.successor,
             )
             relay_case.sf_tracking_status = route_info.get(
                 "status", "processing"
@@ -718,9 +721,30 @@ class RelayCaseService:
             relay_case.sf_tracking_summary = " · ".join(dict.fromkeys(
                 str(part).strip() for part in summary_parts if part
             ))[:500]
-        except Exception as exc:
+        except ConfigurationIncomplete:
             relay_case.sf_tracking_status = "query_failed"
-            relay_case.sf_tracking_summary = str(exc) or "顺丰物流查询失败"
+            relay_case.sf_tracking_summary = (
+                "CONFIG_INCOMPLETE: 仓库顺丰配置不完整"
+            )
+            route_info = None
+        except WarehouseMismatchError:
+            relay_case.sf_tracking_status = "query_failed"
+            relay_case.sf_tracking_summary = (
+                "WAREHOUSE_MISMATCH: 运单号无法确定唯一仓库"
+            )
+            route_info = None
+        except ValueError as exc:
+            relay_case.sf_tracking_status = "query_failed"
+            relay_case.sf_tracking_summary = (
+                str(exc) if str(exc) == "缺少前单客户手机号，无法查询顺丰物流"
+                else "EXTERNAL_SERVICE_ERROR: 顺丰服务调用失败"
+            )
+            route_info = None
+        except Exception:
+            relay_case.sf_tracking_status = "query_failed"
+            relay_case.sf_tracking_summary = (
+                "EXTERNAL_SERVICE_ERROR: 顺丰服务调用失败"
+            )
             route_info = None
 
         relay_case.sf_last_checked_at = now

@@ -25,16 +25,10 @@ def build_sf_client_order_id(tenant_id: int, rental_id: int) -> str:
     return f"t{tenant_id}-r{rental_id}"
 
 
-def validate_shipping_preflight(rental) -> None:
-    """Fail closed before creating a new SF order for one main Rental."""
+def validate_shipping_warehouse(rental) -> None:
+    """Validate the main Rental and every physical Device warehouse."""
     if rental.parent_rental_id is not None:
         raise WarehouseMismatchError("附件租赁不能单独发货")
-    missing = tuple(
-        field for field in ("customer_name", "customer_phone", "destination")
-        if not str(getattr(rental, field, None) or "").strip()
-    )
-    if missing:
-        raise ConfigurationIncomplete("rental", rental.id, missing)
     if rental.warehouse_id is None or rental.warehouse is None:
         raise ConfigurationIncomplete(
             "warehouse", rental.warehouse_id, ("warehouse_id",)
@@ -47,6 +41,17 @@ def validate_shipping_preflight(rental) -> None:
         for row in related
     ):
         raise WarehouseMismatchError("租赁设备或实际附件不在履约仓库")
+
+
+def validate_shipping_preflight(rental) -> None:
+    """Fail closed before creating a new SF order for one main Rental."""
+    validate_shipping_warehouse(rental)
+    missing = tuple(
+        field for field in ("customer_name", "customer_phone", "destination")
+        if not str(getattr(rental, field, None) or "").strip()
+    )
+    if missing:
+        raise ConfigurationIncomplete("rental", rental.id, missing)
     if rental.ship_out_tracking_no:
         raise ValueError("已有运单号，不得重复下单")
     IntegrationResolver().sf_for_rental(rental)
@@ -54,6 +59,16 @@ def validate_shipping_preflight(rental) -> None:
 
 def sf_client_order_id_for(rental) -> str:
     return build_sf_client_order_id(current_tenant_id(), rental.id)
+
+
+def normalize_sender_address(province, city, address) -> str:
+    """Join warehouse address parts without repeating existing prefixes."""
+    detail = str(address or "").strip()
+    parts = list(dict.fromkeys(str(value or "").strip() for value in (province, city)))
+    for part in parts:
+        if part and detail.startswith(part):
+            detail = detail[len(part):].lstrip()
+    return "".join(parts) + detail
 
 
 class WaybillPrintService:
@@ -97,6 +112,7 @@ class WaybillPrintService:
                     'rental_id': rental_id,
                     'message': '租赁记录不存在'
                 }
+            validate_shipping_warehouse(rental)
             logger.info(f"Rental {rental_id}: 查询成功，客户: {rental.customer_name}")
 
             # 2. 检查运单号
@@ -110,11 +126,6 @@ class WaybillPrintService:
                 }
             logger.info(f"Rental {rental_id}: 运单号: {rental.ship_out_tracking_no}")
 
-            if (
-                rental.device is None
-                or rental.device.warehouse_id != rental.warehouse_id
-            ):
-                raise WarehouseMismatchError("租赁设备不在履约仓库")
             sf_service = self.resolver.sf_for_rental(rental)
             kuaimai_service = self.resolver.kuaimai_for_rental(rental)
 
@@ -132,14 +143,15 @@ class WaybillPrintService:
             # 4. 从顺丰获取面单PDF
             logger.info(f"Rental {rental_id}: 步骤4 - 从顺丰获取面单PDF")
             sf_result = sf_service.get_waybill_pdf(rental)
-            logger.info(f"Rental {rental_id}: 顺丰API返回: success={sf_result.get('success')}, message={sf_result.get('message')}")
+            logger.info(f"Rental {rental_id}: 顺丰API返回: success={sf_result.get('success')}")
 
             if not sf_result.get('success'):
-                logger.error(f"Rental {rental_id}: 获取面单失败: {sf_result.get('message')}")
+                logger.error(f"Rental {rental_id}: 获取面单失败")
                 return {
                     'success': False,
                     'rental_id': rental_id,
-                    'message': f"获取面单失败: {sf_result.get('message')}"
+                    'message': '顺丰服务调用失败',
+                    'code': 'EXTERNAL_SERVICE_ERROR',
                 }
 
             pdf_data = sf_result.get('pdf_data')
@@ -151,11 +163,12 @@ class WaybillPrintService:
                 base64_images = self.pdf_service.convert_pdf_to_base64_images(pdf_data)
                 logger.info(f"Rental {rental_id}: PDF转换成功，共{len(base64_images)}张图像")
             except PDFConversionError as e:
-                logger.error(f"Rental {rental_id}: PDF转换失败: {str(e)}", exc_info=True)
+                logger.error(f"Rental {rental_id}: PDF转换失败: {type(e).__name__}")
                 return {
                     'success': False,
                     'rental_id': rental_id,
-                    'message': f"PDF转换失败: {str(e)}"
+                    'message': '面单处理失败',
+                    'code': 'EXTERNAL_SERVICE_ERROR',
                 }
 
             if not base64_images:
@@ -175,16 +188,17 @@ class WaybillPrintService:
                     base64_image=base64_image,
                     copies=1
                 )
-                logger.info(f"Rental {rental_id}: 第{idx + 1}页打印结果: {print_result}")
+                logger.info(f"Rental {rental_id}: 第{idx + 1}页打印结果: success={print_result.get('success')}")
                 print_results.append(print_result)
 
                 # 如果任何一页打印失败，立即返回错误
                 if not print_result.get('success'):
-                    logger.error(f"Rental {rental_id}: 打印第{idx + 1}页失败: {print_result.get('error')}")
+                    logger.error(f"Rental {rental_id}: 打印第{idx + 1}页失败")
                     return {
                         'success': False,
                         'rental_id': rental_id,
-                        'message': f"打印第{idx + 1}页失败: {print_result.get('error')}"
+                        'message': '快麦打印服务调用失败',
+                        'code': 'EXTERNAL_SERVICE_ERROR',
                     }
 
             # 7. 所有页打印成功
@@ -198,7 +212,7 @@ class WaybillPrintService:
                 'job_ids': job_ids
             }
 
-        except ConfigurationIncomplete as e:
+        except ConfigurationIncomplete:
             return {
                 'success': False, 'rental_id': rental_id,
                 'message': '仓库发货或打印配置不完整',
@@ -210,13 +224,12 @@ class WaybillPrintService:
                 'message': str(e), 'code': 'WAREHOUSE_MISMATCH',
             }
         except Exception as e:
-            import traceback
-            logger.error(f"打印面单异常: Rental {rental_id}, {e}")
-            logger.error(f"完整堆栈:\n{traceback.format_exc()}")
+            logger.error(f"打印面单异常: Rental {rental_id}, {type(e).__name__}")
             return {
                 'success': False,
                 'rental_id': rental_id,
-                'message': f'打印异常: {str(e)}'
+                'message': '打印服务调用失败',
+                'code': 'EXTERNAL_SERVICE_ERROR',
             }
 
     def _print_single_shipping_slip(
@@ -243,7 +256,8 @@ class WaybillPrintService:
                 rental_id,
                 return_name=sf_service.sender_name,
                 return_phone=sf_service.sender_phone,
-                return_address=sf_service.sender_address,
+                return_address=normalize_sender_address(sf_service.config.province,
+                    sf_service.config.city, sf_service.sender_address),
             )
 
             logger.info(f"Rental {rental_id}: 发货单图像生成成功, 大小: {len(image_base64)} bytes")
@@ -259,17 +273,24 @@ class WaybillPrintService:
             if result.get('success'):
                 logger.info(f"Rental {rental_id}: 发货单打印成功, JobID: {result.get('job_id')}")
             else:
-                logger.error(f"Rental {rental_id}: 发货单打印失败, 错误: {result.get('error')}")
+                logger.error(f"Rental {rental_id}: 发货单打印失败")
+                return {
+                    'success': False,
+                    'error': '快麦打印服务调用失败',
+                    'code': 'EXTERNAL_SERVICE_ERROR',
+                }
 
             return result
 
         except SlipGenerationError as e:
-            logger.error(f"Rental {rental_id}: 发货单生成失败: {str(e)}")
-            return {'success': False, 'error': str(e)}
+            logger.error(f"Rental {rental_id}: 发货单生成失败: {type(e).__name__}")
+            return {'success': False, 'error': '发货单生成失败',
+                    'code': 'EXTERNAL_SERVICE_ERROR'}
 
         except Exception as e:
-            logger.exception(f"Rental {rental_id}: 发货单打印异常")
-            return {'success': False, 'error': f'打印异常: {str(e)}'}
+            logger.error(f"Rental {rental_id}: 发货单打印异常: {type(e).__name__}")
+            return {'success': False, 'error': '打印服务调用失败',
+                    'code': 'EXTERNAL_SERVICE_ERROR'}
 
     def batch_print_waybills(
         self,
@@ -346,12 +367,13 @@ class WaybillPrintService:
                 })
 
             except Exception as e:
-                logger.exception(f"Rental {rental_id}: 打印任务异常")
+                logger.error(f"Rental {rental_id}: 打印任务异常: {type(e).__name__}")
                 results.append({
                     'rental_id': rental_id,
                     'waybill_success': False,
                     'slip_success': False,
-                    'error': f'任务异常: {str(e)}'
+                    'error': '打印服务调用失败',
+                    'code': 'EXTERNAL_SERVICE_ERROR',
                 })
 
         # 统计结果

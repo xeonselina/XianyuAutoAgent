@@ -99,8 +99,9 @@ def test_refresh_uses_predecessor_phone_and_does_not_complete(
     relay_case = seed_shipped_case(db_session)
     captured = {}
 
-    def query(_cls, number, phone_last4):
-        captured.update(number=number, phone_last4=phone_last4)
+    def query(_cls, number, phone_last4, rental=None):
+        captured.update(number=number, phone_last4=phone_last4,
+                        warehouse_id=rental.warehouse_id)
         return {
             "tracking_number": number,
             "status": "delivered",
@@ -135,6 +136,7 @@ def test_refresh_uses_predecessor_phone_and_does_not_complete(
     assert captured == {
         "number": "SF1234567890",
         "phone_last4": "8000",
+        "warehouse_id": relay_case.successor.warehouse_id,
     }
     assert relay_case.status == "shipped"
     assert relay_case.sf_tracking_status == "delivered"
@@ -172,7 +174,7 @@ def test_refresh_api_failure_keeps_shipped_and_caches_retry_reason(
 ):
     relay_case = seed_shipped_case(db_session)
 
-    def fail(_cls, _number, _phone):
+    def fail(_cls, _number, _phone, **_kwargs):
         raise RuntimeError("顺丰暂时不可用")
 
     monkeypatch.setattr(SFTrackingService, "query", classmethod(fail))
@@ -181,7 +183,10 @@ def test_refresh_api_failure_keeps_shipped_and_caches_retry_reason(
 
     assert relay_case.status == "shipped"
     assert relay_case.sf_tracking_status == "query_failed"
-    assert relay_case.sf_tracking_summary == "顺丰暂时不可用"
+    assert relay_case.sf_tracking_summary == (
+        "EXTERNAL_SERVICE_ERROR: 顺丰服务调用失败"
+    )
+    assert "顺丰暂时不可用" not in str(result)
     assert result["status"] == "query_failed"
 
 

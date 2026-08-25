@@ -24,6 +24,7 @@ from app.services.settings_service import (
 from app.services.shipping.sf_express_service import SFExpressService
 from app.services.shipping.waybill_print_service import (
     build_sf_client_order_id,
+    normalize_sender_address,
 )
 from app.tenant_context import bind_tenant, reset_tenant
 from app.utils.sf.sf_sdk_wrapper import SFExpressSDK
@@ -159,11 +160,15 @@ def test_schedule_uses_each_warehouse_and_stable_order_id(
         build_sf_client_order_id(42, rental_id)
         for rental_id in shipping_case["rentals"]
     ]
+    senders = [call[1]["contactInfoList"][0] for call in calls]
+    assert [(r["province"], r["city"], r["address"]) for r in senders] == [
+        ("广东省", "深圳市", "address-1"), ("浙江省", "杭州市", "address-2")]
+    assert (normalize_sender_address("广东省", "深圳市", "广东省深圳市科技园"), normalize_sender_address("上海市", "上海市", "上海市浦东新区")) == ("广东省深圳市科技园", "上海市浦东新区")
     assert build_sf_client_order_id(42, 7) == "t42-r7"
 
 
 def test_schedule_isolates_external_failure_per_rental(
-    app, shipping_case, monkeypatch
+    app, shipping_case, monkeypatch, caplog
 ):
     def create_order(service, _order_data):
         if service.partner_id == "partner-1":
@@ -181,6 +186,21 @@ def test_schedule_isolates_external_failure_per_rental(
     assert payload["results"][0]["code"] == "EXTERNAL_SERVICE_ERROR"
     assert "private upstream body" not in str(payload)
     assert payload["results"][1]["waybill_no"] == "SF-B"
+    monkeypatch.setattr(SFExpressSDK, "_call_sf_express_service", lambda *_: {
+        "apiResultCode": "A9999", "apiErrorMsg": "private upstream body"})
+    printed = _tenant_request(app, "post", "/api/shipping-batch/print-waybills",
+        json={"rental_ids": [shipping_case["rentals"][1]],
+              "include_shipping_slips": False}).get_json()
+    assert printed["data"]["results"][0]["code"] == "EXTERNAL_SERVICE_ERROR"
+    assert "private upstream body" not in str(printed)
+    monkeypatch.setattr(SFExpressSDK, "search_routes", lambda *_: {
+        "apiResultCode": "A9999", "apiErrorMsg": "private upstream body"})
+    legacy = _tenant_request(app, "post", "/api/tracking/query",
+        json={"tracking_number": "SF-B"})
+    assert (legacy.status_code, legacy.get_json()["code"]) == (
+        502, "EXTERNAL_SERVICE_ERROR")
+    assert "private upstream body" not in str(legacy.get_json())
+    assert "private upstream body" not in caplog.text
 
 
 @pytest.mark.parametrize("mismatch", ["main", "child"])
@@ -189,6 +209,7 @@ def test_mismatch_and_duplicate_never_call_sf(
 ):
     with app.app_context():
         rental = db.session.get(Rental, shipping_case["rentals"][0])
+        print_ids = [rental.id]
         if mismatch == "main":
             rental.device.warehouse_id = shipping_case["warehouses"][1]
         else:
@@ -198,13 +219,18 @@ def test_mismatch_and_duplicate_never_call_sf(
             )
             db.session.add(child_device)
             db.session.flush()
-            db.session.add(Rental(
+            child = Rental(
                 device_id=child_device.id,
                 warehouse_id=rental.warehouse_id,
                 parent_rental_id=rental.id,
                 start_date=rental.start_date, end_date=rental.end_date,
-                customer_name=rental.customer_name, status="not_shipped",
-            ))
+                customer_name=rental.customer_name,
+                ship_out_tracking_no="SF-CHILD", status="not_shipped",
+            )
+            db.session.add(child)
+            db.session.flush()
+            print_ids.append(child.id)
+        rental.ship_out_tracking_no = "SF-MAIN"
         db.session.commit()
     calls = []
     monkeypatch.setattr(
@@ -218,6 +244,13 @@ def test_mismatch_and_duplicate_never_call_sf(
     )
     result = response.get_json()["data"]["results"][0]
     assert result["code"] == "WAREHOUSE_MISMATCH"
+    assert calls == []
+    monkeypatch.setattr(SFExpressService, "get_waybill_pdf",
+                        lambda *_: calls.append(True))
+    printed = _tenant_request(app, "post", "/api/shipping-batch/print-waybills",
+        json={"rental_ids": print_ids, "include_shipping_slips": False})
+    assert all(row["code"] == "WAREHOUSE_MISMATCH"
+               for row in printed.get_json()["data"]["results"])
     assert calls == []
 
 
@@ -255,6 +288,7 @@ def test_print_and_tracking_resolve_the_rental_warehouse(
         for rental_id in shipping_case["rentals"]:
             rental = db.session.get(Rental, rental_id)
             rental.ship_out_tracking_no = f"SF-{rental_id}"
+            rental.ship_out_time = datetime.utcnow()
         db.session.commit()
     printed = []
     monkeypatch.setattr(
@@ -316,13 +350,59 @@ def test_print_and_tracking_resolve_the_rental_warehouse(
         ("partner-2", f"SF-{shipping_case['rentals'][1]}", "9002"),
         ("partner-1", "SF-UNKNOWN", "9000"),
     ]
+    listed = _tenant_request(app, "get", "/api/sf-tracking/list",
+        query_string={"warehouse_id": shipping_case["warehouses"][1]})
+    assert [row["rental_id"] for row in listed.get_json()["data"]] == [shipping_case["rentals"][1]]
 
 
 def test_sf_test_api_is_absent_in_production(app):
-    old_value = app.config["IS_PRODUCTION"]
-    app.config["IS_PRODUCTION"] = True
+    original = {key: app.config[key] for key in ("TESTING", "DEBUG", "IS_PRODUCTION")}
     try:
+        app.config.update(TESTING=False, DEBUG=False, IS_PRODUCTION=False)
+        assert app.test_client().get("/api/sf-test/status").status_code == 404
+        app.config.update(TESTING=True)
+        assert app.test_client().get("/api/sf-test/status").status_code != 404
+        app.config.update(IS_PRODUCTION=True)
         response = app.test_client().get("/api/sf-test/status")
     finally:
-        app.config["IS_PRODUCTION"] = old_value
+        app.config.update(original)
     assert response.status_code == 404
+
+
+def test_tracking_duplicate_fails_closed(app, shipping_case, monkeypatch):
+    with app.app_context():
+        for rental_id in shipping_case["rentals"]:
+            row = db.session.get(Rental, rental_id)
+            row.ship_out_tracking_no = "SF-DUPLICATE"
+            row.ship_out_time = datetime.utcnow()
+        db.session.commit()
+    calls = []
+    monkeypatch.setattr(SFExpressSDK, "search_routes",
+                        lambda *_: calls.append(True))
+    duplicate = _tenant_request(app, "post", "/api/sf-tracking/query",
+                                json={"tracking_no": "SF-DUPLICATE"})
+    assert (duplicate.status_code, duplicate.get_json()["code"], calls) == (409, "WAREHOUSE_MISMATCH", [])
+
+
+def test_schedule_rolls_back_only_failed_rental_commit(app, shipping_case, monkeypatch):
+    monkeypatch.setattr(SFExpressService, "create_order", lambda service, _: {"success": True, "waybill_no": f"SF-{service.partner_id}"})
+    with app.app_context():
+        real_commit = db.session.commit
+        commits = []
+
+        def fail_first_commit():
+            commits.append(True)
+            if len(commits) == 1:
+                raise RuntimeError("database write failed")
+            return real_commit()
+
+        monkeypatch.setattr(db.session, "commit", fail_first_commit)
+        response = _tenant_request(app, "post", "/api/shipping-batch/schedule",
+            json={"rental_ids": shipping_case["rentals"],
+                  "scheduled_time": "2026-08-30T18:00:00"})
+        tracking = [db.session.get(Rental, rental_id).ship_out_tracking_no
+                    for rental_id in shipping_case["rentals"]]
+        assert tracking == [None, "SF-partner-2"]
+    results = response.get_json()["data"]["results"]
+    assert results[0]["code"] == "EXTERNAL_SERVICE_ERROR"
+    assert results[1]["success"] is True

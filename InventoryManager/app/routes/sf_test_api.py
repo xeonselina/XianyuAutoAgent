@@ -21,7 +21,9 @@ bp = Blueprint('sf_test', __name__, url_prefix='/api/sf-test')
 
 @bp.before_request
 def hide_in_production():
-    if current_app.config.get('IS_PRODUCTION'):
+    if current_app.config.get('IS_PRODUCTION') or not (
+        current_app.testing or current_app.debug
+    ):
         abort(404)
 
 

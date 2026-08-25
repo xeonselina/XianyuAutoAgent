@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from flask import Blueprint, current_app, g, jsonify, request
+from flask import Blueprint, abort, current_app, g, jsonify, request
 
 from app import db
 from app.auth import csrf_matches, resolve_tenant_session
@@ -60,6 +60,11 @@ def _tenant_error(code, message, status_code):
 
 def bind_request_tenant():
     """Authenticate and bind tenant business routes before dispatch."""
+    if request.path.startswith('/api/sf-test') and (
+        current_app.config.get('IS_PRODUCTION')
+        or not (current_app.testing or current_app.debug)
+    ):
+        return abort(404)
     if not _requires_tenant_session(request.path):
         return None
     if request.method == 'OPTIONS':

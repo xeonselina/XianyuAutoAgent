@@ -11,6 +11,8 @@ from sqlalchemy import and_, or_
 from app import db
 from app.models.rental import Rental
 from app.models.device import Device
+from app.services.integration_resolver import ConfigurationIncomplete
+from app.services.rental.rental_service import WarehouseMismatchError
 import os
 
 logger = logging.getLogger(__name__)
@@ -252,13 +254,23 @@ def manual_query_tracking(
             'message': '查询成功',
             'tracking_info': tracking_info
         }
+    except ConfigurationIncomplete:
+        return {'success': False, 'code': 'CONFIG_INCOMPLETE',
+                'message': '仓库顺丰配置不完整', 'tracking_info': None}
+    except WarehouseMismatchError:
+        return {'success': False, 'code': 'WAREHOUSE_MISMATCH',
+                'message': '运单号无法确定唯一仓库', 'tracking_info': None}
+    except ValueError as exc:
+        return {'success': False, 'code': 'BAD_REQUEST',
+                'message': str(exc), 'tracking_info': None}
     except Exception as exc:
         logger.error(
             f"手动查询快递状态失败: {type(exc).__name__}"
         )
         return {
             'success': False,
-            'message': str(exc),
+            'code': 'EXTERNAL_SERVICE_ERROR',
+            'message': '顺丰服务调用失败',
             'tracking_info': None
         }
 

@@ -119,8 +119,6 @@ class KuaimaiPrintService:
             response.raise_for_status()
 
             result = response.json()
-            logger.debug(f"API响应: {result}")
-
             # 检查业务错误
             # 文档显示成功时 status=true，失败时 status=false
             if not result.get('status', False):
@@ -134,13 +132,13 @@ class KuaimaiPrintService:
                         time.sleep(2)
                         return self._make_request(method, params, retry_on_rate_limit=False)
 
-                raise Exception(f"快麦API错误 [{error_code}]: {error_msg}")
+                raise Exception(f"快麦API错误 [{error_code}]")
 
             return result.get('data', {})
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"快麦API请求失败: {e}", exc_info=True)
-            raise Exception(f"快麦API请求失败: {str(e)}") from e
+            logger.error(f"快麦API请求失败: {type(e).__name__}")
+            raise Exception("快麦API请求失败") from None
 
     def print_image(
         self,
@@ -205,11 +203,10 @@ class KuaimaiPrintService:
             }
 
         except Exception as e:
-            error_msg = str(e)
-            logger.error(f"打印任务提交失败: {error_msg}")
+            logger.error(f"打印任务提交失败: {type(e).__name__}")
             return {
                 'success': False,
-                'error': error_msg
+                'error': '快麦打印服务调用失败'
             }
 
     def get_print_status(self, job_id: str) -> Dict:

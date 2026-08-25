@@ -86,22 +86,13 @@ class SFExpressSDK:
             return result
 
         except requests.exceptions.RequestException as e:
-            import traceback
             logger.error(f"API请求失败: {type(e).__name__}")
-            logger.error(f"错误详情: {str(e)}")
-            logger.error(f"完整堆栈:\n{traceback.format_exc()}")
             return {"apiResultCode": "A9999", "apiErrorMsg": "网络请求失败"}
         except json.JSONDecodeError as e:
-            import traceback
             logger.error(f"JSON解析失败: {type(e).__name__}")
-            logger.error(f"错误详情: {str(e)}")
-            logger.error(f"完整堆栈:\n{traceback.format_exc()}")
             return {"apiResultCode": "A9998", "apiErrorMsg": "响应解析失败"}
         except Exception as e:
-            import traceback
             logger.error(f"API调用异常: {type(e).__name__}")
-            logger.error(f"错误详情: {str(e)}")
-            logger.error(f"完整堆栈:\n{traceback.format_exc()}")
             return {"apiResultCode": "A9997", "apiErrorMsg": "未知错误"}
 
     def create_order(self, order_data: dict) -> Dict:
@@ -135,12 +126,11 @@ class SFExpressSDK:
 
             if not api_result_data.get('success', False):
                 # 业务失败
-                error_msg = api_result_data.get('errorMsg', '下单失败')
                 error_code = api_result_data.get('errorCode', '')
-                logger.error(f"顺丰下单业务失败: {error_code} - {error_msg}")
+                logger.error(f"顺丰下单业务失败: {error_code}")
                 return {
                     'success': False,
-                    'message': f"{error_code}: {error_msg}" if error_code else error_msg,
+                    'message': '顺丰服务调用失败',
                     'code': response.get('apiResultCode')
                 }
 
@@ -155,7 +145,7 @@ class SFExpressSDK:
                 waybill_no = waybill_no_info_list[0].get('waybillNo')
 
             if not waybill_no:
-                logger.error(f"顺丰API未返回运单号, apiResultData: {api_result_data_str}")
+                logger.error("顺丰API未返回运单号")
                 return {
                     'success': False,
                     'message': '顺丰API未返回运单号',
@@ -170,18 +160,18 @@ class SFExpressSDK:
                 'data': api_result_data
             }
 
-        except json.JSONDecodeError as e:
-            logger.error(f"解析apiResultData失败: {e}, 原始数据: {response.get('apiResultData')}")
+        except json.JSONDecodeError:
+            logger.error("解析apiResultData失败")
             return {
                 'success': False,
                 'message': '顺丰API响应格式异常',
                 'code': response.get('apiResultCode')
             }
-        except (KeyError, TypeError) as e:
-            logger.error(f"提取运单号失败: {e}, apiResultData: {response.get('apiResultData')}")
+        except (KeyError, TypeError):
+            logger.error("提取运单号失败")
             return {
                 'success': False,
-                'message': f'解析运单号失败: {str(e)}',
+                'message': '顺丰API响应格式异常',
                 'code': response.get('apiResultCode')
             }
 
@@ -310,10 +300,8 @@ class SFExpressSDK:
         """
         result = {}
 
-        logger.info(f"开始解析路由响应: {response}")
-
         if response.get("apiResultCode") != "A1000":
-            logger.error(f"API调用失败: {response.get('apiErrorMsg', '未知错误')}")
+            logger.error("顺丰路由查询失败")
             return result
 
         try:
@@ -321,10 +309,8 @@ class SFExpressSDK:
             api_result_data_str = response.get("apiResultData", "{}")
             api_result_data = json.loads(api_result_data_str) if isinstance(api_result_data_str, str) else api_result_data_str
 
-            logger.info(f"解析后的 apiResultData: {api_result_data}")
-
             if not api_result_data.get("success", False):
-                logger.error(f"查询失败: {api_result_data.get('errorMsg', '未知错误')}")
+                logger.error("顺丰路由查询业务失败")
                 return result
 
             # 从 msgData 中获取 routeResps
@@ -386,9 +372,7 @@ class SFExpressSDK:
                 result[tracking_no] = route_info
 
         except (json.JSONDecodeError, KeyError, TypeError) as e:
-            import traceback
-            logger.error(f"解析路由响应失败: {e}")
-            logger.error(f"完整堆栈:\n{traceback.format_exc()}")
+            logger.error(f"解析路由响应失败: {type(e).__name__}")
 
         return result
 

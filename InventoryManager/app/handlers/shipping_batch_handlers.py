@@ -126,6 +126,7 @@ class ShippingBatchHandlers:
                             'reason': error_msg,
                             'waybill_no': None
                         })
+                        db.session.rollback()
                         continue
 
                     # 获取运单号
@@ -146,6 +147,7 @@ class ShippingBatchHandlers:
                             'reason': error_msg,
                             'waybill_no': None
                         })
+                        db.session.rollback()
                         continue
 
                     current_app.logger.info(f"Rental {rental.id} 顺丰下单成功，运单号: {waybill_no}")
@@ -154,6 +156,7 @@ class ShippingBatchHandlers:
                     rental.ship_out_tracking_no = waybill_no
                     rental.scheduled_ship_time = scheduled_time
                     rental.status = 'scheduled_for_shipping'
+                    db.session.commit()
 
                     success_count += 1
                     result_item = {
@@ -166,6 +169,7 @@ class ShippingBatchHandlers:
                     current_app.logger.info(f"Rental {rental.id} 预约发货成功，运单号: {waybill_no}")
 
                 except ConfigurationIncomplete:
+                    db.session.rollback()
                     code = 'CONFIG_INCOMPLETE'
                     message = '租赁或仓库顺丰配置不完整'
                     result_item = {
@@ -179,6 +183,7 @@ class ShippingBatchHandlers:
                         'code': code, 'waybill_no': None,
                     })
                 except WarehouseMismatchError as exc:
+                    db.session.rollback()
                     code = 'WAREHOUSE_MISMATCH'
                     result_item = {
                         'success': False, 'rental_id': rental.id,
@@ -191,6 +196,7 @@ class ShippingBatchHandlers:
                         'code': code, 'waybill_no': None,
                     })
                 except ValueError as exc:
+                    db.session.rollback()
                     result_item = {
                         'success': False, 'rental_id': rental.id,
                         'message': str(exc), 'waybill_no': None,
@@ -201,6 +207,7 @@ class ShippingBatchHandlers:
                         'waybill_no': None,
                     })
                 except Exception as e:
+                    db.session.rollback()
                     current_app.logger.error(
                         f"Rental {rental.id} 顺丰下单异常: {type(e).__name__}"
                     )
@@ -219,9 +226,6 @@ class ShippingBatchHandlers:
                         'waybill_no': None
                     })
 
-            # 提交数据库更改
-            db.session.commit()
-
             current_app.logger.info(f"预约发货完成: 成功 {success_count} 个, 失败 {len(failed_rentals)} 个")
 
             return success(data={
@@ -231,7 +235,9 @@ class ShippingBatchHandlers:
             })
 
         except Exception as e:
-            current_app.logger.error(f"预约发货失败: {e}")
+            current_app.logger.error(
+                f"预约发货失败: {type(e).__name__}"
+            )
             db.session.rollback()
             return server_error('预约发货失败')
 

@@ -146,6 +146,7 @@
 
 <script lang="ts">
 import axios from 'axios'
+import { useTenantStore } from '@/stores/tenant'
 
 interface Rental {
   rental_id: number
@@ -176,6 +177,9 @@ interface TrackingInfo {
 
 export default {
   name: 'SFTrackingView',
+  setup() {
+    return { tenantStore: useTenantStore() }
+  },
   data(): {
     rentals: Rental[]
     loading: boolean
@@ -187,6 +191,7 @@ export default {
     dateRangeType: string
     currentPage: number
     pageSize: number
+    loadGeneration: number
   } {
     return {
       rentals: [],
@@ -198,7 +203,8 @@ export default {
       currentTrackingNumber: '',
       dateRangeType: 'recent4',
       currentPage: 1,
-      pageSize: 20
+      pageSize: 20,
+      loadGeneration: 0
     }
   },
   computed: {
@@ -211,14 +217,37 @@ export default {
       return Math.ceil(this.rentals.length / this.pageSize)
     }
   },
-  mounted() {
-    this.loadRentals()
+  async mounted() {
+    await this.tenantStore.initialize()
+    await this.loadRentals()
+  },
+  watch: {
+    'tenantStore.currentWarehouseId': {
+      handler() {
+        if (!this.tenantStore.ready) return
+        this.clearWarehouseData()
+        void this.loadRentals()
+      },
+      flush: 'sync'
+    }
   },
   methods: {
+    clearWarehouseData() {
+      this.loadGeneration += 1
+      this.rentals = []
+      this.trackingStatus = {}
+      this.loadingTracking = {}
+      this.currentPage = 1
+      this.closeModal()
+    },
     async loadRentals() {
+      const warehouseId = this.tenantStore.currentWarehouseId
+      const generation = ++this.loadGeneration
       this.loading = true
       try {
-        const params: Record<string, string> = {}
+        const params: Record<string, string> = {
+          warehouse_id: String(warehouseId)
+        }
 
         // 根据日期范围类型设置参数
         if (this.dateRangeType === 'recent4') {
@@ -247,13 +276,16 @@ export default {
         }
 
         const response = await axios.get('/api/sf-tracking/list', { params })
+        if (generation !== this.loadGeneration
+          || warehouseId !== this.tenantStore.currentWarehouseId) return
         this.rentals = response.data.data || []
         this.currentPage = 1
       } catch (error: any) {
+        if (generation !== this.loadGeneration) return
         console.error('加载租赁列表失败:', error)
         alert('加载列表失败: ' + (error.response?.data?.message || error.message))
       } finally {
-        this.loading = false
+        if (generation === this.loadGeneration) this.loading = false
       }
     },
     async viewTracking(trackingNumber: string) {
@@ -264,7 +296,8 @@ export default {
 
       try {
         const response = await axios.post('/api/sf-tracking/query', {
-          tracking_number: trackingNumber
+          tracking_number: trackingNumber,
+          warehouse_id: this.tenantStore.currentWarehouseId
         })
 
         if (response.data.success) {
@@ -291,7 +324,8 @@ export default {
 
       try {
         const response = await axios.post('/api/sf-tracking/batch-query', {
-          tracking_numbers: trackingNumbers
+          tracking_numbers: trackingNumbers,
+          warehouse_id: this.tenantStore.currentWarehouseId
         })
 
         if (response.data.success) {

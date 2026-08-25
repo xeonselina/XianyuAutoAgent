@@ -6,6 +6,7 @@ from flask import has_app_context
 from sqlalchemy import or_
 
 from app.models.rental import Rental
+from app.services.rental.rental_service import WarehouseMismatchError
 
 
 class TrackingNotFoundError(ValueError):
@@ -37,18 +38,28 @@ class SFTrackingService:
     def _matched_rental(tracking_number):
         if not has_app_context():
             return None
-        return Rental.query.filter(
+        matches = Rental.query.filter(
             Rental.parent_rental_id.is_(None),
             or_(
                 Rental.ship_out_tracking_no == tracking_number,
                 Rental.ship_in_tracking_no == tracking_number,
             ),
-        ).order_by(Rental.id).first()
+        ).order_by(Rental.id).limit(2).all()
+        if len(matches) > 1:
+            raise WarehouseMismatchError(
+                "运单号匹配多个租赁，无法确定仓库"
+            )
+        return matches[0] if matches else None
 
     @classmethod
     def _query_client(cls, client, tracking_number, phone_last4):
-        response = client.search_routes(tracking_number, phone_last4)
-        parsed_routes = client.parse_route_response(response)
+        try:
+            response = client.search_routes(tracking_number, phone_last4)
+            if response.get("apiResultCode") not in (None, "A1000"):
+                raise RuntimeError("顺丰服务调用失败")
+            parsed_routes = client.parse_route_response(response)
+        except Exception:
+            raise RuntimeError("顺丰服务调用失败") from None
         route_info = parsed_routes.get(tracking_number)
         if route_info is None:
             raise TrackingNotFoundError("未找到该运单的物流信息")

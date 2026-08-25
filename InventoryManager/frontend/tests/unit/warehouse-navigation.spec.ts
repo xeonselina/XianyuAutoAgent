@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AppHeader from '@/components/AppHeader.vue'
 import RentalStatsView from '@/views/RentalStatsView.vue'
+import SFTrackingView from '@/views/SFTrackingView.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useGanttStore } from '@/stores/gantt'
 import { useTenantStore } from '@/stores/tenant'
@@ -338,5 +339,25 @@ describe('warehouse-aware tenant navigation', () => {
 
     wrapper.unmount()
     vi.unstubAllGlobals()
+  })
+
+  it('clears SF tracking rows synchronously and reloads after a warehouse switch', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const tenant = useTenantStore(); tenant.setWarehousesForSession(warehouses)
+    axiosGet.mockResolvedValueOnce({ data: { success: true,
+      data: [{ rental_id: 1, ship_out_tracking_no: 'SF-A' }] } })
+    const wrapper = shallowMount(SFTrackingView, { global: { plugins: [pinia] } })
+    await flushPromises()
+    expect(axiosGet).toHaveBeenCalledWith('/api/sf-tracking/list', { params: expect.objectContaining({ warehouse_id: '11' }) })
+    ;(wrapper.vm as any).trackingStatus = { 'SF-A': { status: 'picked_up' } }
+    axiosGet.mockReturnValueOnce(new Promise(() => {}))
+
+    tenant.selectWarehouse(22)
+
+    expect((wrapper.vm as any).rentals).toEqual([])
+    expect((wrapper.vm as any).trackingStatus).toEqual({})
+    expect(axiosGet).toHaveBeenLastCalledWith('/api/sf-tracking/list', { params: expect.objectContaining({ warehouse_id: '22' }) })
+    wrapper.unmount()
   })
 })

@@ -47,13 +47,20 @@ def query_tracking():
         if result['success']:
             return jsonify(result), 200
         else:
-            return jsonify(result), 500
+            status = {
+                'CONFIG_INCOMPLETE': 400,
+                'WAREHOUSE_MISMATCH': 409,
+                'BAD_REQUEST': 400,
+                'EXTERNAL_SERVICE_ERROR': 502,
+            }.get(result.get('code'), 500)
+            return jsonify(result), status
             
     except Exception as e:
-        logger.error(f"查询快递状态异常: {e}")
+        logger.error(f"查询快递状态异常: {type(e).__name__}")
         return jsonify({
             'success': False,
-            'message': f'查询失败: {str(e)}',
+            'code': 'EXTERNAL_SERVICE_ERROR',
+            'message': '顺丰服务调用失败',
             'tracking_info': None
         }), 500
 
@@ -108,10 +115,11 @@ def batch_query_tracking():
         }), 200
         
     except Exception as e:
-        logger.error(f"批量查询快递状态异常: {e}")
+        logger.error(f"批量查询快递状态异常: {type(e).__name__}")
         return jsonify({
             'success': False,
-            'message': f'批量查询失败: {str(e)}',
+            'code': 'EXTERNAL_SERVICE_ERROR',
+            'message': '顺丰服务调用失败',
             'results': {}
         }), 500
 

@@ -325,7 +325,7 @@ def test_shipped_saves_then_refreshes_tracking(
     monkeypatch.setattr(
         SFTrackingService,
         "query",
-        classmethod(lambda cls, number, phone: sf_route(number)),
+        classmethod(lambda cls, number, phone, **_: sf_route(number)),
     )
 
     response = client.put(
@@ -391,7 +391,7 @@ def test_shipped_xianyu_failure_keeps_local_state_and_refreshes_tracking(
     monkeypatch.setattr(
         SFTrackingService,
         "query",
-        classmethod(lambda cls, number, phone: sf_route(number)),
+        classmethod(lambda cls, number, phone, **_: sf_route(number)),
     )
 
     response = client.put(
@@ -482,7 +482,7 @@ def test_single_and_batch_tracking_refresh_support_partial_failures(
     monkeypatch.setattr(
         SFTrackingService,
         "query",
-        classmethod(lambda cls, number, phone: sf_route(number)),
+        classmethod(lambda cls, number, phone, **_: sf_route(number)),
     )
 
     single = client.post(
