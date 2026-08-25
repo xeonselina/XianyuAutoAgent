@@ -10,14 +10,7 @@ import uuid
 class Rental(db.Model):
     """租赁记录模型"""
     __tablename__ = 'rentals'
-    __table_args__ = (
-        db.UniqueConstraint(
-            'xianyu_shop_id',
-            'xianyu_order_no',
-            name='uq_rental_shop_order'
-        ),
-    )
-    
+
     # 主键
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     

@@ -49,7 +49,6 @@ _PREFLIGHT_ISSUES = {
     "orphan_rental_devices",
     "orphan_parent_rentals",
     "blank_alert_orders",
-    "duplicate_main_orders",
 }
 
 
@@ -177,12 +176,6 @@ class DefaultTenantMigrator:
                 "SELECT count(*) FROM xianyu_order_alerts "
                 "WHERE NULLIF(TRIM(order_no), '') IS NULL"
             )) if has_alerts else 0,
-            "duplicate_main_orders": connection.scalar(text(
-                "SELECT count(*) FROM (SELECT 1 FROM rentals WHERE "
-                "parent_rental_id IS NULL AND "
-                "NULLIF(TRIM(xianyu_order_no), '') IS NOT NULL "
-                "GROUP BY TRIM(xianyu_order_no) HAVING count(*) > 1) x"
-            )),
             "null_device_warehouses": 0,
             "null_rental_warehouses": 0,
             "null_alert_shops": 0,

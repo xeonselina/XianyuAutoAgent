@@ -445,7 +445,7 @@ def test_contract_enforces_foreign_keys_not_null_and_shop_uniqueness(
         assert ("xianyu_shop_id", "order_no") in _unique_columns(
             inspector, "xianyu_order_alerts"
         )
-        assert ("xianyu_shop_id", "xianyu_order_no") in _unique_columns(
+        assert ("xianyu_shop_id", "xianyu_order_no") not in _unique_columns(
             inspector, "rentals"
         )
         assert ("order_no",) not in _unique_columns(
@@ -502,11 +502,20 @@ def test_contract_enforces_foreign_keys_not_null_and_shop_uniqueness(
                     '2026-11-01', '2026-11-03', 'second-shop-order',
                     'not_shipped', 0, 0, 0, 'lens_400mm',
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                ), (
+                    103, :warehouse_id, :shop_id, 'XY-BOUND',
+                    '2026-11-01', '2026-11-03', 'second-device-line',
+                    'not_shipped', 0, 0, 0, 'lens_400mm',
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 )
                 """
             ),
             {"warehouse_id": warehouse_id, "shop_id": second_shop_id},
         )
+        assert connection.scalar(text(
+            "SELECT count(*) FROM rentals WHERE xianyu_shop_id=:shop_id "
+            "AND xianyu_order_no='XY-BOUND'"
+        ), {"shop_id": second_shop_id}) == 2
 
     with pytest.raises(IntegrityError):
         with engine.begin() as connection:

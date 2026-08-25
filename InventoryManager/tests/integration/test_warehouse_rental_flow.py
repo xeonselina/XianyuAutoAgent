@@ -1058,7 +1058,7 @@ def test_order_alert_keeps_its_shop_after_shop_is_disabled(
     ] == shop_id
 
 
-def test_order_number_uniqueness_is_scoped_to_shop(
+def test_multiple_main_rentals_can_share_one_shop_order(
     client, app, warehouse_case
 ):
     with app.app_context():
@@ -1107,7 +1107,11 @@ def test_order_number_uniqueness_is_scoped_to_shop(
     )
     assert first.status_code == 201
     assert second.status_code == 201
-    assert duplicate.status_code == 400
+    assert duplicate.status_code == 201
+    with app.app_context():
+        assert Rental.query.filter_by(
+            xianyu_shop_id=shop_a_id, xianyu_order_no="XY-SAME"
+        ).count() == 2
 
 
 @pytest.mark.parametrize("endpoint", [

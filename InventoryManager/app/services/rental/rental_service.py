@@ -198,7 +198,7 @@ class RentalService:
         return occupancy_start, occupancy_end
 
     @staticmethod
-    def _resolve_shop(order_no, requested_shop_id, exclude_rental_id=None):
+    def _resolve_shop(order_no, requested_shop_id):
         order_no = str(order_no or '').strip() or None
         if order_no is None:
             return None, None
@@ -235,16 +235,6 @@ class RentalService:
                     raise ValueError('请指定闲鱼店铺')
                 shop = active_shops[0]
 
-        duplicate_query = Rental.query.filter(
-            Rental.xianyu_shop_id == shop.id,
-            Rental.xianyu_order_no == order_no,
-        )
-        if exclude_rental_id is not None:
-            duplicate_query = duplicate_query.filter(
-                Rental.id != exclude_rental_id
-            )
-        if duplicate_query.first() is not None:
-            raise ValueError('该闲鱼店铺已存在相同订单号')
         return order_no, shop.id
 
     @staticmethod
@@ -827,7 +817,6 @@ class RentalService:
                 order_no, shop_id = RentalService._resolve_shop(
                     data.get('xianyu_order_no', rental.xianyu_order_no),
                     data.get('xianyu_shop_id', rental.xianyu_shop_id),
-                    exclude_rental_id=rental.id,
                 )
             else:
                 order_no = rental.xianyu_order_no

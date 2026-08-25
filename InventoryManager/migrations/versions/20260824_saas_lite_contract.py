@@ -161,18 +161,6 @@ def upgrade():
             "xianyu_order_alerts",
             ["xianyu_shop_id", "order_no"],
         )
-    if not _has_unique(
-        connection,
-        "rentals",
-        ["xianyu_shop_id", "xianyu_order_no"],
-    ):
-        op.create_unique_constraint(
-            "uq_rental_shop_order",
-            "rentals",
-            ["xianyu_shop_id", "xianyu_order_no"],
-        )
-
-
 def _drop_unique(connection, table_name, columns):
     expected = tuple(columns)
     first_column = columns[0]
@@ -211,11 +199,6 @@ def _make_nullable(connection, table_name, column_name):
 
 def downgrade():
     connection = op.get_bind()
-    _drop_unique(
-        connection,
-        "rentals",
-        ["xianyu_shop_id", "xianyu_order_no"],
-    )
     _drop_unique(
         connection,
         "xianyu_order_alerts",

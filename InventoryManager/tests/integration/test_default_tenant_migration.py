@@ -112,7 +112,6 @@ def test_cli_adopts_existing_database_preserves_rows_and_is_idempotent(
     )
     assert report["issue_counts"] == {
         "blank_alert_orders": 0,
-        "duplicate_main_orders": 0,
         "null_alert_shops": 0,
         "null_device_warehouses": 0,
         "null_rental_warehouses": 0,
@@ -215,11 +214,24 @@ def test_cli_repairs_backup_missing_xianyu_tables(legacy_environment):
     assert report["head"] == CURRENT_HEAD
 
 
+def test_cli_preserves_multiple_main_rentals_for_one_order(legacy_environment):
+    environment, engine = legacy_environment
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "UPDATE rentals SET xianyu_order_no='XY-BOUND' WHERE id=203"
+        )
+
+    result = _invoke(environment)
+
+    assert result.exit_code == 0, result.output
+    report = json.loads(result.output)
+    assert report["after_counts"]["rentals"] == report["before_counts"]["rentals"]
+
+
 @pytest.mark.parametrize("mutation, issue", [
     ("UPDATE rentals SET device_id=999999 WHERE id=201", "orphan_rental_devices"),
     ("UPDATE rentals SET parent_rental_id=999999 WHERE id=202", "orphan_parent_rentals"),
     ("UPDATE xianyu_order_alerts SET order_no='' WHERE id=301", "blank_alert_orders"),
-    ("UPDATE rentals SET xianyu_order_no='XY-BOUND' WHERE id=203", "duplicate_main_orders"),
 ])
 def test_preflight_rejects_health_issues_before_control_mutation(
     legacy_environment, mutation, issue,
