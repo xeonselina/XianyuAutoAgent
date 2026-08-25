@@ -19,6 +19,7 @@
 #    - sshpass（brew install sshpass）
 # =============================================================
 set -euo pipefail
+set +x
 
 # ── 颜色输出 ─────────────────────────────────────────────────
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BLUE='\033[0;34m'; NC='\033[0m'
@@ -29,10 +30,10 @@ error()   { echo -e "${RED}[ERR ]${NC}  $*" >&2; }
 step()    { echo -e "\n${GREEN}━━━ $* ━━━${NC}"; }
 
 # ── 配置 ──────────────────────────────────────────────────────
-NAS_HOST="192.168.50.132"
-NAS_USER="xeon_pan"
-NAS_PASS="***REMOVED***"
-SUDO_PASS="$NAS_PASS"           # sudo 与 SSH 同一密码
+NAS_HOST="${NAS_HOST:-192.168.50.132}"
+NAS_USER="${NAS_USER:-xeon_pan}"
+NAS_PASS="${NAS_PASS:-}"
+SUDO_PASS="${SUDO_PASS:-$NAS_PASS}"
 
 REGISTRY="docker.cnb.cool/tdcc-demo/jimmy"
 IMAGE_TAG="${1:-${IMAGE_TAG:-}}"
@@ -58,6 +59,11 @@ NAS_ENV_FILE_REMOTE="~/aikefu.env"            # scp 目标（~ 由 NAS shell 展
 NAS_ENV_FILE_ABS="/var/services/homes/$NAS_USER/aikefu.env"  # docker run 用绝对路径
 
 # ── 检查 IMAGE_TAG ────────────────────────────────────────────
+if [[ -z "$NAS_PASS" || -z "$SUDO_PASS" ]]; then
+    error "请通过环境变量提供 NAS_PASS 和 SUDO_PASS。"
+    exit 1
+fi
+
 if [[ -z "$IMAGE_TAG" ]]; then
     error "请指定 IMAGE_TAG。用法: $0 <tag>  或  IMAGE_TAG=<tag> make deploy-nas"
     error "示例: $0 20260424-0903"

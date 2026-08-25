@@ -14,3 +14,13 @@ def test_restore_scripts_require_an_explicit_database_password():
     assert 'DB_PASSWORD="${MYSQL_PASSWORD:-}"' in shell_source
     assert 'if [[ -z "$DB_PASSWORD" ]]' in shell_source
     assert shell_source.index("set +x") < shell_source.index("DB_PASSWORD=")
+
+
+def test_nas_deploy_requires_explicit_passwords_without_xtrace():
+    source = (ROOT / "scripts/deploy_nas.sh").read_text()
+
+    assert 'NAS_PASS="${NAS_PASS:-}"' in source
+    assert 'SUDO_PASS="${SUDO_PASS:-$NAS_PASS}"' in source
+    assert 'if [[ -z "$NAS_PASS" || -z "$SUDO_PASS" ]]' in source
+    assert source.index("set +x") < source.index("NAS_PASS=")
+    assert "***REMOVED***" not in source
