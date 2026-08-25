@@ -301,7 +301,6 @@ class ScheduledShippingProcessor:
 
         try:
             from app.services.xianyu_order_service import get_xianyu_service
-            xianyu_service = get_xianyu_service()
 
             # 查询到达预约时间的订单
             now = datetime.now()
@@ -326,11 +325,14 @@ class ScheduledShippingProcessor:
                     # 如果有闲鱼订单号，调用闲鱼API同步
                     if rental.xianyu_order_no:
                         logger.info(f"Rental {rental.id} 有闲鱼订单号，调用闲鱼API同步")
-                        xianyu_result = xianyu_service.ship_order(rental)
+                        if not rental.xianyu_shop_id:
+                            db.session.commit()
+                            processed_count += 1
+                            continue
+                        xianyu_result = get_xianyu_service(rental=rental).ship_order(rental)
 
                         if not xianyu_result.get('success') and not xianyu_result.get('skipped'):
-                            error_msg = xianyu_result.get('message', '未知错误')
-                            logger.error(f"Rental {rental.id} 闲鱼同步失败: {error_msg}")
+                            logger.error("Rental %s 闲鱼同步失败", rental.id)
                             # 闲鱼同步失败，回滚事务，下次重试
                             db.session.rollback()
                             failed_count += 1
@@ -342,9 +344,7 @@ class ScheduledShippingProcessor:
                     logger.info(f"Rental {rental.id} 预约发货处理成功")
 
                 except Exception as e:
-                    import traceback
-                    logger.error(f"处理 Rental {rental.id} 时发生异常: {e}")
-                    logger.error(f"完整堆栈:\\n{traceback.format_exc()}")
+                    logger.error("处理 Rental %s 时发生异常，类型: %s", rental.id, type(e).__name__)
                     db.session.rollback()
                     failed_count += 1
 
@@ -353,9 +353,7 @@ class ScheduledShippingProcessor:
             logger.info(f"预约发货定时任务执行完成: 成功 {processed_count} 个, 失败 {failed_count} 个, 耗时: {duration:.2f} 秒")
 
         except Exception as e:
-            import traceback
-            logger.error(f"预约发货定时任务执行失败: {e}")
-            logger.error(f"完整堆栈:\\n{traceback.format_exc()}")
+            logger.error("预约发货定时任务执行失败，类型: %s", type(e).__name__)
 
         finally:
             # 释放任务锁

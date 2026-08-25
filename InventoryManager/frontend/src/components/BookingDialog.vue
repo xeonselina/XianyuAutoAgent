@@ -84,6 +84,11 @@
       </el-form-item>
 
       <!-- 闲鱼订单信息 -->
+      <el-form-item v-if="xianyuShops?.length" label="闲鱼店铺">
+        <el-select v-model="form.xianyuShopId" placeholder="请选择店铺">
+          <el-option v-for="shop in xianyuShops" :key="shop.id" :label="shop.name" :value="shop.id" />
+        </el-select>
+      </el-form-item>
       <el-form-item label="闲鱼订单号">
         <div style="display: flex; gap: 8px;">
           <el-input
@@ -374,6 +379,8 @@ interface Props {
   modelValue: boolean
   selectedDeviceModel?: string // 当前甘特图选择的设备型号 display_name
   initialXianyuOrderNo?: string
+  initialXianyuShopId?: number
+  xianyuShops?: { id: number; name: string }[]
 }
 
 const props = defineProps<Props>()
@@ -411,6 +418,7 @@ const form = ref({
   phoneHolderId: null as number | null,
   tripodId: null as number | null,
   xianyuOrderNo: '',
+  xianyuShopId: undefined as number | undefined,
   orderAmount: '',
   buyerId: '',
   photoTransfer: false,  // 代传照片标记
@@ -740,6 +748,7 @@ const handleFetchOrderInfo = async () => {
     ElMessage.warning('请先输入订单号')
     return
   }
+  if (!form.value.xianyuShopId) { ElMessage.warning('请选择闲鱼店铺'); return }
 
   fetchingOrder.value = true
 
@@ -747,7 +756,7 @@ const handleFetchOrderInfo = async () => {
     console.log('开始请求订单信息，订单号:', orderNo)
 
     const response = await axios.post('/api/rentals/fetch-xianyu-order', {
-      order_no: orderNo
+      order_no: orderNo, xianyu_shop_id: form.value.xianyuShopId
     })
 
     console.log('API响应:', response.data)
@@ -932,6 +941,7 @@ const handleSubmit = async () => {
       // 新：库存附件使用ID数组
       accessories: accessoryIds,
       xianyu_order_no: form.value.xianyuOrderNo,
+      xianyu_shop_id: form.value.xianyuShopId,
       order_amount: form.value.orderAmount ? parseFloat(form.value.orderAmount) : undefined,
       buyer_id: form.value.buyerId,
       photo_transfer: form.value.photoTransfer,  // 代传照片标记
@@ -972,6 +982,7 @@ const handleClose = () => {
     phoneHolderId: null,
     tripodId: null,
     xianyuOrderNo: '',
+    xianyuShopId: undefined,
     orderAmount: '',
     buyerId: '',
     photoTransfer: false,
@@ -1021,9 +1032,10 @@ watch(() => props.modelValue, async (visible) => {
     )?.id ?? null
     if (props.initialXianyuOrderNo) {
       form.value.xianyuOrderNo = props.initialXianyuOrderNo
+      form.value.xianyuShopId = props.initialXianyuShopId
       await nextTick()
       await handleFetchOrderInfo()
-    }
+    } else if (props.xianyuShops?.length === 1) form.value.xianyuShopId = props.xianyuShops[0].id
   }
 }, { immediate: true })
 

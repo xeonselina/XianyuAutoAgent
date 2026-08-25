@@ -87,6 +87,7 @@ declare module 'vue' {
     WarehouseMovementDialog: typeof import('./src/components/WarehouseMovementDialog.vue')['default']
     WarehouseSettings: typeof import('./src/components/settings/WarehouseSettings.vue')['default']
     XianyuOrderAlertBar: typeof import('./src/components/XianyuOrderAlertBar.vue')['default']
+    XianyuShopSettings: typeof import('./src/components/settings/XianyuShopSettings.vue')['default']
   }
   export interface GlobalDirectives {
     vLoading: typeof import('element-plus/es')['ElLoadingDirective']

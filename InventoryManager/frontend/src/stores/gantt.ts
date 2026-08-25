@@ -93,6 +93,7 @@ export interface Rental {
   // 镜头组合（lens_400mm/lens_200mm/bare/lens_dual）
   lens_combo?: 'lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual'
   xianyu_order_no?: string
+  xianyu_shop_id?: number
   order_amount?: number
   buyer_id?: string
   damage_note?: string | null

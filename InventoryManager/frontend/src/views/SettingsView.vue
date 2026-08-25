@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import MemberSettings from '@/components/settings/MemberSettings.vue'
 import WarehouseSettings from '@/components/settings/WarehouseSettings.vue'
+import XianyuShopSettings from '@/components/settings/XianyuShopSettings.vue'
 </script>
 
 <template>
@@ -10,7 +11,7 @@ import WarehouseSettings from '@/components/settings/WarehouseSettings.vue'
       <el-tab-pane label="成员"><MemberSettings /></el-tab-pane>
       <el-tab-pane label="仓库"><WarehouseSettings /></el-tab-pane>
       <el-tab-pane label="闲鱼店铺">
-        <el-empty description="下一阶段配置" />
+        <XianyuShopSettings />
       </el-tab-pane>
     </el-tabs>
   </main>

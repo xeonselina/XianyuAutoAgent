@@ -10,6 +10,7 @@ from app.models.warehouse import (
     WarehouseKuaimaiConfig,
     WarehouseSFConfig,
 )
+from app.models.xianyu_shop import XianyuShop
 
 
 SF_CHECKWORD_PURPOSE = "warehouse-sf-checkword"
@@ -309,3 +310,43 @@ class SettingsService:
             )
         self.business_session.flush()
         return config
+
+    def list_xianyu_shops(self):
+        return [shop.to_dict() for shop in self.business_session.scalars(
+            select(XianyuShop).order_by(XianyuShop.id)
+        )]
+
+    def _apply_xianyu_shop(self, shop, payload):
+        if "name" in payload:
+            shop.name = _required_text(payload["name"], "name", 100)
+        if "app_key" in payload:
+            shop.app_key = _optional_text(payload["app_key"], "app_key", 255) or ""
+        secret = payload.get("app_secret")
+        if secret not in (None, ""):
+            if not isinstance(secret, str):
+                raise SettingsValidationError("app_secret 必须是字符串")
+            shop.app_secret_ciphertext = self.secret_box.encrypt(
+                secret, purpose=XIANYU_SECRET_PURPOSE
+            )
+        if "is_active" in payload:
+            if not isinstance(payload["is_active"], bool):
+                raise SettingsValidationError("is_active 必须是布尔值")
+            shop.is_active = payload["is_active"]
+        if shop.is_active and (not shop.app_key or not shop.app_secret_ciphertext):
+            raise SettingsValidationError("启用店铺前请完整配置 app_key 和 app_secret")
+        self.business_session.flush()
+        return shop
+
+    def create_xianyu_shop(self, payload):
+        if "name" not in payload:
+            raise SettingsValidationError("name 不能为空")
+        shop = XianyuShop(name="", app_key="", is_active=False)
+        self.business_session.add(shop)
+        return self._apply_xianyu_shop(shop, payload)
+
+    def update_xianyu_shop(self, shop_id, payload):
+        shop = self.business_session.scalar(select(XianyuShop).where(
+            XianyuShop.id == shop_id).with_for_update())
+        if shop is None:
+            raise SettingsNotFoundError("闲鱼店铺不存在")
+        return self._apply_xianyu_shop(shop, payload)

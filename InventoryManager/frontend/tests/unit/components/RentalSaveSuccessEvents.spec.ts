@@ -148,7 +148,7 @@ const deferred = <T>() => {
   return { promise, resolve }
 }
 
-const mountBookingDialog = (initialXianyuOrderNo?: string) => {
+const mountBookingDialog = (initialXianyuOrderNo?: string, initialXianyuShopId?: number) => {
   const pinia = createPinia()
   setActivePinia(pinia)
   const store = useGanttStore()
@@ -162,6 +162,8 @@ const mountBookingDialog = (initialXianyuOrderNo?: string) => {
     props: {
       modelValue: true,
       initialXianyuOrderNo,
+      initialXianyuShopId,
+      xianyuShops: [{ id: 7, name: '深圳店' }],
     } as any,
     global: {
       plugins: [pinia],
@@ -225,15 +227,16 @@ describe('rental save success events', () => {
     }
     vi.spyOn(axios, 'post').mockResolvedValue(orderResponse)
 
-    const { wrapper } = mountBookingDialog('XY-MISSING')
+    const { wrapper } = mountBookingDialog('XY-MISSING', 7)
     await flushPromises()
 
     expect(axios.post).toHaveBeenCalledWith(
       '/api/rentals/fetch-xianyu-order',
-      { order_no: 'XY-MISSING' },
+      { order_no: 'XY-MISSING', xianyu_shop_id: 7 },
     )
     const form = (wrapper.vm as any).form
     expect(form.xianyuOrderNo).toBe('XY-MISSING')
+    expect(form.xianyuShopId).toBe(7)
     expect(form.customerName).toBe('漏录买家')
     expect(form.customerPhone).toBe('13800138000')
     expect(form.startDate).toBeNull()

@@ -423,16 +423,15 @@ class ShippingBatchHandlers:
 
             # 获取闲鱼服务实例
             from app.services.xianyu_order_service import get_xianyu_service
-            xianyu_service = get_xianyu_service()
+            xianyu_service = get_xianyu_service(rental=rental)
 
             # 调用闲鱼API
             current_app.logger.info(f"手动发货到闲鱼: Rental {rental_id}, Order {rental.xianyu_order_no}")
             xianyu_result = xianyu_service.ship_order(rental)
 
             if not xianyu_result.get('success'):
-                error_msg = xianyu_result.get('message', '未知错误')
-                current_app.logger.error(f"Rental {rental_id} 闲鱼发货失败: {error_msg}")
-                return bad_request(f'闲鱼发货失败: {error_msg}')
+                current_app.logger.error("Rental %s 闲鱼发货失败", rental_id)
+                return bad_request('闲鱼发货失败')
 
             # 更新租赁状态
             rental.status = 'shipped'
@@ -448,6 +447,6 @@ class ShippingBatchHandlers:
             )
 
         except Exception as e:
-            current_app.logger.error(f"发货到闲鱼失败: {e}")
+            current_app.logger.error("发货到闲鱼失败，类型: %s", type(e).__name__)
             db.session.rollback()
             return server_error('发货到闲鱼失败')

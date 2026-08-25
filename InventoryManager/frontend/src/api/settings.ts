@@ -67,6 +67,19 @@ export type KuaimaiConfigurationInput = {
   printer_sn: string
 }
 
+export type XianyuShopSettings = {
+  id: number
+  name: string
+  app_key: string
+  app_secret_configured: boolean
+  is_active: boolean
+  last_success_at?: string | null
+  last_error?: string | null
+}
+export type XianyuShopInput = Pick<XianyuShopSettings, 'name' | 'app_key' | 'is_active'> & {
+  app_secret: string
+}
+
 const dataFrom = <T>(response: { data: ApiEnvelope<T> }): T => {
   if (!response.data.success || response.data.data === undefined) {
     throw new Error(response.data.message || '请求失败')
@@ -119,4 +132,17 @@ export const saveKuaimaiConfiguration = async (
   payload: KuaimaiConfigurationInput,
 ) => dataFrom<KuaimaiConfiguration>(
   await axios.put(`/api/settings/warehouses/${warehouseId}/kuaimai`, payload),
+)
+
+export const listXianyuShops = async () => dataFrom<XianyuShopSettings[]>(
+  await axios.get('/api/settings/xianyu-shops'),
+)
+export const createXianyuShop = async (payload: XianyuShopInput) => dataFrom<XianyuShopSettings>(
+  await axios.post('/api/settings/xianyu-shops', payload),
+)
+export const updateXianyuShop = async (id: number, payload: Partial<XianyuShopInput>) => (
+  dataFrom<XianyuShopSettings>(await axios.patch(`/api/settings/xianyu-shops/${id}`, payload))
+)
+export const syncXianyuShop = async (id: number) => dataFrom<unknown>(
+  await axios.post(`/api/settings/xianyu-shops/${id}/sync`),
 )

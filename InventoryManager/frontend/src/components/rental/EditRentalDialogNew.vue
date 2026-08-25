@@ -39,6 +39,7 @@
         :available-devices="deviceManagement.devices.value"
         :loading-devices="deviceManagement.loading.value"
         :min-selectable-date="minSelectableDate"
+        :xianyu-shops="xianyuShops"
         @device-change="handleDeviceChange"
         @end-date-change="handleEndDateChange"
         @device-selector-focus="handleDeviceSelectorFocus"
@@ -143,6 +144,7 @@ import RentalAccessorySelector from './RentalAccessorySelector.vue'
 interface Props {
   modelValue: boolean
   rental: Rental | null
+  xianyuShops?: { id: number; name: string }[]
 }
 
 const props = defineProps<Props>()
@@ -185,6 +187,7 @@ const form = ref({
   // 保留accessories为了兼容性（用于RentalAccessorySelector）
   accessories: [] as number[],
   xianyuOrderNo: '',
+  xianyuShopId: undefined as number | undefined,
   orderAmount: '',
   buyerId: '',
   damageNote: '',
@@ -351,6 +354,7 @@ const handleSubmit = async () => {
       // 新：库存附件使用ID数组
       accessories: accessoryIds,
       xianyu_order_no: form.value.xianyuOrderNo,
+      xianyu_shop_id: form.value.xianyuShopId,
       order_amount: form.value.orderAmount ? parseFloat(form.value.orderAmount) : undefined,
       buyer_id: form.value.buyerId,
       damage_note: form.value.damageNote,
@@ -629,6 +633,7 @@ const initForm = async () => {
       // 兼容字段（用于RentalAccessorySelector）
       accessories: childAccessoryIds,
       xianyuOrderNo: rentalData.xianyu_order_no || '',
+      xianyuShopId: rentalData.xianyu_shop_id,
       orderAmount: rentalData.order_amount ? String(rentalData.order_amount) : '',
       buyerId: rentalData.buyer_id || '',
       damageNote: rentalData.damage_note || '',

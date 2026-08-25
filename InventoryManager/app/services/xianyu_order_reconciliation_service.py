@@ -1,27 +1,22 @@
 """闲鱼待发货订单与库存预定的对账服务。"""
 
-import fcntl
+import hashlib
 import logging
 from datetime import datetime
+
+from flask import current_app
+from sqlalchemy import select, text
+from sqlalchemy.orm import Session
 
 from app import db
 from app.models.rental import Rental
 from app.models.xianyu_order_alert import XianyuOrderAlert
 from app.models.xianyu_shop import XianyuShop
-from app.services.xianyu_order_service import (
-    XianyuOrderServiceError,
-    get_xianyu_service,
-)
+from app.services.integration_resolver import IntegrationResolver
+from app.services.xianyu_order_service import XianyuOrderServiceError
 
 
 logger = logging.getLogger(__name__)
-
-
-class _ResolverBackedXianyuService:
-    """Short-lived compatibility adapter until reconciliation is shop-explicit."""
-
-    def list_orders(self, *args, **kwargs):
-        return get_xianyu_service().list_orders(*args, **kwargs)
 
 
 class XianyuShopConfigIncompleteError(RuntimeError):
@@ -32,11 +27,9 @@ class XianyuOrderReconciliationService:
     """维护可信的漏录订单缓存。"""
 
     MIN_PAY_AMOUNT = 5000
-    DEFAULT_LOCK_PATH = "/tmp/inventory_xianyu_order_reconcile.lock"
-
-    def __init__(self, service=None, lock_path=None):
-        self.xianyu_service = service or _ResolverBackedXianyuService()
-        self.lock_path = lock_path or self.DEFAULT_LOCK_PATH
+    def __init__(self, service_factory=None, service=None, lock_path=None):
+        self.service_factory = service_factory
+        self.service = service
 
     @staticmethod
     def _normalize_order_no(value):
@@ -56,39 +49,39 @@ class XianyuOrderReconciliationService:
                 eligible[order_no] = order
         return eligible
 
-    def _try_acquire_lock(self):
-        lock_handle = open(self.lock_path, "a+")
-        try:
-            fcntl.flock(
-                lock_handle.fileno(),
-                fcntl.LOCK_EX | fcntl.LOCK_NB,
-            )
-            return lock_handle
-        except BlockingIOError:
-            lock_handle.close()
-            return None
+    @staticmethod
+    def _lock_name(database, shop_id):
+        identity = hashlib.sha256(str(database).encode()).hexdigest()[:16]
+        return f"xianyu-reconcile:{identity}:shop:{shop_id}"
 
-    def _acquire_lock(self):
-        """阻塞获取对账锁，用于必须串行完成的本地状态变更。"""
-        lock_handle = open(self.lock_path, "a+")
-        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
-        return lock_handle
+    def _locked_session(self, shop_id):
+        connection = db.session.get_bind().connect()
+        session = Session(bind=connection)
+        if connection.dialect.name not in {"mysql", "mariadb"}:
+            if current_app.testing:
+                return connection, session, None
+            session.close()
+            connection.close()
+            raise RuntimeError("Xianyu reconciliation requires MariaDB")
+        database = connection.execute(text("SELECT DATABASE()")) .scalar_one()
+        name = self._lock_name(database, shop_id)
+        if connection.execute(
+            text("SELECT GET_LOCK(:name, 0)"), {"name": name}
+        ).scalar_one() != 1:
+            session.close()
+            connection.close()
+            return None
+        return connection, session, name
 
     @staticmethod
-    def _release_lock(lock_handle):
-        if lock_handle is None:
+    def _release_lock(resources):
+        if resources is None:
             return
-        try:
-            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
-        finally:
-            lock_handle.close()
-
-    def is_refreshing(self):
-        lock_handle = self._try_acquire_lock()
-        if lock_handle is None:
-            return True
-        self._release_lock(lock_handle)
-        return False
+        connection, session, name = resources
+        session.close()
+        if name:
+            connection.execute(text("SELECT RELEASE_LOCK(:name)"), {"name": name})
+        connection.close()
 
     @staticmethod
     def _unix_datetime(value):
@@ -113,40 +106,30 @@ class XianyuOrderReconciliationService:
         )
 
     @staticmethod
-    def _existing_rental_order_numbers(shop_id):
-        rows = (
-            db.session.query(Rental.xianyu_order_no)
-            .filter(
-                Rental.xianyu_shop_id == shop_id,
-                Rental.xianyu_order_no.isnot(None),
-            )
-            .all()
-        )
+    def _existing_rental_order_numbers(shop_id, session=None):
+        session = session or db.session
+        rows = session.execute(select(Rental.xianyu_order_no).where(
+            Rental.xianyu_shop_id == shop_id,
+            Rental.xianyu_order_no.isnot(None),
+        )).all()
         return {
             str(value).strip()
             for (value,) in rows
             if value and str(value).strip()
         }
 
-    @staticmethod
-    def _current_shop():
-        shop = XianyuShop.query.order_by(XianyuShop.id).first()
-        if shop is None:
-            raise XianyuShopConfigIncompleteError("请先配置闲鱼店铺")
-        return shop
-
-    def _replace_pending(self, pending_orders, now, shop_id):
+    def _replace_pending(self, pending_orders, now, shop_id, session):
         current_pending = {
             alert.order_no: alert
-            for alert in XianyuOrderAlert.query.filter_by(
-                xianyu_shop_id=shop_id,
-                state="pending",
-            ).all()
+            for alert in session.scalars(select(XianyuOrderAlert).where(
+                XianyuOrderAlert.xianyu_shop_id == shop_id,
+                XianyuOrderAlert.state == "pending",
+            ))
         }
 
         for order_no, alert in current_pending.items():
             if order_no not in pending_orders:
-                db.session.delete(alert)
+                session.delete(alert)
 
         for order_no, order in pending_orders.items():
             alert = current_pending.get(order_no)
@@ -158,7 +141,7 @@ class XianyuOrderReconciliationService:
                     pay_amount=int(order.get("pay_amount") or 0),
                     first_detected_at=now,
                 )
-                db.session.add(alert)
+                session.add(alert)
 
             goods = order.get("goods")
             if not isinstance(goods, dict):
@@ -176,64 +159,76 @@ class XianyuOrderReconciliationService:
             )
             alert.last_seen_at = now
 
-    def get_snapshot(self, shop=None):
-        if shop is None:
-            shop = self._current_shop()
-        existing = self._existing_rental_order_numbers(shop.id)
-        rows = (
-            XianyuOrderAlert.query.filter_by(
-                xianyu_shop_id=shop.id,
-                state="pending",
-            )
-            .order_by(
-                XianyuOrderAlert.order_time.desc(),
-                XianyuOrderAlert.id.desc(),
-            )
-            .all()
-        )
+    def get_snapshot(self, shop_id=None, session=None):
+        session = session or db.session
+        shops = list(session.scalars(select(XianyuShop).order_by(XianyuShop.id)))
+        if not shops:
+            raise XianyuShopConfigIncompleteError("请先配置闲鱼店铺")
+        selected = [shop for shop in shops if shop_id is None or shop.id == shop_id]
+        if not selected:
+            raise XianyuShopConfigIncompleteError("闲鱼店铺不存在")
+        ids = [shop.id for shop in selected]
+        existing = {
+            (shop.id, order_no)
+            for shop in selected
+            for order_no in self._existing_rental_order_numbers(shop.id, session)
+        }
+        rows = list(session.scalars(select(XianyuOrderAlert).where(
+            XianyuOrderAlert.xianyu_shop_id.in_(ids),
+            XianyuOrderAlert.state == "pending",
+        ).order_by(XianyuOrderAlert.order_time.desc(), XianyuOrderAlert.id.desc())))
         alerts = [
-            alert.to_dict()
+            {**alert.to_dict(), "xianyu_shop_name": alert.xianyu_shop.name}
             for alert in rows
-            if alert.order_no not in existing
+            if (alert.xianyu_shop_id, alert.order_no) not in existing
         ]
-        shop_payload = shop.to_dict()
+        active = [shop for shop in shops if shop.is_active]
+        sync_shop = selected[0] if shop_id is not None else None
+        aggregate_success = min((shop.last_success_at for shop in active), default=None) \
+            if active and all(shop.last_success_at for shop in active) else None
         sync = {
             "last_attempt_at": None,
-            "last_success_at": shop_payload["last_success_at"],
-            "last_error": shop.last_error,
+            "last_success_at": sync_shop.to_dict()["last_success_at"] if sync_shop else next(
+                (shop.to_dict()["last_success_at"] for shop in active
+                 if shop.last_success_at == aggregate_success), None),
+            "last_error": sync_shop.last_error if sync_shop else next(
+                (shop.last_error for shop in active if shop.last_error), None
+            ),
         }
         return {
             "alerts": alerts,
             "count": len(alerts),
             "sync": sync,
-            "refreshing": self.is_refreshing(),
+            "refreshing": False,
+            "shops": [{"id": shop.id, "name": shop.name} for shop in active],
         }
 
-    def reconcile(self):
-        """执行一次完整对账；失败时只更新失败状态。"""
-        shop = self._current_shop()
-        lock_handle = self._try_acquire_lock()
-        if lock_handle is None:
-            snapshot = self.get_snapshot(shop)
+    def reconcile_shop(self, shop_id):
+        """完整拉取后原子替换一个店铺的可信告警缓存。"""
+        resources = self._locked_session(shop_id)
+        if resources is None:
+            snapshot = self.get_snapshot(shop_id)
             snapshot["refreshing"] = True
             return snapshot
-
+        _connection, session, _name = resources
         try:
+            shop = session.get(XianyuShop, shop_id)
+            if shop is None or not shop.is_active:
+                raise XianyuShopConfigIncompleteError("闲鱼店铺不存在或已停用")
             now = datetime.utcnow()
-            eligible = self._eligible_orders(
-                self.xianyu_service.list_orders()
+            client = self.service_factory(shop) if self.service_factory else (
+                self.service or IntegrationResolver(session=session).xianyu_for_shop(shop)
             )
-            existing = self._existing_rental_order_numbers(shop.id)
+            eligible = self._eligible_orders(client.list_orders())
+            existing = self._existing_rental_order_numbers(shop.id, session)
             ignored = {
                 order_no
-                for (order_no,) in db.session.query(
+                for (order_no,) in session.execute(select(
                     XianyuOrderAlert.order_no
-                )
-                .filter(
+                ).where(
                     XianyuOrderAlert.xianyu_shop_id == shop.id,
                     XianyuOrderAlert.state == "ignored",
-                )
-                .all()
+                ))
             }
             excluded = existing | ignored
             pending = {
@@ -242,29 +237,39 @@ class XianyuOrderReconciliationService:
                 if order_no not in excluded
             }
 
-            self._replace_pending(pending, now, shop.id)
+            self._replace_pending(pending, now, shop.id, session)
             shop.last_success_at = now
             shop.last_error = None
-            db.session.commit()
+            session.commit()
         except XianyuOrderServiceError:
-            db.session.rollback()
+            session.rollback()
             logger.error("闲鱼漏录订单对账失败，类型: XianyuOrderServiceError")
+            shop = session.get(XianyuShop, shop_id)
             shop.last_error = "闲鱼订单查询失败"
-            db.session.commit()
+            session.commit()
         except Exception as exc:
-            db.session.rollback()
+            session.rollback()
+            if isinstance(exc, XianyuShopConfigIncompleteError):
+                raise
             logger.error(
                 "闲鱼漏录订单对账失败，异常类型: %s",
                 type(exc).__name__,
             )
+            shop = session.get(XianyuShop, shop_id)
             shop.last_error = "漏录订单检查失败"
-            db.session.commit()
+            session.commit()
         finally:
-            self._release_lock(lock_handle)
+            self._release_lock(resources)
+            db.session.expire_all()
+        return self.get_snapshot(shop_id)
 
-        return self.get_snapshot(shop)
+    def reconcile(self):
+        for shop_id in db.session.scalars(select(XianyuShop.id).where(
+            XianyuShop.is_active.is_(True)).order_by(XianyuShop.id)):
+            self.reconcile_shop(shop_id)
+        return self.get_snapshot()
 
-    def ignore(self, order_no, reason):
+    def ignore(self, shop_id, order_no, reason):
         """永久忽略一个当前待处理告警。"""
         normalized_order_no = self._normalize_order_no(order_no)
         normalized_reason = str(reason or "").strip()
@@ -273,25 +278,30 @@ class XianyuOrderReconciliationService:
         if len(normalized_reason) > 500:
             raise ValueError("忽略原因不能超过500个字符")
 
-        lock_handle = self._acquire_lock()
+        resources = self._locked_session(shop_id)
+        if resources is None:
+            raise RuntimeError("店铺正在同步，请稍后重试")
+        _connection, session, _name = resources
         try:
-            shop = self._current_shop()
-            alert = XianyuOrderAlert.query.filter_by(
-                xianyu_shop_id=shop.id,
-                order_no=normalized_order_no,
-                state="pending",
-            ).one_or_none()
+            if session.get(XianyuShop, shop_id) is None:
+                raise XianyuShopConfigIncompleteError("闲鱼店铺不存在")
+            alert = session.scalar(select(XianyuOrderAlert).where(
+                XianyuOrderAlert.xianyu_shop_id == shop_id,
+                XianyuOrderAlert.order_no == normalized_order_no,
+                XianyuOrderAlert.state == "pending",
+            ))
             if alert is None:
                 raise LookupError("待处理订单不存在")
 
             alert.state = "ignored"
             alert.ignored_reason = normalized_reason
             alert.ignored_at = datetime.utcnow()
-            db.session.commit()
+            session.commit()
         except Exception:
-            db.session.rollback()
+            session.rollback()
             raise
         finally:
-            self._release_lock(lock_handle)
+            self._release_lock(resources)
+            db.session.expire_all()
 
-        return self.get_snapshot(shop)
+        return self.get_snapshot()

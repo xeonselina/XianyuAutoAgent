@@ -559,27 +559,24 @@ class RelayCaseService:
         from app.services import xianyu_order_service
 
         try:
-            result = xianyu_order_service.get_xianyu_service().ship_order(
+            if not successor.xianyu_shop_id:
+                return {"attempted": False, "success": False, "message": ""}
+            result = xianyu_order_service.get_xianyu_service(rental=successor).ship_order(
                 successor
             )
             sync_success = bool(result.get("success"))
-            message = result.get("message") or (
-                "ok" if sync_success else "闲鱼发货失败"
-            )
+            message = "ok" if sync_success else "闲鱼发货失败"
             return {
                 "attempted": True,
                 "success": sync_success,
                 "message": str(message),
             }
-        except Exception as exc:
-            current_app.logger.exception(
-                "接力后一单同步闲鱼失败: successor_rental_id=%s",
-                successor.id,
-            )
+        except Exception:
+            current_app.logger.error("接力后一单同步闲鱼失败: successor_rental_id=%s", successor.id)
             return {
                 "attempted": True,
                 "success": False,
-                "message": str(exc) or "闲鱼发货失败",
+                "message": "闲鱼发货失败",
             }
 
     @classmethod

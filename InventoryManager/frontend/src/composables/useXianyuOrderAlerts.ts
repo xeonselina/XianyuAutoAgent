@@ -75,27 +75,12 @@ export function useXianyuOrderAlerts() {
     }
   }
 
-  const refresh = async () => {
-    try {
-      await enqueueMutation(async () => {
-        applyResponse(
-          await axios.post('/api/xianyu-order-alerts/refresh'),
-        )
-      })
-    } catch (error: any) {
-      console.error('刷新闲鱼漏录订单告警失败:', error)
-      ElMessage.error(
-        error.response?.data?.message || '漏录订单检查失败',
-      )
-    }
-  }
-
-  const ignore = async (orderNo: string, reason: string) => {
+  const ignore = async (shopId: number, orderNo: string, reason: string) => {
     try {
       await enqueueMutation(async () => {
         applyResponse(
           await axios.post(
-            `/api/xianyu-order-alerts/${encodeURIComponent(orderNo)}/ignore`,
+            `/api/xianyu-order-alerts/${shopId}/${encodeURIComponent(orderNo)}/ignore`,
             { reason },
           ),
         )
@@ -127,7 +112,6 @@ export function useXianyuOrderAlerts() {
     snapshot,
     loading,
     load,
-    refresh,
     ignore,
     startPolling,
     stopPolling,

@@ -16,6 +16,7 @@ from app.services.relay.relay_case_service import (
 )
 from app.services import xianyu_order_service
 from app.models.warehouse import Warehouse
+from app.models.xianyu_shop import XianyuShop
 from tests.support.test_database import (
     assert_current_user_has_test_only_grants,
     build_mysql_test_config,
@@ -49,6 +50,9 @@ def db_session(app):
 
 
 def seed_pair(db_session, overlap_days=2):
+    shop = XianyuShop(name="接力店", app_key="test", is_active=True)
+    db_session.add(shop)
+    db_session.flush()
     model = DeviceModel(
         name="relay-transition",
         display_name="接力流转测试",
@@ -92,6 +96,7 @@ def seed_pair(db_session, overlap_days=2):
         customer_phone="13900139000",
         destination="上海",
         status="not_shipped",
+        xianyu_shop_id=shop.id,
     )
     db_session.add_all([first, second])
     db_session.commit()
@@ -179,7 +184,7 @@ def test_first_shipped_syncs_successor_and_reports_xianyu_success(
     monkeypatch.setattr(
         xianyu_order_service,
         "get_xianyu_service",
-        lambda: FakeXianyuService(),
+        lambda **_: FakeXianyuService(),
     )
 
     outcome = RelayCaseService.update_case(
@@ -212,7 +217,7 @@ def test_first_shipped_fills_missing_successor_ship_out_time(
     monkeypatch.setattr(
         xianyu_order_service,
         "get_xianyu_service",
-        lambda: type(
+        lambda **_: type(
             "FakeXianyuService",
             (),
             {"ship_order": lambda self, rental: {
@@ -244,7 +249,7 @@ def test_xianyu_failure_keeps_successor_shipped(
     monkeypatch.setattr(
         xianyu_order_service,
         "get_xianyu_service",
-        lambda: type(
+        lambda **_: type(
             "FakeXianyuService",
             (),
             {"ship_order": lambda self, rental: {
@@ -269,7 +274,7 @@ def test_xianyu_failure_keeps_successor_shipped(
     assert outcome.xianyu_sync == {
         "attempted": True,
         "success": False,
-        "message": "闲鱼接口繁忙",
+        "message": "闲鱼发货失败",
     }
 
 
@@ -285,7 +290,7 @@ def test_xianyu_exception_keeps_successor_shipped(
     monkeypatch.setattr(
         xianyu_order_service,
         "get_xianyu_service",
-        lambda: FailingXianyuService(),
+        lambda **_: FailingXianyuService(),
     )
 
     outcome = RelayCaseService.update_case(
@@ -300,7 +305,7 @@ def test_xianyu_exception_keeps_successor_shipped(
     assert outcome.xianyu_sync == {
         "attempted": True,
         "success": False,
-        "message": "闲鱼网络超时",
+        "message": "闲鱼发货失败",
     }
     assert "接力后一单同步闲鱼失败" in caplog.text
 
@@ -320,7 +325,7 @@ def test_repeated_shipped_does_not_report_xianyu_twice(
     monkeypatch.setattr(
         xianyu_order_service,
         "get_xianyu_service",
-        lambda: fake_service,
+        lambda **_: fake_service,
     )
 
     first_outcome = RelayCaseService.update_case(
@@ -359,7 +364,7 @@ def test_direct_completed_does_not_update_successor_or_report_xianyu(
     monkeypatch.setattr(
         xianyu_order_service,
         "get_xianyu_service",
-        lambda: FakeXianyuService(),
+        lambda **_: FakeXianyuService(),
     )
 
     outcome = RelayCaseService.update_case(
@@ -482,7 +487,7 @@ def test_shipped_audit_failure_rolls_back_successor_and_skips_xianyu(
     monkeypatch.setattr(
         xianyu_order_service,
         "get_xianyu_service",
-        lambda: FakeXianyuService(),
+        lambda **_: FakeXianyuService(),
     )
     monkeypatch.setattr(
         RelayCaseService, "_add_audit", classmethod(fail_audit)
@@ -518,7 +523,7 @@ def test_shipped_commit_failure_rolls_back_successor_and_skips_xianyu(
     monkeypatch.setattr(
         xianyu_order_service,
         "get_xianyu_service",
-        lambda: FakeXianyuService(),
+        lambda **_: FakeXianyuService(),
     )
     real_commit = db.session.commit
     monkeypatch.setattr(

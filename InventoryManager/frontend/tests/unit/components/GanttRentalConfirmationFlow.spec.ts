@@ -129,7 +129,9 @@ describe('GanttChart rental confirmation flow', () => {
     const alertBar = wrapper.findComponent(XianyuOrderAlertBar)
 
     expect(alertBar.exists()).toBe(true)
-    alertBar.vm.$emit('book', 'XY-MISSING')
+    alertBar.vm.$emit('book', {
+      orderNo: 'XY-MISSING', shopId: 7, shopName: '深圳店',
+    })
     await flushPromises()
 
     const bookingDialog = wrapper.findComponent(BookingDialog)
@@ -137,6 +139,7 @@ describe('GanttChart rental confirmation flow', () => {
     expect(bookingDialog.props('initialXianyuOrderNo')).toBe(
       'XY-MISSING',
     )
+    expect(bookingDialog.props('initialXianyuShopId')).toBe(7)
   })
 
   it('新建保存后按返回 ID 重新查询并打开确认弹窗', async () => {

@@ -23,8 +23,9 @@ const makeSnapshot = (
   orderNo?: string,
 ): XianyuOrderAlertSnapshot => ({
   alerts: orderNo
-    ? [{
+      ? [{
         order_no: orderNo,
+        xianyu_shop_id: 7,
         pay_amount: 8000,
         buyer_nick: '测试买家',
       }]
@@ -65,7 +66,7 @@ describe('useXianyuOrderAlerts', () => {
     const alerts = useXianyuOrderAlerts()
 
     const pendingGet = alerts.load()
-    await alerts.ignore('XY-1', '非租赁商品')
+    await alerts.ignore(7, 'XY-1', '非租赁商品')
     oldGet.resolve(response(makeSnapshot('XY-1')))
     await pendingGet
 
@@ -77,7 +78,7 @@ describe('useXianyuOrderAlerts', () => {
     vi.mocked(axios.post).mockReturnValueOnce(pendingPost.promise)
     const alerts = useXianyuOrderAlerts()
 
-    const mutation = alerts.ignore('XY-1', '非租赁商品')
+    const mutation = alerts.ignore(7, 'XY-1', '非租赁商品')
     await alerts.load()
 
     expect(axios.get).not.toHaveBeenCalled()
@@ -85,23 +86,4 @@ describe('useXianyuOrderAlerts', () => {
     await mutation
   })
 
-  it('serializes refresh behind an in-flight ignore', async () => {
-    const pendingIgnore = deferred<any>()
-    vi.mocked(axios.post)
-      .mockReturnValueOnce(pendingIgnore.promise)
-      .mockResolvedValueOnce(response(makeSnapshot()))
-    const alerts = useXianyuOrderAlerts()
-
-    const ignoreRequest = alerts.ignore('XY-1', '非租赁商品')
-    const refreshRequest = alerts.refresh()
-    await Promise.resolve()
-
-    expect(axios.post).toHaveBeenCalledTimes(1)
-    pendingIgnore.resolve(response(makeSnapshot()))
-    await ignoreRequest
-    await refreshRequest
-
-    expect(axios.post).toHaveBeenCalledTimes(2)
-    expect(alerts.snapshot.value.count).toBe(0)
-  })
 })

@@ -1,13 +1,20 @@
 """闲鱼漏录订单告警 API 集成测试。"""
 
+from types import SimpleNamespace
+
 import pytest
 
 
 @pytest.fixture
 def app():
     from app import create_app
+    from flask import g
 
-    return create_app("testing")
+    application = create_app("testing")
+    application.before_request(
+        lambda: setattr(g, "member", SimpleNamespace(role="admin"))
+    )
+    return application
 
 
 @pytest.fixture
@@ -27,7 +34,7 @@ def empty_business_client(app):
 
 
 def snapshot(order_no="XY-1"):
-    alerts = [{"order_no": order_no}] if order_no else []
+    alerts = [{"order_no": order_no, "xianyu_shop_id": 7}] if order_no else []
     return {
         "alerts": alerts,
         "count": len(alerts),
@@ -78,7 +85,7 @@ def test_refresh_alerts_runs_reconciliation(client, monkeypatch):
 
 def test_ignore_requires_non_empty_reason(client):
     response = client.post(
-        "/api/xianyu-order-alerts/XY-1/ignore",
+        "/api/xianyu-order-alerts/7/XY-1/ignore",
         json={"reason": "   "},
     )
 
@@ -88,7 +95,7 @@ def test_ignore_requires_non_empty_reason(client):
 
 def test_ignore_rejects_reason_longer_than_500_characters(client):
     response = client.post(
-        "/api/xianyu-order-alerts/XY-1/ignore",
+        "/api/xianyu-order-alerts/7/XY-1/ignore",
         json={"reason": "原" * 501},
     )
 
@@ -101,7 +108,7 @@ def test_ignore_maps_missing_alert_to_not_found(client, monkeypatch):
         XianyuOrderAlertHandlers,
     )
 
-    def missing(_order_no, _reason):
+    def missing(_shop_id, _order_no, _reason):
         raise LookupError("待处理订单不存在")
 
     monkeypatch.setattr(
@@ -111,12 +118,26 @@ def test_ignore_maps_missing_alert_to_not_found(client, monkeypatch):
     )
 
     response = client.post(
-        "/api/xianyu-order-alerts/UNKNOWN/ignore",
+        "/api/xianyu-order-alerts/7/UNKNOWN/ignore",
         json={"reason": "无需占用库存"},
     )
 
     assert response.status_code == 404
     assert response.get_json()["message"] == "待处理订单不存在"
+
+
+def test_ignore_passes_compound_shop_order_identity(client, monkeypatch):
+    from app.handlers.xianyu_order_alert_handlers import XianyuOrderAlertHandlers
+
+    called = {}
+    monkeypatch.setattr(XianyuOrderAlertHandlers.service, "ignore",
+        lambda shop_id, order_no, reason: called.update(
+            shop_id=shop_id, order_no=order_no, reason=reason) or snapshot(None))
+
+    response = client.post("/api/xianyu-order-alerts/9/SAME/ignore", json={"reason": "不处理"})
+
+    assert response.status_code == 200
+    assert called == {"shop_id": 9, "order_no": "SAME", "reason": "不处理"}
 
 
 @pytest.mark.parametrize(
@@ -126,7 +147,7 @@ def test_ignore_maps_missing_alert_to_not_found(client, monkeypatch):
         ("post", "/api/xianyu-order-alerts/refresh", None),
         (
             "post",
-            "/api/xianyu-order-alerts/XY-1/ignore",
+            "/api/xianyu-order-alerts/7/XY-1/ignore",
             {"reason": "无需处理"},
         ),
     ],
@@ -142,6 +163,6 @@ def test_missing_shop_returns_config_incomplete_without_500(
     assert response.status_code == 409
     assert response.get_json() == {
         "success": False,
-        "message": "请先配置闲鱼店铺",
+        "message": "闲鱼店铺不存在" if "/ignore" in path else "请先配置闲鱼店铺",
         "code": "CONFIG_INCOMPLETE",
     }

@@ -11,6 +11,7 @@ from app.models.rental import Rental
 from app.models.rental_relay_binding import RentalRelayBinding
 from app.models.rental_relay_case import RentalRelayCase
 from app.models.warehouse import Warehouse
+from app.models.xianyu_shop import XianyuShop
 from app.services import xianyu_order_service
 from app.services.relay.relay_case_service import RelayCaseService
 from app.services.shipping.sf_tracking_service import SFTrackingService
@@ -52,6 +53,9 @@ def db_session(app):
 
 
 def seed_pair(db_session, suffix, planned_ship_date=None):
+    shop = XianyuShop(name=f"接力店 {suffix}", app_key="test", is_active=True)
+    db_session.add(shop)
+    db_session.flush()
     planned_ship_date = planned_ship_date or date.today()
     model = DeviceModel(
         name=f"relay-api-{suffix}",
@@ -99,6 +103,7 @@ def seed_pair(db_session, suffix, planned_ship_date=None):
         destination="上海市浦东新区",
         buyer_id=f"星星 {suffix}",
         status="not_shipped",
+        xianyu_shop_id=shop.id,
     )
     db_session.add_all([first, second])
     db_session.commit()
@@ -320,7 +325,7 @@ def test_shipped_saves_then_refreshes_tracking(
     monkeypatch.setattr(
         xianyu_order_service,
         "get_xianyu_service",
-        lambda: FakeXianyuService(),
+        lambda **_: FakeXianyuService(),
     )
     monkeypatch.setattr(
         SFTrackingService,
@@ -357,13 +362,13 @@ def test_shipped_saves_then_refreshes_tracking(
     [
         (
             {"success": False, "message": "没有闲鱼订单号", "skipped": True},
-            "没有闲鱼订单号",
+            "闲鱼发货失败",
         ),
         (
             {"success": False, "message": "闲鱼接口繁忙", "code": 500},
-            "闲鱼接口繁忙",
+            "闲鱼发货失败",
         ),
-        (RuntimeError("闲鱼网络超时"), "闲鱼网络超时"),
+        (RuntimeError("闲鱼网络超时"), "闲鱼发货失败"),
     ],
 )
 def test_shipped_xianyu_failure_keeps_local_state_and_refreshes_tracking(
@@ -386,7 +391,7 @@ def test_shipped_xianyu_failure_keeps_local_state_and_refreshes_tracking(
     monkeypatch.setattr(
         xianyu_order_service,
         "get_xianyu_service",
-        lambda: FakeXianyuService(),
+        lambda **_: FakeXianyuService(),
     )
     monkeypatch.setattr(
         SFTrackingService,

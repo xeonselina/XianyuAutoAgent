@@ -182,6 +182,8 @@ def settings_api_application():
 
 def _clear_rows(environment):
     with environment["tenant_engine"].begin() as connection:
+        connection.exec_driver_sql("DELETE FROM xianyu_order_alerts")
+        connection.exec_driver_sql("DELETE FROM xianyu_shops")
         connection.exec_driver_sql(
             "DELETE FROM warehouse_sf_configs"
         )
@@ -352,6 +354,10 @@ def test_public_warehouse_list_still_requires_a_tenant_session(
         ("patch", "/api/settings/warehouses/1", {"city": "广州市"}),
         ("put", "/api/settings/warehouses/1/sf", {}),
         ("put", "/api/settings/warehouses/1/kuaimai", {}),
+        ("get", "/api/settings/xianyu-shops", None),
+        ("post", "/api/settings/xianyu-shops", {"name": "店", "app_key": "key"}),
+        ("patch", "/api/settings/xianyu-shops/1", {"name": "店"}),
+        ("post", "/api/settings/xianyu-shops/1/sync", None),
     ],
 )
 def test_operator_cannot_access_any_settings_endpoint(
@@ -1112,3 +1118,35 @@ def test_settings_responses_never_expose_secret_values_or_ciphertexts(
     assert "ciphertext" not in serialized
     for response in (sf, kuaimai, listed):
         assert response.status_code == 200
+
+
+def test_admin_manages_xianyu_shop_without_exposing_or_clearing_secret(
+    settings_api_environment,
+):
+    client = settings_api_environment["admin_client"]
+    headers = _csrf(settings_api_environment)
+    secret = "xianyu-secret-never-return"
+    created_response = client.post("/api/settings/xianyu-shops", json={
+        "name": "深圳店", "app_key": "app-key",
+        "app_secret": secret, "is_active": True,
+    }, headers=headers)
+    assert created_response.status_code == 201
+    shop = created_response.get_json()["data"]
+    assert shop["app_secret_configured"] is True
+    assert secret not in json.dumps(shop)
+    assert "ciphertext" not in json.dumps(shop)
+
+    path = f"/api/settings/xianyu-shops/{shop['id']}"
+    updated = client.patch(path, json={"name": "深圳主店", "app_secret": ""}, headers=headers)
+    assert updated.status_code == 200
+    with settings_api_environment["tenant_engine"].connect() as connection:
+        ciphertext = connection.execute(
+            text("SELECT app_secret_ciphertext FROM xianyu_shops WHERE id=:id"),
+            {"id": shop["id"]},
+        ).scalar_one()
+    assert SecretBox.from_base64(TEST_MASTER_KEY).decrypt(
+        ciphertext, purpose="xianyu-shop-app-secret"
+    ) == secret
+
+    forbidden = client.patch(path, json={"seller_id": "forbidden"}, headers=headers)
+    assert forbidden.status_code == 400

@@ -65,6 +65,10 @@
     </el-form-item>
 
     <!-- 闲鱼订单信息 -->
+    <el-form-item v-if="xianyuShops?.length" label="闲鱼店铺">
+      <el-select v-model="form.xianyuShopId"><el-option v-for="shop in xianyuShops"
+        :key="shop.id" :label="shop.name" :value="shop.id" /></el-select>
+    </el-form-item>
     <el-form-item label="闲鱼订单号">
       <div style="display: flex; gap: 8px;">
         <el-input
@@ -121,6 +125,7 @@ interface Props {
   availableDevices: DeviceWithConflictStatus[]
   loadingDevices: boolean
   minSelectableDate: Date | null
+  xianyuShops?: { id: number; name: string }[]
 }
 
 const props = defineProps<Props>()
@@ -160,6 +165,7 @@ const handleFetchOrderInfo = async () => {
     ElMessage.warning('请先输入订单号')
     return
   }
+  if (!props.form.xianyuShopId) { ElMessage.warning('请选择闲鱼店铺'); return }
 
   fetchingOrder.value = true
 
@@ -167,7 +173,7 @@ const handleFetchOrderInfo = async () => {
     console.log('开始请求订单信息，订单号:', orderNo)
 
     const response = await axios.post('/api/rentals/fetch-xianyu-order', {
-      order_no: orderNo
+      order_no: orderNo, xianyu_shop_id: props.form.xianyuShopId
     })
 
     console.log('API响应:', response.data)

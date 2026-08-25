@@ -5,19 +5,24 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AppHeader from '@/components/AppHeader.vue'
 import RentalStatsView from '@/views/RentalStatsView.vue'
 import SFTrackingView from '@/views/SFTrackingView.vue'
+import SettingsView from '@/views/SettingsView.vue'
+import XianyuShopSettings from '@/components/settings/XianyuShopSettings.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useGanttStore } from '@/stores/gantt'
 import { useTenantStore } from '@/stores/tenant'
 import {
   listWarehouseSettings,
+  listXianyuShops,
+  updateXianyuShop,
   saveKuaimaiConfiguration,
   saveSfConfiguration,
 } from '@/api/settings'
 import { useMobileTenantStore } from '../../../frontend-mobile/src/stores/tenant'
 
 
-const { axiosGet, axiosPut } = vi.hoisted(() => ({
+const { axiosGet, axiosPatch, axiosPut } = vi.hoisted(() => ({
   axiosGet: vi.fn(),
+  axiosPatch: vi.fn(),
   axiosPut: vi.fn(),
 }))
 
@@ -26,6 +31,7 @@ vi.mock('axios', () => ({
     defaults: { headers: { common: {} } },
     get: axiosGet,
     post: vi.fn(),
+    patch: axiosPatch,
     put: axiosPut,
   },
   isAxiosError: vi.fn(() => false),
@@ -113,6 +119,7 @@ describe('warehouse-aware tenant navigation', () => {
     setActivePinia(createPinia())
     axiosGet.mockReset()
     axiosPut.mockReset()
+    axiosPatch.mockReset()
   })
 
   it('shares one warehouse initialization and marks the session ready only after it resolves', async () => {
@@ -249,6 +256,20 @@ describe('warehouse-aware tenant navigation', () => {
       '/api/settings/warehouses/11/kuaimai',
       expect.objectContaining({ app_secret: '' }),
     )
+  })
+
+  it('mounts shop settings and preserves a blank shop secret', async () => {
+    axiosGet.mockResolvedValue({
+      data: { success: true, data: [{ id: 7, name: '深圳店', app_key: 'key', app_secret_configured: true, is_active: true }] },
+    })
+    axiosPatch.mockResolvedValue({ data: { success: true, data: {} } })
+
+    expect(shallowMount(SettingsView).findComponent(XianyuShopSettings).exists()).toBe(true)
+    expect((await listXianyuShops())[0].app_secret_configured).toBe(true)
+    await updateXianyuShop(7, { name: '深圳主店', app_secret: '' })
+    expect(axiosPatch).toHaveBeenCalledWith('/api/settings/xianyu-shops/7', {
+      name: '深圳主店', app_secret: '',
+    })
   })
 
   it('sends the selected warehouse on business reads and requires a concrete warehouse for writes', async () => {

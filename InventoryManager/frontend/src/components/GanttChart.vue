@@ -120,7 +120,6 @@
     <XianyuOrderAlertBar
       :snapshot="xianyuAlertSnapshot"
       :loading="xianyuAlertsLoading"
-      @refresh="refreshXianyuAlerts"
       @book="startMissingOrderBooking"
       @ignore="handleIgnoreXianyuAlert"
     />
@@ -286,6 +285,8 @@
       v-model="showBookingDialog"
       :selected-device-model="selectedDeviceModel"
       :initial-xianyu-order-no="bookingOrderNo"
+      :initial-xianyu-shop-id="bookingShopId"
+      :xianyu-shops="xianyuAlertSnapshot.shops || []"
       @success="handleBookingSuccess"
     />
 
@@ -293,6 +294,7 @@
     <EditRentalDialogNew
       v-model="showEditDialog"
       :rental="selectedRental"
+      :xianyu-shops="xianyuAlertSnapshot.shops || []"
       @success="handleEditSuccess"
     />
 
@@ -461,6 +463,7 @@ const tenantStore = useTenantStore()
 // 响应式状态
 const showBookingDialog = ref(false)
 const bookingOrderNo = ref<string>()
+const bookingShopId = ref<number>()
 const showEditDialog = ref(false)
 const showAddDeviceDialog = ref(false)
 const showCustomerHistoryDialog = ref(false)
@@ -482,7 +485,6 @@ const {
   snapshot: xianyuAlertSnapshot,
   loading: xianyuAlertsLoading,
   load: loadXianyuAlerts,
-  refresh: refreshXianyuAlerts,
   ignore: ignoreXianyuAlert,
   startPolling: startXianyuAlertPolling,
   stopPolling: stopXianyuAlertPolling
@@ -835,19 +837,22 @@ const openRentalConfirmation = async (rentalId: number) => {
 
 const openManualBooking = () => {
   bookingOrderNo.value = undefined
+  bookingShopId.value = undefined
   showBookingDialog.value = true
 }
 
-const startMissingOrderBooking = (orderNo: string) => {
-  bookingOrderNo.value = orderNo
+const startMissingOrderBooking = (alert: { orderNo: string; shopId: number }) => {
+  bookingOrderNo.value = alert.orderNo
+  bookingShopId.value = alert.shopId
   showBookingDialog.value = true
 }
 
 const handleIgnoreXianyuAlert = async (payload: {
   orderNo: string
+  shopId: number
   reason: string
 }) => {
-  await ignoreXianyuAlert(payload.orderNo, payload.reason)
+  await ignoreXianyuAlert(payload.shopId, payload.orderNo, payload.reason)
 }
 
 const handleBookingSuccess = async (rentalId?: number) => {
@@ -1281,6 +1286,7 @@ watch(filteredDevices, () => {
 watch(showBookingDialog, (visible) => {
   if (!visible) {
     bookingOrderNo.value = undefined
+    bookingShopId.value = undefined
   }
 })
 
@@ -1296,7 +1302,6 @@ onMounted(async () => {
     })
   ])
   startXianyuAlertPolling()
-  void refreshXianyuAlerts()
 
   // 初始化虚拟滚动
   await initVirtualScroll()

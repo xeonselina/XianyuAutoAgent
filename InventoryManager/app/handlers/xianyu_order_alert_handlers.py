@@ -55,7 +55,7 @@ class XianyuOrderAlertHandlers:
             return server_error("刷新漏录订单告警失败")
 
     @classmethod
-    def ignore_alert(cls, order_no):
+    def ignore_alert(cls, shop_id, order_no):
         data = request.get_json(silent=True) or {}
         reason = str(data.get("reason") or "").strip()
         if not reason:
@@ -64,7 +64,7 @@ class XianyuOrderAlertHandlers:
             return bad_request("忽略原因不能超过500个字符")
 
         try:
-            snapshot = cls.service.ignore(order_no, reason)
+            snapshot = cls.service.ignore(shop_id, order_no, reason)
             return success(data=snapshot, message="订单已永久忽略")
         except XianyuShopConfigIncompleteError as exc:
             return error(

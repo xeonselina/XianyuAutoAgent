@@ -200,3 +200,55 @@ def upsert_kuaimai_config(warehouse_id):
         return _handle_settings_error(exc)
     except (DataError, IntegrityError) as exc:
         return _handle_business_database_error(exc)
+
+
+_XIANYU_FIELDS = {"name", "app_key", "app_secret", "is_active"}
+
+
+@bp.get("/xianyu-shops")
+@require_role("admin")
+def list_xianyu_shops():
+    return success(data=_service().list_xianyu_shops()).to_flask_response()
+
+
+@bp.post("/xianyu-shops")
+@require_role("admin")
+def create_xianyu_shop():
+    try:
+        shop = _service().create_xianyu_shop(_json_body(_XIANYU_FIELDS))
+        db.session.commit()
+        return created(data=shop.to_dict()).to_flask_response()
+    except (SettingsValidationError, SettingsNotFoundError) as exc:
+        db.session.rollback()
+        return _handle_settings_error(exc)
+    except (DataError, IntegrityError) as exc:
+        return _handle_business_database_error(exc)
+
+
+@bp.patch("/xianyu-shops/<int:shop_id>")
+@require_role("admin")
+def update_xianyu_shop(shop_id):
+    try:
+        shop = _service().update_xianyu_shop(
+            shop_id, _json_body(_XIANYU_FIELDS, require_nonempty=True)
+        )
+        db.session.commit()
+        return success(data=shop.to_dict()).to_flask_response()
+    except (SettingsValidationError, SettingsNotFoundError) as exc:
+        db.session.rollback()
+        return _handle_settings_error(exc)
+    except (DataError, IntegrityError) as exc:
+        return _handle_business_database_error(exc)
+
+
+@bp.post("/xianyu-shops/<int:shop_id>/sync")
+@require_role("admin")
+def sync_xianyu_shop(shop_id):
+    from app.services.xianyu_order_reconciliation_service import (
+        XianyuOrderReconciliationService, XianyuShopConfigIncompleteError,
+    )
+    try:
+        return success(data=XianyuOrderReconciliationService().reconcile_shop(shop_id)).to_flask_response()
+    except XianyuShopConfigIncompleteError:
+        return error("闲鱼店铺不存在或已停用", status_code=409,
+                     code="CONFIG_INCOMPLETE").to_flask_response()

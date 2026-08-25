@@ -497,6 +497,7 @@ class RentalHandlers:
         """处理获取闲鱼订单详情请求"""
         try:
             from app.services.xianyu_order_service import get_xianyu_service
+            from app.services.integration_resolver import ConfigurationIncomplete
 
             data = request.get_json()
             if not data:
@@ -505,12 +506,15 @@ class RentalHandlers:
             order_no = data.get('order_no', '').strip()
             if not order_no:
                 return bad_request('订单号不能为空')
+            shop_id = data.get('xianyu_shop_id')
+            if not isinstance(shop_id, int) or isinstance(shop_id, bool):
+                return bad_request('请选择闲鱼店铺')
 
             # 调用闲鱼API服务
-            order_data = get_xianyu_service().get_order_detail(order_no)
+            order_data = get_xianyu_service(shop=shop_id).get_order_detail(order_no)
 
             if not order_data:
-                return server_error('获取订单详情失败，请检查订单号是否正确')
+                return error('闲鱼订单服务调用失败', 502, code='EXTERNAL_SERVICE_ERROR')
 
             # 转换数据为前端需要的格式
             response_data = {
@@ -529,8 +533,10 @@ class RentalHandlers:
 
             return success(data=response_data, message='订单信息获取成功')
 
+        except ConfigurationIncomplete:
+            return error('闲鱼店铺配置不完整', 409, code='CONFIG_INCOMPLETE')
         except Exception as e:
-            current_app.logger.error(f"获取闲鱼订单详情失败: {e}")
+            current_app.logger.error("获取闲鱼订单详情失败，类型: %s", type(e).__name__)
             return server_error('获取订单详情失败')
 
     @staticmethod
@@ -688,7 +694,6 @@ class RentalHandlers:
         try:
             from app.services.xianyu_order_service import get_xianyu_service
             from app import db
-            import traceback
 
             # 获取租赁记录
             rental = RentalService.get_rental_by_id(rental_id)
@@ -710,7 +715,7 @@ class RentalHandlers:
             )
 
             # 获取闲鱼服务并调用发货接口
-            xianyu_service = get_xianyu_service()
+            xianyu_service = get_xianyu_service(rental=rental)
             result = xianyu_service.ship_order(rental)
 
             # 检查闲鱼API调用结果
@@ -739,25 +744,19 @@ class RentalHandlers:
                 )
             else:
                 # 闲鱼API返回失败
-                error_message = result.get('message', '未知错误')
-
                 # 如果只是跳过（没有订单号），不算错误
                 if result.get('skipped'):
-                    current_app.logger.warning(f"单个发货跳过: Rental {rental_id}, 原因: {error_message}")
-                    return bad_request(error_message)
+                    current_app.logger.warning("单个发货跳过: Rental %s", rental_id)
+                    return bad_request('闲鱼发货已跳过')
 
                 # 回滚事务
                 db.session.rollback()
 
-                current_app.logger.error(
-                    f"单个发货失败: Rental {rental_id}, 错误: {error_message}"
-                )
-
-                return server_error(f'闲鱼发货失败: {error_message}')
+                current_app.logger.error("单个发货失败: Rental %s", rental_id)
+                return server_error('闲鱼发货失败')
 
         except Exception as e:
             from app import db
             db.session.rollback()
-            current_app.logger.error(f"单个发货异常: Rental {rental_id}, 错误: {e}")
-            current_app.logger.error(f"完整堆栈:\n{traceback.format_exc()}")
-            return server_error(f'发货操作失败: {str(e)}')
+            current_app.logger.error("单个发货异常: Rental %s，类型: %s", rental_id, type(e).__name__)
+            return server_error('发货操作失败')

@@ -1,5 +1,7 @@
 export interface XianyuOrderAlert {
   order_no: string
+  xianyu_shop_id: number
+  xianyu_shop_name?: string
   pay_amount: number
   buyer_nick?: string | null
   receiver_name?: string | null
@@ -23,4 +25,5 @@ export interface XianyuOrderAlertSnapshot {
   count: number
   refreshing: boolean
   sync: XianyuOrderAlertSync
+  shops?: { id: number; name: string }[]
 }

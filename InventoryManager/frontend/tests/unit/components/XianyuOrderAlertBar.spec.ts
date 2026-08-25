@@ -12,6 +12,8 @@ const makeSnapshot = (
   alerts: [
     {
       order_no: orderNo,
+      xianyu_shop_id: 7,
+      xianyu_shop_name: '深圳店',
       pay_amount: 5001,
       buyer_nick: '测试买家',
       receiver_mobile: '13800138000',
@@ -61,7 +63,9 @@ describe('XianyuOrderAlertBar', () => {
     expect(wrapper.text()).toContain('¥50.01')
 
     await wrapper.get('[data-testid="book-XY-1"]').trigger('click')
-    expect(wrapper.emitted('book')).toEqual([['XY-1']])
+    expect(wrapper.emitted('book')).toEqual([[{
+      orderNo: 'XY-1', shopId: 7, shopName: '深圳店',
+    }]])
   })
 
   it('renders nothing after a successful check with no alerts', () => {
@@ -102,7 +106,7 @@ describe('XianyuOrderAlertBar', () => {
       expect.objectContaining({ type: 'warning' }),
     )
     expect(wrapper.emitted('ignore')).toEqual([
-      [{ orderNo: 'XY-1', reason: '非租赁商品' }],
+      [{ shopId: 7, orderNo: 'XY-1', reason: '非租赁商品' }],
     ])
   })
 

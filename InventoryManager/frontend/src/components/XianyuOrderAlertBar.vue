@@ -18,25 +18,18 @@
         >
           {{ expanded ? '收起详情' : '展开详情' }}
         </el-button>
-        <el-button
-          type="danger"
-          plain
-          :loading="loading || snapshot.refreshing"
-          @click="$emit('refresh')"
-        >
-          刷新
-        </el-button>
       </div>
     </div>
 
     <div v-if="expanded && snapshot.count > 0" class="alert-list">
       <div
         v-for="alert in snapshot.alerts"
-        :key="alert.order_no"
+        :key="`${alert.xianyu_shop_id}:${alert.order_no}`"
         class="alert-order"
       >
         <div class="order-main">
           <span class="buyer">{{ alert.buyer_nick || '未知买家' }}</span>
+          <span>{{ alert.xianyu_shop_name }}</span>
           <span>{{ alert.receiver_mobile || '无手机号' }}</span>
           <span class="amount">{{ formatAmount(alert.pay_amount) }}</span>
           <span>{{ formatTime(alert.order_time) }}</span>
@@ -49,13 +42,13 @@
           <el-button
             type="primary"
             :data-testid="`book-${alert.order_no}`"
-            @click="$emit('book', alert.order_no)"
+            @click="$emit('book', { orderNo: alert.order_no, shopId: alert.xianyu_shop_id, shopName: alert.xianyu_shop_name || '' })"
           >
             去补录
           </el-button>
           <el-button
             :data-testid="`ignore-${alert.order_no}`"
-            @click="confirmIgnore(alert.order_no)"
+            @click="confirmIgnore(alert)"
           >
             无需录入
           </el-button>
@@ -81,9 +74,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  refresh: []
-  book: [orderNo: string]
-  ignore: [payload: { orderNo: string; reason: string }]
+  book: [payload: { orderNo: string; shopId: number; shopName: string }]
+  ignore: [payload: { shopId: number; orderNo: string; reason: string }]
 }>()
 
 const expanded = ref(false)
@@ -134,7 +126,8 @@ const goodsText = (alert: XianyuOrderAlert) => {
   return parts.length ? parts.join(' · ') : '未提供商品信息'
 }
 
-const confirmIgnore = async (orderNo: string) => {
+const confirmIgnore = async (alert: XianyuOrderAlert) => {
+  const orderNo = alert.order_no
   try {
     const promptResult = await ElMessageBox.prompt(
       '请填写该订单无需录入库存管理的原因',
@@ -164,7 +157,7 @@ const confirmIgnore = async (orderNo: string) => {
         cancelButtonText: '取消',
       },
     )
-    emit('ignore', { orderNo, reason })
+    emit('ignore', { shopId: alert.xianyu_shop_id, orderNo, reason })
   } catch {
     // 用户取消时保持当前告警。
   }

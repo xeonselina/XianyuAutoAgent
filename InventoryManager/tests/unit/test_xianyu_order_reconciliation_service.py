@@ -1,8 +1,6 @@
 """闲鱼漏录订单对账服务测试。"""
 
 from datetime import date, datetime
-import threading
-import time
 from unittest.mock import Mock
 
 import pytest
@@ -34,7 +32,7 @@ def db_session(app):
             XianyuShop(
                 name="默认闲鱼店铺",
                 app_key="",
-                is_active=False,
+                is_active=True,
             )
         )
         db.session.commit()
@@ -110,6 +108,7 @@ def make_alert(**values):
     from app import db
     from app.models.xianyu_order_alert import XianyuOrderAlert
     from app.models.xianyu_shop import XianyuShop
+    from app.models.xianyu_shop import XianyuShop
 
     if "xianyu_shop_id" not in values:
         values["xianyu_shop_id"] = db.session.query(
@@ -167,18 +166,13 @@ def test_reconcile_filters_amount_and_existing_rentals(
 
     db_session.add(make_rental(device.id, " RECORDED "))
     db_session.commit()
-    service = XianyuOrderReconciliationService(
-        lock_path=str(tmp_path / "reconcile.lock")
-    )
-    monkeypatch.setattr(
-        service.xianyu_service,
-        "list_orders",
-        lambda: [
+    service = XianyuOrderReconciliationService(service=Mock(
+        list_orders=lambda: [
             make_order("LOW", 5000),
             make_order("MISSING", 5001),
             make_order("RECORDED", 9000),
         ],
-    )
+    ))
 
     result = service.reconcile()
 
@@ -197,14 +191,8 @@ def test_reconcile_does_not_filter_refund_status(
         XianyuOrderReconciliationService,
     )
 
-    service = XianyuOrderReconciliationService(
-        lock_path=str(tmp_path / "reconcile.lock")
-    )
-    monkeypatch.setattr(
-        service.xianyu_service,
-        "list_orders",
-        lambda: [make_order("REFUNDING", 8000, refund_status=5)],
-    )
+    service = XianyuOrderReconciliationService(service=Mock(
+        list_orders=lambda: [make_order("REFUNDING", 8000, refund_status=5)]))
 
     result = service.reconcile()
 
@@ -219,21 +207,17 @@ def test_ignore_is_permanent_across_reconciliation(
     tmp_path,
 ):
     from app.models.xianyu_order_alert import XianyuOrderAlert
+    from app.models.xianyu_shop import XianyuShop
     from app.services.xianyu_order_reconciliation_service import (
         XianyuOrderReconciliationService,
     )
 
-    service = XianyuOrderReconciliationService(
-        lock_path=str(tmp_path / "reconcile.lock")
-    )
-    monkeypatch.setattr(
-        service.xianyu_service,
-        "list_orders",
-        lambda: [make_order("IGNORE-ME", 8000)],
-    )
+    service = XianyuOrderReconciliationService(service=Mock(
+        list_orders=lambda: [make_order("IGNORE-ME", 8000)]))
+    shop_id = db_session.query(XianyuShop.id).scalar()
 
     assert service.reconcile()["count"] == 1
-    assert service.ignore("IGNORE-ME", "非租赁商品")["count"] == 0
+    assert service.ignore(shop_id, "IGNORE-ME", "非租赁商品")["count"] == 0
     assert service.reconcile()["count"] == 0
 
     ignored = XianyuOrderAlert.query.filter_by(
@@ -257,69 +241,7 @@ def test_ignore_rejects_reason_longer_than_storage_limit(
     )
 
     with pytest.raises(ValueError, match="500"):
-        service.ignore("IGNORE-ME", "原" * 501)
-
-
-def test_blocking_lock_serializes_ignore_with_reconciliation(tmp_path):
-    from app.services.xianyu_order_reconciliation_service import (
-        XianyuOrderReconciliationService,
-    )
-
-    lock_path = str(tmp_path / "reconcile.lock")
-    reconciling_service = XianyuOrderReconciliationService(
-        lock_path=lock_path
-    )
-    ignoring_service = XianyuOrderReconciliationService(
-        lock_path=lock_path
-    )
-    reconcile_lock = reconciling_service._try_acquire_lock()
-    acquired = threading.Event()
-    release = threading.Event()
-
-    def wait_for_lock():
-        lock_handle = ignoring_service._acquire_lock()
-        acquired.set()
-        release.wait(timeout=2)
-        ignoring_service._release_lock(lock_handle)
-
-    worker = threading.Thread(target=wait_for_lock)
-    worker.start()
-    time.sleep(0.05)
-    assert acquired.is_set() is False
-
-    reconciling_service._release_lock(reconcile_lock)
-    assert acquired.wait(timeout=1) is True
-    release.set()
-    worker.join(timeout=1)
-    assert worker.is_alive() is False
-
-
-def test_ignore_uses_reconciliation_lock(
-    db_session,
-    monkeypatch,
-    tmp_path,
-):
-    from app.services.xianyu_order_reconciliation_service import (
-        XianyuOrderReconciliationService,
-    )
-
-    db_session.add(
-        make_alert(
-            order_no="LOCKED-IGNORE",
-            state="pending",
-            pay_amount=8000,
-        )
-    )
-    db_session.commit()
-    service = XianyuOrderReconciliationService(
-        lock_path=str(tmp_path / "reconcile.lock")
-    )
-    acquire = Mock(wraps=service._acquire_lock)
-    monkeypatch.setattr(service, "_acquire_lock", acquire)
-
-    service.ignore("LOCKED-IGNORE", "非租赁商品")
-
-    acquire.assert_called_once_with()
+        service.ignore(1, "IGNORE-ME", "原" * 501)
 
 
 def test_failed_reconcile_keeps_existing_cache(
@@ -342,55 +264,13 @@ def test_failed_reconcile_keeps_existing_cache(
         )
     )
     db_session.commit()
-    service = XianyuOrderReconciliationService(
-        lock_path=str(tmp_path / "reconcile.lock")
-    )
-
     def fail():
         raise XianyuOrderServiceError("timeout")
-
-    monkeypatch.setattr(service.xianyu_service, "list_orders", fail)
+    service = XianyuOrderReconciliationService(service=Mock(list_orders=fail))
 
     result = service.reconcile()
 
     assert [row["order_no"] for row in result["alerts"]] == ["OLD"]
-    assert result["sync"]["last_error"] == "闲鱼订单查询失败"
-
-
-def test_failed_reconcile_reuses_the_already_resolved_shop(
-    db_session,
-    monkeypatch,
-    tmp_path,
-):
-    from app.models.xianyu_shop import XianyuShop
-    from app.services.xianyu_order_reconciliation_service import (
-        XianyuOrderReconciliationService,
-    )
-    from app.services.xianyu_order_service import (
-        XianyuOrderServiceError,
-    )
-
-    shop = XianyuShop.query.order_by(XianyuShop.id).first()
-    service = XianyuOrderReconciliationService(
-        lock_path=str(tmp_path / "reconcile.lock")
-    )
-    lookup_count = 0
-
-    def resolve_once():
-        nonlocal lookup_count
-        lookup_count += 1
-        if lookup_count > 1:
-            raise RuntimeError("shop lookup repeated during error handling")
-        return shop
-
-    def fail():
-        raise XianyuOrderServiceError("timeout")
-
-    monkeypatch.setattr(service, "_current_shop", resolve_once)
-    monkeypatch.setattr(service.xianyu_service, "list_orders", fail)
-
-    result = service.reconcile()
-
     assert result["sync"]["last_error"] == "闲鱼订单查询失败"
 
 
@@ -412,53 +292,17 @@ def test_unexpected_reconcile_error_does_not_persist_or_log_pii(
         )
     )
     db_session.commit()
-    service = XianyuOrderReconciliationService(
-        lock_path=str(tmp_path / "reconcile.lock")
-    )
     sensitive_value = "13800138000"
 
     def fail():
         raise RuntimeError(f"SQL bind receiver_mobile={sensitive_value}")
 
-    monkeypatch.setattr(service.xianyu_service, "list_orders", fail)
+    service = XianyuOrderReconciliationService(service=Mock(list_orders=fail))
 
     result = service.reconcile()
 
     assert result["sync"]["last_error"] == "漏录订单检查失败"
     assert sensitive_value not in caplog.text
-
-
-def test_busy_reconciliation_does_not_start_second_external_query(
-    db_session,
-    monkeypatch,
-    tmp_path,
-):
-    from app.services.xianyu_order_reconciliation_service import (
-        XianyuOrderReconciliationService,
-    )
-
-    lock_path = str(tmp_path / "reconcile.lock")
-    running_service = XianyuOrderReconciliationService(
-        lock_path=lock_path
-    )
-    second_service = XianyuOrderReconciliationService(
-        lock_path=lock_path
-    )
-    lock_handle = running_service._try_acquire_lock()
-    external_query = Mock()
-    monkeypatch.setattr(
-        second_service.xianyu_service, "list_orders", external_query
-    )
-
-    try:
-        result = second_service.reconcile()
-    finally:
-        running_service._release_lock(lock_handle)
-
-    assert result["refreshing"] is True
-    external_query.assert_not_called()
-
-
 def test_cached_alert_disappears_immediately_after_rental_is_recorded(
     db_session,
     device,
@@ -499,7 +343,7 @@ def test_snapshot_uses_first_shop_state_and_never_legacy_sync_table(
     shop.last_error = "shop error"
     db_session.commit()
 
-    snapshot = XianyuOrderReconciliationService().get_snapshot()
+    snapshot = XianyuOrderReconciliationService().get_snapshot(shop.id)
 
     assert snapshot["sync"] == {
         "last_attempt_at": None,
@@ -508,90 +352,73 @@ def test_snapshot_uses_first_shop_state_and_never_legacy_sync_table(
     }
 
 
-def test_snapshot_and_ignore_are_scoped_to_first_shop(
-    db_session,
+def test_snapshot_and_ignore_use_compound_shop_order_identity(
+    db_session, device,
 ):
     from app.models.xianyu_shop import XianyuShop
     from app.services.xianyu_order_reconciliation_service import (
         XianyuOrderReconciliationService,
     )
 
-    first_shop = XianyuShop.query.order_by(XianyuShop.id).first()
-    second_shop = XianyuShop(
-        name="第二店铺",
-        app_key="second",
-        is_active=True,
-    )
-    db_session.add(second_shop)
+    shops = XianyuShop.query.order_by(XianyuShop.id).all()
+    first = shops[0]
+    first.is_active = True
+    second = XianyuShop(name="第二店铺", app_key="second", is_active=True)
+    first.last_success_at = second.last_success_at = datetime(2026, 8, 25, 8)
+    db_session.add(second)
     db_session.flush()
-    db_session.add_all([
-        make_alert(
-            xianyu_shop_id=first_shop.id,
-            order_no="FIRST-SHOP",
-            state="pending",
-            pay_amount=6000,
-        ),
-        make_alert(
-            xianyu_shop_id=second_shop.id,
-            order_no="SECOND-SHOP",
-            state="pending",
-            pay_amount=7000,
-        ),
-    ])
+    db_session.add_all((
+        make_alert(xianyu_shop_id=first.id, order_no="SAME", state="pending", pay_amount=6000),
+        make_alert(xianyu_shop_id=second.id, order_no="SAME", state="pending", pay_amount=7000),
+        make_rental(device.id, "SAME", shop_id=second.id),
+    ))
     db_session.commit()
+
     service = XianyuOrderReconciliationService()
+    snapshot = service.get_snapshot()
 
-    assert [
-        row["order_no"] for row in service.get_snapshot()["alerts"]
-    ] == ["FIRST-SHOP"]
-    with pytest.raises(LookupError):
-        service.ignore("SECOND-SHOP", "不处理第二店铺")
+    assert [(row["xianyu_shop_id"], row["order_no"]) for row in snapshot["alerts"]] == [(first.id, "SAME")]
+    assert snapshot["shops"] == [
+        {"id": first.id, "name": "默认闲鱼店铺"},
+        {"id": second.id, "name": "第二店铺"},
+    ]
+    assert snapshot["sync"]["last_success_at"] == "2026-08-25T08:00:00Z"
+    assert service.ignore(first.id, "SAME", "首店忽略")["count"] == 0
+    assert service._lock_name("tenant_a", 1) != service._lock_name("tenant_a", 2)
+    assert service._lock_name("tenant_a", 1) != service._lock_name("tenant_b", 1)
 
 
-def test_other_shop_rental_cannot_hide_replace_or_block_first_shop_alert(
+def test_failed_explicit_shop_reconcile_preserves_cache_and_success(
     db_session,
-    device,
-    monkeypatch,
-    tmp_path,
 ):
     from app.models.xianyu_shop import XianyuShop
     from app.services.xianyu_order_reconciliation_service import (
         XianyuOrderReconciliationService,
     )
+    from app.services.xianyu_order_service import XianyuOrderServiceError
 
-    first_shop = XianyuShop.query.order_by(XianyuShop.id).first()
-    second_shop = XianyuShop(
-        name="第二店铺",
-        app_key="second",
-        is_active=True,
-    )
-    db_session.add(second_shop)
-    db_session.flush()
-    db_session.add_all([
-        make_alert(
-            xianyu_shop_id=first_shop.id,
-            order_no="SHARED-ORDER",
-            state="pending",
-            pay_amount=8000,
-        ),
-        make_rental(
-            device.id,
-            "SHARED-ORDER",
-            shop_id=second_shop.id,
-        ),
-    ])
+    shop = XianyuShop.query.first()
+    shop.is_active = True
+    shop.last_success_at = datetime(2026, 8, 24, 1, 2, 3)
+    db_session.add(make_alert(order_no="TRUSTED", state="pending", pay_amount=6000))
     db_session.commit()
-    service = XianyuOrderReconciliationService(
-        lock_path=str(tmp_path / "reconcile.lock")
-    )
-    monkeypatch.setattr(
-        service.xianyu_service,
-        "list_orders",
-        lambda: [make_order("SHARED-ORDER", 8000)],
-    )
 
-    assert [
-        row["order_no"] for row in service.get_snapshot()["alerts"]
-    ] == ["SHARED-ORDER"]
-    assert service.reconcile()["count"] == 1
-    assert service.ignore("SHARED-ORDER", "首店自行处理")["count"] == 0
+    class FailedClient:
+        def list_orders(self):
+            raise XianyuOrderServiceError("secret upstream body")
+
+    result = XianyuOrderReconciliationService(
+        service_factory=lambda _shop: FailedClient(),
+    ).reconcile_shop(shop.id)
+
+    db_session.refresh(shop)
+    assert [row["order_no"] for row in result["alerts"]] == ["TRUSTED"]
+    assert shop.last_success_at == datetime(2026, 8, 24, 1, 2, 3)
+    assert shop.last_error == "闲鱼订单查询失败"
+    shop.is_active = False
+    db_session.commit()
+    called = []
+    XianyuOrderReconciliationService(
+        service_factory=lambda row: called.append(row.id)
+    ).reconcile()
+    assert called == []
