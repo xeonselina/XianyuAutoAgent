@@ -40,6 +40,7 @@ temp/
 *.tmp
 
 # 测试相关
+tests/
 .coverage
 .pytest_cache/
 .tox/
@@ -79,6 +80,9 @@ xianyu-saas-lite-restore/
 *.pid
 
 # Vue前端开发文件
-frontend/node_modules/
-frontend/dist/
+frontend/
+frontend-mobile/
 vue-demo/
+
+# 设计提案不进入运行镜像
+openspec/

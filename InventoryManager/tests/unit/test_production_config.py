@@ -121,6 +121,7 @@ def test_runtime_template_has_only_safe_delivery_configuration():
 
 def test_one_image_and_parameterized_make_contract():
     dockerfile = (ROOT / "Dockerfile").read_text()
+    dockerignore = set((ROOT / ".dockerignore").read_text().splitlines())
     makefile = (ROOT / "Makefile").read_text()
     targets = set(re.findall(r"^([a-z][a-z-]*):", makefile, re.MULTILINE))
     assert 'CMD ["gunicorn", "--config", "gunicorn_config.py", "run:app"]' in dockerfile
@@ -130,6 +131,7 @@ def test_one_image_and_parameterized_make_contract():
     assert all(token not in makefile for token in (
         "NAS_", "sshpass", "docker-compose", "include .env", "REGISTRY :=",
     ))
+    assert {"tests/", "frontend/", "frontend-mobile/", "openspec/"} <= dockerignore
     for key in (
         "PROVISIONER_DATABASE_URL", "TENCENTCLOUD_SECRET_ID",
         "TENCENTCLOUD_SECRET_KEY", "TENCENT_SMS_SDK_APP_ID",
