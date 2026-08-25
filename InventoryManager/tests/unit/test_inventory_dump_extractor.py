@@ -33,6 +33,28 @@ def test_extracts_only_inventory_management(tmp_path):
     assert "devices" not in repr(summary)
 
 
+def test_extracted_segment_disables_fk_checks_for_restore_order(tmp_path):
+    source = tmp_path / "backup.sql"
+    source.write_text(
+        "SET FOREIGN_KEY_CHECKS=0;\n"
+        "-- Current Database: `inventory_management`\n"
+        "CREATE DATABASE `inventory_management`;\nUSE `inventory_management`;\n"
+        "CREATE TABLE child(id int, parent_id int, FOREIGN KEY(parent_id) "
+        "REFERENCES parent(id));\nCREATE TABLE parent(id int PRIMARY KEY);\n"
+        "-- Current Database: `mysql`\nUSE `mysql`;\n"
+        "SET FOREIGN_KEY_CHECKS=1;\n",
+        encoding="utf-8",
+    )
+    target = tmp_path / "restore.sql"
+
+    extract_database(source, target, "inventory_management_restore_test")
+
+    extracted = target.read_text(encoding="utf-8")
+    assert extracted.startswith("SET FOREIGN_KEY_CHECKS=0;\n")
+    assert "CREATE TABLE child" in extracted
+    assert "USE `mysql`" not in extracted
+
+
 def test_refuses_system_database(tmp_path):
     with pytest.raises(UnsafeDatabaseError):
         extract_database(
