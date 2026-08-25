@@ -8,6 +8,7 @@ import os
 DEFAULT_SAAS_MASTER_KEY = (
     'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
 )
+DEFAULT_SECRET_KEY = 'dev-secret-key-change-in-production'
 
 
 # 智能选择数据库连接：Docker 使用 DATABASE_URL，否则使用 HOST 变量
@@ -43,10 +44,8 @@ class Config:
     """基础配置类"""
 
     # 基础配置
-    SECRET_KEY = (
-        os.environ.get('SECRET_KEY')
-        or 'dev-secret-key-change-in-production'
-    )
+    DEFAULT_SECRET_KEY = DEFAULT_SECRET_KEY
+    SECRET_KEY = os.environ.get('SECRET_KEY') or DEFAULT_SECRET_KEY
     DEFAULT_SAAS_MASTER_KEY = DEFAULT_SAAS_MASTER_KEY
     SAAS_MASTER_KEY = (
         os.environ.get('SAAS_MASTER_KEY') or DEFAULT_SAAS_MASTER_KEY

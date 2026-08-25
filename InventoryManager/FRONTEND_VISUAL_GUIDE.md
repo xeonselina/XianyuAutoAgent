@@ -59,9 +59,6 @@ App.vue
     ├── InspectionView
     │   └── ChecklistForm
     │
-    ├── RentalContractView
-    │   └── printable contract
-    │
     └── ... (7 more views)
 ```
 
@@ -341,7 +338,6 @@ Body (scrollable)
 ├─ GanttView (main calendar)
 ├─ BatchShippingView (batch shipping)
 ├─ BatchShippingOrderView (batch detail)
-├─ RentalContractView (/contract/:id)
 ├─ ShippingOrderView (/shipping/:id)
 ├─ StatisticsView (dashboard)
 ├─ RentalStatsView (analytics)
@@ -478,4 +474,3 @@ npm run build
 # Outputs to dist/
 # Served from /static/mobile-dist/ in production
 ```
-

@@ -22,13 +22,13 @@
 4. 创建首个超级管理员：
 
    ```bash
-   python -m flask bootstrap-platform-admin --username '<admin>'
+   python -m flask --app run.py bootstrap-platform-admin --username '<admin>'
    ```
 
 5. 把旧生产库迁移为默认租户。下列两个确认值必须在备份和维护窗口均已核实时使用：
 
    ```bash
-   python -m flask migrate-default-tenant \
+   python -m flask --app run.py migrate-default-tenant \
      --name '<tenant-name>' \
      --admin-phone '<admin-phone>' \
      --expires-at '<ISO-8601-expiry>' \
@@ -47,7 +47,7 @@
 
 ```bash
 alembic -c control_alembic.ini upgrade head
-python -m flask upgrade-tenant-databases
+python -m flask --app run.py upgrade-tenant-databases
 ```
 
 新租户由超级管理员页面创建，app 使用 `PROVISIONER_DATABASE_URL` 同步建库、授权并迁移；worker 不参与 provisioning。

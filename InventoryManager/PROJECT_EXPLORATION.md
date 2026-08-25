@@ -35,9 +35,8 @@ InventoryManager/
 │
 ├── frontend/                     # PC端前端
 │   ├── src/
-│   │   ├── views/               # 页面组件（9个）
+│   │   ├── views/               # 页面组件
 │   │   │   ├── GanttView.vue           # 甘特图主页
-│   │   │   ├── RentalContractView.vue  # 租赁合同
 │   │   │   ├── ShippingOrderView.vue   # 发货单
 │   │   │   ├── BatchShippingView.vue   # 批量发货
 │   │   │   ├── StatisticsView.vue      # 统计数据

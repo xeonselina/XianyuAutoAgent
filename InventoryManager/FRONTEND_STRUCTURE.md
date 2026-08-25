@@ -64,7 +64,6 @@ Both are Vue 3 + TypeScript applications with their own independent build proces
 │   ├── GanttView.vue               # Main calendar view (Gantt chart)
 │   ├── BatchShippingView.vue       # Batch shipping management
 │   ├── BatchShippingOrderView.vue  # Batch order details
-│   ├── RentalContractView.vue      # Rental contract display
 │   ├── ShippingOrderView.vue       # Single shipping order
 │   ├── StatisticsView.vue          # Dashboard statistics (ECharts)
 │   ├── RentalStatsView.vue         # Rental cycle statistics
@@ -82,13 +81,11 @@ Both are Vue 3 + TypeScript applications with their own independent build proces
 4. **Statistics & Analytics** - Revenue, rental cycles, device utilization
 5. **Inspection Workflow** - Device condition tracking pre/post rental
 6. **S.F. Express Integration** - Waybill management and tracking
-7. **Contract Generation** - Rental contract printing/export
-8. **Device Management** - Inventory, models, accessories
+7. **Device Management** - Inventory, models, accessories
 
-### Router Configuration (11 routes)
+### Router Configuration
 - `/` - GanttView (main)
 - `/gantt` - Redirect to home
-- `/contract/:id` - RentalContractView
 - `/shipping/:id` - ShippingOrderView
 - `/batch-shipping-order` - BatchShippingOrderView
 - `/batch-shipping` - BatchShippingView

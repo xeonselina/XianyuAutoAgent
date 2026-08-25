@@ -376,11 +376,6 @@ type RentalStatus =
 
 ```typescript
 interface RentalActionButtons {
-  [租赁合同]: () => {
-    const url = router.resolve({ path: `/contract/${props.rental.id}` })
-    window.open(url.href, '_blank')
-  },
-  
   [发货单]: () => {
     const url = router.resolve({ path: `/shipping/${props.rental.id}` })
     window.open(url.href, '_blank')
@@ -434,4 +429,3 @@ interface RentalActionButtons {
 - [ ] Add offline detection + error messaging
 - [ ] Test form submission with intermittent network
 - [ ] Verify back button behavior closes form correctly
-

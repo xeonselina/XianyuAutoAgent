@@ -154,11 +154,6 @@
 │   │   - Details of a batch shipping order
 │   │   - Order contents and status
 │   │
-│   ├── RentalContractView.vue
-│   │   - Display rental contract
-│   │   - Printable rental agreement
-│   │   - Route param: /contract/:id
-│   │
 │   ├── ShippingOrderView.vue
 │   │   - Single shipping order details
 │   │   - Route param: /shipping/:id
@@ -192,7 +187,6 @@
 │   ├── AboutView.vue
 │   │   - About page / app info
 │   │
-│   └── (implicit) RentalContractView used in /contract/:id route
 │
 ├── api/
 │   - API client modules (if any - check for api/ folder)
@@ -512,4 +506,3 @@
 | **Target Device** | Desktop/laptop | Mobile/tablet |
 | **Complexity** | High (analytics, statistics) | Medium (core operations) |
 | **Line Count** | ~5000+ lines | ~1500 lines |
-

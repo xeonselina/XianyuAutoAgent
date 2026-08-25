@@ -181,6 +181,16 @@ def create_app(config_class=Config, worker_mode=False):
             )
         if not app.config.get('SQLALCHEMY_DATABASE_URI'):
             raise RuntimeError('Production app/worker requires DATABASE_URL')
+        if (
+            app.config.get('IS_PRODUCTION')
+            and not worker_mode
+            and (
+                not app.config.get('SECRET_KEY')
+                or app.config.get('SECRET_KEY')
+                == app.config.get('DEFAULT_SECRET_KEY')
+            )
+        ):
+            raise RuntimeError('Production app requires non-default SECRET_KEY')
 
     cors_origins = [] if worker_mode else _validated_cors_origins(
         app.config.get('CORS_ORIGINS')

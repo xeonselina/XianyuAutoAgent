@@ -422,6 +422,7 @@ def test_production_rejects_fake_sms_sender(auth_module):
         SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
         SQLALCHEMY_ENGINE_OPTIONS = {}
         TENANT_DB_HOST = "127.0.0.1"
+        SECRET_KEY = "test-session-secret"
         SAAS_MASTER_KEY = MASTER_KEY
         DEV_SMS_CODE = None
         CONTROL_DATABASE_URL = "mysql+pymysql://app@127.0.0.1:9/control"
@@ -549,6 +550,7 @@ def test_gunicorn_entrypoint_ignores_docker_profile_and_uses_production_security
             "TENANT_DB_NAME_PREFIX": "inventory_tenant_",
             "TENANT_DB_USER_PREFIX": "im_t",
             "SAAS_MASTER_KEY": MASTER_KEY,
+            "SECRET_KEY": "test-session-secret",
             "CORS_ORIGINS": "https://inventory.example",
             "TENCENTCLOUD_SECRET_ID": "test-secret-id",
             "TENCENTCLOUD_SECRET_KEY": "test-secret-key",

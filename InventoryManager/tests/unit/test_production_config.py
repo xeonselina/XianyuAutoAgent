@@ -20,6 +20,7 @@ def _production_config(tmp_path, **overrides):
         "CONTROL_DATABASE_URL": f"sqlite:///{tmp_path / 'control.db'}",
         "PROVISIONER_DATABASE_URL": f"sqlite:///{tmp_path / 'provisioner.db'}",
         "SAAS_MASTER_KEY": MASTER_KEY,
+        "SECRET_KEY": "test-session-secret",
         "DEV_SMS_CODE": None,
         "TENANT_DB_HOST": "127.0.0.1",
         "TENANT_DB_PORT": 33316,
@@ -58,6 +59,19 @@ def test_production_modes_fail_closed_for_database_boundary(
 def test_production_config_has_no_local_root_or_tenant_host_fallback():
     assert ProductionConfig.SQLALCHEMY_DATABASE_URI is None
     assert ProductionConfig.TENANT_DB_HOST is None
+
+
+@pytest.mark.parametrize("secret", [None, "dev-secret-key-change-in-production"])
+def test_production_app_rejects_missing_or_default_session_secret(tmp_path, secret):
+    with pytest.raises(RuntimeError, match="SECRET_KEY"):
+        create_app(_production_config(tmp_path, SECRET_KEY=secret))
+
+
+def test_worker_ignores_app_only_session_secret(tmp_path):
+    application = create_app(
+        _production_config(tmp_path, SECRET_KEY=None), worker_mode=True,
+    )
+    application.extensions["tenant_resource_finalizer"]()
 
 
 def test_same_production_config_bootstraps_app_and_worker(tmp_path):
@@ -133,6 +147,7 @@ def test_handoff_and_retired_artifacts_are_sanitized():
         "upgrade-tenant-databases", "python worker.py", "--once",
         "维护窗口", "完整备份", "NAS", "公网入口",
     ))
+    assert text.count("python -m flask --app run.py") == 3
     assert "compose" not in text.lower()
     for path in (
         ROOT / ".env.docker", ROOT / "env.production", ROOT / "deploy.sh",
@@ -168,6 +183,9 @@ def test_rental_contract_and_exclusive_ocr_surface_is_removed():
             "frontend/src/components/rental/EditRentalDialogNew.vue",
             "app/routes/web.py", "app/routes/web_pages.py",
             "app/routes/vue_app.py", "README.md", "docs/安装使用说明.md",
+            "FORM_FIELD_MAPPING.md", "FRONTEND_STRUCTURE.md",
+            "PROJECT_EXPLORATION.md", "FRONTEND_COMPLETE_LISTING.md",
+            "FRONTEND_VISUAL_GUIDE.md", "MOBILE_FORM_DESIGN_ANALYSIS.md",
         )
     }
     assert all(token not in "\n".join(sources.values()) for token in (
@@ -185,4 +203,5 @@ def test_rental_contract_and_exclusive_ocr_surface_is_removed():
         for path in (ROOT / "static/vue-dist/assets").glob("*.js")
     )
     assert "租赁合同" not in bundles and "/api/ocr/id-card" not in bundles
-    assert "alibabacloud-ocr" not in (ROOT / "requirements.txt").read_text()
+    requirements = (ROOT / "requirements.txt").read_text()
+    assert "alibabacloud-ocr" not in requirements and "python-docx" not in requirements

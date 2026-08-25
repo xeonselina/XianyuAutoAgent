@@ -79,7 +79,6 @@ Mobile challenge: **Both forms are currently 600px wide, desktop-only dialogs**.
 
 ```
 ┌─ Section 1: Action Buttons (top, before form)
-│  ├─ [租赁合同] button → open URL in new tab
 │  ├─ [发货单] button → open URL in new tab
 │  ├─ [发货到闲鱼] button (conditional: requires xianyu_order_no + ship_out_tracking_no)
 │  └─ [删除租赁] button
@@ -779,4 +778,3 @@ Mobile challenge: Many refs to manage, state sprawl. Could benefit from Pinia fo
 6. **Improve Async Feedback**: Add clear loading messages, not just spinners
 7. **Test on Real Devices**: iOS Safari, Android Chrome with slow 3G network
 8. **Consider Native Mobile App**: If web version becomes too complex, might warrant native approach
-

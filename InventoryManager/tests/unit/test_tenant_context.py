@@ -216,6 +216,7 @@ def test_runtime_config_changes_cannot_enable_production_auth_bypass():
         SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
         SQLALCHEMY_ENGINE_OPTIONS = {}
         TENANT_DB_HOST = "127.0.0.1"
+        SECRET_KEY = "test-session-secret"
         AUTH_BYPASS_FOR_TESTS = False
         SAAS_MASTER_KEY = MASTER_KEY
         DEV_SMS_CODE = None
