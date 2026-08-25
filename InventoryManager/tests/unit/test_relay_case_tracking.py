@@ -37,7 +37,11 @@ def db_session(app):
         db.drop_all()
 
 
-def seed_shipped_case(db_session, phone="13800138000"):
+def seed_shipped_case(
+    db_session,
+    predecessor_phone="13800138000",
+    successor_phone="13900139000",
+):
     model = DeviceModel(
         name="relay-tracking",
         display_name="接力物流测试",
@@ -61,7 +65,7 @@ def seed_shipped_case(db_session, phone="13800138000"):
         ship_out_time=datetime(2026, 8, 1, 19),
         ship_in_time=datetime(2026, 8, 9, 12),
         customer_name="前单",
-        customer_phone=phone,
+        customer_phone=predecessor_phone,
         destination="杭州",
         status="not_shipped",
     )
@@ -72,6 +76,7 @@ def seed_shipped_case(db_session, phone="13800138000"):
         ship_out_time=datetime(2026, 8, 7, 19),
         ship_in_time=datetime(2026, 8, 16, 12),
         customer_name="后单",
+        customer_phone=successor_phone,
         status="not_shipped",
     )
     db_session.add_all([first, second])
@@ -85,7 +90,7 @@ def seed_shipped_case(db_session, phone="13800138000"):
     return outcome.relay_case
 
 
-def test_refresh_uses_predecessor_phone_and_does_not_complete(
+def test_refresh_uses_successor_phone_and_does_not_complete(
     app, db_session, monkeypatch
 ):
     relay_case = seed_shipped_case(db_session)
@@ -126,7 +131,7 @@ def test_refresh_uses_predecessor_phone_and_does_not_complete(
 
     assert captured == {
         "number": "SF1234567890",
-        "phone_last4": "8000",
+        "phone_last4": "9000",
     }
     assert relay_case.status == "shipped"
     assert relay_case.sf_tracking_status == "delivered"
@@ -142,7 +147,7 @@ def test_refresh_uses_predecessor_phone_and_does_not_complete(
 def test_refresh_without_phone_keeps_shipped_and_caches_reason(
     app, db_session, monkeypatch
 ):
-    relay_case = seed_shipped_case(db_session, phone=None)
+    relay_case = seed_shipped_case(db_session, successor_phone=None)
     called = []
 
     def query(_cls, *_args):
@@ -155,7 +160,7 @@ def test_refresh_without_phone_keeps_shipped_and_caches_reason(
     assert called == []
     assert relay_case.status == "shipped"
     assert relay_case.sf_tracking_status == "query_failed"
-    assert "缺少前单客户手机号" in relay_case.sf_tracking_summary
+    assert "缺少后单客户手机号" in relay_case.sf_tracking_summary
     assert result["status"] == "query_failed"
 
 

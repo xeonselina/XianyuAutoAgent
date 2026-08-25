@@ -653,6 +653,7 @@ class RelayCaseService:
                     raise ValueError("已寄出必须录入顺丰运单号")
                 relay_case.sf_tracking_number = tracking_number
                 if entering_shipped:
+                    predecessor.status = "returned"
                     successor.ship_out_tracking_no = tracking_number
                     successor.status = "shipped"
                     if successor.ship_out_time is None:
@@ -693,10 +694,10 @@ class RelayCaseService:
 
         try:
             phone_digits = re.sub(
-                r"\D", "", relay_case.predecessor.customer_phone or ""
+                r"\D", "", relay_case.successor.customer_phone or ""
             )
             if len(phone_digits) < 4:
-                raise ValueError("缺少前单客户手机号，无法查询顺丰物流")
+                raise ValueError("缺少后单客户手机号，无法查询顺丰物流")
 
             route_info = SFTrackingService.query(
                 relay_case.sf_tracking_number,
