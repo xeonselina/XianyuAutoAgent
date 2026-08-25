@@ -12,8 +12,8 @@ DEFAULT_RETURN_ADDRESS = {
     "province": "广东省",
     "city": "深圳市",
     "district": "南山区",
-    "detail": "***REMOVED_ADDRESS***",
-    "full_address": "***REMOVED_ADDRESS***",
+    "detail": "请联系客服获取最新归还地址",
+    "full_address": "请联系客服获取最新归还地址",
     "courier_suggestion": "建议顺丰寄回",
 }
 

@@ -24,3 +24,12 @@ def test_nas_deploy_requires_explicit_passwords_without_xtrace():
     assert 'if [[ -z "$NAS_PASS" || -z "$SUDO_PASS" ]]' in source
     assert source.index("set +x") < source.index("NAS_PASS=")
     assert "***REMOVED***" not in source
+
+
+def test_customer_guidance_uses_safe_runtime_address_prompt():
+    tool_source = (ROOT / "tools/get_return_address.py").read_text()
+    knowledge_source = (ROOT / "scripts/init_rental_knowledge.py").read_text()
+
+    assert "***REMOVED" not in tool_source + knowledge_source
+    assert "请联系客服获取最新归还地址" in tool_source
+    assert "以客服实时提供的地址为准" in knowledge_source
