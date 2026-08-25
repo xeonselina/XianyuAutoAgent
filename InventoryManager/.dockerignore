@@ -71,6 +71,8 @@ yarn-error.log*
 *.db
 *.sqlite
 *.sqlite3
+*.sql
+xianyu-saas-lite-restore/
 
 # 其他
 .pytest_cache
