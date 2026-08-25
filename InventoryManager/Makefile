@@ -172,7 +172,7 @@ run-worker: ## 运行独立 Worker（从.env读取配置）
 stop-all: ## 停止所有后台服务
 	@echo "停止所有后台服务..."
 	@pkill -f "python3 app.py" || true
-	@pkill -f "python3 device_status_scheduler.py" || true
+	@pkill -f "worker.py" || true
 	@echo "所有服务已停止"
 
 .PHONY: run-gunicorn

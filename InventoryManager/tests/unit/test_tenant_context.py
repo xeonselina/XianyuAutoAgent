@@ -347,7 +347,7 @@ def test_worker_mode_requires_only_worker_database_credentials(tmp_path, missing
         assert not {
             "tenant_provisioner", "sms_sender", "auth_service"
         } & application.extensions.keys()
-        assert application.test_client().get("/health").status_code == 404
+        assert not list(application.url_map.iter_rules()) and application.test_client().get("/static/missing").status_code == 404
     finally:
         application.extensions["tenant_resource_finalizer"]()
 

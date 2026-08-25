@@ -110,7 +110,7 @@ def create_app(config_class=Config, worker_mode=False):
     app = Flask(
         __name__,
         template_folder=os.path.join(project_root, 'templates'),
-        static_folder=os.path.join(project_root, 'static'),
+        static_folder=None if worker_mode else os.path.join(project_root, 'static'),
     )
     app.config.from_object(config_class)
 

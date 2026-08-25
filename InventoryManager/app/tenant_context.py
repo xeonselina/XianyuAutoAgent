@@ -26,6 +26,7 @@ def reset_tenant(token: Token) -> None:
     """Restore the binding that existed before ``bind_tenant``."""
     _tenant_binding.reset(token)
 
+def clear_tenant_binding() -> None: _tenant_binding.set(None)
 
 def current_tenant_id() -> int | None:
     """Return the current tenant id without exposing its engine."""

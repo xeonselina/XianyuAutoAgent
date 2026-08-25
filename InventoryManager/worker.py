@@ -10,7 +10,7 @@ from sqlalchemy import select, text
 
 from app import create_app, db
 from app.control.models import Tenant
-from app.tenant_context import bind_tenant, reset_tenant
+from app.tenant_context import bind_tenant, clear_tenant_binding, reset_tenant
 from app.utils.scheduler_tasks import (
     process_scheduled_shipments_for_current_tenant,
     reconcile_active_shops_for_current_tenant,
@@ -34,9 +34,11 @@ class Worker:
     def acquire_lock(self):
         connection = self.control_store.engine.connect()
         try:
+            connection.execute(text("SET SESSION wait_timeout = 86400"))
             acquired = connection.execute(
                 text("SELECT GET_LOCK(:name, 0)"), {"name": LOCK_NAME}
             ).scalar_one()
+            self._connection_id = connection.execute(text("SELECT CONNECTION_ID()")).scalar_one()
         except Exception:
             connection.close()
             raise
@@ -58,7 +60,10 @@ class Worker:
 
     def _run_cycle(self, task):
         for tenant in self._eligible_tenants():
-            with self.app.app_context():
+            context = self.app.app_context()
+            try: context.push()
+            except Exception as exc: logger.error("Worker租户上下文异常，租户ID: %s，类型: %s", tenant.id, type(exc).__name__); continue
+            else:
                 token = None
                 try:
                     token = bind_tenant(
@@ -72,8 +77,12 @@ class Worker:
                     )
                 finally:
                     if token is not None:
-                        db.session.remove()
-                        reset_tenant(token)
+                        try: db.session.remove()
+                        except Exception as exc: logger.error("Worker租户会话清理异常，租户ID: %s，类型: %s", tenant.id, type(exc).__name__)
+                        try: reset_tenant(token)
+                        except Exception as exc: clear_tenant_binding(); logger.error("Worker租户绑定清理异常，租户ID: %s，类型: %s", tenant.id, type(exc).__name__)
+            try: context.pop()
+            except Exception as exc: logger.error("Worker租户上下文清理异常，租户ID: %s，类型: %s", tenant.id, type(exc).__name__)
 
     def run_scheduled_shipping_cycle(self):
         self._run_cycle(process_scheduled_shipments_for_current_tenant)
@@ -111,6 +120,7 @@ class Worker:
             self.run_xianyu_sync_cycle()
             self.register_jobs()
             while True:
+                if self._lock_connection.execute(text("SELECT IS_USED_LOCK(:name)"), {"name": LOCK_NAME}).scalar_one() != self._connection_id: raise RuntimeError("lock ownership lost")
                 self.scheduler.run_pending()
                 self.sleeper(0.5)
         except KeyboardInterrupt:

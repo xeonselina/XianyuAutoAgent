@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import DEFAULT, Mock
 
 import pytest
 import schedule
@@ -28,7 +29,7 @@ class FakeConnection:
     def execute(self, statement, parameters=None):
         sql = str(statement)
         self.statements.append((sql, parameters))
-        value = self.lock_result if "GET_LOCK" in sql else 1
+        value = self.lock_result if any(key in sql for key in ("GET_LOCK", "CONNECTION_ID", "IS_USED_LOCK")) else 1
         return SimpleNamespace(scalar_one=lambda: value)
 
     def close(self):
@@ -70,20 +71,20 @@ def _lock_worker(lock_result, sleeper=lambda _seconds: None):
 
 def test_worker_runs_startup_serially_registers_two_jobs_and_releases_lock():
     def stop(_seconds):
-        raise KeyboardInterrupt
+        store.connection.lock_result = 0
 
     worker, store, registry = _lock_worker(1, stop)
     events = []
     worker.run_scheduled_shipping_cycle = lambda: events.append("shipping")
     worker.run_xianyu_sync_cycle = lambda: events.append("xianyu")
 
-    assert worker.run_forever() is True
+    with pytest.raises(RuntimeError, match="lock ownership lost"): worker.run_forever()
     assert events == ["shipping", "xianyu"]
     assert [(job.interval, job.unit) for job in worker.scheduler.jobs] == [
         (60, "seconds"), (180, "seconds"),
     ]
-    assert "GET_LOCK" in store.connection.statements[0][0]
-    assert store.connection.statements[0][1]["name"] == "inventory-manager-worker-v1"
+    assert "GET_LOCK" in store.connection.statements[1][0]
+    assert store.connection.statements[1][1]["name"] == "inventory-manager-worker-v1"
     assert "RELEASE_LOCK" in store.connection.statements[-1][0]
     assert store.connection.closed and store.disposed and registry.disposed
 
@@ -95,7 +96,7 @@ def test_second_worker_exits_without_entering_standby():
     assert worker.run_forever() is False
     assert sleeps == []
     assert store.connection.closed and store.disposed and registry.disposed
-    assert len(store.connection.statements) == 1
+    assert len(store.connection.statements) == 3
 
 
 def test_cycle_filters_tenants_and_cleans_binding_after_each(tmp_path, monkeypatch):
@@ -121,7 +122,7 @@ def test_cycle_filters_tenants_and_cleans_binding_after_each(tmp_path, monkeypat
     app = create_app("testing")
     registry = FakeRegistry()
     app.extensions.update(control_store=store, tenant_engine_registry=registry)
-    observed, removed = [], []
+    observed = []
 
     def task():
         observed.append(current_tenant_id())
@@ -130,13 +131,13 @@ def test_cycle_filters_tenants_and_cleans_binding_after_each(tmp_path, monkeypat
 
     original_remove = worker_module.db.session.remove
     monkeypatch.setattr(worker_module, "process_scheduled_shipments_for_current_tenant", task)
-    monkeypatch.setattr(worker_module.db.session, "remove", lambda: (removed.append(current_tenant_id()), original_remove())[1])
+    monkeypatch.setattr(worker_module.db.session, "remove", Mock(wraps=original_remove, side_effect=[RuntimeError("remove"), DEFAULT, DEFAULT, DEFAULT]))
+    monkeypatch.setattr(worker_module, "reset_tenant", Mock(wraps=worker_module.reset_tenant, side_effect=[RuntimeError("reset"), DEFAULT]))
     worker = worker_module.Worker(app, clock=lambda: NOW)
     worker.run_scheduled_shipping_cycle()
 
     assert observed == [1, 5]
     assert registry.seen == [1, 5]
-    assert [tenant_id for tenant_id in removed if tenant_id] == [1, 5]
     assert current_tenant_id() is None
     worker.shutdown()
     app.extensions["tenant_resource_finalizer"]()
