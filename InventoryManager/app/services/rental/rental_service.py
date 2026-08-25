@@ -637,6 +637,7 @@ class RentalService:
             if not rental:
                 raise ValueError('租赁记录不存在')
             target_rental_id = rental.id
+            main_rental_id = rental.parent_rental_id or rental.id
 
             warehouse_id = resolve_write_warehouse_id(
                 data.get('warehouse_id')
@@ -694,6 +695,30 @@ class RentalService:
                 )
             except (TypeError, ValueError):
                 selection_is_unchanged = False
+            if not selection_is_unchanged:
+                # No-lock, no-mutation current-status preflight. Its short
+                # connection avoids retaining a Rental lock before Device
+                # validation; the later locked group guard remains authoritative
+                # if fulfillment history changes concurrently.
+                snapshot_bind = db.session.get_bind()
+                with snapshot_bind.connect() as snapshot_connection:
+                    snapshot_rows = snapshot_connection.execute(
+                        db.select(
+                            Rental.status,
+                            Rental.ship_out_tracking_no,
+                        )
+                        .where(
+                            (Rental.id == main_rental_id)
+                            | (Rental.parent_rental_id == main_rental_id)
+                        )
+                        .order_by(Rental.id)
+                    ).all()
+                if any(
+                    row.status in {'shipped', 'returned', 'completed'}
+                    or bool(str(row.ship_out_tracking_no or '').strip())
+                    for row in snapshot_rows
+                ):
+                    raise ValueError('已履约租赁不能更换仓库或设备')
             occupancy_is_unchanged = (
                 start_date == rental.start_date
                 and end_date == rental.end_date
@@ -720,7 +745,6 @@ class RentalService:
             # Device rows are always locked before Rental rows. The explicit
             # current read below serializes edits to this main/child group and
             # refreshes objects that may already be present in the identity map.
-            main_rental_id = rental.parent_rental_id or rental.id
             locked_group = (
                 Rental.query.filter(
                     (Rental.id == main_rental_id)

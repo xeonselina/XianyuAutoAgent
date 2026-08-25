@@ -727,6 +727,107 @@ def test_fulfilled_rental_rejects_identity_reassignment_atomically(
         ("not_shipped", "SF-OUTBOUND-EVIDENCE"),
     ],
 )
+@pytest.mark.parametrize(
+    "identity_change",
+    ["warehouse", "main_device", "accessory"],
+)
+def test_fulfilled_rental_partial_identity_edits_use_history_guard(
+    client,
+    app,
+    warehouse_case,
+    status,
+    ship_out_tracking_no,
+    identity_change,
+):
+    created = client.post(
+        "/api/rentals",
+        json=_rental_payload(
+            warehouse_case,
+            accessories=[warehouse_case["accessory_a"]],
+        ),
+    )
+    rental_id = created.get_json()["data"]["main_rental"]["id"]
+    with app.app_context():
+        rental = db.session.get(Rental, rental_id)
+        rental.status = status
+        rental.ship_out_tracking_no = ship_out_tracking_no
+        for child in rental.child_rentals:
+            child.status = status
+            child.ship_out_tracking_no = ship_out_tracking_no
+        db.session.commit()
+        original_customer = rental.customer_name
+
+    payload = {
+        "warehouse_id": warehouse_case["warehouse_a"],
+        "customer_name": "不得部分写入",
+    }
+    if identity_change == "warehouse":
+        payload["warehouse_id"] = warehouse_case["warehouse_b"]
+    elif identity_change == "main_device":
+        payload["device_id"] = warehouse_case["main_b"]
+    else:
+        payload["accessories"] = [warehouse_case["accessory_b"]]
+
+    response = client.put(f"/api/rentals/{rental_id}", json=payload)
+
+    assert response.status_code == 400
+    assert response.get_json()["message"] == "已履约租赁不能更换仓库或设备"
+    with app.app_context():
+        persisted = db.session.get(Rental, rental_id)
+        children = list(persisted.child_rentals)
+        assert persisted.warehouse_id == warehouse_case["warehouse_a"]
+        assert persisted.device_id == warehouse_case["main_a"]
+        assert persisted.customer_name == original_customer
+        assert len(children) == 1
+        assert children[0].warehouse_id == warehouse_case["warehouse_a"]
+        assert children[0].device_id == warehouse_case["accessory_a"]
+
+
+@pytest.mark.parametrize(
+    "identity_change",
+    ["warehouse", "main_device", "accessory"],
+)
+def test_unfulfilled_partial_identity_edits_keep_selection_validation(
+    client, app, warehouse_case, identity_change
+):
+    created = client.post(
+        "/api/rentals",
+        json=_rental_payload(
+            warehouse_case,
+            accessories=[warehouse_case["accessory_a"]],
+        ),
+    )
+    rental_id = created.get_json()["data"]["main_rental"]["id"]
+    payload = {"warehouse_id": warehouse_case["warehouse_a"]}
+    if identity_change == "warehouse":
+        payload["warehouse_id"] = warehouse_case["warehouse_b"]
+    elif identity_change == "main_device":
+        payload["device_id"] = warehouse_case["main_b"]
+    else:
+        payload["accessories"] = [warehouse_case["accessory_b"]]
+
+    response = client.put(f"/api/rentals/{rental_id}", json=payload)
+
+    assert response.status_code == 409
+    assert response.get_json()["code"] == "WAREHOUSE_MISMATCH"
+    with app.app_context():
+        persisted = db.session.get(Rental, rental_id)
+        assert persisted.warehouse_id == warehouse_case["warehouse_a"]
+        assert persisted.device_id == warehouse_case["main_a"]
+        assert {child.device_id for child in persisted.child_rentals} == {
+            warehouse_case["accessory_a"]
+        }
+
+
+@pytest.mark.parametrize(
+    ("status", "ship_out_tracking_no"),
+    [
+        ("shipped", None),
+        ("returned", None),
+        ("completed", None),
+        ("not_shipped", "SF-OUTBOUND-EVIDENCE"),
+    ],
+)
 def test_fulfilled_rental_allows_same_identity_metadata_edit(
     client, app, warehouse_case, status, ship_out_tracking_no
 ):
