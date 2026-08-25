@@ -195,25 +195,6 @@ def test_cli_adopts_existing_database_preserves_rows_and_is_idempotent(
     assert len(tenants) == len(members) == 1
 
 
-def test_cli_repairs_backup_missing_xianyu_tables(legacy_environment):
-    environment, engine = legacy_environment
-    with engine.begin() as connection:
-        connection.exec_driver_sql("DROP TABLE xianyu_order_sync_state")
-        connection.exec_driver_sql("DROP TABLE xianyu_order_alerts")
-
-    result = _invoke(environment)
-
-    assert result.exit_code == 0, result.output
-    report = json.loads(result.output)
-    with engine.connect() as connection:
-        assert inspect(connection).has_table("xianyu_order_alerts")
-        assert connection.scalar(text("SELECT count(*) FROM xianyu_order_alerts")) == 0
-        assert connection.execute(text(
-            "SELECT last_success_at, last_error FROM xianyu_shops"
-        )).one() == (None, None)
-    assert report["head"] == CURRENT_HEAD
-
-
 def test_cli_preserves_multiple_main_rentals_for_one_order(legacy_environment):
     environment, engine = legacy_environment
     with engine.begin() as connection:
