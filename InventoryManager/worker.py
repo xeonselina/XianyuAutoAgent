@@ -59,6 +59,7 @@ class Worker:
             ))
 
     def _run_cycle(self, task):
+        if self._lock_connection is not None and self._lock_connection.execute(text("SELECT IS_USED_LOCK(:name)"), {"name": LOCK_NAME}).scalar_one() != self._connection_id: raise RuntimeError("lock ownership lost")
         for tenant in self._eligible_tenants():
             context = self.app.app_context()
             try: context.push()
@@ -120,7 +121,6 @@ class Worker:
             self.run_xianyu_sync_cycle()
             self.register_jobs()
             while True:
-                if self._lock_connection.execute(text("SELECT IS_USED_LOCK(:name)"), {"name": LOCK_NAME}).scalar_one() != self._connection_id: raise RuntimeError("lock ownership lost")
                 self.scheduler.run_pending()
                 self.sleeper(0.5)
         except KeyboardInterrupt:

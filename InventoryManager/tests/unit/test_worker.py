@@ -69,17 +69,15 @@ def _lock_worker(lock_result, sleeper=lambda _seconds: None):
     return Worker(app, scheduler=schedule.Scheduler(), sleeper=sleeper), store, registry
 
 
-def test_worker_runs_startup_serially_registers_two_jobs_and_releases_lock():
-    def stop(_seconds):
-        store.connection.lock_result = 0
-
-    worker, store, registry = _lock_worker(1, stop)
+def test_worker_stops_between_startup_cycles_when_lock_is_lost_and_releases():
+    worker, store, registry = _lock_worker(1)
     events = []
-    worker.run_scheduled_shipping_cycle = lambda: events.append("shipping")
-    worker.run_xianyu_sync_cycle = lambda: events.append("xianyu")
+    worker.run_scheduled_shipping_cycle = lambda: (events.append("shipping"), setattr(store.connection, "lock_result", 0))
+    worker._eligible_tenants = lambda: events.append("xianyu") or []
+    worker.register_jobs()
 
     with pytest.raises(RuntimeError, match="lock ownership lost"): worker.run_forever()
-    assert events == ["shipping", "xianyu"]
+    assert events == ["shipping"]
     assert [(job.interval, job.unit) for job in worker.scheduler.jobs] == [
         (60, "seconds"), (180, "seconds"),
     ]
