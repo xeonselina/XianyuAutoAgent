@@ -16,11 +16,6 @@ app = create_app()
 os.environ.setdefault('FLASK_ENV', 'development')
 
 
-# ===================== 旧的内置调度器已迁移到新的调度器模块 =====================
-# 设备状态更新和快递查询任务现在由 app/utils/scheduler.py 统一管理
-# 在应用启动时会自动启动新的调度器
-
-
 @app.shell_context_processor
 def make_shell_context():
     """为Flask shell提供上下文"""
@@ -138,5 +133,4 @@ def check_device_status():
 
 if __name__ == '__main__':
     port = int(os.environ.get('APP_PORT', 5002))  # 使用环境变量或默认端口5002
-    # 新的调度器已在应用初始化时启动（见 app/__init__.py）
     app.run(debug=True, host='0.0.0.0', port=port)

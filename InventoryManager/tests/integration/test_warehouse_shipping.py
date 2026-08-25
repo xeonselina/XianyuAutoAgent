@@ -200,6 +200,8 @@ def test_schedule_isolates_external_failure_per_rental(
         json={"tracking_number": "SF-B"})
     assert (legacy.status_code, legacy.get_json()["code"]) == (
         502, "EXTERNAL_SERVICE_ERROR")
+    assert _tenant_request(app, "post", "/api/tracking/update-now").status_code == 410
+    assert _tenant_request(app, "get", "/api/tracking/scheduler-status").status_code == 410
     assert "private upstream body" not in str(legacy.get_json())
     assert "private upstream body" not in caplog.text
 

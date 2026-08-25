@@ -326,3 +326,35 @@ def test_create_app_does_not_start_in_process_scheduler(monkeypatch):
 
     assert application.testing is True
     assert scheduler_calls == []
+
+
+@pytest.mark.parametrize("missing", ["SAAS_MASTER_KEY", "CONTROL_DATABASE_URL"])
+def test_worker_mode_requires_only_worker_database_credentials(tmp_path, missing):
+    attributes = {
+        "TESTING": True,
+        "SAAS_MASTER_KEY": MASTER_KEY,
+        "CONTROL_DATABASE_URL": f"sqlite+pysqlite:///{tmp_path / 'control.db'}",
+        "PROVISIONER_DATABASE_URL": None,
+        "TENCENTCLOUD_SECRET_ID": None,
+        "TENCENTCLOUD_SECRET_KEY": None,
+        "TENCENT_SMS_SDK_APP_ID": None,
+        "TENCENT_SMS_SIGN_NAME": None,
+        "TENCENT_SMS_TEMPLATE_ID": None,
+    }
+    worker_config = type("WorkerProductionConfig", (ProductionConfig,), attributes)
+    application = create_app(worker_config, worker_mode=True)
+    try:
+        assert not {
+            "tenant_provisioner", "sms_sender", "auth_service"
+        } & application.extensions.keys()
+        assert application.test_client().get("/health").status_code == 404
+    finally:
+        application.extensions["tenant_resource_finalizer"]()
+
+    attributes[missing] = None
+    invalid_config = type("InvalidWorkerConfig", (ProductionConfig,), attributes)
+    with pytest.raises(RuntimeError, match=missing):
+        create_app(invalid_config, worker_mode=True)
+
+    with pytest.raises(RuntimeError, match="PROVISIONER_DATABASE_URL"):
+        create_app(worker_config)

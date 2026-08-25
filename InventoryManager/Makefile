@@ -164,27 +164,9 @@ run: ## 运行开发服务器（从.env读取配置）
 	@[ -f .env ] || { echo "未找到 .env 文件，请先创建"; exit 1; }
 	@set -a; . .env; set +a; $(VENV_PYTHON) app.py
 
-.PHONY: run-scheduler
-run-scheduler: ## 运行设备状态自动更新定时任务
-	@echo "启动设备状态自动更新定时任务..."
-	@echo "使用改进的启动脚本..."
-	./start_scheduler.sh
-
-.PHONY: run-scheduler-direct
-run-scheduler-direct: ## 直接运行定时任务（从.env读取配置）
-	@echo "直接启动设备状态自动更新定时任务..."
-	@[ -f .env ] || { echo "未找到 .env 文件，请先创建"; exit 1; }
-	@set -a; . .env; set +a; $(VENV_PYTHON) device_status_scheduler.py
-
-.PHONY: run-with-scheduler
-run-with-scheduler: ## 同时运行Flask应用和定时任务（从.env读取配置）
-	@echo "同时启动Flask应用和定时任务..."
-	@[ -f .env ] || { echo "未找到 .env 文件，请先创建"; exit 1; }
-	@echo "启动Flask应用..."
-	@set -a; . .env; set +a; $(VENV_PYTHON) app.py &
-	@echo "启动定时任务..."
-	@set -a; . .env; set +a; $(VENV_PYTHON) device_status_scheduler.py &
-	@echo "所有服务已启动，使用 'make stop-all' 停止"
+.PHONY: run-worker
+run-worker: ## 运行独立 Worker（从.env读取配置）
+	@set -a; . .env; set +a; $(VENV_PYTHON) worker.py
 
 .PHONY: stop-all
 stop-all: ## 停止所有后台服务

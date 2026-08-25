@@ -13,15 +13,12 @@ from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 from flask import Flask
-from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from app.auth import AuthService, FakeSmsSender, TencentSmsSender
 from app.control.store import ControlStore
 from app.crypto import SecretBox
-from app.provisioning import TenantProvisioner
 from app.tenant_context import TenantEngineRegistry, TenantSession
 
 # 提前加载 .env，确保 Config 读取到环境变量
@@ -97,7 +94,7 @@ def _dispose_tenant_resources(
         control_store.dispose()
 
 
-def create_app(config_class=Config):
+def create_app(config_class=Config, worker_mode=False):
     """应用工厂函数"""
     if isinstance(config_class, str):
         try:
@@ -127,11 +124,10 @@ def create_app(config_class=Config):
             x_proto=trusted_proxy_hops,
         )
 
-    auth_bypass_requested = bool(
-        app.config.get('AUTH_BYPASS_FOR_TESTS')
-    )
+    auth_bypass_requested = bool(app.config.get('AUTH_BYPASS_FOR_TESTS'))
     if (
-        auth_bypass_requested
+        not worker_mode
+        and auth_bypass_requested
         and (
             not app.testing
             or app.config.get('IS_PRODUCTION')
@@ -142,7 +138,7 @@ def create_app(config_class=Config):
             'and non-production configuration'
         )
 
-    if app.config.get('IS_PRODUCTION'):
+    if app.config.get('IS_PRODUCTION') or worker_mode:
         master_key = app.config.get('SAAS_MASTER_KEY')
         if (
             not master_key
@@ -151,13 +147,17 @@ def create_app(config_class=Config):
             raise RuntimeError(
                 'Production requires a non-default SAAS_MASTER_KEY'
             )
-        if app.config.get('DEV_SMS_CODE'):
+        if (
+            app.config.get('IS_PRODUCTION')
+            and not worker_mode
+            and app.config.get('DEV_SMS_CODE')
+        ):
             raise RuntimeError('Production forbids DEV_SMS_CODE')
         if not app.config.get('CONTROL_DATABASE_URL'):
             raise RuntimeError(
                 'Production requires CONTROL_DATABASE_URL'
             )
-        if not app.config.get('PROVISIONER_DATABASE_URL'):
+        if not worker_mode and not app.config.get('PROVISIONER_DATABASE_URL'):
             raise RuntimeError(
                 'Production requires PROVISIONER_DATABASE_URL'
             )
@@ -169,18 +169,32 @@ def create_app(config_class=Config):
             raise RuntimeError(
                 'Production requires TENANT_DB_USER_PREFIX=im_t'
             )
+        tenant_host = app.config.get('TENANT_DB_HOST')
+        tenant_port = app.config.get('TENANT_DB_PORT')
+        if worker_mode and not tenant_host:
+            raise RuntimeError('Worker requires TENANT_DB_HOST')
+        if worker_mode and (
+            not isinstance(tenant_port, int) or not 1 <= tenant_port <= 65535
+        ):
+            raise RuntimeError('Worker requires a valid TENANT_DB_PORT')
 
-    cors_origins = _validated_cors_origins(
+    cors_origins = [] if worker_mode else _validated_cors_origins(
         app.config.get('CORS_ORIGINS')
     )
 
-    sms_sender = app.config.get('SMS_SENDER')
-    if app.config.get('IS_PRODUCTION') and sms_sender is not None:
+    sms_sender = None if worker_mode else app.config.get('SMS_SENDER')
+    if not worker_mode:
+        from app.auth import AuthService, FakeSmsSender, TencentSmsSender
+    if (
+        not worker_mode
+        and app.config.get('IS_PRODUCTION')
+        and sms_sender is not None
+    ):
         if not isinstance(sms_sender, TencentSmsSender):
             raise RuntimeError(
                 'Production forbids FakeSmsSender or custom SMS senders'
             )
-    if sms_sender is None:
+    if not worker_mode and sms_sender is None:
         tencent_settings = {
             'secret_id': app.config.get('TENCENTCLOUD_SECRET_ID'),
             'secret_key': app.config.get('TENCENTCLOUD_SECRET_KEY'),
@@ -198,11 +212,12 @@ def create_app(config_class=Config):
         else:
             sms_sender = FakeSmsSender()
 
-    app.extensions['tenant_auth_bypass_enabled'] = bool(
-        auth_bypass_requested
-        and app.testing
-        and not app.config.get('IS_PRODUCTION')
-    )
+    if not worker_mode:
+        app.extensions['tenant_auth_bypass_enabled'] = bool(
+            auth_bypass_requested
+            and app.testing
+            and not app.config.get('IS_PRODUCTION')
+        )
 
     secret_box = SecretBox.from_base64(app.config['SAAS_MASTER_KEY'])
     control_database_url = app.config.get('CONTROL_DATABASE_URL')
@@ -222,8 +237,11 @@ def create_app(config_class=Config):
     provisioner_database_url = app.config.get(
         'PROVISIONER_DATABASE_URL'
     )
-    tenant_provisioner = (
-        TenantProvisioner(
+    tenant_provisioner = None
+    if not worker_mode and control_store is not None and provisioner_database_url:
+        from app.provisioning import TenantProvisioner
+
+        tenant_provisioner = TenantProvisioner(
             store=control_store,
             provisioner_database_url=provisioner_database_url,
             migrations_directory=app.config[
@@ -235,27 +253,23 @@ def create_app(config_class=Config):
             user_prefix=app.config['TENANT_DB_USER_PREFIX'],
             logger=app.logger,
         )
-        if control_store is not None and provisioner_database_url
-        else None
-    )
     app.extensions['control_store'] = control_store
-    app.extensions['sms_sender'] = sms_sender
-    app.extensions['auth_service'] = (
-        AuthService(
-            store=control_store,
-            master_key=base64.b64decode(
-                app.config['SAAS_MASTER_KEY'],
-                validate=True,
-            ),
-            sender=sms_sender,
-            fixed_code=app.config.get('DEV_SMS_CODE'),
-            logger=app.logger,
+    if not worker_mode:
+        app.extensions['sms_sender'] = sms_sender
+        app.extensions['auth_service'] = (
+            AuthService(
+                store=control_store,
+                master_key=base64.b64decode(
+                    app.config['SAAS_MASTER_KEY'], validate=True,
+                ),
+                sender=sms_sender,
+                fixed_code=app.config.get('DEV_SMS_CODE'),
+                logger=app.logger,
+            ) if control_store is not None else None
         )
-        if control_store is not None
-        else None
-    )
     app.extensions['tenant_engine_registry'] = tenant_engine_registry
-    app.extensions['tenant_provisioner'] = tenant_provisioner
+    if not worker_mode:
+        app.extensions['tenant_provisioner'] = tenant_provisioner
     app.extensions['tenant_resource_finalizer'] = weakref.finalize(
         app,
         _dispose_tenant_resources,
@@ -269,48 +283,51 @@ def create_app(config_class=Config):
     migrate.init_app(app, db)
 
     # 默认同源；仅显式白名单允许携带 Cookie 的跨域请求。
-    if cors_origins:
+    if not worker_mode and cors_origins:
+        from flask_cors import CORS
+
         CORS(
             app,
             origins=cors_origins,
             supports_credentials=True,
         )
 
-    # 注册蓝图
-    from app.routes import (
-        auth_api,
-        device_model_api,
-        external_api,
-        inspection,
-        platform_api,
-        rental_stats_api,
-        settings_api,
-        sf_test_api,
-        sf_tracking_api,
-        shipping_batch_api,
-        statistics_api,
-        tracking_api,
-        vue_app,
-        web,
-    )
-    app.before_request(web.bind_request_tenant)
-    app.teardown_request(web.reset_request_tenant)
+    # Worker只初始化数据库上下文，不加载HTTP或平台管理功能。
+    if not worker_mode:
+        from app.routes import (
+            auth_api,
+            device_model_api,
+            external_api,
+            inspection,
+            platform_api,
+            rental_stats_api,
+            settings_api,
+            sf_test_api,
+            sf_tracking_api,
+            shipping_batch_api,
+            statistics_api,
+            tracking_api,
+            vue_app,
+            web,
+        )
+        app.before_request(web.bind_request_tenant)
+        app.teardown_request(web.reset_request_tenant)
 
-    app.register_blueprint(auth_api.bp)
-    app.register_blueprint(platform_api.bp)
-    app.register_blueprint(settings_api.bp)
-    platform_api.register_platform_commands(app)
-    app.register_blueprint(web.bp)
-    app.register_blueprint(external_api.bp, url_prefix='/external-api')
-    app.register_blueprint(vue_app.bp)
-    app.register_blueprint(tracking_api.bp)
-    app.register_blueprint(device_model_api.bp)
-    app.register_blueprint(statistics_api.bp)
-    app.register_blueprint(shipping_batch_api.bp)
-    app.register_blueprint(sf_test_api.bp)
-    app.register_blueprint(sf_tracking_api.bp)
-    app.register_blueprint(inspection.inspection_bp)
-    app.register_blueprint(rental_stats_api.bp)
+        app.register_blueprint(auth_api.bp)
+        app.register_blueprint(platform_api.bp)
+        app.register_blueprint(settings_api.bp)
+        platform_api.register_platform_commands(app)
+        app.register_blueprint(web.bp)
+        app.register_blueprint(external_api.bp, url_prefix='/external-api')
+        app.register_blueprint(vue_app.bp)
+        app.register_blueprint(tracking_api.bp)
+        app.register_blueprint(device_model_api.bp)
+        app.register_blueprint(statistics_api.bp)
+        app.register_blueprint(shipping_batch_api.bp)
+        app.register_blueprint(sf_test_api.bp)
+        app.register_blueprint(sf_tracking_api.bp)
+        app.register_blueprint(inspection.inspection_bp)
+        app.register_blueprint(rental_stats_api.bp)
 
     # 配置日志
     if not app.debug and not app.testing:

@@ -2,14 +2,40 @@
 快递追踪API路由
 """
 
-from flask import Blueprint, request, jsonify, current_app
-from app.utils.scheduler_tasks import manual_query_tracking
-from app.utils.scheduler import run_task_now, get_scheduler_status
+from flask import Blueprint, request, jsonify
+
+from app.services.integration_resolver import ConfigurationIncomplete
+from app.services.rental.rental_service import WarehouseMismatchError
+from app.services.shipping.sf_tracking_service import SFTrackingService
 import logging
 
 logger = logging.getLogger(__name__)
 
 bp = Blueprint('tracking_api', __name__)
+
+
+def _manual_query_tracking(tracking_number, warehouse_id=None, phone_last4=None):
+    try:
+        tracking_info = SFTrackingService.query_scoped(
+            tracking_number,
+            warehouse_id=warehouse_id,
+            phone_last4=phone_last4,
+        )
+        return {'success': True, 'message': '查询成功',
+                'tracking_info': tracking_info}
+    except ConfigurationIncomplete:
+        return {'success': False, 'code': 'CONFIG_INCOMPLETE',
+                'message': '仓库顺丰配置不完整', 'tracking_info': None}
+    except WarehouseMismatchError:
+        return {'success': False, 'code': 'WAREHOUSE_MISMATCH',
+                'message': '运单号无法确定唯一仓库', 'tracking_info': None}
+    except ValueError:
+        return {'success': False, 'code': 'BAD_REQUEST',
+                'message': '查询参数无效', 'tracking_info': None}
+    except Exception as exc:
+        logger.error("手动查询快递状态失败，类型: %s", type(exc).__name__)
+        return {'success': False, 'code': 'EXTERNAL_SERVICE_ERROR',
+                'message': '顺丰服务调用失败', 'tracking_info': None}
 
 
 @bp.route('/api/tracking/query', methods=['POST'])
@@ -38,7 +64,7 @@ def query_tracking():
             }), 400
         
         # 查询快递状态
-        result = manual_query_tracking(
+        result = _manual_query_tracking(
             tracking_number,
             warehouse_id=data.get('warehouse_id'),
             phone_last4=data.get('phone_last4'),
@@ -101,7 +127,7 @@ def batch_query_tracking():
         for tracking_number in tracking_numbers:
             tracking_number = tracking_number.strip()
             if tracking_number:
-                result = manual_query_tracking(
+                result = _manual_query_tracking(
                     tracking_number,
                     warehouse_id=data.get('warehouse_id'),
                     phone_last4=data.get('phone_last4'),
@@ -126,50 +152,19 @@ def batch_query_tracking():
 
 @bp.route('/api/tracking/update-now', methods=['POST'])
 def update_tracking_now():
-    """
-    立即执行快递状态更新任务
-    """
-    try:
-        success = run_task_now('update_tracking')
-        
-        if success:
-            return jsonify({
-                'success': True,
-                'message': '快递状态更新任务已执行'
-            }), 200
-        else:
-            return jsonify({
-                'success': False,
-                'message': '执行任务失败'
-            }), 500
-            
-    except Exception as e:
-        logger.error(f"立即更新快递状态异常: {e}")
-        return jsonify({
-            'success': False,
-            'message': f'执行失败: {str(e)}'
-        }), 500
+    return jsonify({
+        'success': False,
+        'message': '自动轨迹更新已移除，请使用手工查询',
+    }), 410
 
 
 @bp.route('/api/tracking/scheduler-status', methods=['GET'])
 def get_tracking_scheduler_status():
-    """
-    获取定时调度器状态
-    """
-    try:
-        status = get_scheduler_status()
-        return jsonify({
-            'success': True,
-            'data': status
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"获取调度器状态异常: {e}")
-        return jsonify({
-            'success': False,
-            'message': f'获取状态失败: {str(e)}',
-            'data': None
-        }), 500
+    return jsonify({
+        'success': False,
+        'message': '应用内调度器已移除',
+        'data': None,
+    }), 410
 
 
 @bp.route('/api/device/update-status', methods=['POST'])
