@@ -142,10 +142,22 @@ def test_runtime_image_context_keeps_only_shipping_slip_qr_assets():
 
 def test_one_image_and_parameterized_make_contract():
     dockerfile = (ROOT / "Dockerfile").read_text()
+    dockerfile_lines = set(dockerfile.splitlines())
     dockerignore = set((ROOT / ".dockerignore").read_text().splitlines())
     makefile = (ROOT / "Makefile").read_text()
     targets = set(re.findall(r"^([a-z][a-z-]*):", makefile, re.MULTILINE))
     assert 'CMD ["gunicorn", "--config", "gunicorn_config.py", "run:app"]' in dockerfile
+    assert "COPY . ." not in dockerfile
+    assert {
+        "COPY app/ ./app/",
+        "COPY control_migrations/ ./control_migrations/",
+        "COPY migrations/ ./migrations/",
+        "COPY static/ ./static/",
+        "COPY templates/ ./templates/",
+        "COPY config.py run.py worker.py gunicorn_config.py control_alembic.ini ./",
+        "COPY frontend/src/assets/安装调试教程.jpg ./frontend/src/assets/安装调试教程.jpg",
+        "COPY frontend/src/assets/照片传输教程.png ./frontend/src/assets/照片传输教程.png",
+    } <= dockerfile_lines
     assert "HEALTHCHECK" not in dockerfile and "curl" not in dockerfile
     assert "docker-compose" not in dockerfile.lower()
     assert targets == {"help", "build", "push", "run-app", "run-worker", "worker-once"}

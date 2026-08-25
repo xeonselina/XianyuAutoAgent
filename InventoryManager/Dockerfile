@@ -75,7 +75,14 @@ ENV PYTHONUNBUFFERED=1 \
     FLASK_ENV=production
 
 # ── 应用代码 ──────────────────────────────────────────────────────────────────
-COPY . .
+COPY app/ ./app/
+COPY control_migrations/ ./control_migrations/
+COPY migrations/ ./migrations/
+COPY static/ ./static/
+COPY templates/ ./templates/
+COPY config.py run.py worker.py gunicorn_config.py control_alembic.ini ./
+COPY frontend/src/assets/安装调试教程.jpg ./frontend/src/assets/安装调试教程.jpg
+COPY frontend/src/assets/照片传输教程.png ./frontend/src/assets/照片传输教程.png
 
 RUN mkdir -p logs uploads static/uploads tmp
 
