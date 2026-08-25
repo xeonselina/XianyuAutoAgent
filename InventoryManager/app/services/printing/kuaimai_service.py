@@ -170,7 +170,7 @@ class KuaimaiPrintService:
         sn = self.default_printer_sn
 
         if not sn:
-            error_msg = "未指定打印机SN，且未配置默认打印机（KUAIMAI_PRINTER_SN）"
+            error_msg = "当前仓库未配置打印机SN"
             logger.error(error_msg)
             return {
                 'success': False,

@@ -11,7 +11,6 @@ from sqlalchemy import and_, or_
 from app import db
 from app.models.rental import Rental
 from app.models.device import Device
-from app.utils.sf.sf_sdk_wrapper import batch_query_tracking_info
 import os
 
 logger = logging.getLogger(__name__)
@@ -22,18 +21,6 @@ TASK_LOCK_PATH = '/tmp/inventory_scheduled_shipping_task.lock'
 
 class RentalTrackingScheduler:
     """租赁记录快递追踪定时任务"""
-    
-    def __init__(self):
-        """延迟解析当前租户唯一仓库的顺丰客户端。"""
-        self.sf_client = None
-        self.phone_last4 = None
-
-    def _resolve_sf_client(self):
-        from app.services.integration_resolver import IntegrationResolver
-
-        service = IntegrationResolver().sf_for_only_warehouse()
-        self.sf_client = service.client
-        self.phone_last4 = service.config.sender_phone[-4:]
     
     def get_today_rentals_with_shipping(self) -> List[Rental]:
         """
@@ -159,12 +146,6 @@ class RentalTrackingScheduler:
     def batch_update_tracking_status(self):
         """批量更新快递状态"""
         try:
-            self._resolve_sf_client()
-        except Exception:
-            logger.error("顺丰API配置不完整，跳过更新")
-            return
-        
-        try:
             # 获取需要查询的租赁记录
             rentals = self.get_today_rentals_with_shipping()
             if not rentals:
@@ -181,22 +162,20 @@ class RentalTrackingScheduler:
             tracking_numbers = list(tracking_map.keys())
             logger.info(f"开始批量查询 {len(tracking_numbers)} 个快递单号")
             
-            # 分批查询（每次最多100个）
-            batch_size = 100
             all_tracking_info = {}
-            
-            for i in range(0, len(tracking_numbers), batch_size):
-                batch_numbers = tracking_numbers[i:i + batch_size]
-                logger.info(f"查询第 {i//batch_size + 1} 批，共 {len(batch_numbers)} 个单号")
-
-                batch_info = batch_query_tracking_info(
-                    batch_numbers,
-                    check_phone_no=self.phone_last4,
-                    partner_id=self.sf_client.partner_id,
-                    checkword=self.sf_client.checkword
-                )
-
-                all_tracking_info.update(batch_info)
+            from app.services.shipping.sf_tracking_service import (
+                SFTrackingService,
+            )
+            for tracking_number in tracking_numbers:
+                try:
+                    all_tracking_info[tracking_number] = (
+                        SFTrackingService.query_scoped(tracking_number)
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "跳过物流查询 %s: %s",
+                        tracking_number, type(exc).__name__,
+                    )
             
             # 更新租赁记录
             updated_count = 0
@@ -245,7 +224,9 @@ def update_rental_tracking_status():
     RentalTrackingScheduler().run_hourly_task()
 
 
-def manual_query_tracking(tracking_number: str) -> Dict:
+def manual_query_tracking(
+    tracking_number: str, warehouse_id=None, phone_last4=None
+) -> Dict:
     """
     手动查询单个快递状态
     
@@ -257,33 +238,27 @@ def manual_query_tracking(tracking_number: str) -> Dict:
     """
     logger.info(f"开始手动查询快递单号: {tracking_number}")
     
-    resolver = RentalTrackingScheduler()
     try:
-        resolver._resolve_sf_client()
-    except Exception:
-        logger.error("顺丰API客户端未配置")
-        return {
-            'success': False,
-            'message': '顺丰API客户端未配置',
-            'tracking_info': None
-        }
-    
-    try:
-        tracking_info = resolver.sf_client.get_delivery_status(
-            tracking_number, resolver.phone_last4
+        from app.services.shipping.sf_tracking_service import (
+            SFTrackingService,
         )
-        logger.info(f"SF客户端返回结果: {tracking_info}")
-        
+        tracking_info = SFTrackingService.query_scoped(
+            tracking_number,
+            warehouse_id=warehouse_id,
+            phone_last4=phone_last4,
+        )
         return {
             'success': True,
             'message': '查询成功',
             'tracking_info': tracking_info
         }
-    except Exception as e:
-        logger.error(f"手动查询快递状态失败: {e}", exc_info=True)
+    except Exception as exc:
+        logger.error(
+            f"手动查询快递状态失败: {type(exc).__name__}"
+        )
         return {
             'success': False,
-            'message': f'查询失败: {str(e)}',
+            'message': str(exc),
             'tracking_info': None
         }
 

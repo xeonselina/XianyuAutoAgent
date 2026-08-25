@@ -38,7 +38,11 @@ def query_tracking():
             }), 400
         
         # 查询快递状态
-        result = manual_query_tracking(tracking_number)
+        result = manual_query_tracking(
+            tracking_number,
+            warehouse_id=data.get('warehouse_id'),
+            phone_last4=data.get('phone_last4'),
+        )
         
         if result['success']:
             return jsonify(result), 200
@@ -90,7 +94,11 @@ def batch_query_tracking():
         for tracking_number in tracking_numbers:
             tracking_number = tracking_number.strip()
             if tracking_number:
-                result = manual_query_tracking(tracking_number)
+                result = manual_query_tracking(
+                    tracking_number,
+                    warehouse_id=data.get('warehouse_id'),
+                    phone_last4=data.get('phone_last4'),
+                )
                 results[tracking_number] = result
         
         return jsonify({

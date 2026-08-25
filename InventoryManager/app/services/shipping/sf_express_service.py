@@ -49,7 +49,9 @@ class SFExpressService:
             test_mode=self.test_mode
         )
 
-    def place_shipping_order(self, rental, scheduled_time) -> Dict:
+    def place_shipping_order(
+        self, rental, scheduled_time, client_order_id=None
+    ) -> Dict:
         """
         下速运订单
 
@@ -94,10 +96,16 @@ class SFExpressService:
             # 格式化预约发货时间为 YYYY-MM-DD HH24:MM:SS
             send_start_tm = scheduled_time.strftime('%Y-%m-%d %H:%M:%S')
 
+            if client_order_id is None:
+                from app.services.shipping.waybill_print_service import (
+                    sf_client_order_id_for,
+                )
+                client_order_id = sf_client_order_id_for(rental)
+
             # 构建订单数据
             order_data = {
                 'language': 'zh-CN',
-                'orderId': f"R{rental.id}_{rental.customer_name}",  # 客户订单号（使用时间戳）
+                'orderId': client_order_id,
                 'cargoDetails': [
                     {
                         'name': rental.device.device_model.name if rental.device and rental.device.device_model else '租赁设备',

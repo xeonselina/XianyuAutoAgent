@@ -6,22 +6,63 @@ import logging
 from typing import Dict, List, Optional
 
 from app.models import Rental
+from app.services.integration_resolver import (
+    ConfigurationIncomplete,
+    IntegrationResolver,
+)
+from app.services.rental.rental_service import WarehouseMismatchError
+from app.tenant_context import current_tenant_id
 from app.services.shipping.pdf_conversion_service import PDFConversionService, PDFConversionError
-from app.services.shipping.sf_express_service import get_sf_express_service
-from app.services.printing.kuaimai_service import get_kuaimai_print_service
 from app.services.printing.shipping_slip_image_service import shipping_slip_image_service, SlipGenerationError
 
 logger = logging.getLogger(__name__)
 
 
+def build_sf_client_order_id(tenant_id: int, rental_id: int) -> str:
+    """Return the stable cross-tenant SF customer order id."""
+    if tenant_id is None:
+        raise ConfigurationIncomplete("tenant", None, ("tenant_id",))
+    return f"t{tenant_id}-r{rental_id}"
+
+
+def validate_shipping_preflight(rental) -> None:
+    """Fail closed before creating a new SF order for one main Rental."""
+    if rental.parent_rental_id is not None:
+        raise WarehouseMismatchError("附件租赁不能单独发货")
+    missing = tuple(
+        field for field in ("customer_name", "customer_phone", "destination")
+        if not str(getattr(rental, field, None) or "").strip()
+    )
+    if missing:
+        raise ConfigurationIncomplete("rental", rental.id, missing)
+    if rental.warehouse_id is None or rental.warehouse is None:
+        raise ConfigurationIncomplete(
+            "warehouse", rental.warehouse_id, ("warehouse_id",)
+        )
+    related = [rental, *list(rental.child_rentals)]
+    if any(
+        row.warehouse_id != rental.warehouse_id
+        or row.device is None
+        or row.device.warehouse_id != rental.warehouse_id
+        for row in related
+    ):
+        raise WarehouseMismatchError("租赁设备或实际附件不在履约仓库")
+    if rental.ship_out_tracking_no:
+        raise ValueError("已有运单号，不得重复下单")
+    IntegrationResolver().sf_for_rental(rental)
+
+
+def sf_client_order_id_for(rental) -> str:
+    return build_sf_client_order_id(current_tenant_id(), rental.id)
+
+
 class WaybillPrintService:
     """快递面单打印服务"""
 
-    def __init__(self):
+    def __init__(self, resolver=None):
         """初始化面单打印服务"""
-        self.sf_service = get_sf_express_service()
+        self.resolver = resolver or IntegrationResolver()
         self.pdf_service = PDFConversionService(default_dpi=203)
-        self.kuaimai_service = get_kuaimai_print_service()
 
         logger.info("WaybillPrintService初始化完成")
 
@@ -69,6 +110,14 @@ class WaybillPrintService:
                 }
             logger.info(f"Rental {rental_id}: 运单号: {rental.ship_out_tracking_no}")
 
+            if (
+                rental.device is None
+                or rental.device.warehouse_id != rental.warehouse_id
+            ):
+                raise WarehouseMismatchError("租赁设备不在履约仓库")
+            sf_service = self.resolver.sf_for_rental(rental)
+            kuaimai_service = self.resolver.kuaimai_for_rental(rental)
+
             # 3. 检查是否已发货
             logger.info(f"Rental {rental_id}: 步骤3 - 检查发货状态")
             logger.info(f"Rental {rental_id}: 当前状态: {rental.status}")
@@ -82,7 +131,7 @@ class WaybillPrintService:
 
             # 4. 从顺丰获取面单PDF
             logger.info(f"Rental {rental_id}: 步骤4 - 从顺丰获取面单PDF")
-            sf_result = self.sf_service.get_waybill_pdf(rental)
+            sf_result = sf_service.get_waybill_pdf(rental)
             logger.info(f"Rental {rental_id}: 顺丰API返回: success={sf_result.get('success')}, message={sf_result.get('message')}")
 
             if not sf_result.get('success'):
@@ -122,7 +171,7 @@ class WaybillPrintService:
             print_results = []
             for idx, base64_image in enumerate(base64_images):
                 logger.info(f"Rental {rental_id}: 打印第{idx + 1}/{len(base64_images)}页")
-                print_result = self.kuaimai_service.print_image(
+                print_result = kuaimai_service.print_image(
                     base64_image=base64_image,
                     copies=1
                 )
@@ -149,6 +198,17 @@ class WaybillPrintService:
                 'job_ids': job_ids
             }
 
+        except ConfigurationIncomplete as e:
+            return {
+                'success': False, 'rental_id': rental_id,
+                'message': '仓库发货或打印配置不完整',
+                'code': 'CONFIG_INCOMPLETE',
+            }
+        except WarehouseMismatchError as e:
+            return {
+                'success': False, 'rental_id': rental_id,
+                'message': str(e), 'code': 'WAREHOUSE_MISMATCH',
+            }
         except Exception as e:
             import traceback
             logger.error(f"打印面单异常: Rental {rental_id}, {e}")
@@ -159,7 +219,9 @@ class WaybillPrintService:
                 'message': f'打印异常: {str(e)}'
             }
 
-    def _print_single_shipping_slip(self, rental_id: int) -> Dict:
+    def _print_single_shipping_slip(
+        self, rental_id: int, kuaimai_service, sf_service
+    ) -> Dict:
         """
         打印单个发货单
 
@@ -177,12 +239,17 @@ class WaybillPrintService:
             logger.info(f"Rental {rental_id}: 开始生成发货单图像")
 
             # 生成发货单图像
-            image_base64 = shipping_slip_image_service.generate_slip_image(rental_id)
+            image_base64 = shipping_slip_image_service.generate_slip_image(
+                rental_id,
+                return_name=sf_service.sender_name,
+                return_phone=sf_service.sender_phone,
+                return_address=sf_service.sender_address,
+            )
 
             logger.info(f"Rental {rental_id}: 发货单图像生成成功, 大小: {len(image_base64)} bytes")
 
             # 发送到快麦打印 (使用实际纸张尺寸76×130mm)
-            result = self.kuaimai_service.print_image(
+            result = kuaimai_service.print_image(
                 base64_image=image_base64,
                 copies=1,
                 width=76,
@@ -244,6 +311,7 @@ class WaybillPrintService:
                         'rental_id': rental_id,
                         'waybill_success': False,
                         'slip_success': False,
+                        'code': waybill_result.get('code'),
                         'error': waybill_result.get('message', '面单打印失败')
                     })
                     continue
@@ -254,7 +322,12 @@ class WaybillPrintService:
                 slip_result = {'success': True, 'job_id': None}
                 if include_shipping_slips:
                     logger.info(f"Rental {rental_id}: 开始打印发货单")
-                    slip_result = self._print_single_shipping_slip(rental_id)
+                    rental = Rental.query.get(rental_id)
+                    sf_service = self.resolver.sf_for_rental(rental)
+                    kuaimai_service = self.resolver.kuaimai_for_rental(rental)
+                    slip_result = self._print_single_shipping_slip(
+                        rental_id, kuaimai_service, sf_service
+                    )
 
                     if slip_result['success']:
                         logger.info(f"Rental {rental_id}: 发货单打印成功")

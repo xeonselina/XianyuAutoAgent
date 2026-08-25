@@ -11,12 +11,21 @@ from app.models.rental_relay_binding import RentalRelayBinding
 from app.utils.response import (
     ApiResponse,
     success,
+    error,
     bad_request,
     not_found,
     server_error
 )
-from app.services.shipping.waybill_print_service import get_waybill_print_service
-from app.services.printing.kuaimai_service import get_kuaimai_print_service
+from app.services.integration_resolver import (
+    ConfigurationIncomplete,
+    IntegrationResolver,
+)
+from app.services.rental.rental_service import WarehouseMismatchError
+from app.services.shipping.waybill_print_service import (
+    get_waybill_print_service,
+    sf_client_order_id_for,
+    validate_shipping_preflight,
+)
 
 
 class ShippingBatchHandlers:
@@ -39,13 +48,6 @@ class ShippingBatchHandlers:
                 scheduled_time = datetime.fromisoformat(scheduled_time_str.replace('Z', '+00:00'))
             except ValueError:
                 return bad_request('时间格式无效，请使用ISO格式')
-
-            # 获取服务实例
-            from app.services.shipping.sf_express_service import get_sf_express_service
-            from app.services.xianyu_order_service import get_xianyu_service
-
-            sf_service = get_sf_express_service()
-            xianyu_service = get_xianyu_service()
 
             # 查询租赁记录
             rentals = Rental.query.filter(Rental.id.in_(rental_ids)).all()
@@ -99,23 +101,29 @@ class ShippingBatchHandlers:
                     continue
 
                 try:
+                    validate_shipping_preflight(rental)
+                    sf_service = IntegrationResolver().sf_for_rental(rental)
                     # 调用顺丰API下单
                     current_app.logger.info(f"预约发货: Rental {rental.id}, 预约时间: {scheduled_time}")
-                    sf_result = sf_service.place_shipping_order(rental, scheduled_time=scheduled_time)
+                    sf_result = sf_service.place_shipping_order(
+                        rental,
+                        scheduled_time=scheduled_time,
+                        client_order_id=sf_client_order_id_for(rental),
+                    )
 
                     if not sf_result.get('success'):
-                        error_msg = sf_result.get('message', '未知错误')
-                        current_app.logger.error(f"Rental {rental.id} 顺丰下单失败: {error_msg}")
+                        error_msg = '顺丰服务调用失败'
                         result_item = {
                             'success': False,
                             'rental_id': rental.id,
-                            'message': f'顺丰下单失败: {error_msg}',
+                            'message': error_msg,
+                            'code': 'EXTERNAL_SERVICE_ERROR',
                             'waybill_no': None
                         }
                         results.append(result_item)
                         failed_rentals.append({
                             'id': rental.id,
-                            'reason': f'顺丰下单失败: {error_msg}',
+                            'reason': error_msg,
                             'waybill_no': None
                         })
                         continue
@@ -129,6 +137,7 @@ class ShippingBatchHandlers:
                             'success': False,
                             'rental_id': rental.id,
                             'message': error_msg,
+                            'code': 'EXTERNAL_SERVICE_ERROR',
                             'waybill_no': None
                         }
                         results.append(result_item)
@@ -156,18 +165,57 @@ class ShippingBatchHandlers:
                     results.append(result_item)
                     current_app.logger.info(f"Rental {rental.id} 预约发货成功，运单号: {waybill_no}")
 
+                except ConfigurationIncomplete:
+                    code = 'CONFIG_INCOMPLETE'
+                    message = '租赁或仓库顺丰配置不完整'
+                    result_item = {
+                        'success': False, 'rental_id': rental.id,
+                        'message': message, 'code': code,
+                        'waybill_no': None,
+                    }
+                    results.append(result_item)
+                    failed_rentals.append({
+                        'id': rental.id, 'reason': message,
+                        'code': code, 'waybill_no': None,
+                    })
+                except WarehouseMismatchError as exc:
+                    code = 'WAREHOUSE_MISMATCH'
+                    result_item = {
+                        'success': False, 'rental_id': rental.id,
+                        'message': str(exc), 'code': code,
+                        'waybill_no': None,
+                    }
+                    results.append(result_item)
+                    failed_rentals.append({
+                        'id': rental.id, 'reason': str(exc),
+                        'code': code, 'waybill_no': None,
+                    })
+                except ValueError as exc:
+                    result_item = {
+                        'success': False, 'rental_id': rental.id,
+                        'message': str(exc), 'waybill_no': None,
+                    }
+                    results.append(result_item)
+                    failed_rentals.append({
+                        'id': rental.id, 'reason': str(exc),
+                        'waybill_no': None,
+                    })
                 except Exception as e:
-                    current_app.logger.error(f"处理 Rental {rental.id} 时发生异常: {e}")
+                    current_app.logger.error(
+                        f"Rental {rental.id} 顺丰下单异常: {type(e).__name__}"
+                    )
                     result_item = {
                         'success': False,
                         'rental_id': rental.id,
-                        'message': f'系统异常: {str(e)}',
+                        'message': '顺丰服务调用失败',
+                        'code': 'EXTERNAL_SERVICE_ERROR',
                         'waybill_no': None
                     }
                     results.append(result_item)
                     failed_rentals.append({
                         'id': rental.id,
-                        'reason': f'系统异常: {str(e)}',
+                        'reason': '顺丰服务调用失败',
+                        'code': 'EXTERNAL_SERVICE_ERROR',
                         'waybill_no': None
                     })
 
@@ -268,11 +316,16 @@ class ShippingBatchHandlers:
     def handle_get_printers() -> ApiResponse:
         """处理获取打印机配置请求"""
         try:
-            kuaimai_service = get_kuaimai_print_service()
-
-            # 检查服务是否已配置
-            if not kuaimai_service.configured:
-                return bad_request('快麦云打印服务未配置，请设置环境变量 KUAIMAI_APP_ID 和 KUAIMAI_APP_SECRET')
+            raw_warehouse_id = request.args.get('warehouse_id')
+            if raw_warehouse_id in (None, '', 'all'):
+                return bad_request('请指定仓库')
+            try:
+                warehouse_id = int(raw_warehouse_id)
+            except (TypeError, ValueError):
+                return bad_request('仓库不存在')
+            kuaimai_service = IntegrationResolver().kuaimai_for_warehouse(
+                warehouse_id
+            )
 
             # 返回默认打印机信息
             printers = []
@@ -289,8 +342,15 @@ class ShippingBatchHandlers:
                 'message': '快麦打印机通过SN直接配置' if printers else '未配置打印机SN'
             })
 
+        except ConfigurationIncomplete:
+            return error(
+                '仓库快麦配置不完整', status_code=400,
+                code='CONFIG_INCOMPLETE',
+            )
         except Exception as e:
-            current_app.logger.error(f"获取打印机配置失败: {e}")
+            current_app.logger.error(
+                f"获取打印机配置失败: {type(e).__name__}"
+            )
             return server_error('获取打印机配置失败')
 
     @staticmethod

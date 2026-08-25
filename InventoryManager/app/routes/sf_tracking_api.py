@@ -9,21 +9,13 @@ from app.services.shipping.sf_tracking_service import (
     SFTrackingService,
     TrackingNotFoundError,
 )
+from app.services.integration_resolver import ConfigurationIncomplete
 from datetime import datetime, timedelta
 import logging
 
 logger = logging.getLogger(__name__)
 
 bp = Blueprint('sf_tracking', __name__, url_prefix='/api/sf-tracking')
-
-# 寄件人手机号后四位(用于顺丰API验证)
-SENDER_PHONE_LAST4 = '4947'  # ***REMOVED*** 的后四位
-
-
-def get_sf_client():
-    """保留旧调用入口，实际客户端由共享服务创建。"""
-    return SFTrackingService.get_client()
-
 
 @bp.route('/list', methods=['GET'])
 def get_rental_list():
@@ -128,7 +120,9 @@ def query_tracking():
                 'message': '请求数据不能为空'
             }), 400
 
-        tracking_number = data.get('tracking_number', '').strip()
+        tracking_number = str(
+            data.get('tracking_no') or data.get('tracking_number') or ''
+        ).strip()
 
         if not tracking_number:
             return jsonify({
@@ -139,9 +133,17 @@ def query_tracking():
         logger.info(f"查询运单物流: {tracking_number}")
 
         try:
-            route_info = SFTrackingService.query(
-                tracking_number, SENDER_PHONE_LAST4
+            route_info = SFTrackingService.query_scoped(
+                tracking_number,
+                warehouse_id=data.get('warehouse_id'),
+                phone_last4=data.get('phone_last4'),
             )
+        except ConfigurationIncomplete:
+            return jsonify({
+                'success': False,
+                'code': 'CONFIG_INCOMPLETE',
+                'message': '仓库顺丰配置不完整',
+            }), 400
         except TrackingNotFoundError:
             logger.warning(f"运单 {tracking_number} 未找到物流信息")
             return jsonify({
@@ -155,6 +157,11 @@ def query_tracking():
                     'delivered_time': None
                 }
             }), 200
+        except ValueError as exc:
+            return jsonify({
+                'success': False,
+                'message': str(exc),
+            }), 400
 
         logger.info(
             f"运单 {tracking_number} 查询成功, "
@@ -166,11 +173,12 @@ def query_tracking():
         }), 200
 
     except Exception as e:
-        logger.error(f"查询物流信息失败: {e}")
+        logger.error(f"查询物流信息失败: {type(e).__name__}")
         return jsonify({
             'success': False,
-            'message': f'查询失败: {str(e)}'
-        }), 500
+            'code': 'EXTERNAL_SERVICE_ERROR',
+            'message': '顺丰服务调用失败'
+        }), 502
 
 
 @bp.route('/batch-query', methods=['POST'])
@@ -210,22 +218,18 @@ def batch_query_tracking():
             }), 400
 
         logger.info(f"批量查询 {len(tracking_numbers)} 个运单")
-
-        try:
-            parsed_routes = SFTrackingService.batch_query(
-                tracking_numbers, SENDER_PHONE_LAST4
-            )
-        except Exception as api_error:
-            logger.error(f"顺丰API调用失败: {api_error}")
-            return jsonify({
-                'success': False,
-                'message': f'顺丰API调用失败: {str(api_error)}'
-            }), 500
-
-        # 检查哪些运单号查询失败
+        parsed_routes = {}
         errors = []
         for tracking_number in tracking_numbers:
-            if tracking_number not in parsed_routes:
+            try:
+                parsed_routes[tracking_number] = (
+                    SFTrackingService.query_scoped(
+                        tracking_number,
+                        warehouse_id=data.get('warehouse_id'),
+                        phone_last4=data.get('phone_last4'),
+                    )
+                )
+            except Exception:
                 errors.append(tracking_number)
 
         success_count = len(parsed_routes)

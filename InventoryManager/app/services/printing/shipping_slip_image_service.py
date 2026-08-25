@@ -262,7 +262,13 @@ class ShippingSlipImageService:
 
         return y
 
-    def generate_slip_image(self, rental_id: int) -> str:
+    def generate_slip_image(
+        self,
+        rental_id: int,
+        return_name: str = "",
+        return_phone: str = "",
+        return_address: str = "",
+    ) -> str:
         """
         生成发货单图像
 
@@ -337,9 +343,9 @@ class ShippingSlipImageService:
             y = self._draw_section_separator(draw, y)
 
             # 5. 归还地址部分
-            y = self._draw_info_row(draw, y, "寄回地址:", "***REMOVED_ADDRESS***")
-            y = self._draw_info_row(draw, y, "收件人:", "张女士")
-            y = self._draw_info_row(draw, y, "电话:", "***REMOVED***")
+            y = self._draw_info_row(draw, y, "寄回地址:", return_address)
+            y = self._draw_info_row(draw, y, "收件人:", return_name)
+            y = self._draw_info_row(draw, y, "电话:", return_phone)
 
             y = self._draw_section_separator(draw, y)
 

@@ -440,8 +440,7 @@ def create_sf_client(partner_id: str = None, checkword: str = None, test_mode: b
         SFExpressSDK: SDK 实例
     """
     if not partner_id or not checkword:
-        partner_id = partner_id or "test_partner_id"
-        checkword = checkword or "test_checkword"
+        raise ValueError("顺丰客户端必须显式提供 partner_id 和 checkword")
 
     return SFExpressSDK(partner_id, checkword, test_mode)
 
