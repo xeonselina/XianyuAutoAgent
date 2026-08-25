@@ -232,6 +232,7 @@ export default {
     }
   },
   methods: {
+    isCurrent(generation: number, warehouseId: number | 'all') { return generation === this.loadGeneration && warehouseId === this.tenantStore.currentWarehouseId },
     clearWarehouseData() {
       this.loadGeneration += 1
       this.rentals = []
@@ -289,6 +290,7 @@ export default {
       }
     },
     async viewTracking(trackingNumber: string) {
+      const generation = this.loadGeneration, warehouseId = this.tenantStore.currentWarehouseId
       this.currentTrackingNumber = trackingNumber
       this.showTrackingModal = true
       this.currentTracking = null
@@ -297,8 +299,9 @@ export default {
       try {
         const response = await axios.post('/api/sf-tracking/query', {
           tracking_number: trackingNumber,
-          warehouse_id: this.tenantStore.currentWarehouseId
+          warehouse_id: warehouseId
         })
+        if (!this.isCurrent(generation, warehouseId)) return
 
         if (response.data.success) {
           this.currentTracking = response.data.data
@@ -309,15 +312,17 @@ export default {
           this.closeModal()
         }
       } catch (error: any) {
+        if (!this.isCurrent(generation, warehouseId)) return
         console.error('查询物流失败:', error)
         alert('查询失败: ' + (error.response?.data?.message || error.message))
         this.closeModal()
       } finally {
-        this.loadingTracking[trackingNumber] = false
+        if (this.isCurrent(generation, warehouseId)) this.loadingTracking[trackingNumber] = false
       }
     },
     async batchRefresh() {
       if (this.rentals.length === 0) return
+      const generation = this.loadGeneration, warehouseId = this.tenantStore.currentWarehouseId
 
       const trackingNumbers = this.rentals.map(r => r.ship_out_tracking_no)
       this.loading = true
@@ -325,8 +330,9 @@ export default {
       try {
         const response = await axios.post('/api/sf-tracking/batch-query', {
           tracking_numbers: trackingNumbers,
-          warehouse_id: this.tenantStore.currentWarehouseId
+          warehouse_id: warehouseId
         })
+        if (!this.isCurrent(generation, warehouseId)) return
 
         if (response.data.success) {
           // 更新所有运单的状态 - 保存完整对象
@@ -343,10 +349,11 @@ export default {
           alert('批量刷新失败: ' + response.data.message)
         }
       } catch (error: any) {
+        if (!this.isCurrent(generation, warehouseId)) return
         console.error('批量刷新失败:', error)
         alert('批量刷新失败: ' + (error.response?.data?.message || error.message))
       } finally {
-        this.loading = false
+        if (this.isCurrent(generation, warehouseId)) this.loading = false
       }
     },
     setDateRange(type: string) {

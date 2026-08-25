@@ -359,6 +359,7 @@ class WaybillPrintService:
                     'rental_id': rental_id,
                     'waybill_success': True,
                     'slip_success': slip_result['success'],
+                    'code': slip_result.get('code'),
                     'slip_error': slip_result.get('error'),
                     'job_ids': {
                         'waybill': waybill_result.get('job_ids'),

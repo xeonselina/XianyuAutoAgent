@@ -8,6 +8,7 @@ import pytest
 
 from app import create_app, db
 from app.crypto import SecretBox
+from app.routes import sf_tracking_api
 from app.models.device import Device
 from app.models.rental import Rental
 from app.models.warehouse import (
@@ -170,6 +171,7 @@ def test_schedule_uses_each_warehouse_and_stable_order_id(
 def test_schedule_isolates_external_failure_per_rental(
     app, shipping_case, monkeypatch, caplog
 ):
+    caplog.set_level("INFO")
     def create_order(service, _order_data):
         if service.partner_id == "partner-1":
             return {"success": False, "message": "private upstream body"}
@@ -186,8 +188,7 @@ def test_schedule_isolates_external_failure_per_rental(
     assert payload["results"][0]["code"] == "EXTERNAL_SERVICE_ERROR"
     assert "private upstream body" not in str(payload)
     assert payload["results"][1]["waybill_no"] == "SF-B"
-    monkeypatch.setattr(SFExpressSDK, "_call_sf_express_service", lambda *_: {
-        "apiResultCode": "A9999", "apiErrorMsg": "private upstream body"})
+    monkeypatch.setattr("app.utils.sf.sf_sdk_wrapper.requests.post", lambda *_a, **_k: SimpleNamespace(status_code=500, text="private upstream body", raise_for_status=lambda: (_ for _ in ()).throw(RuntimeError("HTTP 500"))))
     printed = _tenant_request(app, "post", "/api/shipping-batch/print-waybills",
         json={"rental_ids": [shipping_case["rentals"][1]],
               "include_shipping_slips": False}).get_json()
@@ -314,6 +315,9 @@ def test_print_and_tracking_resolve_the_rental_warehouse(
     )
     assert response.status_code == 200
     assert printed == ["printer-1", "printer-2"]
+    monkeypatch.setattr("app.services.shipping.waybill_print_service.WaybillPrintService._print_single_shipping_slip", lambda *_: {"success": False, "error": "配置不完整", "code": "CONFIG_INCOMPLETE"})
+    slips = _tenant_request(app, "post", "/api/shipping-batch/print-waybills", json={"rental_ids": shipping_case["rentals"], "include_shipping_slips": True}).get_json()["data"]["results"]
+    assert [row.get("code") for row in slips] == ["CONFIG_INCOMPLETE"] * 2
 
     queries = []
     monkeypatch.setattr(
@@ -353,6 +357,11 @@ def test_print_and_tracking_resolve_the_rental_warehouse(
     listed = _tenant_request(app, "get", "/api/sf-tracking/list",
         query_string={"warehouse_id": shipping_case["warehouses"][1]})
     assert [row["rental_id"] for row in listed.get_json()["data"]] == [shipping_case["rentals"][1]]
+    failures = {"SF-C": sf_tracking_api.ConfigurationIncomplete("warehouse", 1, ("sender",)), "SF-W": sf_tracking_api.WarehouseMismatchError("ambiguous"), "SF-E": RuntimeError("private upstream body")}
+    monkeypatch.setattr(sf_tracking_api.SFTrackingService, "query_scoped", classmethod(lambda _cls, number, **_kwargs: (_ for _ in ()).throw(failures[number])))
+    batch = _tenant_request(app, "post", "/api/sf-tracking/batch-query", json={"tracking_numbers": list(failures), "warehouse_id": shipping_case["warehouses"][0], "phone_last4": "9000"}).get_json()
+    assert [(row["code"], row["message"]) for row in batch["error_details"]] == [("CONFIG_INCOMPLETE", "仓库顺丰配置不完整"), ("WAREHOUSE_MISMATCH", "运单号无法确定唯一仓库"), ("EXTERNAL_SERVICE_ERROR", "顺丰服务调用失败")]
+    assert "private upstream body" not in str(batch)
 
 
 def test_sf_test_api_is_absent_in_production(app):

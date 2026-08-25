@@ -235,6 +235,7 @@ def batch_query_tracking():
         logger.info(f"批量查询 {len(tracking_numbers)} 个运单")
         parsed_routes = {}
         errors = []
+        error_details = []
         for tracking_number in tracking_numbers:
             try:
                 parsed_routes[tracking_number] = (
@@ -244,8 +245,10 @@ def batch_query_tracking():
                         phone_last4=data.get('phone_last4'),
                     )
                 )
-            except Exception:
+            except Exception as exc:
+                code = ('CONFIG_INCOMPLETE' if isinstance(exc, ConfigurationIncomplete) else 'WAREHOUSE_MISMATCH' if isinstance(exc, WarehouseMismatchError) else 'EXTERNAL_SERVICE_ERROR')
                 errors.append(tracking_number)
+                error_details.append({'tracking_number': tracking_number, 'code': code, 'message': {'CONFIG_INCOMPLETE': '仓库顺丰配置不完整', 'WAREHOUSE_MISMATCH': '运单号无法确定唯一仓库', 'EXTERNAL_SERVICE_ERROR': '顺丰服务调用失败'}[code]})
 
         success_count = len(parsed_routes)
         logger.info(f"批量查询完成: 成功 {success_count}, 失败 {len(errors)}")
@@ -255,7 +258,8 @@ def batch_query_tracking():
             'data': parsed_routes,
             'total': len(tracking_numbers),
             'success_count': success_count,
-            'errors': errors
+            'errors': errors,
+            'error_details': error_details,
         }), 200
 
     except Exception as e:

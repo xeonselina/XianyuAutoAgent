@@ -78,7 +78,6 @@ class SFExpressSDK:
             logger.info(f"req_url: {self.req_url}")
             response = requests.post(self.req_url, data=data)
             logger.info(f"HTTP状态码: {response.status_code}")
-            logger.info(f"响应内容: {response.text}")
 
             response.raise_for_status()
             result = response.json()

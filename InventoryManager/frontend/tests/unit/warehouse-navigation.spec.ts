@@ -360,4 +360,18 @@ describe('warehouse-aware tenant navigation', () => {
     expect(axiosGet).toHaveBeenLastCalledWith('/api/sf-tracking/list', { params: expect.objectContaining({ warehouse_id: '22' }) })
     wrapper.unmount()
   })
+
+  it.each([['viewTracking', { success: true, data: { status: 'stale' } }], ['batchRefresh', { success: false, message: 'stale failure' }]])('ignores stale %s POST completion after a warehouse switch', async (method, stale) => {
+    const pinia = createPinia(); setActivePinia(pinia); const tenant = useTenantStore(); tenant.setWarehousesForSession(warehouses)
+    axiosGet.mockResolvedValue({ data: { success: true, data: [{ rental_id: 1, ship_out_tracking_no: 'SF-A' }] } })
+    const post = vi.mocked((await import('axios')).default.post); post.mockReset(); const old = deferred<any>(); post.mockReturnValueOnce(old.promise).mockReturnValueOnce(new Promise(() => {}))
+    const alertSpy = vi.fn(); vi.stubGlobal('alert', alertSpy)
+    const wrapper = shallowMount(SFTrackingView, { global: { plugins: [pinia] } }); await flushPromises(); const vm = wrapper.vm as any
+    const invoke = () => method === 'viewTracking' ? vm.viewTracking('SF-A') : vm.batchRefresh()
+    void invoke(); tenant.selectWarehouse(22); await flushPromises(); void invoke()
+    old.resolve({ data: stale }); await flushPromises()
+    expect(vm.trackingStatus).toEqual({}); expect(vm.currentTracking).toBeNull(); expect(alertSpy).not.toHaveBeenCalled()
+    expect(method === 'viewTracking' ? vm.loadingTracking['SF-A'] : vm.loading).toBe(true)
+    wrapper.unmount(); vi.unstubAllGlobals()
+  })
 })
