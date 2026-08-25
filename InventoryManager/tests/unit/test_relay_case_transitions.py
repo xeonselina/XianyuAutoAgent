@@ -148,6 +148,8 @@ def test_rollback_before_agreed_removes_binding_and_later_milestones(
     )
     relay_case = outcome.relay_case
 
+    db_session.refresh(first)
+    db_session.refresh(second)
     assert RentalRelayBinding.query.count() == 0
     assert relay_case.status == "notified"
     assert relay_case.notified_at == datetime(2026, 8, 5, 9)
@@ -155,6 +157,9 @@ def test_rollback_before_agreed_removes_binding_and_later_milestones(
     assert relay_case.shipped_at is None
     assert relay_case.completed_at is None
     assert relay_case.sf_tracking_number == "SF1234567890"
+    assert first.status == "returned"
+    assert second.status == "shipped"
+    assert second.ship_out_tracking_no == "SF1234567890"
 
 
 def test_shipped_requires_tracking_number(app, db_session):
@@ -167,7 +172,7 @@ def test_shipped_requires_tracking_number(app, db_session):
     assert RentalRelayBinding.query.count() == 0
 
 
-def test_first_shipped_syncs_successor_and_reports_xianyu_success(
+def test_first_shipped_marks_predecessor_returned_and_syncs_successor(
     app, db_session, monkeypatch
 ):
     first, second = seed_pair(db_session)
@@ -195,7 +200,9 @@ def test_first_shipped_syncs_successor_and_reports_xianyu_success(
         now=datetime(2026, 8, 9, 13, 56),
     )
 
+    db_session.refresh(first)
     db_session.refresh(second)
+    assert first.status == "returned"
     assert second.ship_out_tracking_no == "SF1234567890"
     assert second.status == "shipped"
     assert second.ship_out_time == original_ship_out_time
@@ -375,6 +382,8 @@ def test_direct_completed_does_not_update_successor_or_report_xianyu(
     )
 
     db_session.refresh(second)
+    db_session.refresh(first)
+    assert first.status == "not_shipped"
     assert second.status == "not_shipped"
     assert second.ship_out_tracking_no is None
     assert outcome.xianyu_sync["attempted"] is False
@@ -470,7 +479,7 @@ def test_audit_failure_rolls_back_case_and_binding(app, db_session, monkeypatch)
     assert AuditLog.query.count() == 0
 
 
-def test_shipped_audit_failure_rolls_back_successor_and_skips_xianyu(
+def test_shipped_audit_failure_rolls_back_rentals_and_skips_xianyu(
     app, db_session, monkeypatch
 ):
     first, second = seed_pair(db_session)
@@ -501,7 +510,9 @@ def test_shipped_audit_failure_rolls_back_successor_and_skips_xianyu(
             sf_tracking_number="SF7234567890",
         )
 
+    db_session.refresh(first)
     db_session.refresh(second)
+    assert first.status == "not_shipped"
     assert second.status == "not_shipped"
     assert second.ship_out_tracking_no is None
     assert RentalRelayCase.query.count() == 0
@@ -509,7 +520,7 @@ def test_shipped_audit_failure_rolls_back_successor_and_skips_xianyu(
     assert shipped_rentals == []
 
 
-def test_shipped_commit_failure_rolls_back_successor_and_skips_xianyu(
+def test_shipped_commit_failure_rolls_back_rentals_and_skips_xianyu(
     app, db_session, monkeypatch
 ):
     first, second = seed_pair(db_session)
@@ -543,6 +554,8 @@ def test_shipped_commit_failure_rolls_back_successor_and_skips_xianyu(
     monkeypatch.setattr(db.session, "commit", real_commit)
     db.session.expire_all()
     persisted_successor = db.session.get(Rental, second.id)
+    persisted_predecessor = db.session.get(Rental, first.id)
+    assert persisted_predecessor.status == "not_shipped"
     assert persisted_successor.status == "not_shipped"
     assert persisted_successor.ship_out_tracking_no is None
     assert RentalRelayCase.query.count() == 0
