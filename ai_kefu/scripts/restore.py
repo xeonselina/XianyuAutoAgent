@@ -30,7 +30,6 @@ DEFAULT_ENV  = SCRIPT_DIR.parent / ".env"   # ai_kefu/.env
 DEFAULT_HOST = "192.168.50.132"
 DEFAULT_PORT = 33601
 DEFAULT_USER = "root"
-DEFAULT_PASS = "***REMOVED***"
 DEFAULT_DB   = "xianyu_conversations"
 
 
@@ -131,9 +130,19 @@ def main():
     host     = args.host     or env.get("MYSQL_HOST",     DEFAULT_HOST)
     port     = args.port     or int(env.get("MYSQL_PORT", DEFAULT_PORT))
     user     = args.user     or env.get("MYSQL_USER",     DEFAULT_USER)
-    password = args.password or env.get("MYSQL_PASSWORD", DEFAULT_PASS)
+    password = (
+        args.password
+        or env.get("MYSQL_PASSWORD")
+        or os.environ.get("MYSQL_PASSWORD")
+    )
     db_name  = args.db       or env.get("MYSQL_DATABASE", DEFAULT_DB)
     sql_file = Path(args.sql)
+
+    if not password:
+        sys.exit(
+            "❌  缺少数据库密码：请设置 MYSQL_PASSWORD、.env，"
+            "或传入 --password"
+        )
 
     # ── 打印摘要 ────────────────────────────────────────────────
     size_mb = sql_file.stat().st_size / 1024 / 1024 if sql_file.exists() else 0

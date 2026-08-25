@@ -9,6 +9,7 @@
 # =============================================================
 
 set -euo pipefail
+set +x
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SQL_FILE="$SCRIPT_DIR/xianyu_conversations.sql"
@@ -19,7 +20,7 @@ CONTAINER="xianyu-mysql"
 DB_HOST="192.168.50.132"
 DB_PORT="33601"
 DB_USER="root"
-DB_PASSWORD="***REMOVED***"
+DB_PASSWORD="${MYSQL_PASSWORD:-}"
 DB_NAME="xianyu_conversations"
 USE_DOCKER=false   # set to false with --no-docker
 
@@ -57,6 +58,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ── Sanity checks ────────────────────────────────────────────
+if [[ -z "$DB_PASSWORD" ]]; then
+  echo "❌  Missing database password. Set MYSQL_PASSWORD, .env, or --password."
+  exit 1
+fi
+
 if [[ ! -f "$SQL_FILE" ]]; then
   echo "❌  SQL dump not found: $SQL_FILE"
   exit 1
