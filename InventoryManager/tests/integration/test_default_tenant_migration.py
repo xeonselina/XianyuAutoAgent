@@ -195,8 +195,12 @@ def test_cli_adopts_existing_database_preserves_rows_and_is_idempotent(
     assert len(tenants) == len(members) == 1
 
 
-def test_cli_preserves_multiple_main_rentals_for_one_order(legacy_environment):
+def test_cli_preserves_orders_without_legacy_integration_config(
+    legacy_environment, monkeypatch,
+):
     environment, engine = legacy_environment
+    for key in SECRET_VALUES:
+        monkeypatch.delenv(key, raising=False)
     with engine.begin() as connection:
         connection.exec_driver_sql(
             "UPDATE rentals SET xianyu_order_no='XY-BOUND' WHERE id=203"
@@ -207,6 +211,8 @@ def test_cli_preserves_multiple_main_rentals_for_one_order(legacy_environment):
     assert result.exit_code == 0, result.output
     report = json.loads(result.output)
     assert report["after_counts"]["rentals"] == report["before_counts"]["rentals"]
+    assert report["sf_config_complete"] is False
+    assert report["kuaimai_config_complete"] is False
 
 
 @pytest.mark.parametrize("mutation, issue", [

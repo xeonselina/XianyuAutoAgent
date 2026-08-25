@@ -790,6 +790,9 @@ def test_first_empty_secrets_remain_unconfigured_and_kuaimai_keeps_secret(
     assert empty_sf.get_json()["data"]["checkword_configured"] is False
     assert empty_sf.get_json()["data"]["monthly_card_configured"] is False
     assert empty_kuaimai.get_json()["data"]["app_secret_configured"] is False
+    public = settings_api_environment["admin_client"].get("/api/warehouses")
+    assert public.get_json()["data"][0]["sf_configured"] is False
+    assert public.get_json()["data"][0]["kuaimai_configured"] is False
 
     configured = settings_api_environment["admin_client"].put(
         f"/api/settings/warehouses/{warehouse['id']}/kuaimai",
@@ -820,6 +823,8 @@ def test_first_empty_secrets_remain_unconfigured_and_kuaimai_keeps_secret(
     )
     assert retained.get_json()["data"]["app_secret_configured"] is True
     assert retained.get_json()["data"]["printer_sn"] == "PRINTER-001"
+    public = settings_api_environment["admin_client"].get("/api/warehouses")
+    assert public.get_json()["data"][0]["kuaimai_configured"] is True
     with settings_api_environment["tenant_engine"].connect() as connection:
         secret_after = connection.execute(
             text(

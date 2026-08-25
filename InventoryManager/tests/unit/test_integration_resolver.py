@@ -209,6 +209,35 @@ def test_missing_configuration_exposes_only_scope_id_and_field_names():
     assert "ciphertext" not in str(caught.value)
 
 
+def test_warehouse_flags_require_every_resolver_field():
+    warehouse = Warehouse(province="广东省", city="深圳市", name="仓")
+    warehouse.sf_config = WarehouseSFConfig(
+        partner_id="partner", checkword_ciphertext="cipher",
+        monthly_card_ciphertext="cipher", sender_name="name",
+        sender_phone="phone", sender_address="address",
+    )
+    warehouse.kuaimai_config = WarehouseKuaimaiConfig(
+        app_id="app", app_secret_ciphertext="cipher", printer_sn="printer",
+    )
+    for target, field in (
+        (warehouse, "province"), (warehouse, "city"),
+        *((warehouse.sf_config, field) for field in (
+            "partner_id", "checkword_ciphertext", "monthly_card_ciphertext",
+            "sender_name", "sender_phone", "sender_address",
+        )),
+    ):
+        value = getattr(target, field); setattr(target, field, "")
+        assert warehouse.to_dict()["sf_configured"] is False
+        setattr(target, field, value)
+    assert warehouse.to_dict()["sf_configured"] is True
+    for field in ("app_id", "app_secret_ciphertext", "printer_sn"):
+        value = getattr(warehouse.kuaimai_config, field)
+        setattr(warehouse.kuaimai_config, field, "")
+        assert warehouse.to_dict()["kuaimai_configured"] is False
+        setattr(warehouse.kuaimai_config, field, value)
+    assert warehouse.to_dict()["kuaimai_configured"] is True
+
+
 @pytest.mark.parametrize(
     "domain",
     [

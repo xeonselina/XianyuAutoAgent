@@ -73,14 +73,29 @@ yarn-error.log*
 *.sqlite
 *.sqlite3
 *.sql
+**/*.sql
 xianyu-saas-lite-restore/
+
+# 本地凭据、备份和数据库工具
+.claude/
+simple_backup.sh
+scripts/local_test_db.sh
+scripts/export_db_data.py
+export_data.py
+migrations_backup/
 
 # 其他
 .pytest_cache
 *.pid
 
 # Vue前端开发文件
-frontend/
+frontend/*
+!frontend/src/
+frontend/src/*
+!frontend/src/assets/
+frontend/src/assets/*
+!frontend/src/assets/安装调试教程.jpg
+!frontend/src/assets/照片传输教程.png
 frontend-mobile/
 vue-demo/
 

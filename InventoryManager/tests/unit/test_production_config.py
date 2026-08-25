@@ -119,6 +119,27 @@ def test_runtime_template_has_only_safe_delivery_configuration():
         assert any(line.startswith(f"# {legacy}=") for line in lines)
 
 
+def test_runtime_image_context_excludes_sensitive_and_local_files():
+    assert all(not path.exists() for path in (
+        ROOT / "simple_backup.sh", ROOT / "scripts/exported_data.sql",
+    ))
+    assert ".claude/" in (ROOT.parent / ".gitignore").read_text().splitlines()
+    ignored = set((ROOT / ".dockerignore").read_text().splitlines())
+    assert {
+        "**/*.sql", ".claude/", "simple_backup.sh",
+        "scripts/local_test_db.sh", "scripts/export_db_data.py",
+        "migrations_backup/",
+    } <= ignored
+
+
+def test_runtime_image_context_keeps_only_shipping_slip_qr_assets():
+    ignored = set((ROOT / ".dockerignore").read_text().splitlines())
+    assert "frontend/src/*" in ignored and {
+        "!frontend/src/assets/安装调试教程.jpg",
+        "!frontend/src/assets/照片传输教程.png",
+    } <= ignored
+
+
 def test_one_image_and_parameterized_make_contract():
     dockerfile = (ROOT / "Dockerfile").read_text()
     dockerignore = set((ROOT / ".dockerignore").read_text().splitlines())
@@ -131,7 +152,7 @@ def test_one_image_and_parameterized_make_contract():
     assert all(token not in makefile for token in (
         "NAS_", "sshpass", "docker-compose", "include .env", "REGISTRY :=",
     ))
-    assert {"tests/", "frontend/", "frontend-mobile/", "openspec/"} <= dockerignore
+    assert {"tests/", "frontend/*", "frontend-mobile/", "openspec/"} <= dockerignore
     for key in (
         "PROVISIONER_DATABASE_URL", "TENCENTCLOUD_SECRET_ID",
         "TENCENTCLOUD_SECRET_KEY", "TENCENT_SMS_SDK_APP_ID",

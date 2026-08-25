@@ -113,6 +113,13 @@ def test_sms_masks_only_valid_phone_and_redacts_transport_exception(caplog):
         sender.send_code("+8613800138000", "123456", 5)
     assert_hidden(caplog.text + str(error_info.value), "SMS-UPSTREAM", "123456")
 
+@pytest.mark.parametrize("filename", ["安装调试教程.jpg", "照片传输教程.png"])
+def test_shipping_slip_qr_assets_load_as_real_images(filename):
+    image = slip_module.ShippingSlipImageService()._load_and_resize_qr_code(
+        filename, 32,
+    )
+    assert image is not None and image.size == (32, 32)
+
 def test_pdf_and_slip_errors_are_fixed_and_redacted(monkeypatch, caplog):
     canary = "RENDER-ERROR-CANARY"; boom = lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError(canary))
     pdf = pdf_module.PDFConversionService(); monkeypatch.setattr(pdf, "convert_pdf_to_images", boom)

@@ -15,6 +15,13 @@ def _iso(value):
     return value.isoformat().replace("+00:00", "Z")
 
 
+def _strings_present(*values):
+    return all(
+        isinstance(value, str) and bool(value.strip())
+        for value in values
+    )
+
+
 def resolve_write_warehouse_id(requested_id):
     """Resolve a concrete warehouse for a write without storing preference."""
     if requested_id not in (None, ""):
@@ -84,14 +91,30 @@ class Warehouse(db.Model):
         uselist=False,
     )
 
+    @property
+    def sf_configured(self):
+        config = self.sf_config
+        return config is not None and _strings_present(
+            self.province, self.city, config.partner_id,
+            config.checkword_ciphertext, config.monthly_card_ciphertext,
+            config.sender_name, config.sender_phone, config.sender_address,
+        )
+
+    @property
+    def kuaimai_configured(self):
+        config = self.kuaimai_config
+        return config is not None and _strings_present(
+            config.app_id, config.app_secret_ciphertext, config.printer_sn,
+        )
+
     def to_dict(self):
         data = {
             "id": self.id,
             "province": self.province,
             "city": self.city,
             "name": self.name,
-            "sf_configured": self.sf_config is not None,
-            "kuaimai_configured": self.kuaimai_config is not None,
+            "sf_configured": self.sf_configured,
+            "kuaimai_configured": self.kuaimai_configured,
             "created_at": _iso(self.created_at),
             "updated_at": _iso(self.updated_at),
         }

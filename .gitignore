@@ -49,6 +49,7 @@ chroma_data/
 *.bak
 *.swp
 .worktrees/
+.claude/
 
 # OS files
 Thumbs.db
