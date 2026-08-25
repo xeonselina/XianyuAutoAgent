@@ -10,11 +10,18 @@ from app.models.xianyu_order_alert import XianyuOrderAlert
 from app.models.xianyu_shop import XianyuShop
 from app.services.xianyu_order_service import (
     XianyuOrderServiceError,
-    xianyu_service,
+    get_xianyu_service,
 )
 
 
 logger = logging.getLogger(__name__)
+
+
+class _ResolverBackedXianyuService:
+    """Short-lived compatibility adapter until reconciliation is shop-explicit."""
+
+    def list_orders(self, *args, **kwargs):
+        return get_xianyu_service().list_orders(*args, **kwargs)
 
 
 class XianyuShopConfigIncompleteError(RuntimeError):
@@ -28,7 +35,7 @@ class XianyuOrderReconciliationService:
     DEFAULT_LOCK_PATH = "/tmp/inventory_xianyu_order_reconcile.lock"
 
     def __init__(self, service=None, lock_path=None):
-        self.xianyu_service = service or xianyu_service
+        self.xianyu_service = service or _ResolverBackedXianyuService()
         self.lock_path = lock_path or self.DEFAULT_LOCK_PATH
 
     @staticmethod

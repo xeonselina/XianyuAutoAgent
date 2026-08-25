@@ -7,11 +7,19 @@ import hashlib
 import requests
 import json
 import time
-import os
 import logging
+import re
+from dataclasses import dataclass
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class XianyuShopConfig:
+    shop_id: int
+    app_key: str
+    app_secret: str
 
 
 class XianyuOrderServiceError(RuntimeError):
@@ -21,27 +29,20 @@ class XianyuOrderServiceError(RuntimeError):
 class XianyuOrderService:
     """闲鱼管家订单API服务类 - 统一的闲鱼API客户端"""
 
-    def __init__(self):
-        """初始化服务,从环境变量读取配置"""
-        # 兼容两种环境变量命名方式
-        self.app_key = os.getenv('XIANYU_APP_KEY') or os.getenv('XIANYU_APP_ID')
-        self.app_secret = os.getenv('XIANYU_APP_SECRET') or os.getenv('XIANYU_SECRET')
-        self.api_domain = os.getenv('XIANYU_API_DOMAIN', 'open.goofish.pro')
+    def __init__(self, shop_config: XianyuShopConfig, api_domain: str):
+        """初始化当前店铺的闲鱼客户端。"""
+        if not isinstance(api_domain, str) or not re.fullmatch(
+            r"(?=.{1,253}\Z)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}"
+            r"[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}"
+            r"[A-Za-z0-9])?)*",
+            api_domain,
+        ):
+            raise ValueError("XIANYU_API_DOMAIN must be a hostname")
+        self.config = shop_config
+        self.app_key = shop_config.app_key
+        self.app_secret = shop_config.app_secret
+        self.api_domain = api_domain
         self.base_url = f"https://{self.api_domain}"
-
-        # 卖家ID（可选）
-        self.seller_id = os.getenv('XIANYU_SELLER_ID')
-
-        # 寄件方信息（可选，用于发货接口）
-        self.ship_name = os.getenv('XIANYU_SHIP_NAME')
-        self.ship_mobile = os.getenv('XIANYU_SHIP_MOBILE')
-        self.ship_prov_name = os.getenv('XIANYU_SHIP_PROV_NAME')
-        self.ship_city_name = os.getenv('XIANYU_SHIP_CITY_NAME')
-        self.ship_area_name = os.getenv('XIANYU_SHIP_AREA_NAME')
-        self.ship_address = os.getenv('XIANYU_SHIP_ADDRESS')
-
-        if not self.app_key or not self.app_secret:
-            logger.warning("闲鱼API凭证未配置。请设置XIANYU_APP_KEY/XIANYU_APP_ID和XIANYU_APP_SECRET/XIANYU_SECRET环境变量")
 
     def _gen_body_sign(self, body_json: str, timestamp: int) -> str:
         """
@@ -376,18 +377,6 @@ class XianyuOrderService:
             'express_name': '顺丰速运'
         }
 
-        # 添加寄件方信息（如果配置了）
-        if self.ship_name and self.ship_mobile:
-            request_data['ship_name'] = self.ship_name
-            request_data['ship_mobile'] = self.ship_mobile
-            request_data['ship_address'] = self.ship_address
-
-            # 优先使用省市区文本格式
-            if self.ship_prov_name and self.ship_city_name and self.ship_area_name:
-                request_data['ship_prov_name'] = self.ship_prov_name
-                request_data['ship_city_name'] = self.ship_city_name
-                request_data['ship_area_name'] = self.ship_area_name
-
         logger.info(f"闲鱼发货通知: Rental {rental.id}, Order {rental.xianyu_order_no}")
         logger.debug(f"请求数据: {request_data}")
 
@@ -419,11 +408,13 @@ class XianyuOrderService:
             }
 
 
-# 创建全局服务实例
-xianyu_service = XianyuOrderService()
+def get_xianyu_service(rental=None, shop=None) -> XianyuOrderService:
+    """Temporary fresh compatibility resolver for unmigrated callers."""
+    from app.services.integration_resolver import IntegrationResolver
 
-
-# 向后兼容的工厂函数
-def get_xianyu_service() -> XianyuOrderService:
-    """获取闲鱼API服务单例（向后兼容）"""
-    return xianyu_service
+    resolver = IntegrationResolver()
+    if rental is not None:
+        return resolver.xianyu_for_rental(rental)
+    if shop is not None:
+        return resolver.xianyu_for_shop(shop)
+    return resolver.xianyu_for_only_shop()

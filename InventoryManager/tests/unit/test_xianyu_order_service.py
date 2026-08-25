@@ -6,14 +6,21 @@ import logging
 import pytest
 import requests
 
-from app.services.xianyu_order_service import XianyuOrderService
+from app.services.xianyu_order_service import (
+    XianyuOrderService,
+    XianyuShopConfig,
+)
 
 
 def make_service():
-    service = XianyuOrderService()
-    service.app_key = "test-app"
-    service.app_secret = "test-secret"
-    return service
+    return XianyuOrderService(
+        XianyuShopConfig(
+            shop_id=1,
+            app_key="test-app",
+            app_secret="test-secret",
+        ),
+        "open.goofish.pro",
+    )
 
 
 def test_list_orders_fetches_every_page(monkeypatch):

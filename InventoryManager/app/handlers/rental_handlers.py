@@ -496,7 +496,7 @@ class RentalHandlers:
     def handle_fetch_xianyu_order() -> ApiResponse:
         """处理获取闲鱼订单详情请求"""
         try:
-            from app.services.xianyu_order_service import xianyu_service
+            from app.services.xianyu_order_service import get_xianyu_service
 
             data = request.get_json()
             if not data:
@@ -507,7 +507,7 @@ class RentalHandlers:
                 return bad_request('订单号不能为空')
 
             # 调用闲鱼API服务
-            order_data = xianyu_service.get_order_detail(order_no)
+            order_data = get_xianyu_service().get_order_detail(order_no)
 
             if not order_data:
                 return server_error('获取订单详情失败，请检查订单号是否正确')

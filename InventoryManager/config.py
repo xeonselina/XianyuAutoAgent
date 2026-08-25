@@ -64,6 +64,9 @@ class Config:
     TENCENT_SMS_REGION = (
         os.environ.get('TENCENT_SMS_REGION') or 'ap-guangzhou'
     )
+    XIANYU_API_DOMAIN = (
+        os.environ.get('XIANYU_API_DOMAIN') or 'open.goofish.pro'
+    )
 
     # 数据库配置
     SQLALCHEMY_DATABASE_URI = _get_database_uri()

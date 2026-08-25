@@ -15,6 +15,7 @@ from app.models.warehouse import (
 SF_CHECKWORD_PURPOSE = "warehouse-sf-checkword"
 SF_MONTHLY_CARD_PURPOSE = "warehouse-sf-monthly-card"
 KUAIMAI_SECRET_PURPOSE = "warehouse-kuaimai-app-secret"
+XIANYU_SECRET_PURPOSE = "xianyu-shop-app-secret"
 
 
 class SettingsValidationError(ValueError):

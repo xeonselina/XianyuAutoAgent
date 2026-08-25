@@ -4,14 +4,21 @@
 """
 import hashlib
 import logging
-import os
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class KuaimaiServiceConfig:
+    app_id: str
+    app_secret: str
+    printer_sn: str
 
 
 class KuaimaiPrintService:
@@ -26,23 +33,17 @@ class KuaimaiPrintService:
         'getPrintJobStatus': '/api/cloud/print/result',
     }
 
-    def __init__(self):
-        """初始化快麦云打印服务"""
-        self.app_id = os.getenv('KUAIMAI_APP_ID', '')
-        self.app_secret = os.getenv('KUAIMAI_APP_SECRET', '')
-        self.default_printer_sn = os.getenv('KUAIMAI_PRINTER_SN', '')
+    def __init__(self, config: KuaimaiServiceConfig | None = None):
+        """初始化当前仓库的快麦服务。"""
+        if config is None:
+            from app.services.integration_resolver import IntegrationResolver
 
-        logger.info(f"KUAIMAI_APP_ID: {self.app_id}")
-        logger.info(f"KUAIMAI_APP_SECRET: {self.app_secret}")
-        logger.info(f"KUAIMAI_PRINTER_SN: {self.default_printer_sn}")
-
-        # 验证配置
-        if not self.app_id or not self.app_secret:
-            logger.warning("快麦云打印服务未配置：缺少 KUAIMAI_APP_ID 或 KUAIMAI_APP_SECRET")
-            self.configured = False
-        else:
-            logger.info(f"快麦云打印服务初始化完成，AppID: {self.app_id}")
-            self.configured = True
+            config = IntegrationResolver().kuaimai_for_only_warehouse().config
+        self.config = config
+        self.app_id = config.app_id
+        self.app_secret = config.app_secret
+        self.default_printer_sn = config.printer_sn
+        self.configured = True
 
     def _generate_sign(self, params: Dict) -> str:
         """
@@ -90,7 +91,7 @@ class KuaimaiPrintService:
             Exception: API调用失败
         """
         if not self.configured:
-            raise Exception("快麦云打印服务未配置，请设置环境变量 KUAIMAI_APP_ID 和 KUAIMAI_APP_SECRET")
+            raise Exception("快麦云打印服务配置不完整")
 
         # 获取API端点
         endpoint = self.API_ENDPOINTS.get(method)

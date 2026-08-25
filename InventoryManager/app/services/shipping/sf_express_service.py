@@ -9,31 +9,39 @@ import tempfile
 import requests
 import base64
 import time
+from dataclasses import dataclass
 from typing import Dict, Optional
 from app.utils.sf.sf_sdk_wrapper import SFExpressSDK
 
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class SFServiceConfig:
+    partner_id: str
+    checkword: str
+    monthly_card: str
+    test_mode: bool
+    sender_name: str
+    sender_phone: str
+    sender_address: str
+    province: str
+    city: str
+
+
 class SFExpressService:
     """顺丰速运服务封装"""
 
-    def __init__(self):
-        """初始化顺丰速运服务"""
-        # 从环境变量读取配置
-        self.partner_id = os.getenv('SF_PARTNER_ID') 
-        self.checkword = os.getenv('SF_CHECKWORD')
-        self.monthly_card = os.getenv('SF_MONTHLY_CARD')
-        self.test_mode = os.getenv('SF_TEST_MODE', 'true') == 'true'
-
-        # 寄件方信息
-        self.sender_name = os.getenv('SF_SENDER_NAME', '张女士')
-        self.sender_phone = os.getenv('SF_SENDER_PHONE', '***REMOVED***')
-        self.sender_address = os.getenv('SF_SENDER_ADDRESS', '***REMOVED_ADDRESS***')
-
-        if not self.partner_id or not self.checkword:
-            logger.warning('顺丰API凭证未配置 (SF_PARTNER_ID/SF_APP_KEY, SF_CHECKWORD/SF_APP_SECRET)')
-        
+    def __init__(self, sf_config: SFServiceConfig):
+        """初始化当前仓库的顺丰服务。"""
+        self.config = sf_config
+        self.partner_id = sf_config.partner_id
+        self.checkword = sf_config.checkword
+        self.monthly_card = sf_config.monthly_card
+        self.test_mode = sf_config.test_mode
+        self.sender_name = sf_config.sender_name
+        self.sender_phone = sf_config.sender_phone
+        self.sender_address = sf_config.sender_address
         # 创建SF SDK客户端
         self.client = SFExpressSDK(
             partner_id=self.partner_id,
@@ -466,12 +474,13 @@ class SFExpressService:
         return {'name': '', 'phone': '', 'address': destination}
 
 
-# 创建全局实例
-_sf_service = None
+def get_sf_express_service(rental=None, warehouse_id=None) -> SFExpressService:
+    """Temporary fresh compatibility resolver for unmigrated callers."""
+    from app.services.integration_resolver import IntegrationResolver
 
-def get_sf_express_service() -> SFExpressService:
-    """获取顺丰速运服务单例"""
-    global _sf_service
-    if _sf_service is None:
-        _sf_service = SFExpressService()
-    return _sf_service
+    resolver = IntegrationResolver()
+    if rental is not None:
+        return resolver.sf_for_rental(rental)
+    if warehouse_id is not None:
+        return resolver.sf_for_warehouse(warehouse_id)
+    return resolver.sf_for_only_warehouse()

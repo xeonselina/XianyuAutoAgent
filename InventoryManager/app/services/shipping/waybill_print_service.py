@@ -297,13 +297,6 @@ class WaybillPrintService:
         }
 
 
-# 创建全局实例
-_waybill_print_service = None
-
-
 def get_waybill_print_service() -> WaybillPrintService:
-    """获取面单打印服务单例"""
-    global _waybill_print_service
-    if _waybill_print_service is None:
-        _waybill_print_service = WaybillPrintService()
-    return _waybill_print_service
+    """Build a fresh compatibility service until callers resolve by rental."""
+    return WaybillPrintService()
