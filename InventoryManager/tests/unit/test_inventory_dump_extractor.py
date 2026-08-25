@@ -50,7 +50,9 @@ def test_extracted_segment_disables_fk_checks_for_restore_order(tmp_path):
     extract_database(source, target, "inventory_management_restore_test")
 
     extracted = target.read_text(encoding="utf-8")
-    assert extracted.startswith("SET FOREIGN_KEY_CHECKS=0;\n")
+    assert extracted.startswith(
+        "SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS=0;\n"
+    )
     assert "CREATE TABLE child" in extracted
     assert "USE `mysql`" not in extracted
 

@@ -594,6 +594,7 @@ def extract_database(
                     statements += 1
                     scanner.finish_statement()
 
+            write_line("SET NAMES utf8mb4;\n")
             write_line("SET FOREIGN_KEY_CHECKS=0;\n")
             with Path(input_path).open("r", encoding="utf-8", newline="") as source:
                 for line in source:
