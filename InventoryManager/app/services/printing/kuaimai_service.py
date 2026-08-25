@@ -33,12 +33,8 @@ class KuaimaiPrintService:
         'getPrintJobStatus': '/api/cloud/print/result',
     }
 
-    def __init__(self, config: KuaimaiServiceConfig | None = None):
+    def __init__(self, config: KuaimaiServiceConfig):
         """初始化当前仓库的快麦服务。"""
-        if config is None:
-            from app.services.integration_resolver import IntegrationResolver
-
-            config = IntegrationResolver().kuaimai_for_only_warehouse().config
         self.config = config
         self.app_id = config.app_id
         self.app_secret = config.app_secret
@@ -254,3 +250,15 @@ class KuaimaiPrintService:
                 'status': 'error',
                 'message': str(e)
             }
+
+
+def get_kuaimai_print_service(rental=None, warehouse_id=None):
+    """Build a fresh scoped service for temporary legacy callers."""
+    from app.services.integration_resolver import IntegrationResolver
+
+    resolver = IntegrationResolver()
+    if rental is not None:
+        return resolver.kuaimai_for_rental(rental)
+    if warehouse_id is not None:
+        return resolver.kuaimai_for_warehouse(warehouse_id)
+    return resolver.kuaimai_for_only_warehouse()

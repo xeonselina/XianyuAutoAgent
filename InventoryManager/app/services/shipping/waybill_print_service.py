@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 from app.models import Rental
 from app.services.shipping.pdf_conversion_service import PDFConversionService, PDFConversionError
 from app.services.shipping.sf_express_service import get_sf_express_service
-from app.services.printing.kuaimai_service import KuaimaiPrintService
+from app.services.printing.kuaimai_service import get_kuaimai_print_service
 from app.services.printing.shipping_slip_image_service import shipping_slip_image_service, SlipGenerationError
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ class WaybillPrintService:
         """初始化面单打印服务"""
         self.sf_service = get_sf_express_service()
         self.pdf_service = PDFConversionService(default_dpi=203)
-        self.kuaimai_service = KuaimaiPrintService()
+        self.kuaimai_service = get_kuaimai_print_service()
 
         logger.info("WaybillPrintService初始化完成")
 

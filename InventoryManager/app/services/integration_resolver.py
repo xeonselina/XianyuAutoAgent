@@ -54,7 +54,7 @@ class IntegrationResolver:
         secret_box=None,
         api_domain=None,
     ):
-        self.session = session or db.session
+        self.session = session if session is not None else db.session
         self.secret_box = secret_box
         self.api_domain = api_domain
 
@@ -67,17 +67,27 @@ class IntegrationResolver:
         return store.secret_box
 
     def _api_domain(self):
-        return self.api_domain or current_app.config["XIANYU_API_DOMAIN"]
+        if self.api_domain is not None:
+            return self.api_domain
+        return current_app.config["XIANYU_API_DOMAIN"]
 
-    def _only_id(self, model, scope, field):
-        ids = list(
-            self.session.scalars(
-                select(model.id).order_by(model.id).limit(2)
-            )
-        )
+    def _only_id(self, model, scope, field, condition=None):
+        statement = select(model.id).order_by(model.id).limit(2)
+        if condition is not None:
+            statement = statement.where(condition)
+        ids = list(self.session.scalars(statement))
         if len(ids) != 1:
             raise ConfigurationIncomplete(scope, None, (field,))
         return ids[0]
+
+    def _decrypt(self, scope, scope_id, field, ciphertext, purpose):
+        try:
+            value = self._secret_box().decrypt(ciphertext, purpose)
+        except Exception:
+            value = None
+        if _blank(value):
+            raise ConfigurationIncomplete(scope, scope_id, (field,)) from None
+        return value
 
     def sf_for_rental(self, rental):
         warehouse_id = getattr(rental, "warehouse_id", None)
@@ -110,15 +120,16 @@ class IntegrationResolver:
         missing = tuple(name for name, value in values.items() if _blank(value))
         if missing:
             raise ConfigurationIncomplete("warehouse", warehouse_id, missing)
-        box = self._secret_box()
         return SFExpressService(
             SFServiceConfig(
                 partner_id=values["partner_id"],
-                checkword=box.decrypt(
-                    values["checkword"], SF_CHECKWORD_PURPOSE
+                checkword=self._decrypt(
+                    "warehouse", warehouse_id, "checkword",
+                    values["checkword"], SF_CHECKWORD_PURPOSE,
                 ),
-                monthly_card=box.decrypt(
-                    values["monthly_card"], SF_MONTHLY_CARD_PURPOSE
+                monthly_card=self._decrypt(
+                    "warehouse", warehouse_id, "monthly_card",
+                    values["monthly_card"], SF_MONTHLY_CARD_PURPOSE,
                 ),
                 test_mode=bool(config.test_mode),
                 sender_name=values["sender_name"],
@@ -157,8 +168,9 @@ class IntegrationResolver:
         return KuaimaiPrintService(
             KuaimaiServiceConfig(
                 app_id=values["app_id"],
-                app_secret=self._secret_box().decrypt(
-                    values["app_secret"], KUAIMAI_SECRET_PURPOSE
+                app_secret=self._decrypt(
+                    "warehouse", warehouse_id, "app_secret",
+                    values["app_secret"], KUAIMAI_SECRET_PURPOSE,
                 ),
                 printer_sn=values["printer_sn"],
             )
@@ -172,13 +184,15 @@ class IntegrationResolver:
 
     def xianyu_for_only_shop(self):
         return self.xianyu_for_shop(
-            self._only_id(XianyuShop, "shop", "xianyu_shop_id")
+            self._only_id(
+                XianyuShop, "shop", "xianyu_shop_id",
+                XianyuShop.is_active.is_(True),
+            )
         )
 
     def xianyu_for_shop(self, shop):
-        if not isinstance(shop, XianyuShop):
-            shop = self.session.get(XianyuShop, shop)
-        shop_id = getattr(shop, "id", None)
+        shop_id = getattr(shop, "id", shop)
+        shop = self.session.get(XianyuShop, shop_id)
         values = {
             "app_key": getattr(shop, "app_key", None),
             "app_secret": getattr(shop, "app_secret_ciphertext", None),
@@ -189,8 +203,9 @@ class IntegrationResolver:
         config = XianyuShopConfig(
             shop_id=shop_id,
             app_key=values["app_key"],
-            app_secret=self._secret_box().decrypt(
-                values["app_secret"], XIANYU_SECRET_PURPOSE
+            app_secret=self._decrypt(
+                "shop", shop_id, "app_secret",
+                values["app_secret"], XIANYU_SECRET_PURPOSE,
             ),
         )
         return XianyuOrderService(config, self._api_domain())

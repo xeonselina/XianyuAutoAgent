@@ -16,7 +16,7 @@ from app.utils.response import (
     server_error
 )
 from app.services.shipping.waybill_print_service import get_waybill_print_service
-from app.services.printing.kuaimai_service import KuaimaiPrintService
+from app.services.printing.kuaimai_service import get_kuaimai_print_service
 
 
 class ShippingBatchHandlers:
@@ -268,7 +268,7 @@ class ShippingBatchHandlers:
     def handle_get_printers() -> ApiResponse:
         """处理获取打印机配置请求"""
         try:
-            kuaimai_service = KuaimaiPrintService()
+            kuaimai_service = get_kuaimai_print_service()
 
             # 检查服务是否已配置
             if not kuaimai_service.configured:

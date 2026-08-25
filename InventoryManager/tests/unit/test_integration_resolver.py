@@ -17,7 +17,11 @@ from app.services.integration_resolver import (
     ConfigurationIncomplete,
     IntegrationResolver,
 )
-from app.services.printing.kuaimai_service import KuaimaiServiceConfig
+from app.services.printing.kuaimai_service import (
+    KuaimaiServiceConfig,
+    KuaimaiPrintService,
+    get_kuaimai_print_service,
+)
 from app.services.shipping.sf_express_service import SFServiceConfig
 from app.services.xianyu_order_service import XianyuShopConfig
 from app.services.settings_service import (
@@ -34,12 +38,31 @@ MASTER_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 class FakeSession:
     def __init__(self, rows):
         self.rows = {
-            (type(row), row.id if hasattr(row, "id") else row.warehouse_id): row
+            (
+                type(row),
+                row.id if hasattr(row, "id") else row.warehouse_id,
+            ): row
             for row in rows
         }
 
     def get(self, model, row_id):
         return self.rows.get((model, row_id))
+
+    def scalars(self, statement):
+        self.last_statement = str(statement)
+        model = (
+            XianyuShop
+            if "xianyu_shops" in self.last_statement
+            else Warehouse
+        )
+        rows = [
+            row
+            for (kind, _row_id), row in self.rows.items()
+            if kind is model
+        ]
+        if model is XianyuShop:
+            rows = [row for row in rows if row.is_active]
+        return [row.id for row in sorted(rows, key=lambda row: row.id)[:2]]
 
 
 @pytest.fixture
@@ -206,3 +229,110 @@ def test_rejects_non_hostname_xianyu_api_domain(
 
     with pytest.raises(ValueError, match="hostname"):
         resolver.xianyu_for_shop(shops[0])
+
+
+def test_xianyu_requeries_detached_shop_and_only_compat_uses_active(
+    configured_resolver,
+):
+    resolver, _rentals, shops = configured_resolver
+    stored = shops[0]
+    stored.is_active = False
+    detached = SimpleNamespace(
+        id=stored.id,
+        app_key="detached-key",
+        app_secret_ciphertext="detached-secret",
+    )
+
+    assert resolver.xianyu_for_shop(detached).config.app_key == stored.app_key
+    assert resolver.xianyu_for_only_shop().config.shop_id == shops[1].id
+    assert "is_active" in resolver.session.last_statement
+
+    with pytest.raises(ConfigurationIncomplete) as caught:
+        resolver.xianyu_for_shop(999)
+    assert caught.value.scope_id == 999
+
+
+@pytest.mark.parametrize(
+    ("kind", "field", "purpose"),
+    [
+        ("checkword", "checkword", SF_CHECKWORD_PURPOSE),
+        ("monthly", "monthly_card", SF_MONTHLY_CARD_PURPOSE),
+        ("kuaimai", "app_secret", KUAIMAI_SECRET_PURPOSE),
+        ("xianyu", "app_secret", XIANYU_SECRET_PURPOSE),
+    ],
+)
+@pytest.mark.parametrize("bad", ["corrupt-canary", "blank"])
+def test_bad_secret_is_redacted_configuration_incomplete(
+    configured_resolver,
+    kind,
+    field,
+    purpose,
+    bad,
+):
+    resolver, rentals, shops = configured_resolver
+    ciphertext = (
+        resolver.secret_box.encrypt("", purpose) if bad == "blank" else bad
+    )
+    if kind in {"checkword", "monthly"}:
+        config = resolver.session.get(WarehouseSFConfig, 1)
+        attr = {
+            "checkword": "checkword_ciphertext",
+            "monthly": "monthly_card_ciphertext",
+        }[kind]
+        setattr(config, attr, ciphertext)
+        call = lambda: resolver.sf_for_rental(rentals[1])
+        scope, scope_id = "warehouse", 1
+    elif kind == "kuaimai":
+        config = resolver.session.get(WarehouseKuaimaiConfig, 1)
+        config.app_secret_ciphertext = ciphertext
+        call = lambda: resolver.kuaimai_for_rental(rentals[1])
+        scope, scope_id = "warehouse", 1
+    else:
+        shops[0].app_secret_ciphertext = ciphertext
+        call = lambda: resolver.xianyu_for_shop(shops[0])
+        scope, scope_id = "shop", shops[0].id
+
+    with pytest.raises(ConfigurationIncomplete) as caught:
+        call()
+    assert (
+        caught.value.scope,
+        caught.value.scope_id,
+        caught.value.missing_fields,
+    ) == (scope, scope_id, (field,))
+    assert caught.value.__suppress_context__
+    assert caught.value.__context__ is None
+    assert "corrupt-canary" not in str(caught.value)
+
+
+def test_explicit_falsy_dependencies_do_not_fall_back(configured_resolver):
+    resolver, _rentals, shops = configured_resolver
+
+    class FalsySession(FakeSession):
+        def __bool__(self):
+            return False
+
+    session = FalsySession(resolver.session.rows.values())
+    explicit = IntegrationResolver(
+        session=session,
+        secret_box=resolver.secret_box,
+        api_domain="",
+    )
+    assert explicit.session is session
+    with pytest.raises(ValueError, match="hostname"):
+        explicit.xianyu_for_shop(shops[0].id)
+
+
+def test_kuaimai_constructor_is_explicit_and_factory_is_fresh(
+    configured_resolver,
+    monkeypatch,
+):
+    resolver, rentals, _shops = configured_resolver
+    with pytest.raises(TypeError):
+        KuaimaiPrintService()
+    monkeypatch.setattr(
+        "app.services.integration_resolver.IntegrationResolver",
+        lambda: resolver,
+    )
+    first = get_kuaimai_print_service(rental=rentals[1])
+    second = get_kuaimai_print_service(rental=rentals[1])
+    assert first is not second
