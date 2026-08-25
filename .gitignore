@@ -50,6 +50,7 @@ chroma_data/
 *.swp
 .worktrees/
 .claude/
+ai_kefu/scripts/xianyu_conversations.sql
 
 # OS files
 Thumbs.db
