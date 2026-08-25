@@ -122,6 +122,46 @@ def upgrade():
         )
 
     tables = _tables(connection)
+    if "xianyu_order_alerts" not in tables:
+        op.create_table(
+            "xianyu_order_alerts",
+            sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
+            sa.Column("order_no", sa.String(length=50), nullable=False),
+            sa.Column("xianyu_shop_id", sa.Integer(), nullable=True),
+            sa.Column("state", sa.String(length=20), nullable=False),
+            sa.Column("pay_amount", sa.BigInteger(), nullable=False),
+            sa.Column("buyer_nick", sa.String(length=100), nullable=True),
+            sa.Column("receiver_name", sa.String(length=100), nullable=True),
+            sa.Column("receiver_mobile", sa.String(length=20), nullable=True),
+            sa.Column("address", sa.String(length=500), nullable=True),
+            sa.Column("goods_title", sa.String(length=500), nullable=True),
+            sa.Column("goods_sku_text", sa.String(length=500), nullable=True),
+            sa.Column("order_time", sa.DateTime(), nullable=True),
+            sa.Column("first_detected_at", sa.DateTime(), nullable=False),
+            sa.Column("last_seen_at", sa.DateTime(), nullable=False),
+            sa.Column("ignored_reason", sa.String(length=500), nullable=True),
+            sa.Column("ignored_at", sa.DateTime(), nullable=True),
+            sa.Column("created_at", sa.DateTime(), nullable=False),
+            sa.Column("updated_at", sa.DateTime(), nullable=False),
+            sa.CheckConstraint(
+                "state IN ('pending', 'ignored')",
+                name="ck_xianyu_order_alert_state",
+            ),
+            sa.ForeignKeyConstraint(
+                ["xianyu_shop_id"], ["xianyu_shops.id"],
+                name="fk_xianyu_order_alerts_xianyu_shop_id",
+                ondelete="RESTRICT",
+            ),
+            sa.PrimaryKeyConstraint("id"),
+        )
+        op.create_index(
+            "ix_xianyu_order_alerts_order_no",
+            "xianyu_order_alerts", ["order_no"], unique=False,
+        )
+        op.create_index(
+            "ix_xianyu_order_alerts_state",
+            "xianyu_order_alerts", ["state"], unique=False,
+        )
     if "warehouse_sf_configs" not in tables:
         op.create_table(
             "warehouse_sf_configs",

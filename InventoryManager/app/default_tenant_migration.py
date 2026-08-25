@@ -162,6 +162,7 @@ class DefaultTenantMigrator:
 
     @staticmethod
     def _health_counts(connection):
+        has_alerts = "xianyu_order_alerts" in inspect(connection).get_table_names()
         return {
             "orphan_rental_devices": connection.scalar(text(
                 "SELECT count(*) FROM rentals r LEFT JOIN devices d "
@@ -175,7 +176,7 @@ class DefaultTenantMigrator:
             "blank_alert_orders": connection.scalar(text(
                 "SELECT count(*) FROM xianyu_order_alerts "
                 "WHERE NULLIF(TRIM(order_no), '') IS NULL"
-            )),
+            )) if has_alerts else 0,
             "duplicate_main_orders": connection.scalar(text(
                 "SELECT count(*) FROM (SELECT 1 FROM rentals WHERE "
                 "parent_rental_id IS NULL AND "
