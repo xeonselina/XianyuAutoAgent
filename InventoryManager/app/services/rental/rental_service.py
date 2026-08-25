@@ -63,6 +63,7 @@ class RentalService:
 
             rows.append({
                 'id': rental.id,
+                'warehouse_id': rental.warehouse_id,
                 'device_model': device_model or '-',
                 'start_date': rental.start_date.isoformat(),
                 'end_date': rental.end_date.isoformat(),

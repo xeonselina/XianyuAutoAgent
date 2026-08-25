@@ -162,6 +162,7 @@ const filteredRentals = computed(() => {
 
 const isSelectableRental = (rental: Rental) => (
   canWrite.value &&
+  rental.warehouse_id === tenantStore.currentWarehouseId &&
   !['shipped', 'returned', 'completed'].includes(rental.status) &&
   !rental.is_relay_shipping
 )
@@ -216,6 +217,7 @@ const onScheduleTimeConfirm = ({ selectedValues }: any) => {
 const onQuery = async () => {
   const requestGeneration = ++queryGeneration
   loading.value = true
+  rentals.value = []
   // 清空选中状态
   Object.keys(checkedIds).forEach(k => { checkedIds[Number(k)] = false })
   try {
@@ -259,10 +261,19 @@ const toggleSelectAll = () => {
 }
 
 const onSchedule = async () => {
+  let warehouseId: number
   try {
-    tenantStore.requireConcreteWarehouse()
+    warehouseId = tenantStore.requireConcreteWarehouse()
   } catch (error: any) {
     showToast({ message: error.message, type: 'fail' })
+    return
+  }
+  const selectedRentals = rentals.value.filter(rental => checkedIds[rental.id])
+  if (
+    selectedRentals.length === 0
+    || selectedRentals.some(rental => rental.warehouse_id !== warehouseId)
+  ) {
+    showToast({ message: '记录不属于当前仓库', type: 'fail' })
     return
   }
   scheduling.value = true
@@ -285,10 +296,19 @@ const onSchedule = async () => {
 }
 
 const onPrint = async () => {
+  let warehouseId: number
   try {
-    tenantStore.requireConcreteWarehouse()
+    warehouseId = tenantStore.requireConcreteWarehouse()
   } catch (error: any) {
     showToast({ message: error.message, type: 'fail' })
+    return
+  }
+  const selectedRentals = rentals.value.filter(rental => checkedIds[rental.id])
+  if (
+    selectedRentals.length === 0
+    || selectedRentals.some(rental => rental.warehouse_id !== warehouseId)
+  ) {
+    showToast({ message: '记录不属于当前仓库', type: 'fail' })
     return
   }
   printing.value = true
@@ -311,8 +331,10 @@ onMounted(() => {
 })
 
 watch(() => tenantStore.currentWarehouseId, () => {
+  rentals.value = []
+  Object.keys(checkedIds).forEach(k => { checkedIds[Number(k)] = false })
   void onQuery()
-})
+}, { flush: 'sync' })
 </script>
 
 <style scoped>

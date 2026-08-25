@@ -56,6 +56,7 @@ describe('Gantt Store', () => {
           model: 'Alpha 7R',
           is_accessory: false,
           lifecycle_status: 'active',
+          warehouse_id: 1,
           created_at: '2026-01-01T00:00:00Z',
           updated_at: '2026-01-01T00:00:00Z'
         }
@@ -94,6 +95,7 @@ describe('Gantt Store', () => {
         model: 'Model 1',
         is_accessory: false,
         lifecycle_status: 'active',
+        warehouse_id: 1,
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z'
       }]
@@ -115,6 +117,7 @@ describe('Gantt Store', () => {
         model: 'Model 1',
         is_accessory: false,
         lifecycle_status: 'active' as const,
+        warehouse_id: 1,
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z'
       }
@@ -265,6 +268,99 @@ describe('Gantt Store', () => {
       expect(store.loading).toBe(false)
     })
 
+    it('clears old warehouse rows immediately and keeps them empty when the new load fails', async () => {
+      let rejectSecond!: (reason?: any) => void
+      const second = new Promise((_resolve, reject) => { rejectSecond = reject })
+      const tenant = useTenantStore()
+      tenant.setWarehousesForSession([
+        { id: 1, name: 'A 仓', province: '广东省', city: '深圳市' },
+        { id: 2, name: 'B 仓', province: '浙江省', city: '杭州市' },
+      ])
+      vi.mocked(axios.get)
+        .mockResolvedValueOnce({
+          data: {
+            success: true,
+            data: {
+              devices: [{ id: 1, name: 'A 设备', warehouse_id: 1 }],
+              rentals: [{ id: 11, warehouse_id: 1 }],
+            },
+          },
+        })
+        .mockReturnValueOnce(second as never)
+      const store = useGanttStore()
+      await store.loadData()
+
+      tenant.selectWarehouse(2)
+      const loadB = store.loadData()
+
+      expect(store.devices).toEqual([])
+      expect(store.rentals).toEqual([])
+      rejectSecond(new Error('B 仓加载失败'))
+      await loadB
+      expect(store.devices).toEqual([])
+      expect(store.rentals).toEqual([])
+      expect(store.error).toBe('B 仓加载失败')
+    })
+
+    it('silently ignores an old warehouse rejection after the new warehouse succeeds', async () => {
+      let rejectFirst!: (reason?: any) => void
+      const first = new Promise((_resolve, reject) => { rejectFirst = reject })
+      const tenant = useTenantStore()
+      tenant.setWarehousesForSession([
+        { id: 1, name: 'A 仓', province: '广东省', city: '深圳市' },
+        { id: 2, name: 'B 仓', province: '浙江省', city: '杭州市' },
+      ])
+      vi.mocked(axios.get)
+        .mockReturnValueOnce(first as never)
+        .mockResolvedValueOnce({
+          data: {
+            success: true,
+            data: {
+              devices: [{ id: 2, name: 'B 设备', warehouse_id: 2 }],
+              rentals: [],
+            },
+          },
+        })
+      const store = useGanttStore()
+      const loadA = store.loadData()
+      await vi.waitFor(() => expect(axios.get).toHaveBeenCalledOnce())
+      tenant.selectWarehouse(2)
+      await store.loadData()
+
+      rejectFirst(new Error('A 仓旧请求失败'))
+      await loadA
+
+      expect(store.devices[0]?.name).toBe('B 设备')
+      expect(store.error).toBeNull()
+      expect(store.loading).toBe(false)
+    })
+
+    it('blocks direct ID writes for entities outside the selected warehouse', async () => {
+      const tenant = useTenantStore()
+      tenant.setWarehousesForSession([
+        { id: 1, name: 'A 仓', province: '广东省', city: '深圳市' },
+        { id: 2, name: 'B 仓', province: '浙江省', city: '杭州市' },
+      ])
+      tenant.selectWarehouse(2)
+      const store = useGanttStore()
+      store.devices = [{ id: 1, warehouse_id: 1 } as any]
+      store.rentals = [{ id: 11, warehouse_id: 1 } as any]
+
+      const actions = [
+        () => store.updateRental(11, { end_date: '2026-09-01' }),
+        () => store.deleteRental(11),
+        () => store.shipRentalToXianyu(11),
+        () => store.updateDeviceLifecycle(1, 'sold'),
+      ]
+      for (const action of actions) {
+        await expect(action()).rejects.toThrow('记录不属于当前仓库')
+      }
+
+      expect(axios.put).not.toHaveBeenCalled()
+      expect(axios.delete).not.toHaveBeenCalled()
+      expect(axios.post).not.toHaveBeenCalled()
+    })
+
     it('blocks every Gantt write action while all warehouses is selected', async () => {
       const tenant = useTenantStore()
       tenant.setWarehousesForSession([
@@ -334,6 +430,7 @@ describe('Gantt Store', () => {
 
     it('should update rental information', async () => {
       const store = useGanttStore()
+      store.rentals = [{ id: 1, warehouse_id: 1 } as any]
       
       vi.mocked(axios.put).mockResolvedValueOnce({
         data: { success: true }
@@ -356,6 +453,7 @@ describe('Gantt Store', () => {
 
     it('should delete rental', async () => {
       const store = useGanttStore()
+      store.rentals = [{ id: 1, warehouse_id: 1 } as any]
       
       vi.mocked(axios.delete).mockResolvedValueOnce({
         data: { success: true }
@@ -393,6 +491,27 @@ describe('Gantt Store', () => {
       
       expect(axios.get).toHaveBeenCalledWith('/api/rentals/1')
       expect(rental).toEqual(mockRental)
+    })
+
+    it('keeps a concrete-warehouse rental fetched by ID available for a guarded edit', async () => {
+      const store = useGanttStore()
+      const fetchedRental = { id: 77, warehouse_id: 1 }
+      vi.mocked(axios.get).mockResolvedValueOnce({
+        data: { success: true, data: fetchedRental },
+      })
+      vi.mocked(axios.put).mockResolvedValueOnce({
+        data: { success: true },
+      })
+      vi.mocked(axios.get).mockResolvedValueOnce({
+        data: { success: true, data: { devices: [], rentals: [] } },
+      })
+
+      await store.getRentalById(77)
+      await expect(
+        store.updateRental(77, { end_date: '2026-09-01' }),
+      ).resolves.toEqual({ success: true })
+
+      expect(axios.put).toHaveBeenCalledOnce()
     })
 
     it('should return null when rental not found', async () => {
@@ -644,6 +763,7 @@ describe('Gantt Store', () => {
 
     it('should handle API errors with proper messages', async () => {
       const store = useGanttStore()
+      store.devices = [{ id: 1, warehouse_id: 1 } as any]
       
       const apiError = {
         response: {

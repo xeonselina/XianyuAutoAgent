@@ -47,6 +47,7 @@ export function useDeviceManagement() {
   const loadAccessories = async () => {
     const requestGeneration = ++accessoriesGeneration
     loading.value = true
+    accessories.value = []
     try {
       await tenantStore.initialize()
       if (requestGeneration !== accessoriesGeneration) return
@@ -66,6 +67,7 @@ export function useDeviceManagement() {
           .map((device: Device) => ({ ...device }))
       }
     } catch (error) {
+      if (requestGeneration !== accessoriesGeneration) return
       console.error('加载附件列表失败:', error)
       throw error
     } finally {

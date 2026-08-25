@@ -170,6 +170,7 @@ const handlePreview = async () => {
     error.value = null
     loading.value = true
     previewed.value = false
+    previewOrders.value = []
 
     if (!form.value.startDate || !form.value.endDate) {
       error.value = '请选择开始和结束日期'
@@ -215,23 +216,27 @@ const handlePreview = async () => {
       error.value = response.data.message || '加载订单失败'
     }
   } catch (err: any) {
+    if (requestGeneration !== previewGeneration) return
     console.error('预览订单失败:', err)
-    if (requestGeneration === previewGeneration) {
-      error.value = err.response?.data?.message || '加载订单失败,请检查网络连接'
-    }
+    error.value = err.response?.data?.message || '加载订单失败,请检查网络连接'
   } finally {
     if (requestGeneration === previewGeneration) loading.value = false
   }
 }
 
 const handleStartPrint = () => {
+  let warehouseId: number
   try {
-    tenantStore.requireConcreteWarehouse()
+    warehouseId = tenantStore.requireConcreteWarehouse()
   } catch (error: any) {
     ElMessage.warning(error.message)
     return
   }
   if (previewOrders.value.length === 0) return
+  if (previewOrders.value.some(order => order.warehouse_id !== warehouseId)) {
+    ElMessage.warning('记录不属于当前仓库')
+    return
+  }
 
   const startDateStr = dayjs(form.value.startDate).format('YYYY-MM-DD')
   const endDateStr = dayjs(form.value.endDate).format('YYYY-MM-DD')
@@ -253,7 +258,7 @@ watch(() => tenantStore.currentWarehouseId, () => {
   previewOrders.value = []
   previewed.value = false
   loading.value = false
-})
+}, { flush: 'sync' })
 
 const formatShipTime = (shipTime: string | null) => {
   if (!shipTime) return '未设置'

@@ -112,6 +112,13 @@ export interface AvailableSlot {
 
 export const useGanttStore = defineStore('gantt', () => {
   const tenantStore = useMobileTenantStore()
+  const entityWarehouseId = (entity: { warehouse_id?: number } | undefined) => {
+    const warehouseId = tenantStore.requireConcreteWarehouse()
+    if (!entity || entity.warehouse_id !== warehouseId) {
+      throw new Error('记录不属于当前仓库')
+    }
+    return warehouseId
+  }
   let loadGeneration = 0
   // 状态
   const devices = ref<Device[]>([])
@@ -153,6 +160,8 @@ export const useGanttStore = defineStore('gantt', () => {
     const requestGeneration = ++loadGeneration
     loading.value = true
     error.value = null
+    devices.value = []
+    rentals.value = []
     
     try {
       await tenantStore.initialize()
@@ -177,7 +186,8 @@ export const useGanttStore = defineStore('gantt', () => {
         throw new Error(response.data.error || '加载数据失败')
       }
     } catch (err: any) {
-      if (requestGeneration === loadGeneration) error.value = err.message
+      if (requestGeneration !== loadGeneration) return
+      error.value = err.message
       console.error('加载数据失败:', err)
     } finally {
       if (requestGeneration === loadGeneration) loading.value = false
@@ -270,9 +280,12 @@ export const useGanttStore = defineStore('gantt', () => {
 
   const updateRental = async (rentalId: number, updateData: any) => {
     try {
+      const warehouseId = entityWarehouseId(
+        rentals.value.find(rental => rental.id === rentalId),
+      )
       const response = await axios.put(`/web/rentals/${rentalId}`, {
         ...updateData,
-        warehouse_id: tenantStore.requireConcreteWarehouse(),
+        warehouse_id: warehouseId,
       })
       if (response.data.success) {
         await loadData()
@@ -294,7 +307,7 @@ export const useGanttStore = defineStore('gantt', () => {
 
   const deleteRental = async (rentalId: number) => {
     try {
-      tenantStore.requireConcreteWarehouse()
+      entityWarehouseId(rentals.value.find(rental => rental.id === rentalId))
       const response = await axios.delete(`/web/rentals/${rentalId}`)
       if (response.data.success) {
         await loadData()
@@ -312,7 +325,17 @@ export const useGanttStore = defineStore('gantt', () => {
     try {
       const response = await axios.get(`/api/rentals/${rentalId}`)
       if (response.data.success) {
-        return response.data.data
+        const rental: Rental = response.data.data
+        if (
+          typeof tenantStore.currentWarehouseId === 'number'
+          && rental.warehouse_id === tenantStore.currentWarehouseId
+        ) {
+          rentals.value = [
+            ...rentals.value.filter(row => row.id !== rental.id),
+            rental,
+          ]
+        }
+        return rental
       } else {
         throw new Error(response.data.error || '获取租赁数据失败')
       }
@@ -325,7 +348,7 @@ export const useGanttStore = defineStore('gantt', () => {
   // 发货到闲鱼
   const shipRentalToXianyu = async (rentalId: number) => {
     try {
-      tenantStore.requireConcreteWarehouse()
+      entityWarehouseId(rentals.value.find(rental => rental.id === rentalId))
       const response = await axios.post(`/api/rentals/${rentalId}/ship-to-xianyu`)
       if (response.data.success) {
         await loadData()
@@ -342,7 +365,7 @@ export const useGanttStore = defineStore('gantt', () => {
   // 更新设备生命周期状态
   const updateDeviceLifecycle = async (deviceId: number, lifecycleStatus: string, reason?: string) => {
     try {
-      tenantStore.requireConcreteWarehouse()
+      entityWarehouseId(devices.value.find(device => device.id === deviceId))
       const response = await axios.put(`/api/devices/${deviceId}/lifecycle`, {
         lifecycle_status: lifecycleStatus,
         lifecycle_reason: reason

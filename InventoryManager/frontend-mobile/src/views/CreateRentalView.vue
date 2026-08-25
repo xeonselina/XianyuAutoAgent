@@ -668,6 +668,9 @@ const handleConfirmationClosed = () => {
 let initDataGeneration = 0
 const loadInitData = async () => {
   const requestGeneration = ++initDataGeneration
+  deviceModels.value = []
+  accessories.value.phoneHolders = []
+  accessories.value.tripods = []
   try {
     await tenantStore.initialize()
     if (requestGeneration !== initDataGeneration) return
@@ -700,6 +703,7 @@ const loadInitData = async () => {
       d.name?.includes('三脚架')
     )
   } catch (e) {
+    if (requestGeneration !== initDataGeneration) return
     console.error('加载初始数据失败:', e)
   }
 }
@@ -718,7 +722,7 @@ watch(() => tenantStore.currentWarehouseId, async () => {
   form.value.tripodId = null
   availableSlots.value = []
   await Promise.all([ganttStore.loadData(), loadInitData()])
-})
+}, { flush: 'sync' })
 </script>
 
 <style scoped>

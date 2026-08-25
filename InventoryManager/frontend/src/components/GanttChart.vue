@@ -1110,6 +1110,7 @@ let statsGeneration = 0
 // 获取每日统计信息（带缓存和防抖）
 const loadDailyStats = async () => {
   const requestGeneration = ++statsGeneration
+  dailyStats.value = {}
   // 防抖处理
   if (loadStatsTimer) {
     clearTimeout(loadStatsTimer)
@@ -1184,6 +1185,7 @@ const loadDailyStats = async () => {
         && warehouseId === tenantStore.currentWarehouseId
       ) dailyStats.value = statsMap
     } catch (error) {
+      if (requestGeneration !== statsGeneration) return
       console.error('加载每日统计失败:', error)
     }
   }, 300) // 300ms 防抖
@@ -1255,6 +1257,13 @@ watch(selectedDeviceModel, () => {
 
 watch(() => tenantStore.currentWarehouseId, async () => {
   statsCache.clear()
+  selectedRental.value = null
+  showEditDialog.value = false
+  confirmationRental.value = null
+  showRentalConfirmationDialog.value = false
+  movementDevice.value = null
+  showWarehouseMovement.value = false
+  dailyStats.value = {}
   await Promise.all([
     ganttStore.loadData(),
     loadDailyStats(),
@@ -1262,7 +1271,7 @@ watch(() => tenantStore.currentWarehouseId, async () => {
       ElMessage.error((error as Error).message)
     }),
   ])
-})
+}, { flush: 'sync' })
 
 // 监听设备数据变化，重新计算虚拟滚动
 watch(filteredDevices, () => {

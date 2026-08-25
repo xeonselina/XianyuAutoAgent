@@ -269,12 +269,19 @@ const canWrite = computed(() => tenantStore.currentWarehouseId !== 'all')
 
 const ensureConcreteWarehouse = () => {
   try {
-    tenantStore.requireConcreteWarehouse()
-    return true
+    return tenantStore.requireConcreteWarehouse()
   } catch (error: any) {
     ElMessage.warning(error.message)
+    return null
+  }
+}
+
+const rowsBelongToWarehouse = (rows: any[], warehouseId: number) => {
+  if (rows.length === 0 || rows.some(row => row?.warehouse_id !== warehouseId)) {
+    ElMessage.warning('记录不属于当前仓库')
     return false
   }
+  return true
 }
 
 // Methods
@@ -290,6 +297,7 @@ const handleSelectionChange = (selection: any[]) => {
 const isSelectableRow = (row: any) => {
   return (
     canWrite.value &&
+    row.warehouse_id === tenantStore.currentWarehouseId &&
     row.status !== 'shipped' &&
     row.status !== 'scheduled_for_shipping' &&
     !row.is_relay_shipping
@@ -315,12 +323,15 @@ const previewOrders = async () => {
   }
 
   const requestGeneration = ++previewGeneration
+  rentals.value = []
+  selectedRentals.value = []
+  let warehouseId: number | 'all' | undefined
   try {
     loading.value = true
     await tenantStore.initialize()
     if (requestGeneration !== previewGeneration) return
     const [start, end] = dateRange.value
-    const warehouseId = tenantStore.currentWarehouseId
+    warehouseId = tenantStore.currentWarehouseId
     const response = await axios.get('/api/rentals/by-ship-date', {
       params: {
         start_date: dayjs(start).format('YYYY-MM-DD'),
@@ -345,15 +356,20 @@ const previewOrders = async () => {
       }
     }
   } catch (error: any) {
+    if (
+      requestGeneration !== previewGeneration
+      || (warehouseId !== undefined && warehouseId !== tenantStore.currentWarehouseId)
+    ) return
     console.error('加载订单失败:', error)
-    if (requestGeneration === previewGeneration) ElMessage.error('加载订单失败')
+    ElMessage.error('加载订单失败')
   } finally {
     if (requestGeneration === previewGeneration) loading.value = false
   }
 }
 
 const printAll = () => {
-  if (!ensureConcreteWarehouse()) return
+  const warehouseId = ensureConcreteWarehouse()
+  if (warehouseId === null || !rowsBelongToWarehouse(rentals.value, warehouseId)) return
   if (!dateRange.value) return
   const [start, end] = dateRange.value
   const url = `/batch-shipping-order?start_date=${dayjs(start).format('YYYY-MM-DD')}&end_date=${dayjs(end).format('YYYY-MM-DD')}`
@@ -362,12 +378,16 @@ const printAll = () => {
 }
 
 const showScheduleDialog = () => {
-  if (!ensureConcreteWarehouse()) return
+  if (ensureConcreteWarehouse() === null) return
   scheduleDialogVisible.value = true
 }
 
 const confirmSchedule = async () => {
-  if (!ensureConcreteWarehouse()) return
+  const warehouseId = ensureConcreteWarehouse()
+  if (
+    warehouseId === null
+    || !rowsBelongToWarehouse(selectedRentals.value, warehouseId)
+  ) return
   // 使用选中的订单
   const rentalIds = selectedRentals.value.map(r => r.id)
 
@@ -410,7 +430,9 @@ const formatDateTime = (dateStr: string) => {
 }
 
 const updateExpressType = async (rentalId: number, expressTypeId: number) => {
-  if (!ensureConcreteWarehouse()) return
+  const warehouseId = ensureConcreteWarehouse()
+  const rental = rentals.value.find(row => row.id === rentalId)
+  if (warehouseId === null || !rowsBelongToWarehouse([rental], warehouseId)) return
   try {
     const response = await axios.patch('/api/shipping-batch/express-type', {
       rental_id: rentalId,
@@ -430,10 +452,13 @@ const updateExpressType = async (rentalId: number, expressTypeId: number) => {
 
 // Waybill Printing Methods
 const showWaybillPrintDialog = async () => {
-  if (!ensureConcreteWarehouse()) return
+  const warehouseId = ensureConcreteWarehouse()
+  if (warehouseId === null) return
   // 只打印预约发货状态且有运单号和预约时间的订单
-  const rentalIds = rentals.value
+  const printableRentals = rentals.value
     .filter(r => r.status === 'scheduled_for_shipping' && r.ship_out_tracking_no && r.scheduled_ship_time)
+  if (!rowsBelongToWarehouse(printableRentals, warehouseId)) return
+  const rentalIds = printableRentals
     .map(r => r.id)
 
   if (rentalIds.length === 0) {
@@ -492,13 +517,16 @@ const closeWaybillPrintDialog = () => {
 
 watch(() => tenantStore.currentWarehouseId, () => {
   selectedRentals.value = []
+  rentals.value = []
   if (dateRange.value) void previewOrders()
   else rentals.value = []
-})
+}, { flush: 'sync' })
 
 // Individual Print Method
 const printSingle = async (rentalId: number) => {
-  if (!ensureConcreteWarehouse()) return
+  const warehouseId = ensureConcreteWarehouse()
+  const rental = rentals.value.find(row => row.id === rentalId)
+  if (warehouseId === null || !rowsBelongToWarehouse([rental], warehouseId)) return
   try {
     const response = await axios.post('/api/shipping-batch/print-waybills', {
       rental_ids: [rentalId]

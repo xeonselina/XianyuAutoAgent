@@ -221,11 +221,12 @@ onMounted(() => {
 
 watch(() => tenantStore.currentWarehouseId, () => {
   void fetchRentals()
-})
+}, { flush: 'sync' })
 
 // Methods
 const fetchRentals = async () => {
   const currentRequest = ++requestGeneration
+  rentals.value = []
   try {
     loading.value = true
     error.value = null
@@ -273,10 +274,9 @@ const fetchRentals = async () => {
       }
     }
   } catch (err: any) {
+    if (currentRequest !== requestGeneration) return
     console.error('获取租赁记录失败:', err)
-    if (currentRequest === requestGeneration) {
-      error.value = '加载订单失败,请检查网络连接'
-    }
+    error.value = '加载订单失败,请检查网络连接'
   } finally {
     if (currentRequest === requestGeneration) loading.value = false
   }
@@ -312,10 +312,18 @@ const goBack = () => {
 }
 
 const handlePrint = () => {
+  let warehouseId: number
   try {
-    tenantStore.requireConcreteWarehouse()
+    warehouseId = tenantStore.requireConcreteWarehouse()
   } catch (error: any) {
     ElMessage.warning(error.message)
+    return
+  }
+  if (
+    rentals.value.length === 0
+    || rentals.value.some(rental => rental.warehouse_id !== warehouseId)
+  ) {
+    ElMessage.warning('记录不属于当前仓库')
     return
   }
   window.print()

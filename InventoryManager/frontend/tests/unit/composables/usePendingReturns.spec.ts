@@ -19,6 +19,7 @@ vi.mock('axios', () => ({
 
 const pendingReturn: PendingReturn = {
   id: 7,
+  warehouse_id: 1,
   device_model: 'iPhone 15 Pro',
   start_date: '2026-07-25',
   end_date: '2026-07-28',
@@ -84,6 +85,65 @@ describe('usePendingReturns', () => {
     const state = usePendingReturns()
 
     await expect(state.markReturned(7)).rejects.toThrow('请选择具体仓库')
+    expect(axiosPut).not.toHaveBeenCalled()
+  })
+
+  it('clears A warehouse rows before loading B and leaves them empty on failure', async () => {
+    const tenant = useTenantStore()
+    tenant.setWarehousesForSession([
+      { id: 1, name: 'A 仓', province: '广东省', city: '深圳市' },
+      { id: 2, name: 'B 仓', province: '浙江省', city: '杭州市' },
+    ])
+    axiosGet
+      .mockResolvedValueOnce(pendingReturnsResponse([pendingReturn]))
+      .mockRejectedValueOnce(new Error('B 仓加载失败'))
+    const state = usePendingReturns()
+    await state.load()
+
+    tenant.selectWarehouse(2)
+    const loadB = state.load()
+
+    expect(state.rentals.value).toEqual([])
+    await expect(loadB).rejects.toThrow('B 仓加载失败')
+    expect(state.rentals.value).toEqual([])
+  })
+
+  it('does not surface an old warehouse rejection after a newer load succeeds', async () => {
+    let rejectA!: (reason?: any) => void
+    const staleA = new Promise((_resolve, reject) => { rejectA = reject })
+    const tenant = useTenantStore()
+    tenant.setWarehousesForSession([
+      { id: 1, name: 'A 仓', province: '广东省', city: '深圳市' },
+      { id: 2, name: 'B 仓', province: '浙江省', city: '杭州市' },
+    ])
+    axiosGet
+      .mockReturnValueOnce(staleA)
+      .mockResolvedValueOnce(pendingReturnsResponse([]))
+    const state = usePendingReturns()
+    const loadA = state.load()
+    await vi.waitFor(() => expect(axiosGet).toHaveBeenCalledOnce())
+    tenant.selectWarehouse(2)
+    await state.load()
+
+    rejectA(new Error('A 仓旧请求失败'))
+    await expect(loadA).resolves.toBeUndefined()
+    expect(state.rentals.value).toEqual([])
+    expect(state.loading.value).toBe(false)
+  })
+
+  it('blocks marking a rental from another warehouse as returned', async () => {
+    const tenant = useTenantStore()
+    tenant.setWarehousesForSession([
+      { id: 1, name: 'A 仓', province: '广东省', city: '深圳市' },
+      { id: 2, name: 'B 仓', province: '浙江省', city: '杭州市' },
+    ])
+    const state = usePendingReturns()
+    state.rentals.value = [pendingReturn]
+    tenant.selectWarehouse(2)
+
+    await expect(state.markReturned(pendingReturn.id)).rejects.toThrow(
+      '记录不属于当前仓库',
+    )
     expect(axiosPut).not.toHaveBeenCalled()
   })
 

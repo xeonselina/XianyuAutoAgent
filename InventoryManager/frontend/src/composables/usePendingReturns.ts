@@ -17,16 +17,24 @@ export const usePendingReturns = () => {
   const loading = ref(false)
   const updatingIds = ref<Set<number>>(new Set())
   const returnedIds = new Set<number>()
+  const knownWarehouseByRental = new Map<number, number>()
+  let loadedWarehouseId: number | 'all' | undefined
   let loadGeneration = 0
   const count = computed(() => rentals.value.length)
 
   const load = async () => {
     const requestGeneration = ++loadGeneration
     loading.value = true
+    rentals.value = []
+    updatingIds.value = new Set()
+    if (loadedWarehouseId !== tenantStore.currentWarehouseId) {
+      knownWarehouseByRental.clear()
+    }
+    let warehouseId: number | 'all' | undefined
     try {
       await tenantStore.initialize()
       if (requestGeneration !== loadGeneration) return
-      const warehouseId = tenantStore.currentWarehouseId
+      warehouseId = tenantStore.currentWarehouseId
       const response = await axios.get('/api/rentals/pending-returns', {
         params: { warehouse_id: warehouseId },
       })
@@ -45,8 +53,17 @@ export const usePendingReturns = () => {
         rentals.value = loadedRentals.filter(
           (rental) => !returnedIds.has(rental.id),
         )
+        loadedWarehouseId = warehouseId
+        knownWarehouseByRental.clear()
+        loadedRentals.forEach((rental) => {
+          knownWarehouseByRental.set(rental.id, rental.warehouse_id)
+        })
       }
     } catch (error: any) {
+      if (
+        requestGeneration !== loadGeneration
+        || (warehouseId !== undefined && warehouseId !== tenantStore.currentWarehouseId)
+      ) return
       throw new Error(errorMessage(error, '获取待归还列表失败'))
     } finally {
       if (requestGeneration === loadGeneration) loading.value = false
@@ -54,7 +71,15 @@ export const usePendingReturns = () => {
   }
 
   const markReturned = async (rentalId: number) => {
-    tenantStore.requireConcreteWarehouse()
+    const warehouseId = tenantStore.requireConcreteWarehouse()
+    const rental = rentals.value.find((row) => row.id === rentalId)
+    const entityWarehouseId = rental?.warehouse_id
+      ?? (loadedWarehouseId === warehouseId
+        ? knownWarehouseByRental.get(rentalId)
+        : undefined)
+    if (entityWarehouseId !== warehouseId) {
+      throw new Error('记录不属于当前仓库')
+    }
     if (updatingIds.value.has(rentalId)) return
 
     updatingIds.value = new Set(updatingIds.value).add(rentalId)

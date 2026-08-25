@@ -107,6 +107,7 @@ const doSearch = async () => {
   if (!q) return
   loading.value = true
   searched.value = true
+  results.value = []
   try {
     await tenantStore.initialize()
     if (requestGeneration !== searchGeneration) return
@@ -147,9 +148,9 @@ const goEdit = (id: number) => {
 }
 
 watch(() => tenantStore.currentWarehouseId, () => {
+  results.value = []
   if (keyword.value.trim()) void doSearch()
-  else results.value = []
-})
+}, { flush: 'sync' })
 </script>
 
 <style scoped>

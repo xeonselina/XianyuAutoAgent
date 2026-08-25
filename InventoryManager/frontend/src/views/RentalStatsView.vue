@@ -272,6 +272,7 @@ let forecastGeneration = 0
 
 async function fetchModels() {
   const requestGeneration = ++modelsGeneration
+  modelOptions.value = []
   try {
     await tenantStore.initialize()
     if (requestGeneration !== modelsGeneration) return
@@ -288,6 +289,7 @@ async function fetchModels() {
       modelOptions.value = json.data
     }
   } catch (e) {
+    if (requestGeneration !== modelsGeneration) return
     console.error('获取型号列表失败', e)
   }
 }
@@ -296,6 +298,8 @@ async function fetchModels() {
 async function fetchStats() {
   const requestGeneration = ++statsGeneration
   loading.value = true
+  statsData.value = []
+  summary.value = null
   try {
     await tenantStore.initialize()
     if (requestGeneration !== statsGeneration) return
@@ -320,6 +324,7 @@ async function fetchStats() {
       summary.value = json.summary
     }
   } catch (e) {
+    if (requestGeneration !== statsGeneration) return
     console.error('获取统计数据失败', e)
   } finally {
     if (requestGeneration === statsGeneration) loading.value = false
@@ -329,6 +334,7 @@ async function fetchStats() {
 async function fetchForecast() {
   const requestGeneration = ++forecastGeneration
   forecastLoading.value = true
+  forecastData.value = null
   try {
     await tenantStore.initialize()
     if (requestGeneration !== forecastGeneration) return
@@ -345,6 +351,7 @@ async function fetchForecast() {
       forecastData.value = json
     }
   } catch (e) {
+    if (requestGeneration !== forecastGeneration) return
     console.error('获取预测数据失败', e)
   } finally {
     if (requestGeneration === forecastGeneration) forecastLoading.value = false
@@ -423,7 +430,7 @@ watch(() => tenantStore.currentWarehouseId, () => {
   fetchModels()
   fetchStats()
   fetchForecast()
-})
+}, { flush: 'sync' })
 </script>
 
 <style scoped>

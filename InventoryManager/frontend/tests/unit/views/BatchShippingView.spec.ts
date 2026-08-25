@@ -33,6 +33,7 @@ type PreviousRentalState = {
 
 type RentalRow = PreviousRentalState & {
   id: number
+  warehouse_id: number
   status: string
   customer_name: string
   destination: string
@@ -100,6 +101,7 @@ const ElTableColumnStub = defineComponent({
 
 const baseRental: RentalRow = {
   id: 101,
+  warehouse_id: 1,
   status: 'not_shipped',
   customer_name: '测试客户',
   destination: '上海市测试路 1 号',
@@ -166,6 +168,67 @@ describe('BatchShippingView device status', () => {
     const setup = wrapper.vm.$.setupState as any
     setup.dateRange = [new Date('2026-08-25'), new Date('2026-08-26')]
     setup.selectedRentals = [{ id: 101 }]
+
+    await setup.confirmSchedule()
+    await setup.updateExpressType(101, 2)
+    await setup.showWaybillPrintDialog()
+    await setup.printSingle(101)
+    setup.printAll()
+
+    expect(axios.post).not.toHaveBeenCalled()
+    expect(axios.patch).not.toHaveBeenCalled()
+    expect(open).not.toHaveBeenCalled()
+    open.mockRestore()
+  })
+
+  it('clears old rows and selection immediately when a new warehouse load starts', async () => {
+    let rejectB!: (reason?: any) => void
+    vi.mocked(axios.get).mockReturnValueOnce(
+      new Promise((_resolve, reject) => { rejectB = reject }) as never,
+    )
+    const wrapper = await mountWithRental({
+      has_previous_rental: true,
+      previous_rental_status: 'completed',
+      previous_rental_completed: true,
+    })
+    const tenant = useTenantStore()
+    tenant.setWarehousesForSession([
+      { id: 1, name: 'A 仓', province: '广东省', city: '深圳市' },
+      { id: 2, name: 'B 仓', province: '浙江省', city: '杭州市' },
+    ])
+    const setup = wrapper.vm.$.setupState as any
+    setup.selectedRentals = [baseRental]
+    setup.dateRange = [new Date('2026-08-25'), new Date('2026-08-26')]
+    tenant.selectWarehouse(2)
+    await nextTick()
+
+    expect(setup.rentals).toEqual([])
+    expect(setup.selectedRentals).toEqual([])
+    rejectB(new Error('B 仓加载失败'))
+    await vi.waitFor(() => expect(setup.loading).toBe(false))
+    expect(setup.rentals).toEqual([])
+  })
+
+  it('blocks schedule, express and print actions for stale rows from another warehouse', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const wrapper = await mountWithRental({
+      has_previous_rental: true,
+      previous_rental_status: 'completed',
+      previous_rental_completed: true,
+    }, {
+      status: 'scheduled_for_shipping',
+      ship_out_tracking_no: 'SF123' as never,
+      scheduled_ship_time: '2026-08-26T10:00:00' as never,
+    })
+    const tenant = useTenantStore()
+    tenant.setWarehousesForSession([
+      { id: 1, name: 'A 仓', province: '广东省', city: '深圳市' },
+      { id: 2, name: 'B 仓', province: '浙江省', city: '杭州市' },
+    ])
+    tenant.selectWarehouse(2)
+    const setup = wrapper.vm.$.setupState as any
+    setup.selectedRentals = [baseRental]
+    setup.dateRange = [new Date('2026-08-25'), new Date('2026-08-26')]
 
     await setup.confirmSchedule()
     await setup.updateExpressType(101, 2)

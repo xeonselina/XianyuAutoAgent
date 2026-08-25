@@ -110,26 +110,31 @@ let statsGeneration = 0
 
 const fetchDailyStats = async () => {
   const requestGeneration = ++statsGeneration
-  await tenantStore.initialize()
-  if (requestGeneration !== statsGeneration) return
-  const warehouseId = tenantStore.currentWarehouseId
-  const start = dayjs(windowStart.value)
-  const dates = Array.from({ length: DAYS }, (_, i) => start.add(i, 'day').format('YYYY-MM-DD'))
-  const results = await Promise.allSettled(
-    dates.map(date => axios.get('/api/gantt/daily-stats', {
-      params: { date, warehouse_id: warehouseId },
-    }))
-  )
-  const stats: typeof dailyStats.value = {}
-  results.forEach((result, i) => {
-    if (result.status === 'fulfilled' && result.value.data?.success) {
-      stats[dates[i]] = result.value.data.data
-    }
-  })
-  if (
-    requestGeneration === statsGeneration
-    && warehouseId === tenantStore.currentWarehouseId
-  ) dailyStats.value = stats
+  dailyStats.value = {}
+  try {
+    await tenantStore.initialize()
+    if (requestGeneration !== statsGeneration) return
+    const warehouseId = tenantStore.currentWarehouseId
+    const start = dayjs(windowStart.value)
+    const dates = Array.from({ length: DAYS }, (_, i) => start.add(i, 'day').format('YYYY-MM-DD'))
+    const results = await Promise.allSettled(
+      dates.map(date => axios.get('/api/gantt/daily-stats', {
+        params: { date, warehouse_id: warehouseId },
+      }))
+    )
+    const stats: typeof dailyStats.value = {}
+    results.forEach((result, i) => {
+      if (result.status === 'fulfilled' && result.value.data?.success) {
+        stats[dates[i]] = result.value.data.data
+      }
+    })
+    if (
+      requestGeneration === statsGeneration
+      && warehouseId === tenantStore.currentWarehouseId
+    ) dailyStats.value = stats
+  } catch {
+    // 新仓加载失败时保持空状态；过期请求不污染当前仓。
+  }
 }
 
 const shiftWindow = (days: number) => {
@@ -182,9 +187,12 @@ onMounted(() => {
 })
 
 watch(() => tenantStore.currentWarehouseId, () => {
+  selectedRental.value = null
+  sheetVisible.value = false
+  dailyStats.value = {}
   ganttStore.loadData()
   fetchDailyStats()
-})
+}, { flush: 'sync' })
 </script>
 
 <style scoped>

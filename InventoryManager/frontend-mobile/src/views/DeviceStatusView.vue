@@ -35,6 +35,7 @@
               <van-tag
                 :type="lifecycleBadgeType(device.lifecycle_status)"
                 class="lifecycle-badge"
+                :class="{ 'is-read-only': !canWrite }"
                 @click="openLifecyclePicker(device)"
               >
                 {{ LIFECYCLE_LABELS[device.lifecycle_status] || device.lifecycle_status }}
@@ -61,12 +62,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { showToast } from 'vant'
 import { useGanttStore } from '@/stores/gantt'
 import type { Device } from '@/stores/gantt'
+import { useMobileTenantStore } from '@/stores/tenant'
 
 const ganttStore = useGanttStore()
+const tenantStore = useMobileTenantStore()
+const canWrite = computed(() => tenantStore.currentWarehouseId !== 'all')
 
 type LifecycleFilter =
   | 'all'
@@ -119,6 +123,15 @@ const lifecycleActions = [
 ]
 
 const openLifecyclePicker = (device: Device) => {
+  try {
+    const warehouseId = tenantStore.requireConcreteWarehouse()
+    if (device.warehouse_id !== warehouseId) {
+      throw new Error('记录不属于当前仓库')
+    }
+  } catch (error: any) {
+    showToast({ message: error.message, type: 'fail' })
+    return
+  }
   targetDevice.value = device
   showLifecycleSheet.value = true
 }
@@ -127,6 +140,10 @@ const onLifecycleSelect = async (action: { name: string; value: string }) => {
   if (!targetDevice.value) return
   showLifecycleSheet.value = false
   try {
+    const warehouseId = tenantStore.requireConcreteWarehouse()
+    if (targetDevice.value.warehouse_id !== warehouseId) {
+      throw new Error('记录不属于当前仓库')
+    }
     await ganttStore.updateDeviceLifecycle(targetDevice.value.id, action.value)
     showToast({ message: `已更新为${action.name}`, type: 'success' })
   } catch (e: any) {
@@ -134,11 +151,27 @@ const onLifecycleSelect = async (action: { name: string; value: string }) => {
   }
 }
 
+let reloadGeneration = 0
+const reloadForWarehouse = async () => {
+  const generation = ++reloadGeneration
+  ganttStore.devices = []
+  ganttStore.rentals = []
+  targetDevice.value = null
+  showLifecycleSheet.value = false
+  await tenantStore.initialize()
+  if (generation !== reloadGeneration) return
+  await ganttStore.loadData()
+}
+
 onMounted(() => {
-  if (!ganttStore.devices.length) {
-    ganttStore.loadData()
-  }
+  void reloadForWarehouse()
 })
+
+watch(
+  () => tenantStore.currentWarehouseId,
+  () => { void reloadForWarehouse() },
+  { flush: 'sync' },
+)
 </script>
 
 <style scoped>
@@ -209,6 +242,11 @@ onMounted(() => {
 .lifecycle-badge {
   cursor: pointer;
   font-size: 11px;
+}
+
+.lifecycle-badge.is-read-only {
+  cursor: default;
+  opacity: 0.7;
 }
 
 .loading-center {

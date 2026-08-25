@@ -853,6 +853,8 @@ const onShipToXianyu = async () => {
 let accessoriesGeneration = 0
 const loadAccessories = async () => {
   const requestGeneration = ++accessoriesGeneration
+  accessories.value.phoneHolders = []
+  accessories.value.tripods = []
   try {
     await tenantStore.initialize()
     if (requestGeneration !== accessoriesGeneration) return
@@ -880,6 +882,7 @@ const loadAccessories = async () => {
       d.name?.includes('三脚架')
     )
   } catch (e) {
+    if (requestGeneration !== accessoriesGeneration) return
     console.error('加载配件数据失败:', e)
   }
 }
@@ -910,13 +913,14 @@ onMounted(async () => {
 })
 
 watch(() => tenantStore.currentWarehouseId, async () => {
+  currentRental.value = null
   allDevices.value = []
   form.value.deviceId = null
   form.value.phoneHolderId = null
   form.value.tripodId = null
   await Promise.all([ganttStore.loadData(), loadAccessories()])
   allDevices.value = ganttStore.devices
-})
+}, { flush: 'sync' })
 </script>
 
 <style scoped>

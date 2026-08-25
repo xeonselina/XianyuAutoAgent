@@ -53,6 +53,7 @@ const makeDevices = (): Device[] => Array.from({ length: 20 }, (_, index) => ({
 
 const pendingReturn = {
   id: 21,
+  warehouse_id: 1,
   device_model: 'iPhone 15 Pro',
   start_date: '2026-07-20',
   end_date: '2026-07-28',
