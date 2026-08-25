@@ -188,12 +188,11 @@ def test_schedule_isolates_external_failure_per_rental(
     assert payload["results"][0]["code"] == "EXTERNAL_SERVICE_ERROR"
     assert "private upstream body" not in str(payload)
     assert payload["results"][1]["waybill_no"] == "SF-B"
-    monkeypatch.setattr("app.utils.sf.sf_sdk_wrapper.requests.post", lambda *_a, **_k: SimpleNamespace(status_code=500, text="private upstream body", raise_for_status=lambda: (_ for _ in ()).throw(RuntimeError("HTTP 500"))))
+    monkeypatch.setattr("app.handlers.shipping_batch_handlers.get_waybill_print_service", lambda: SimpleNamespace(batch_print_waybills=lambda **_k: (_ for _ in ()).throw(RuntimeError("private upstream body"))))
     printed = _tenant_request(app, "post", "/api/shipping-batch/print-waybills",
         json={"rental_ids": [shipping_case["rentals"][1]],
               "include_shipping_slips": False}).get_json()
-    assert printed["data"]["results"][0]["code"] == "EXTERNAL_SERVICE_ERROR"
-    assert "private upstream body" not in str(printed)
+    assert printed["success"] is False and "private upstream body" not in str(printed)
     monkeypatch.setattr(SFExpressSDK, "search_routes", lambda *_: {
         "apiResultCode": "A9999", "apiErrorMsg": "private upstream body"})
     legacy = _tenant_request(app, "post", "/api/tracking/query",
@@ -203,7 +202,7 @@ def test_schedule_isolates_external_failure_per_rental(
     assert _tenant_request(app, "post", "/api/tracking/update-now").status_code == 410
     assert _tenant_request(app, "get", "/api/tracking/scheduler-status").status_code == 410
     assert "private upstream body" not in str(legacy.get_json())
-    assert "private upstream body" not in caplog.text
+    assert all(value not in caplog.text for value in ("private upstream body", "SF-B"))
 
 
 @pytest.mark.parametrize("mismatch", ["main", "child"])
@@ -285,8 +284,9 @@ def test_existing_waybill_and_missing_config_are_isolated(
 
 
 def test_print_and_tracking_resolve_the_rental_warehouse(
-    app, shipping_case, monkeypatch
+    app, shipping_case, monkeypatch, caplog
 ):
+    caplog.set_level("INFO")
     with app.app_context():
         for rental_id in shipping_case["rentals"]:
             rental = db.session.get(Rental, rental_id)
@@ -310,13 +310,14 @@ def test_print_and_tracking_resolve_the_rental_warehouse(
             or {"success": True, "job_id": service.default_printer_sn}
         ),
     )
+    monkeypatch.setattr("app.services.shipping.waybill_print_service.shipping_slip_image_service.generate_slip_image", lambda *_a, **_k: "image")
     response = _tenant_request(
         app, "post", "/api/shipping-batch/print-waybills",
         json={"rental_ids": shipping_case["rentals"],
-              "include_shipping_slips": False},
+              "include_shipping_slips": True},
     )
     assert response.status_code == 200
-    assert printed == ["printer-1", "printer-2"]
+    assert printed == ["printer-1", "printer-1", "printer-2", "printer-2"]
     monkeypatch.setattr("app.services.shipping.waybill_print_service.WaybillPrintService._print_single_shipping_slip", lambda *_: {"success": False, "error": "配置不完整", "code": "CONFIG_INCOMPLETE"})
     slips = _tenant_request(app, "post", "/api/shipping-batch/print-waybills", json={"rental_ids": shipping_case["rentals"], "include_shipping_slips": True}).get_json()["data"]["results"]
     assert [row.get("code") for row in slips] == ["CONFIG_INCOMPLETE"] * 2
@@ -364,6 +365,7 @@ def test_print_and_tracking_resolve_the_rental_warehouse(
     batch = _tenant_request(app, "post", "/api/sf-tracking/batch-query", json={"tracking_numbers": list(failures), "warehouse_id": shipping_case["warehouses"][0], "phone_last4": "9000"}).get_json()
     assert [(row["code"], row["message"]) for row in batch["error_details"]] == [("CONFIG_INCOMPLETE", "仓库顺丰配置不完整"), ("WAREHOUSE_MISMATCH", "运单号无法确定唯一仓库"), ("EXTERNAL_SERVICE_ERROR", "顺丰服务调用失败")]
     assert "private upstream body" not in str(batch)
+    assert all(value not in caplog.text for value in ("customer-", "SF-", "printer-"))
 
 
 def test_sf_test_api_is_absent_in_production(app):

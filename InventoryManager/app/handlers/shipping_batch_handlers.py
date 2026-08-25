@@ -150,8 +150,6 @@ class ShippingBatchHandlers:
                         db.session.rollback()
                         continue
 
-                    current_app.logger.info(f"Rental {rental.id} 顺丰下单成功，运单号: {waybill_no}")
-
                     # 保存运单号和预约时间
                     rental.ship_out_tracking_no = waybill_no
                     rental.scheduled_ship_time = scheduled_time
@@ -166,8 +164,6 @@ class ShippingBatchHandlers:
                         'waybill_no': waybill_no
                     }
                     results.append(result_item)
-                    current_app.logger.info(f"Rental {rental.id} 预约发货成功，运单号: {waybill_no}")
-
                 except ConfigurationIncomplete:
                     db.session.rollback()
                     code = 'CONFIG_INCOMPLETE'
@@ -398,7 +394,7 @@ class ShippingBatchHandlers:
             return success(data=response_data)
 
         except Exception as e:
-            current_app.logger.error(f"批量打印快递面单失败: {e}")
+            current_app.logger.error(f"批量打印快递面单失败: {type(e).__name__}")
             return server_error('批量打印快递面单失败')
 
     @staticmethod
@@ -426,7 +422,6 @@ class ShippingBatchHandlers:
             xianyu_service = get_xianyu_service(rental=rental)
 
             # 调用闲鱼API
-            current_app.logger.info(f"手动发货到闲鱼: Rental {rental_id}, Order {rental.xianyu_order_no}")
             xianyu_result = xianyu_service.ship_order(rental)
 
             if not xianyu_result.get('success'):

@@ -64,9 +64,8 @@ class PDFConversionService:
             return images
 
         except Exception as e:
-            error_msg = f"PDF转换失败: {type(e).__name__}: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            raise PDFConversionError(error_msg) from e
+            logger.error(f"PDF转换失败: {type(e).__name__}")
+            raise PDFConversionError("PDF转换失败") from None
 
     def optimize_for_thermal_printer(self, image: Image.Image) -> Image.Image:
         """
@@ -107,7 +106,7 @@ class PDFConversionService:
             return image
 
         except Exception as e:
-            logger.error(f"图像优化失败: {e}", exc_info=True)
+            logger.error(f"图像优化失败: {type(e).__name__}")
             # 如果优化失败，尝试简单转换
             return image.convert('1')
 
@@ -136,8 +135,8 @@ class PDFConversionService:
             return base64_data
 
         except Exception as e:
-            logger.error(f"图像base64编码失败: {e}", exc_info=True)
-            raise PDFConversionError(f"图像base64编码失败: {str(e)}") from e
+            logger.error(f"图像base64编码失败: {type(e).__name__}")
+            raise PDFConversionError("图像base64编码失败") from None
 
     def convert_pdf_to_base64_images(
         self,
@@ -184,6 +183,5 @@ class PDFConversionService:
             logger.error("PDF转换过程中发生PDFConversionError")
             raise
         except Exception as e:
-            error_msg = f"PDF转base64流程失败: {type(e).__name__}: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            raise PDFConversionError(error_msg) from e
+            logger.error(f"PDF转base64流程失败: {type(e).__name__}")
+            raise PDFConversionError("PDF转base64流程失败") from None

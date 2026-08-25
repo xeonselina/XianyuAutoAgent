@@ -9,6 +9,7 @@ import pytest
 import requests
 
 from app.auth import TencentSmsSender, mask_phone
+from app.services.printing import shipping_slip_image_service as slip_module; from app.services.shipping import pdf_conversion_service as pdf_module
 from app.services.printing.kuaimai_service import KuaimaiPrintService, KuaimaiServiceConfig
 from app.services.shipping.sf_express_service import SFExpressService, SFServiceConfig
 from app.services.xianyu_order_service import XianyuOrderService, XianyuOrderServiceError, XianyuShopConfig
@@ -111,3 +112,11 @@ def test_sms_masks_only_valid_phone_and_redacts_transport_exception(caplog):
     with pytest.raises(RuntimeError, match="^短信服务调用失败$") as error_info:
         sender.send_code("+8613800138000", "123456", 5)
     assert_hidden(caplog.text + str(error_info.value), "SMS-UPSTREAM", "123456")
+
+def test_pdf_and_slip_errors_are_fixed_and_redacted(monkeypatch, caplog):
+    canary = "RENDER-ERROR-CANARY"; boom = lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError(canary))
+    pdf = pdf_module.PDFConversionService(); monkeypatch.setattr(pdf, "convert_pdf_to_images", boom)
+    with caplog.at_level(logging.ERROR), pytest.raises(pdf_module.PDFConversionError) as pdf_error: pdf.convert_pdf_to_base64_images(b"pdf")
+    monkeypatch.setattr(slip_module, "db", SimpleNamespace(session=SimpleNamespace(get=boom)))
+    with pytest.raises(slip_module.SlipGenerationError) as slip_error: object.__new__(slip_module.ShippingSlipImageService).generate_slip_image(9)
+    assert (str(pdf_error.value), str(slip_error.value)) == ("PDF转base64流程失败", "生成发货单图像失败"); assert_hidden(caplog.text, canary, "Traceback")

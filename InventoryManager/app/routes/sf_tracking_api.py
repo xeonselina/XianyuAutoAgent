@@ -139,8 +139,6 @@ def query_tracking():
                 'message': '运单号不能为空'
             }), 400
 
-        logger.info(f"查询运单物流: {tracking_number}")
-
         try:
             route_info = SFTrackingService.query_scoped(
                 tracking_number,
@@ -160,7 +158,6 @@ def query_tracking():
                 'message': str(exc),
             }), 409
         except TrackingNotFoundError:
-            logger.warning(f"运单 {tracking_number} 未找到物流信息")
             return jsonify({
                 'success': False,
                 'message': '未找到该运单的物流信息',
@@ -178,10 +175,6 @@ def query_tracking():
                 'message': str(exc),
             }), 400
 
-        logger.info(
-            f"运单 {tracking_number} 查询成功, "
-            f"状态: {route_info.get('status')}"
-        )
         return jsonify({
             'success': True,
             'data': route_info

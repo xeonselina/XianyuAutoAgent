@@ -113,8 +113,6 @@ class WaybillPrintService:
                     'message': '租赁记录不存在'
                 }
             validate_shipping_warehouse(rental)
-            logger.info(f"Rental {rental_id}: 查询成功，客户: {rental.customer_name}")
-
             # 2. 检查运单号
             logger.info(f"Rental {rental_id}: 步骤2 - 检查运单号")
             if not rental.ship_out_tracking_no:
@@ -124,8 +122,6 @@ class WaybillPrintService:
                     'rental_id': rental_id,
                     'message': '缺少运单号'
                 }
-            logger.info(f"Rental {rental_id}: 运单号: {rental.ship_out_tracking_no}")
-
             sf_service = self.resolver.sf_for_rental(rental)
             kuaimai_service = self.resolver.kuaimai_for_rental(rental)
 
@@ -203,8 +199,6 @@ class WaybillPrintService:
 
             # 7. 所有页打印成功
             job_ids = [r.get('job_id') for r in print_results if r.get('job_id')]
-            logger.info(f"Rental {rental_id}: 步骤7 - 面单打印成功，任务ID: {job_ids}")
-
             return {
                 'success': True,
                 'rental_id': rental_id,
@@ -270,9 +264,7 @@ class WaybillPrintService:
                 height=130
             )
 
-            if result.get('success'):
-                logger.info(f"Rental {rental_id}: 发货单打印成功, JobID: {result.get('job_id')}")
-            else:
+            if not result.get('success'):
                 logger.error(f"Rental {rental_id}: 发货单打印失败")
                 return {
                     'success': False,

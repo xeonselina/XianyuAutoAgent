@@ -162,7 +162,7 @@ class ShippingSlipImageService:
             return qr_img
 
         except Exception as e:
-            logger.error(f"加载二维码图片失败: {filename}, 错误: {e}")
+            logger.error(f"加载二维码图片失败: {type(e).__name__}")
             return None
 
     def _draw_qr_codes_section(self, img: Image.Image, y: int) -> int:
@@ -385,8 +385,8 @@ class ShippingSlipImageService:
         except SlipGenerationError:
             raise
         except Exception as e:
-            logger.exception(f"生成发货单图像失败: rental_id={rental_id}")
-            raise SlipGenerationError(f"生成发货单图像失败: {str(e)}")
+            logger.error(f"生成发货单图像失败: {type(e).__name__}")
+            raise SlipGenerationError("生成发货单图像失败") from None
 
 
 # 全局单例 (76mm宽度符合实际热敏纸尺寸76×130mm)
