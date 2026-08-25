@@ -25,8 +25,12 @@ const mountView = () => {
   const pinia = createPinia()
   setActivePinia(pinia)
   useTenantStore().setWarehousesForSession([
-    { id: 1, name: 'A 仓', province: '广东省', city: '深圳市' },
-    { id: 2, name: 'B 仓', province: '浙江省', city: '杭州市' },
+    {
+      id: 1, name: 'A 仓', province: '广东省', city: '深圳市',
+      return_contact: { name: 'A 联系人', phone: '13800138000', detail: '广东省深圳市南山区科技园' },
+    },
+    { id: 2, name: 'B 仓', province: '浙江省', city: '杭州市', return_contact: { name: 'B 联系人', phone: '13900139000', detail: '滨江区科技园' } },
+    { id: 3, name: 'C 仓', province: '江苏省', city: '南京市', return_contact: { name: '', phone: '', detail: '' } },
   ])
   return mount(BatchShippingOrderView, {
     global: {
@@ -62,18 +66,53 @@ describe('BatchShippingOrderView warehouse isolation', () => {
   })
 
   it('does not print injected orders from another warehouse', async () => {
-    vi.mocked(axios.get).mockResolvedValueOnce(response([]))
+    vi.mocked(axios.get).mockResolvedValue(response([]))
     const print = vi.fn()
     Object.defineProperty(window, 'print', { configurable: true, value: print })
     const wrapper = mountView()
     await flushPromises()
     const tenant = useTenantStore()
     tenant.selectWarehouse(2)
+    await flushPromises()
     const setup = wrapper.vm.$.setupState as any
     setup.rentals = [{ id: 1, warehouse_id: 1, status: 'not_shipped' }]
 
     setup.handlePrint()
 
     expect(print).not.toHaveBeenCalled()
+  })
+
+  it('shows incomplete warehouse contact and refuses to print', async () => {
+    vi.mocked(axios.get).mockResolvedValue(response([]))
+    const print = vi.fn()
+    Object.defineProperty(window, 'print', { configurable: true, value: print })
+    const wrapper = mountView()
+    await flushPromises()
+    useTenantStore().selectWarehouse(3)
+    await flushPromises()
+    const setup = wrapper.vm.$.setupState as any
+    setup.rentals = [{ id: 1, warehouse_id: 3, status: 'not_shipped' }]
+    await nextTick()
+
+    setup.handlePrint()
+
+    expect(wrapper.text()).toContain('仓库寄回信息未配置')
+    expect(print).not.toHaveBeenCalled()
+  })
+
+  it('renders and prints with the selected warehouse return contact', async () => {
+    vi.mocked(axios.get).mockResolvedValueOnce(response([{
+      id: 1, warehouse_id: 1, status: 'not_shipped',
+    }]))
+    const print = vi.fn()
+    Object.defineProperty(window, 'print', { configurable: true, value: print })
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('广东省深圳市南山区科技园')
+    expect(wrapper.text()).not.toContain('广东省深圳市广东省深圳市')
+    expect(wrapper.text()).toContain('仓库联系人：A 联系人，13800138000')
+    ;(wrapper.vm.$.setupState as any).handlePrint()
+    expect(print).toHaveBeenCalledOnce()
   })
 })

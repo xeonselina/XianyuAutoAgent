@@ -10,8 +10,22 @@ export type Warehouse = {
   name: string
   sf_configured?: boolean
   kuaimai_configured?: boolean
+  return_contact?: { name: string | null; phone: string | null; detail: string | null }
   created_at?: string
   updated_at?: string
+}
+
+export const resolveWarehouseReturnContact = (warehouse?: Warehouse | null) => {
+  const contact = warehouse?.return_contact
+  const name = contact?.name?.trim()
+  const phone = contact?.phone?.trim()
+  let detail = contact?.detail?.trim()
+  if (!warehouse || !name || !phone || !detail) return null
+  const parts = [...new Set([warehouse.province.trim(), warehouse.city.trim()].filter(Boolean))]
+  for (const part of parts) {
+    if (detail.startsWith(part)) detail = detail.slice(part.length).trimStart()
+  }
+  return { name, phone, address: parts.join('') + detail }
 }
 
 type WarehouseEnvelope = {

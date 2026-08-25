@@ -7,7 +7,7 @@
         返回甘特图
       </el-button>
       <h1>发货单</h1>
-      <el-button @click="printOrder" type="success" size="large">
+      <el-button @click="printOrder" type="success" size="large" :disabled="!returnContact">
         <el-icon><Printer /></el-icon>
         打印发货单
       </el-button>
@@ -109,18 +109,21 @@
             <!-- 寄回信息 -->
             <div class="return-section">
               <h6><el-icon><Box /></el-icon> 寄回信息</h6>
+              <template v-if="returnContact">
               <div class="info-row compact">
                 <span class="info-label">寄回地址：</span>
-                <span class="info-value">***REMOVED_ADDRESS***</span>
+                <span class="info-value">{{ returnContact.address }}</span>
               </div>
               <div class="info-row compact">
                 <span class="info-label">收件人：</span>
-                <span class="info-value">张女士</span>
+                <span class="info-value">{{ returnContact.name }}</span>
               </div>
               <div class="info-row compact">
                 <span class="info-label">电话：</span>
-                <span class="info-value">***REMOVED***</span>
+                <span class="info-value">{{ returnContact.phone }}</span>
               </div>
+              </template>
+              <div v-else class="info-value">仓库寄回信息未配置</div>
             </div>
           </div>
         </div>
@@ -132,7 +135,8 @@
             为避免器材损坏并尽快返还您押金，请在归还日下午16:00将此发货单随货发<span class="sf-express">顺丰</span>（寄付）寄回
           </div>
           <div class="contact-text">
-            小二微信：vacuumdust，***REMOVED***
+            <template v-if="returnContact">仓库联系人：{{ returnContact.name }}，{{ returnContact.phone }}</template>
+            <template v-else>仓库寄回信息未配置</template>
           </div>
         </div>
 
@@ -172,16 +176,21 @@ import {
   Money
 } from '@element-plus/icons-vue'
 import { useGanttStore, type Rental } from '../stores/gantt'
+import { resolveWarehouseReturnContact, useTenantStore } from '@/stores/tenant'
 import { getProductLines, lensComboDisplay, type LensCombo } from '../config/lensCombo'
 import dayjs from 'dayjs'
 
 const router = useRouter()
 const route = useRoute()
 const ganttStore = useGanttStore()
+const tenantStore = useTenantStore()
 
 // 响应式状态
 const rental = ref<Rental | null>(null)
 const barcodeCanvas = ref<SVGElement | null>(null)
+const returnContact = computed(() => resolveWarehouseReturnContact(
+  tenantStore.warehouses.find((warehouse) => warehouse.id === rental.value?.warehouse_id),
+))
 
 // 计算属性
 const rentalDays = computed(() => {
@@ -250,6 +259,10 @@ const printOrder = () => {
 }
 
 const handlePrint = () => {
+  if (!returnContact.value) {
+    ElMessage.warning('请先配置该订单仓库的寄回联系人')
+    return
+  }
   console.log('开始打印流程...')
   const printStyle = document.createElement('style')
   printStyle.textContent = `
@@ -323,6 +336,7 @@ const generateBarcode = () => {
 
 // 生命周期
 onMounted(async () => {
+  await tenantStore.initialize()
   const rentalId = route.params.id
   if (rentalId) {
     const rentalData = await ganttStore.getRentalById(Number(rentalId))

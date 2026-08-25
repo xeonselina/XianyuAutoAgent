@@ -300,6 +300,9 @@ def test_active_admin_and_operator_can_list_public_warehouses(
             "partner_id": "public-state-only",
             "checkword": "must-not-leak",
             "monthly_card": "must-not-leak-either",
+            "sender_name": "深圳仓联系人",
+            "sender_phone": "13800138000",
+            "sender_address": "南山区科技园一号",
         },
         headers=_csrf(settings_api_environment),
     )
@@ -318,6 +321,11 @@ def test_active_admin_and_operator_can_list_public_warehouses(
             "name": "广东省深圳市仓库",
             "sf_configured": True,
             "kuaimai_configured": False,
+            "return_contact": {
+                "name": "深圳仓联系人",
+                "phone": "13800138000",
+                "detail": "南山区科技园一号",
+            },
             "created_at": response.get_json()["data"][0]["created_at"],
             "updated_at": response.get_json()["data"][0]["updated_at"],
         }]
@@ -325,6 +333,7 @@ def test_active_admin_and_operator_can_list_public_warehouses(
         assert "sf_config" not in response.get_json()["data"][0]
         assert "kuaimai_config" not in response.get_json()["data"][0]
         assert "ciphertext" not in serialized
+        assert "public-state-only" not in serialized
         assert "must-not-leak" not in serialized
 
 

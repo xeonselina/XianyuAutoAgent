@@ -7,7 +7,7 @@
         返回甘特图
       </el-button>
       <span class="order-count">共 {{ rentals.length }} 个订单</span>
-      <el-button @click="handlePrint" type="success" :disabled="rentals.length === 0 || !canWrite">
+      <el-button @click="handlePrint" type="success" :disabled="rentals.length === 0 || !canWrite || !returnContact">
         <el-icon><Printer /></el-icon>
         打印所有发货单
       </el-button>
@@ -135,18 +135,21 @@
                 <!-- 寄回信息 -->
                 <div class="return-section">
                   <h6><el-icon><Box /></el-icon> 寄回信息</h6>
+                  <template v-if="returnContact">
                   <div class="info-row compact">
                     <span class="info-label">寄回地址：</span>
-                    <span class="info-value">***REMOVED_ADDRESS***</span>
+                    <span class="info-value">{{ returnContact.address }}</span>
                   </div>
                   <div class="info-row compact">
                     <span class="info-label">收件人：</span>
-                    <span class="info-value">张女士</span>
+                    <span class="info-value">{{ returnContact.name }}</span>
                   </div>
                   <div class="info-row compact">
                     <span class="info-label">电话：</span>
-                    <span class="info-value">***REMOVED***</span>
+                    <span class="info-value">{{ returnContact.phone }}</span>
                   </div>
+                  </template>
+                  <div v-else class="info-value">仓库寄回信息未配置</div>
                 </div>
               </div>
             </div>
@@ -158,7 +161,8 @@
                 为避免器材损坏并尽快返还您押金，请在归还日下午16:00将此发货单随货发<span class="sf-express">顺丰</span>（寄付）寄回
               </div>
               <div class="contact-text">
-                小二微信：vacuumdust，***REMOVED***
+                <template v-if="returnContact">仓库联系人：{{ returnContact.name }}，{{ returnContact.phone }}</template>
+                <template v-else>仓库寄回信息未配置</template>
               </div>
             </div>
 
@@ -198,7 +202,7 @@ import {
 } from '@element-plus/icons-vue'
 import axios from 'axios'
 import dayjs from 'dayjs'
-import { useTenantStore } from '@/stores/tenant'
+import { resolveWarehouseReturnContact, useTenantStore } from '@/stores/tenant'
 // @ts-ignore
 import JsBarcode from 'jsbarcode'
 
@@ -212,6 +216,7 @@ const rentals = ref<any[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 const canWrite = computed(() => tenantStore.currentWarehouseId !== 'all')
+const returnContact = computed(() => resolveWarehouseReturnContact(tenantStore.currentWarehouse))
 let requestGeneration = 0
 
 // Mounted
@@ -317,6 +322,10 @@ const handlePrint = () => {
     warehouseId = tenantStore.requireConcreteWarehouse()
   } catch (error: any) {
     ElMessage.warning(error.message)
+    return
+  }
+  if (!returnContact.value) {
+    ElMessage.warning('请先配置当前仓库寄回联系人')
     return
   }
   if (

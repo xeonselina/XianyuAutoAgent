@@ -85,7 +85,7 @@ class Warehouse(db.Model):
     )
 
     def to_dict(self):
-        return {
+        data = {
             "id": self.id,
             "province": self.province,
             "city": self.city,
@@ -95,6 +95,13 @@ class Warehouse(db.Model):
             "created_at": _iso(self.created_at),
             "updated_at": _iso(self.updated_at),
         }
+        if self.sf_config is not None:
+            data["return_contact"] = {
+                "name": self.sf_config.sender_name,
+                "phone": self.sf_config.sender_phone,
+                "detail": self.sf_config.sender_address,
+            }
+        return data
 
     def to_settings_dict(self):
         data = self.to_dict()
