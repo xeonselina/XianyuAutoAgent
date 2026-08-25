@@ -255,6 +255,7 @@ class RentalService:
         occupancy_start,
         occupancy_end,
         exclude_rental_ids=(),
+        preserve_existing=False,
     ):
         try:
             normalized_device_id = int(device_id)
@@ -284,9 +285,9 @@ class RentalService:
             raise ValueError('设备不存在')
         if device.is_accessory:
             raise ValueError('主设备不能是库存附件')
-        if device.warehouse_id != warehouse_id:
+        if not preserve_existing and device.warehouse_id != warehouse_id:
             raise WarehouseMismatchError('主设备不属于所选仓库')
-        if not device.is_in_service():
+        if not preserve_existing and not device.is_in_service():
             raise DeviceUnavailableError('主设备当前不可用于新租赁')
 
         accessories = []
@@ -296,11 +297,17 @@ class RentalService:
                 raise ValueError('附件设备不存在')
             if not accessory.is_accessory:
                 raise ValueError('设备不是库存附件')
-            if accessory.warehouse_id != warehouse_id:
+            if (
+                not preserve_existing
+                and accessory.warehouse_id != warehouse_id
+            ):
                 raise WarehouseMismatchError('附件设备不属于所选仓库')
-            if not accessory.is_in_service():
+            if not preserve_existing and not accessory.is_in_service():
                 raise DeviceUnavailableError('附件设备当前不可用于新租赁')
             accessories.append(accessory)
+
+        if preserve_existing:
+            return device, accessories
 
         conflict_query = Rental.query.filter(
             Rental.device_id.in_(selected_ids),
@@ -581,22 +588,15 @@ class RentalService:
             raise
 
     @staticmethod
-    def update_rental_accessories(rental: Rental, new_accessory_ids: List[int]):
-        """Replace serialized accessories while preserving parent fields."""
+    def update_rental_accessories(
+        rental: Rental,
+        requested_devices: List[Device],
+        current_children: List[Rental],
+    ):
+        """Replace serialized accessories from one freshly locked group."""
         current_children = {
-            child.device_id: child for child in rental.child_rentals
+            child.device_id: child for child in current_children
         }
-        requested_ids = list(dict.fromkeys(new_accessory_ids or []))
-        requested_devices = []
-        for accessory_id in requested_ids:
-            accessory = db.session.get(Device, accessory_id)
-            if accessory is None:
-                raise ValueError('附件设备不存在')
-            if not accessory.is_accessory:
-                raise ValueError('设备不是库存附件')
-            if accessory.warehouse_id != rental.warehouse_id:
-                raise WarehouseMismatchError('附件设备不属于所选仓库')
-            requested_devices.append(accessory)
 
         effective_ids = {
             device.id
@@ -636,6 +636,7 @@ class RentalService:
             rental = db.session.get(Rental, rental_id)
             if not rental:
                 raise ValueError('租赁记录不存在')
+            target_rental_id = rental.id
 
             warehouse_id = resolve_write_warehouse_id(
                 data.get('warehouse_id')
@@ -684,16 +685,119 @@ class RentalService:
                 'accessories', [child.device_id for child in children]
             )
             device_id = data.get('device_id', rental.device_id)
-            RentalService._validate_selection(
-                warehouse_id,
-                device_id,
-                accessory_ids,
-                occupancy_start,
-                occupancy_end,
-                exclude_rental_ids=[rental.id] + [
-                    child.id for child in children
-                ],
+            try:
+                selection_is_unchanged = (
+                    warehouse_id == rental.warehouse_id
+                    and int(device_id) == rental.device_id
+                    and {int(row_id) for row_id in accessory_ids}
+                    == {child.device_id for child in children}
+                )
+            except (TypeError, ValueError):
+                selection_is_unchanged = False
+            occupancy_is_unchanged = (
+                start_date == rental.start_date
+                and end_date == rental.end_date
+                and ship_out_time == rental.ship_out_time
+                and ship_in_time == rental.ship_in_time
             )
+            preserve_existing = (
+                selection_is_unchanged and occupancy_is_unchanged
+            )
+            _device, validated_accessories = (
+                RentalService._validate_selection(
+                    warehouse_id,
+                    device_id,
+                    accessory_ids,
+                    occupancy_start,
+                    occupancy_end,
+                    exclude_rental_ids=[rental.id] + [
+                        child.id for child in children
+                    ],
+                    preserve_existing=preserve_existing,
+                )
+            )
+
+            # Device rows are always locked before Rental rows. The explicit
+            # current read below serializes edits to this main/child group and
+            # refreshes objects that may already be present in the identity map.
+            main_rental_id = rental.parent_rental_id or rental.id
+            locked_group = (
+                Rental.query.filter(
+                    (Rental.id == main_rental_id)
+                    | (Rental.parent_rental_id == main_rental_id)
+                )
+                .order_by(Rental.id)
+                .populate_existing()
+                .with_for_update()
+                .all()
+            )
+            rental = next(
+                (
+                    row
+                    for row in locked_group
+                    if row.id == target_rental_id
+                ),
+                None,
+            )
+            if rental is None:
+                raise ValueError('租赁记录不存在')
+            fresh_children = [
+                row
+                for row in locked_group
+                if row.parent_rental_id == rental.id
+            ]
+
+            # Values omitted by this request came from the initial snapshot.
+            # If another serialized edit changed one, retry instead of applying
+            # validation results to a different identity or occupancy window.
+            stale_defaults = (
+                ('device_id' not in data and device_id != rental.device_id)
+                or (
+                    'accessories' not in data
+                    and {int(row_id) for row_id in accessory_ids}
+                    != {child.device_id for child in fresh_children}
+                )
+                or (
+                    'start_date' not in data
+                    and start_date != rental.start_date
+                )
+                or ('end_date' not in data and end_date != rental.end_date)
+                or (
+                    'ship_out_time' not in data
+                    and ship_out_time != rental.ship_out_time
+                )
+                or (
+                    'ship_in_time' not in data
+                    and ship_in_time != rental.ship_in_time
+                )
+            )
+            if stale_defaults:
+                raise ValueError('租赁记录已被其他操作修改，请重试')
+            if 'status' not in data:
+                status = rental.status
+
+            requested_effective_ids = {
+                device.id
+                for device in validated_accessories
+                if '手柄' not in device.name and '镜头支架' not in device.name
+            }
+            current_accessory_ids = {
+                child.device_id for child in fresh_children
+            }
+            identity_changed = (
+                warehouse_id != rental.warehouse_id
+                or int(device_id) != rental.device_id
+                or requested_effective_ids != current_accessory_ids
+            )
+            if preserve_existing and identity_changed:
+                raise ValueError('租赁记录已被其他操作修改，请重试')
+            has_fulfillment_history = any(
+                row.status in {'shipped', 'returned', 'completed'}
+                or bool(str(row.ship_out_tracking_no or '').strip())
+                for row in locked_group
+            )
+            if has_fulfillment_history and identity_changed:
+                raise ValueError('已履约租赁不能更换仓库或设备')
 
             if 'xianyu_order_no' in data or 'xianyu_shop_id' in data:
                 order_no, shop_id = RentalService._resolve_shop(
@@ -724,7 +828,11 @@ class RentalService:
             rental.ship_in_time = ship_in_time
             rental.status = status
 
-            RentalService.update_rental_accessories(rental, accessory_ids)
+            RentalService.update_rental_accessories(
+                rental,
+                validated_accessories,
+                fresh_children,
+            )
             db.session.commit()
             current_app.logger.info(f"成功更新租赁记录: {rental_id}")
             return rental

@@ -510,6 +510,319 @@ def test_rental_update_validates_whole_selection_before_writing(
         }
 
 
+def test_concurrent_rental_updates_serialize_the_fresh_whole_group(
+    client, app, warehouse_case, monkeypatch
+):
+    """Disjoint Device locks must not let one Rental group become mixed."""
+    with app.app_context():
+        if db.engine.dialect.name != "mysql":
+            pytest.skip("row-lock concurrency probe requires MariaDB")
+        warehouse_c = Warehouse(
+            province="四川省", city="成都市", name="成都仓库"
+        )
+        model = db.session.get(DeviceModel, warehouse_case["model"])
+        db.session.add(warehouse_c)
+        db.session.flush()
+        main_c = Device(
+            name="成都原主机",
+            serial_number="WH-MAIN-C",
+            model=model.name,
+            model_id=model.id,
+            is_accessory=False,
+            warehouse_id=warehouse_c.id,
+        )
+        db.session.add(main_c)
+        db.session.flush()
+        start = date.today() + timedelta(days=10)
+        rental = Rental(
+            device_id=main_c.id,
+            warehouse_id=warehouse_c.id,
+            start_date=start,
+            end_date=start + timedelta(days=3),
+            ship_out_time=datetime.combine(
+                start - timedelta(days=2), time(19)
+            ),
+            ship_in_time=datetime.combine(
+                start + timedelta(days=5), time(12)
+            ),
+            customer_name="并发更新前客户",
+            status="not_shipped",
+        )
+        db.session.add(rental)
+        db.session.commit()
+        rental_id = rental.id
+
+    from app.services.rental.rental_service import RentalService
+
+    selections_ready = Barrier(2)
+    original_update = RentalService.update_rental_with_accessories
+
+    def synchronized_validate(
+        warehouse_id,
+        device_id,
+        accessory_ids,
+        _occupancy_start,
+        _occupancy_end,
+        exclude_rental_ids=(),
+        preserve_existing=False,
+    ):
+        del exclude_rental_ids, preserve_existing
+        selected_ids = sorted({int(device_id), *map(int, accessory_ids)})
+        selected = (
+            Device.query.filter(Device.id.in_(selected_ids))
+            .order_by(Device.id)
+            .populate_existing()
+            .with_for_update()
+            .all()
+        )
+        selected_by_id = {row.id: row for row in selected}
+        assert all(
+            row.warehouse_id == warehouse_id for row in selected
+        )
+        selections_ready.wait(timeout=5)
+        return (
+            selected_by_id[int(device_id)],
+            [selected_by_id[int(row_id)] for row_id in accessory_ids],
+        )
+
+    monkeypatch.setattr(
+        RentalService, "_validate_selection", synchronized_validate
+    )
+
+    def update_without_implicit_autoflush(*args, **kwargs):
+        # The invariant must come from explicit group locks, not an incidental
+        # relationship-query autoflush of the main row.
+        db.session.autoflush = False
+        return original_update(*args, **kwargs)
+
+    monkeypatch.setattr(
+        RentalService,
+        "update_rental_with_accessories",
+        update_without_implicit_autoflush,
+    )
+    results = []
+
+    def submit(payload):
+        response = app.test_client().put(
+            f"/api/rentals/{rental_id}", json=payload
+        )
+        results.append(response.status_code)
+
+    payload_a = _rental_payload(
+        warehouse_case,
+        accessories=[warehouse_case["accessory_a"]],
+        customer_name="并发更新甲",
+    )
+    payload_b = _rental_payload(
+        warehouse_case,
+        warehouse_id=warehouse_case["warehouse_b"],
+        device_id=warehouse_case["main_b"],
+        accessories=[warehouse_case["accessory_b"]],
+        customer_name="并发更新乙",
+    )
+    threads = [
+        Thread(target=submit, args=(payload,))
+        for payload in (payload_a, payload_b)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+        assert not thread.is_alive()
+
+    assert sorted(results) == [200, 200]
+    with app.app_context():
+        group = Rental.query.filter(
+            (Rental.id == rental_id)
+            | (Rental.parent_rental_id == rental_id)
+        ).order_by(Rental.id).all()
+        assert len(group) == 2
+        serialized_identity = {
+            (row.warehouse_id, row.device_id) for row in group
+        }
+        assert serialized_identity in (
+            {
+                (
+                    warehouse_case["warehouse_a"],
+                    warehouse_case["main_a"],
+                ),
+                (
+                    warehouse_case["warehouse_a"],
+                    warehouse_case["accessory_a"],
+                ),
+            },
+            {
+                (
+                    warehouse_case["warehouse_b"],
+                    warehouse_case["main_b"],
+                ),
+                (
+                    warehouse_case["warehouse_b"],
+                    warehouse_case["accessory_b"],
+                ),
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    ("status", "ship_out_tracking_no"),
+    [
+        ("shipped", None),
+        ("returned", None),
+        ("completed", None),
+        ("not_shipped", "SF-OUTBOUND-EVIDENCE"),
+    ],
+)
+def test_fulfilled_rental_rejects_identity_reassignment_atomically(
+    client, app, warehouse_case, status, ship_out_tracking_no
+):
+    created = client.post(
+        "/api/rentals",
+        json=_rental_payload(
+            warehouse_case,
+            accessories=[warehouse_case["accessory_a"]],
+        ),
+    )
+    assert created.status_code == 201
+    rental_id = created.get_json()["data"]["main_rental"]["id"]
+    with app.app_context():
+        rental = db.session.get(Rental, rental_id)
+        rental.status = status
+        rental.ship_out_tracking_no = ship_out_tracking_no
+        for child in rental.child_rentals:
+            child.status = status
+            child.ship_out_tracking_no = ship_out_tracking_no
+        db.session.commit()
+        original_customer = rental.customer_name
+
+    response = client.put(
+        f"/api/rentals/{rental_id}",
+        json={
+            "warehouse_id": warehouse_case["warehouse_b"],
+            "device_id": warehouse_case["main_b"],
+            "accessories": [warehouse_case["accessory_b"]],
+            "customer_name": "不得部分写入",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["message"] == "已履约租赁不能更换仓库或设备"
+    with app.app_context():
+        persisted = db.session.get(Rental, rental_id)
+        children = list(persisted.child_rentals)
+        assert persisted.warehouse_id == warehouse_case["warehouse_a"]
+        assert persisted.device_id == warehouse_case["main_a"]
+        assert persisted.customer_name == original_customer
+        assert len(children) == 1
+        assert children[0].warehouse_id == warehouse_case["warehouse_a"]
+        assert children[0].device_id == warehouse_case["accessory_a"]
+
+
+@pytest.mark.parametrize(
+    ("status", "ship_out_tracking_no"),
+    [
+        ("shipped", None),
+        ("returned", None),
+        ("completed", None),
+        ("not_shipped", "SF-OUTBOUND-EVIDENCE"),
+    ],
+)
+def test_fulfilled_rental_allows_same_identity_metadata_edit(
+    client, app, warehouse_case, status, ship_out_tracking_no
+):
+    created = client.post(
+        "/api/rentals",
+        json=_rental_payload(
+            warehouse_case,
+            accessories=[warehouse_case["accessory_a"]],
+        ),
+    )
+    rental_id = created.get_json()["data"]["main_rental"]["id"]
+    with app.app_context():
+        rental = db.session.get(Rental, rental_id)
+        rental.status = status
+        rental.ship_out_tracking_no = ship_out_tracking_no
+        for child in rental.child_rentals:
+            child.status = status
+            child.ship_out_tracking_no = ship_out_tracking_no
+        if status == "completed":
+            for device_id in (
+                warehouse_case["main_a"],
+                warehouse_case["accessory_a"],
+            ):
+                device = db.session.get(Device, device_id)
+                device.warehouse_id = warehouse_case["warehouse_b"]
+                device.lifecycle_status = "retired"
+        db.session.commit()
+
+    response = client.put(
+        f"/api/rentals/{rental_id}",
+        json={
+            "warehouse_id": warehouse_case["warehouse_a"],
+            "device_id": warehouse_case["main_a"],
+            "accessories": [warehouse_case["accessory_a"]],
+            "customer_name": "允许修改备注字段",
+        },
+    )
+
+    assert response.status_code == 200
+    with app.app_context():
+        persisted = db.session.get(Rental, rental_id)
+        assert persisted.customer_name == "允许修改备注字段"
+        assert persisted.warehouse_id == warehouse_case["warehouse_a"]
+        assert persisted.device_id == warehouse_case["main_a"]
+        assert {
+            (child.warehouse_id, child.device_id)
+            for child in persisted.child_rentals
+        } == {
+            (
+                warehouse_case["warehouse_a"],
+                warehouse_case["accessory_a"],
+            )
+        }
+
+
+def test_scheduled_unshipped_rental_identity_remains_editable(
+    client, app, warehouse_case
+):
+    created = client.post(
+        "/api/rentals",
+        json=_rental_payload(
+            warehouse_case,
+            accessories=[warehouse_case["accessory_a"]],
+        ),
+    )
+    rental_id = created.get_json()["data"]["main_rental"]["id"]
+    with app.app_context():
+        rental = db.session.get(Rental, rental_id)
+        rental.status = "scheduled_for_shipping"
+        for child in rental.child_rentals:
+            child.status = "scheduled_for_shipping"
+        db.session.commit()
+
+    response = client.put(
+        f"/api/rentals/{rental_id}",
+        json={
+            "warehouse_id": warehouse_case["warehouse_b"],
+            "device_id": warehouse_case["main_b"],
+            "accessories": [warehouse_case["accessory_b"]],
+        },
+    )
+
+    assert response.status_code == 200
+    with app.app_context():
+        group = Rental.query.filter(
+            (Rental.id == rental_id)
+            | (Rental.parent_rental_id == rental_id)
+        ).all()
+        assert {row.warehouse_id for row in group} == {
+            warehouse_case["warehouse_b"]
+        }
+        assert {row.device_id for row in group} == {
+            warehouse_case["main_b"], warehouse_case["accessory_b"]
+        }
+
+
 def test_one_active_shop_auto_binds_and_offline_order_clears_shop(
     client, app, warehouse_case
 ):
