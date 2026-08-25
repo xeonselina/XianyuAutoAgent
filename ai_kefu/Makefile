@@ -472,11 +472,12 @@ deploy-nas: ## 拉取新镜像并在群晖 NAS 上重启容器
 # ── NAS 日志变量（与 deploy_nas.sh 保持一致）─────────────────
 NAS_HOST     := 192.168.50.132
 NAS_USER     := xeon_pan
-NAS_PASS     := ***REMOVED***
+NAS_PASS     ?=
 NAS_LOG_DIR  := /volume1/docker/aikefu/logs
 LOCAL_LOG_DIR := logs/nas
 
 fetch-api-logs: ## 下载 NAS 上的 API 日志到本地 ./logs/nas/
+	@if [ -z "$(NAS_PASS)" ]; then echo "$(RED)[ERR ]$(NC) 请通过环境变量提供 NAS_PASS"; exit 1; fi
 	@echo "$(GREEN)正在从 NAS 下载 API 日志...$(NC)"
 	@mkdir -p $(LOCAL_LOG_DIR)
 	@sshpass -p "$(NAS_PASS)" \
@@ -489,6 +490,7 @@ fetch-api-logs: ## 下载 NAS 上的 API 日志到本地 ./logs/nas/
 	@ls -lh $(LOCAL_LOG_DIR)/ 2>/dev/null || true
 
 tail-api-logs: ## 实时 tail NAS 上最新的 API 日志（Ctrl-C 退出）
+	@if [ -z "$(NAS_PASS)" ]; then echo "$(RED)[ERR ]$(NC) 请通过环境变量提供 NAS_PASS"; exit 1; fi
 	@echo "$(GREEN)正在实时查看 NAS API 日志（Ctrl-C 退出）...$(NC)"
 	@echo "$(YELLOW)日志路径: $(NAS_HOST):$(NAS_LOG_DIR)/$(NC)"
 	@sshpass -p "$(NAS_PASS)" \
