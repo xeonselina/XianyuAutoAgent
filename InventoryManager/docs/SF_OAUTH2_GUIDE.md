@@ -17,9 +17,9 @@ SF_PARTNER_ID=your_dev_id     # OAuth2.0: 开发者 ID; msgDigest: 合作伙伴 
 SF_CHECKWORD=your_dev_key     # OAuth2.0: 开发者密钥; msgDigest: 校验码
 
 # 寄件人信息（可选，有默认值）
-SF_SENDER_NAME=张女士
-SF_SENDER_PHONE=***REMOVED***
-SF_SENDER_ADDRESS=***REMOVED_ADDRESS***
+SF_SENDER_NAME=<SF_SENDER_NAME>
+SF_SENDER_PHONE=<SF_SENDER_PHONE>
+SF_SENDER_ADDRESS=<SF_SENDER_ADDRESS>
 ```
 
 ## OAuth2.0 vs msgDigest
@@ -91,9 +91,9 @@ GET /api/sf-test/status
     "partner_id_configured": true,
     "checkword_configured": true,
     "sender_info": {
-      "name": "张女士",
-      "phone": "***REMOVED***",
-      "address": "***REMOVED_ADDRESS***"
+      "name": "<SF_SENDER_NAME>",
+      "phone": "<SF_SENDER_PHONE>",
+      "address": "<SF_SENDER_ADDRESS>"
     }
   }
 }

@@ -213,6 +213,9 @@ def test_runtime_config_changes_do_not_revoke_authorized_test_bypass():
 def test_runtime_config_changes_cannot_enable_production_auth_bypass():
     class ProductionRuntimeConfig(ProductionConfig):
         TESTING = True
+        SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+        SQLALCHEMY_ENGINE_OPTIONS = {}
+        TENANT_DB_HOST = "127.0.0.1"
         AUTH_BYPASS_FOR_TESTS = False
         SAAS_MASTER_KEY = MASTER_KEY
         DEV_SMS_CODE = None
@@ -332,6 +335,9 @@ def test_create_app_does_not_start_in_process_scheduler(monkeypatch):
 def test_worker_mode_requires_only_worker_database_credentials(tmp_path, missing):
     attributes = {
         "TESTING": True,
+        "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+        "SQLALCHEMY_ENGINE_OPTIONS": {},
+        "TENANT_DB_HOST": "127.0.0.1",
         "SAAS_MASTER_KEY": MASTER_KEY,
         "CONTROL_DATABASE_URL": f"sqlite+pysqlite:///{tmp_path / 'control.db'}",
         "PROVISIONER_DATABASE_URL": None,

@@ -97,6 +97,34 @@ def test_second_worker_exits_without_entering_standby():
     assert len(store.connection.statements) == 3
 
 
+def test_run_once_runs_both_cycles_without_registering_jobs_and_shuts_down():
+    worker, store, registry = _lock_worker(1)
+    events = []
+    worker.run_scheduled_shipping_cycle = lambda: events.append("shipping")
+    worker.run_xianyu_sync_cycle = lambda: events.append("xianyu")
+
+    assert worker.run_once() is True
+    assert events == ["shipping", "xianyu"]
+    assert worker.scheduler.jobs == []
+    assert store.connection.closed and store.disposed and registry.disposed
+
+
+def test_main_selects_once_without_changing_default_loop(monkeypatch):
+    import worker as worker_module
+
+    calls = []
+    fake = SimpleNamespace(
+        run_once=lambda: calls.append("once") or True,
+        run_forever=lambda: calls.append("forever") or True,
+    )
+    monkeypatch.setattr(worker_module, "create_app", lambda name, worker_mode: (name, worker_mode))
+    monkeypatch.setattr(worker_module, "Worker", lambda app: calls.append(app) or fake)
+
+    assert worker_module.main(["--once"]) is True
+    assert worker_module.main([]) is True
+    assert calls == [("production", True), "once", ("production", True), "forever"]
+
+
 def test_cycle_filters_tenants_and_cleans_binding_after_each(tmp_path, monkeypatch):
     import worker as worker_module
 

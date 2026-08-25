@@ -1,5 +1,6 @@
 """Single-process worker for scheduled shipping and Xianyu reconciliation."""
 
+import argparse
 import logging
 import os
 import time
@@ -128,10 +129,27 @@ class Worker:
         finally:
             self.shutdown()
 
+    def run_once(self):
+        try:
+            if not self.acquire_lock():
+                return False
+            self.run_scheduled_shipping_cycle()
+            self.run_xianyu_sync_cycle()
+            return True
+        finally:
+            self.shutdown()
 
-def main():
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Inventory Manager worker")
+    parser.add_argument(
+        "--once", action="store_true",
+        help="run shipping and Xianyu cycles once, then exit",
+    )
+    arguments = parser.parse_args(argv)
     config_name = os.environ.get("FLASK_ENV", "production")
-    return Worker(create_app(config_name, worker_mode=True)).run_forever()
+    worker = Worker(create_app(config_name, worker_mode=True))
+    return worker.run_once() if arguments.once else worker.run_forever()
 
 
 if __name__ == "__main__":

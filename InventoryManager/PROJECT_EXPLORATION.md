@@ -867,7 +867,7 @@ describe('Gantt Store', () => {
 
 **数据库配置**:
 ```env
-DATABASE_URL=mysql+pymysql://root:<DB_PASSWORD>@192.168.50.132:33601/inventory_management
+DATABASE_URL=mysql+pymysql://<DB_USER>:<DB_PASSWORD>@<DB_HOST>:<DB_PORT>/inventory_management
 ```
 
 **云服务配置**:
@@ -879,9 +879,9 @@ ALIYUN_ACCESS_KEY_SECRET=<ALIYUN_ACCESS_KEY_SECRET>
 # 顺丰快递
 SF_PARTNER_ID=<SF_PARTNER_ID>
 SF_CHECKWORD=<SF_CHECKWORD>
-SF_SENDER_NAME=张女士
-SF_SENDER_PHONE=<PHONE_NUMBER>
-SF_SENDER_ADDRESS=广东省深圳市南山区松坪村 9 栋 4 单元 415
+SF_SENDER_NAME=<SF_SENDER_NAME>
+SF_SENDER_PHONE=<SF_SENDER_PHONE>
+SF_SENDER_ADDRESS=<SF_SENDER_ADDRESS>
 SF_MONTHLY_CARD=<SF_MONTHLY_CARD>
 
 # 闲鱼 API
@@ -890,16 +890,16 @@ XIANYU_APP_SECRET=<XIANYU_APP_SECRET>
 XIANYU_API_DOMAIN=open.goofish.pro
 
 # 快麦打印
-KUAIMAI_APP_ID=1765586419825
-KUAIMAI_APP_SECRET=f3d0d6f376db474284146eee5fc54172
-KUAIMAI_PRINTER_SN=KME31W25160089
+KUAIMAI_APP_ID=<KUAIMAI_APP_ID>
+KUAIMAI_APP_SECRET=<KUAIMAI_APP_SECRET>
+KUAIMAI_PRINTER_SN=<KUAIMAI_PRINTER_SN>
 ```
 
 **应用配置**:
 ```env
 FLASK_ENV=development
-SECRET_KEY=dev-secret-key-local-development
-API_KEY=dev-api-key-local-development
+SECRET_KEY=<SECRET_KEY>
+API_KEY=<API_KEY>
 APP_PORT=5001
 APP_HOST=0.0.0.0
 
@@ -1567,4 +1567,3 @@ const testCases = [
 5. **虚拟滚动**: 列表中的 van-loading 和 van-empty 处理空状态
 6. **性能**: 避免在模板中调用方法，使用 computed 代替
 7. **路由**: 后退时用 router.back()，响应式导航用 router.push()
-

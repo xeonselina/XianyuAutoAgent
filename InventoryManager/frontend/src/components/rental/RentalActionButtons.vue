@@ -3,15 +3,6 @@
     <!-- 顶部操作按钮 -->
     <div class="top-actions">
       <el-button
-        type="success"
-        size="small"
-        @click="openContract"
-        :disabled="!rental"
-      >
-        <el-icon><Document /></el-icon>
-        租赁合同
-      </el-button>
-      <el-button
         type="warning"
         size="small"
         @click="openShippingOrder"
@@ -63,7 +54,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { Document, Box, Loading, Warning, Delete, Van } from '@element-plus/icons-vue'
+import { Box, Loading, Warning, Delete, Van } from '@element-plus/icons-vue'
 import type { Rental } from '@/stores/gantt'
 
 interface Props {
@@ -76,7 +67,6 @@ interface Props {
 const props = defineProps<Props>()
 
 const emit = defineEmits<{
-  'open-contract': []
   'open-shipping-order': []
   'delete': []
   'close': []
@@ -91,10 +81,6 @@ const shippingToXianyu = ref(false)
 const canShipToXianyu = computed(() => {
   return !!(props.rental?.xianyu_order_no && props.rental?.ship_out_tracking_no)
 })
-
-const openContract = () => {
-  emit('open-contract')
-}
 
 const openShippingOrder = () => {
   emit('open-shipping-order')

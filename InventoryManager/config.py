@@ -165,6 +165,8 @@ class ProductionConfig(Config):
     DEBUG = False
     SQLALCHEMY_ECHO = False
     IS_PRODUCTION = True
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
+    TENANT_DB_HOST = os.environ.get('TENANT_DB_HOST')
 
     # 生产环境安全设置
     SESSION_COOKIE_SECURE = True

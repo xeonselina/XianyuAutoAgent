@@ -55,7 +55,6 @@ def unified_favicon():
 # =============================================================================
 
 @bp.route('/gantt')
-@bp.route('/contract/<path:subpath>')
 @bp.route('/shipping/<path:subpath>')
 @bp.route('/batch-shipping-order')
 @bp.route('/batch-shipping')

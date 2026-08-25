@@ -419,6 +419,9 @@ def test_tencent_result_is_usable_only_for_exact_ok_code(auth_module):
 def test_production_rejects_fake_sms_sender(auth_module):
     class UnsafeSmsConfig(ProductionConfig):
         TESTING = True
+        SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+        SQLALCHEMY_ENGINE_OPTIONS = {}
+        TENANT_DB_HOST = "127.0.0.1"
         SAAS_MASTER_KEY = MASTER_KEY
         DEV_SMS_CODE = None
         CONTROL_DATABASE_URL = "mysql+pymysql://app@127.0.0.1:9/control"
@@ -532,9 +535,11 @@ def test_gunicorn_entrypoint_ignores_docker_profile_and_uses_production_security
         {
             "FLASK_ENV": "docker",
             "TESTING": "true",
-            "DATABASE_URL_HOST": (
+            "DATABASE_URL": (
                 "mysql+pymysql://entrypoint@127.0.0.1:9/entrypoint_test"
             ),
+            "TENANT_DB_HOST": "127.0.0.1",
+            "TENANT_DB_PORT": "3306",
             "CONTROL_DATABASE_URL": (
                 "mysql+pymysql://app@127.0.0.1:9/control"
             ),

@@ -171,12 +171,16 @@ def create_app(config_class=Config, worker_mode=False):
             )
         tenant_host = app.config.get('TENANT_DB_HOST')
         tenant_port = app.config.get('TENANT_DB_PORT')
-        if worker_mode and not tenant_host:
-            raise RuntimeError('Worker requires TENANT_DB_HOST')
-        if worker_mode and (
+        if not tenant_host:
+            raise RuntimeError('Production app/worker requires TENANT_DB_HOST')
+        if (
             not isinstance(tenant_port, int) or not 1 <= tenant_port <= 65535
         ):
-            raise RuntimeError('Worker requires a valid TENANT_DB_PORT')
+            raise RuntimeError(
+                'Production app/worker requires a valid TENANT_DB_PORT'
+            )
+        if not app.config.get('SQLALCHEMY_DATABASE_URI'):
+            raise RuntimeError('Production app/worker requires DATABASE_URL')
 
     cors_origins = [] if worker_mode else _validated_cors_origins(
         app.config.get('CORS_ORIGINS')

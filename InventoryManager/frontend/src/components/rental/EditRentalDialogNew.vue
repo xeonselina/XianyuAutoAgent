@@ -14,7 +14,6 @@
       :loading-latest-data="loadingLatestData"
       :latest-data-error="latestDataError"
       :submitting="submitting"
-      @open-contract="openContract"
       @open-shipping-order="openShippingOrder"
       @delete="handleDelete"
       @close="handleClose"
@@ -508,13 +507,6 @@ const handleAccessoryChange = async (accessoryIds: number[]) => {
         form.value.accessories = form.value.accessories.filter(id => id !== accessoryId)
       })
     }
-  }
-}
-
-const openContract = () => {
-  if (props.rental) {
-    const url = router.resolve({ path: `/contract/${props.rental.id}` })
-    window.open(url.href, '_blank')
   }
 }
 

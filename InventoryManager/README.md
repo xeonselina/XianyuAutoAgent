@@ -11,7 +11,7 @@
 - **移动端预约**: 移动设备上快速预约设备档期
 - **设备管理**: 设备和设备型号管理
 - **附件管理**: 支持手柄、支架等附件的独立管理
-- **合同生成**: 自动生成租赁合同和出货单PDF
+- **出货单**: 支持单笔和批量出货单打印
 - **统计报表**: 租赁统计数据和报表
 - **定时任务**: 自动计算统计数据
 - **审计日志**: 操作记录追踪
@@ -183,9 +183,6 @@ InventoryManager/
 │   │   └── utils/         # 工具函数
 │   ├── package.json       # 前端依赖
 │   └── vite.config.ts     # Vite配置
-├── templates/             # HTML模板（PDF模板）
-│   ├── rental_contract2.html    # 租赁合同模板
-│   └── shipping_order2.html     # 出货单模板
 ├── migrations/            # 数据库迁移文件
 ├── scripts/               # 脚本文件
 │   ├── export_db_data.py        # 数据库导出脚本
@@ -372,13 +369,6 @@ GET /api/statistics/latest
 ##### 计算统计数据
 ```http
 POST /api/statistics/calculate
-```
-
-#### 7. 其他API
-
-##### OCR识别身份证
-```http
-POST /api/ocr/id-card
 ```
 
 ##### 健康检查

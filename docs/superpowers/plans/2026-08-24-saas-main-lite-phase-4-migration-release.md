@@ -352,7 +352,7 @@ docker run --rm --env-file .env xianyu-agent:saas-main-lite-test python worker.p
 Run:
 
 ```bash
-git grep -n -I -E "(BEGIN (RSA|EC|OPENSSH) PRIVATE KEY|SECRET_KEY=.+[^_]$|app_secret.*[:=].+|monthly_card.*[:=].+|NAS_PASS|***REMOVED***|***REMOVED***)" -- . ':!*.pdf'
+git grep -n -I -E "(BEGIN (RSA|EC|OPENSSH) PRIVATE KEY|SECRET_KEY=.+[^_]$|app_secret.*[:=].+|monthly_card.*[:=].+|NAS_PASS|<legacy-phone>|<legacy-address>)" -- . ':!*.pdf'
 rg -n "outbox|Celery|APScheduler|event_bus|job_attempt|lease|fence|inventory_mode|logical_inventory|printer_pool" InventoryManager/app InventoryManager/tests
 git ls-files | rg "(^|/)\.env$|\.sql$"
 ```

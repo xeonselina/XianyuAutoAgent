@@ -58,7 +58,6 @@ declare module 'vue' {
     ElTimeline: typeof import('element-plus/es')['ElTimeline']
     ElTimelineItem: typeof import('element-plus/es')['ElTimelineItem']
     ElTooltip: typeof import('element-plus/es')['ElTooltip']
-    ElUpload: typeof import('element-plus/es')['ElUpload']
     GanttChart: typeof import('./src/components/GanttChart.vue')['default']
     GanttRow: typeof import('./src/components/GanttRow.vue')['default']
     IconCommunity: typeof import('./src/components/icons/IconCommunity.vue')['default']

@@ -6,7 +6,6 @@ import {
 
 import { useAuthStore } from '@/stores/auth'
 import GanttView from '@/views/GanttView.vue'
-import RentalContractView from '@/views/RentalContractView.vue'
 import ShippingOrderView from '@/views/ShippingOrderView.vue'
 import BatchShippingOrderView from '@/views/BatchShippingOrderView.vue'
 import BatchShippingView from '@/views/BatchShippingView.vue'
@@ -184,12 +183,6 @@ const router = createRouter({
     },
     { path: '/', name: 'gantt', component: GanttView, meta: requiresTenant },
     { path: '/gantt', redirect: '/' },
-    {
-      path: '/contract/:id',
-      name: 'rental-contract',
-      component: RentalContractView,
-      meta: requiresTenant,
-    },
     {
       path: '/shipping/:id',
       name: 'shipping-order',

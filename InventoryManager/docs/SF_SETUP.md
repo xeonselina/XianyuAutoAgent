@@ -35,9 +35,9 @@ SF_PARTNER_ID=your_dev_id_here      # 替换为你的开发者ID
 SF_CHECKWORD=your_dev_key_here      # 替换为你的开发者密钥
 
 # 寄件人信息（必填）
-SF_SENDER_NAME=张女士
-SF_SENDER_PHONE=***REMOVED***
-SF_SENDER_ADDRESS=***REMOVED_ADDRESS***
+SF_SENDER_NAME=<SF_SENDER_NAME>
+SF_SENDER_PHONE=<SF_SENDER_PHONE>
+SF_SENDER_ADDRESS=<SF_SENDER_ADDRESS>
 ```
 
 ## 3. 测试配置
@@ -60,9 +60,9 @@ curl http://localhost:5000/api/sf-test/status | jq
     "partner_id_configured": true,
     "checkword_configured": true,
     "sender_info": {
-      "name": "张女士",
-      "phone": "***REMOVED***",
-      "address": "***REMOVED_ADDRESS***"
+      "name": "<SF_SENDER_NAME>",
+      "phone": "<SF_SENDER_PHONE>",
+      "address": "<SF_SENDER_ADDRESS>"
     }
   }
 }
