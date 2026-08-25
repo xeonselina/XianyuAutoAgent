@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import axios from 'axios'
 
 import BatchShippingOrderView from '@/views/BatchShippingOrderView.vue'
+import singleViewSource from '@/views/ShippingOrderView.vue?raw'
 import { useTenantStore } from '@/stores/tenant'
 
 vi.mock('axios')
@@ -114,5 +115,16 @@ describe('BatchShippingOrderView warehouse isolation', () => {
     expect(wrapper.text()).toContain('仓库联系人：A 联系人，13800138000')
     ;(wrapper.vm.$.setupState as any).handlePrint()
     expect(print).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the single shipping sheet bound to its rental warehouse contact', () => {
+    const guard = singleViewSource.indexOf('if (!returnContact.value)')
+    expect(singleViewSource).toContain('await tenantStore.initialize()')
+    expect(singleViewSource).toContain('warehouse.id === rental.value?.warehouse_id')
+    expect(singleViewSource).toContain('v-if="returnContact"')
+    expect(singleViewSource).toContain('v-else>仓库寄回信息未配置')
+    expect(guard).toBeGreaterThan(-1)
+    expect(singleViewSource.indexOf('window.print()')).toBeGreaterThan(guard)
+    expect(singleViewSource).not.toMatch(/***REMOVED***|vacuumdust|张女士|松坪村***REMOVED***4单元415|小二微信/)
   })
 })
