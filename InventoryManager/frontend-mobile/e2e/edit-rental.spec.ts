@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { mockAuthenticatedMobileSession } from './helpers/mock-auth'
 
 /**
  * Edit Rental spec
@@ -92,9 +93,12 @@ test.describe('Edit Rental — ship-to-xianyu button', () => {
 
 test.describe('Edit Rental — damage note', () => {
   test('loads and submits the current customer damage report', async ({ page }) => {
+    await mockAuthenticatedMobileSession(page)
+
     const rental = {
       id: 77,
       device_id: 9,
+      warehouse_id: 1,
       device: {
         id: 9,
         name: '2001',
