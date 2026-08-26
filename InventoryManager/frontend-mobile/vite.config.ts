@@ -26,7 +26,7 @@ export default defineConfig({
   build: {
     outDir: '../static/vue-mobile-dist',
     emptyOutDir: true,
-    minify: 'esbuild',
+    minify: 'oxc',
     target: 'es2015'
   }
 })
