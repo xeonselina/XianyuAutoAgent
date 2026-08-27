@@ -1,4 +1,4 @@
-import { test, expect, request as playwrightRequest } from '@playwright/test'
+import { test, expect } from '@playwright/test'
 import {
   safeTestRental,
   TEST_START_DATE,
@@ -6,6 +6,11 @@ import {
   assertSafeToDelete,
   TEST_CUSTOMER_PREFIX,
 } from './helpers/safetyGuard'
+import {
+  createAuthenticatedApi,
+  csrfHeaders,
+  realMobileOrigin,
+} from './helpers/real-backend'
 
 /**
  * Accessory Selection E2E Tests
@@ -20,7 +25,7 @@ import {
  *  - All test-created rentals are deleted in afterAll
  */
 
-const BASE = 'http://localhost:5001'
+const BASE = realMobileOrigin
 const createdRentalIds: number[] = []
 
 // ─── Cleanup ────────────────────────────────────────────────────────────────
@@ -28,7 +33,7 @@ const createdRentalIds: number[] = []
 test.afterAll(async () => {
   if (createdRentalIds.length === 0) return
 
-  const api = await playwrightRequest.newContext({ baseURL: BASE })
+  const { api, csrfToken } = await createAuthenticatedApi()
   for (const id of createdRentalIds) {
     try {
       const getRes = await api.get(`/api/rentals/${id}`)
@@ -40,7 +45,9 @@ test.afterAll(async () => {
       const rental = body.data ?? body
       assertSafeToDelete({ id, customer_name: rental.customer_name, start_date: rental.start_date })
 
-      const del = await api.delete(`/api/rentals/${id}`)
+      const del = await api.delete(`/api/rentals/${id}`, {
+        headers: csrfHeaders(csrfToken),
+      })
       console.log(`Cleanup: ${del.ok() ? 'deleted' : 'FAILED to delete'} rental #${id}`)
     } catch (err) {
       console.error(`Cleanup error for rental #${id}:`, err)
@@ -67,7 +74,7 @@ async function assertNoUndefinedInPicker(page: import('@playwright/test').Page) 
 
 /** Get the first available real rental ID from the API (for read-only edit tests). */
 async function getFirstRealRentalId(): Promise<number | null> {
-  const api = await playwrightRequest.newContext({ baseURL: BASE })
+  const { api } = await createAuthenticatedApi()
   try {
     const res = await api.get('/api/rentals?page=1&per_page=5')
     const body = await res.json()
@@ -83,10 +90,11 @@ async function getFirstRealRentalId(): Promise<number | null> {
 /** Create a minimal test rental via API and return its ID. */
 async function createTestRental(deviceId: number): Promise<number> {
   assertSafeDate(safeTestRental.start_date)
-  const api = await playwrightRequest.newContext({ baseURL: BASE })
+  const { api, csrfToken } = await createAuthenticatedApi()
   try {
     const res = await api.post('/api/rentals', {
       data: { ...safeTestRental, device_id: deviceId },
+      headers: csrfHeaders(csrfToken),
     })
     expect(res.ok()).toBe(true)
     const body = await res.json()
@@ -246,7 +254,7 @@ test.describe('CreateRental: device picker shows real names after date+model sel
   test('Device picker items do not contain "undefined"', async ({ page }) => {
     // We need a model + dates to trigger the availability check
     // First, get a valid model from the API
-    const api = await playwrightRequest.newContext({ baseURL: BASE })
+    const { api } = await createAuthenticatedApi()
     const modelsRes = await api.get('/api/device-models')
     const modelsBody = await modelsRes.json()
     const models: any[] = modelsBody.data ?? []
@@ -385,7 +393,7 @@ test.describe('EditRental: accessory selection workflow (test rental)', () => {
 
   test.beforeAll(async () => {
     // Get a device to assign the test rental to
-    const api = await playwrightRequest.newContext({ baseURL: BASE })
+    const { api } = await createAuthenticatedApi()
     try {
       const today = new Date().toISOString().slice(0, 10)
       const future = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10)

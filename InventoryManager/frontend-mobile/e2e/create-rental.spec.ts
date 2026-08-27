@@ -1,5 +1,11 @@
-import { test, expect, request as playwrightRequest } from '@playwright/test'
+import { test, expect } from '@playwright/test'
 import { safeTestRental, TEST_START_DATE, assertSafeDate, assertSafeToDelete, TEST_CUSTOMER_PREFIX } from './helpers/safetyGuard'
+import {
+  createAuthenticatedApi,
+  csrfHeaders,
+  realMobileOrigin,
+  refreshRealCsrf,
+} from './helpers/real-backend'
 
 /**
  * Create Rental spec
@@ -19,8 +25,7 @@ const createdRentalIds: number[] = []
 test.afterAll(async () => {
   if (createdRentalIds.length === 0) return
 
-  // Create a standalone request context pointing directly at the backend
-  const apiRequest = await playwrightRequest.newContext({ baseURL: 'http://localhost:5001' })
+  const { api: apiRequest, csrfToken } = await createAuthenticatedApi()
 
   for (const id of createdRentalIds) {
     try {
@@ -35,7 +40,9 @@ test.afterAll(async () => {
       const rental = body.data ?? body
       assertSafeToDelete({ id, customer_name: rental.customer_name, start_date: rental.start_date })
 
-      const delRes = await apiRequest.delete(`/api/rentals/${id}`)
+      const delRes = await apiRequest.delete(`/api/rentals/${id}`, {
+        headers: csrfHeaders(csrfToken),
+      })
       if (delRes.ok()) {
         console.log(`Cleanup: deleted test rental #${id}`)
       } else {
@@ -107,7 +114,7 @@ test.describe('Create Rental (safe test dates)', () => {
     // Get a device ID via the gantt endpoint (the /api/devices list has a known 500 bug)
     const today = new Date().toISOString().slice(0, 10)
     const end = new Date(Date.now() + 13 * 86400000).toISOString().slice(0, 10)
-    const ganttRes = await request.get(`http://localhost:5001/api/gantt/data?start_date=${today}&end_date=${end}`)
+    const ganttRes = await request.get(`${realMobileOrigin}/api/gantt/data?start_date=${today}&end_date=${end}`)
     expect(ganttRes.ok()).toBe(true)
     const ganttData = await ganttRes.json()
     const devices = ganttData.data?.devices ?? []
@@ -124,7 +131,11 @@ test.describe('Create Rental (safe test dates)', () => {
       device_id: deviceId,
     }
 
-    const createRes = await request.post('http://localhost:5001/api/rentals', { data: payload })
+    const csrfToken = await refreshRealCsrf(request)
+    const createRes = await request.post(`${realMobileOrigin}/api/rentals`, {
+      data: payload,
+      headers: csrfHeaders(csrfToken),
+    })
     expect(createRes.ok()).toBe(true)
 
     const body = await createRes.json()

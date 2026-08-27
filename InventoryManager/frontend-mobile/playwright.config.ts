@@ -1,15 +1,23 @@
 import { defineConfig, devices } from '@playwright/test'
 
-export default defineConfig({
+const noProxy = new Set(
+  (process.env.NO_PROXY ?? '').split(',').filter(Boolean),
+)
+noProxy.add('127.0.0.1')
+noProxy.add('localhost')
+process.env.NO_PROXY = [...noProxy].join(',')
+
+export const baseConfig = defineConfig({
   testDir: './e2e',
+  outputDir: process.env.E2E_OUTPUT_DIR ?? 'test-results',
   timeout: 30_000,
   retries: 1,
-  reporter: [['html', { open: 'never' }], ['list']],
+  reporter: [['list']],
 
   use: {
     // Mobile viewport (iPhone 13)
     ...devices['iPhone 13'],
-    baseURL: 'http://localhost:5003',
+    baseURL: 'http://127.0.0.1:5003',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
@@ -20,7 +28,7 @@ export default defineConfig({
       use: {
         ...devices['iPhone 13'],
         browserName: 'chromium',   // override iPhone 13's defaultBrowserType:'webkit'
-        baseURL: 'http://localhost:5003',
+        baseURL: 'http://127.0.0.1:5003',
       }
     }
   ],
@@ -33,3 +41,5 @@ export default defineConfig({
   //   reuseExistingServer: true,
   // },
 })
+
+export default baseConfig
