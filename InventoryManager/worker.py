@@ -59,9 +59,20 @@ class Worker:
                 ).order_by(Tenant.id)
             ))
 
+    def _assert_lock_owned(self):
+        if self._lock_connection is None:
+            return
+        owner = self._lock_connection.execute(
+            text("SELECT IS_USED_LOCK(:name)"),
+            {"name": LOCK_NAME},
+        ).scalar_one()
+        if owner != self._connection_id:
+            raise RuntimeError("lock ownership lost")
+
     def _run_cycle(self, task):
-        if self._lock_connection is not None and self._lock_connection.execute(text("SELECT IS_USED_LOCK(:name)"), {"name": LOCK_NAME}).scalar_one() != self._connection_id: raise RuntimeError("lock ownership lost")
+        self._assert_lock_owned()
         for tenant in self._eligible_tenants():
+            self._assert_lock_owned()
             context = self.app.app_context()
             try: context.push()
             except Exception as exc: logger.error("Worker租户上下文异常，租户ID: %s，类型: %s", tenant.id, type(exc).__name__); continue

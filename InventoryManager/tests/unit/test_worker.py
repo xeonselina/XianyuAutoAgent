@@ -87,6 +87,34 @@ def test_worker_stops_between_startup_cycles_when_lock_is_lost_and_releases():
     assert store.connection.closed and store.disposed and registry.disposed
 
 
+def test_worker_stops_before_next_tenant_when_lock_is_lost(monkeypatch):
+    import worker as worker_module
+
+    worker, store, registry = _lock_worker(1)
+    worker._lock_connection = store.connection
+    worker._connection_id = 1
+    worker._eligible_tenants = lambda: [
+        SimpleNamespace(id=1),
+        SimpleNamespace(id=2),
+    ]
+    worker.app.app_context = lambda: SimpleNamespace(
+        push=lambda: None,
+        pop=lambda: None,
+    )
+    monkeypatch.setattr(worker_module, "bind_tenant", lambda *_args: object())
+    monkeypatch.setattr(worker_module, "reset_tenant", lambda _token: None)
+    monkeypatch.setattr(worker_module.db.session, "remove", lambda: None)
+
+    def task():
+        if registry.seen == [1]:
+            store.connection.lock_result = 0
+
+    with pytest.raises(RuntimeError, match="lock ownership lost"):
+        worker._run_cycle(task)
+
+    assert registry.seen == [1]
+
+
 def test_second_worker_exits_without_entering_standby():
     sleeps = []
     worker, store, registry = _lock_worker(0, sleeps.append)

@@ -287,6 +287,15 @@ def _seed_business(settings: dict[str, object]) -> None:
                 warehouse_id=warehouse.id,
                 lifecycle_status="active",
             )
+            free_device = Device(
+                name="E2E 空闲设备 7001",
+                serial_number="E2E-FREE-7001",
+                model=main_model.name,
+                model_id=main_model.id,
+                is_accessory=False,
+                warehouse_id=warehouse.id,
+                lifecycle_status="active",
+            )
             phone_holder = Device(
                 name="手机支架 E2E-01",
                 serial_number="E2E-PHONE-HOLDER-01",
@@ -316,12 +325,49 @@ def _seed_business(settings: dict[str, object]) -> None:
                 lifecycle_reason="E2E fixture",
                 lifecycle_date=datetime.utcnow(),
             )
+            decommissioned_device = Device(
+                name="E2E 已停用设备 4001",
+                serial_number="E2E-DECOMMISSIONED-4001",
+                model=main_model.name,
+                model_id=main_model.id,
+                is_accessory=False,
+                warehouse_id=warehouse.id,
+                lifecycle_status="decommissioned",
+                lifecycle_reason="E2E fixture",
+                lifecycle_date=datetime.utcnow(),
+            )
+            damaged_device = Device(
+                name="E2E 已损坏设备 5001",
+                serial_number="E2E-DAMAGED-5001",
+                model=main_model.name,
+                model_id=main_model.id,
+                is_accessory=False,
+                warehouse_id=warehouse.id,
+                lifecycle_status="damaged",
+                lifecycle_reason="E2E fixture",
+                lifecycle_date=datetime.utcnow(),
+            )
+            retired_device = Device(
+                name="E2E 已退役设备 6001",
+                serial_number="E2E-RETIRED-6001",
+                model=main_model.name,
+                model_id=main_model.id,
+                is_accessory=False,
+                warehouse_id=warehouse.id,
+                lifecycle_status="retired",
+                lifecycle_reason="E2E fixture",
+                lifecycle_date=datetime.utcnow(),
+            )
             session.add_all([
                 relay_device,
                 available_device,
+                free_device,
                 phone_holder,
                 tripod,
                 sold_device,
+                decommissioned_device,
+                damaged_device,
+                retired_device,
             ])
             session.flush()
 
@@ -376,7 +422,24 @@ def _seed_business(settings: dict[str, object]) -> None:
                 buyer_id="E2E买家3",
                 status="completed",
             )
-            session.add_all([predecessor, successor, completed])
+            returned = Rental(
+                device_id=available_device.id,
+                warehouse_id=warehouse.id,
+                start_date=today - timedelta(days=1),
+                end_date=today + timedelta(days=2),
+                ship_out_time=datetime.combine(
+                    today - timedelta(days=2), time(19)
+                ),
+                ship_in_time=datetime.combine(
+                    today + timedelta(days=3), time(12)
+                ),
+                customer_name="E2E 已寄回客户 1004",
+                customer_phone="13677778888",
+                destination="浙江省杭州市西湖区四号路",
+                buyer_id="E2E买家4",
+                status="returned",
+            )
+            session.add_all([predecessor, successor, completed, returned])
             session.flush()
             session.add_all([
                 RentalRelayCase(

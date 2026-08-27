@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
+import re
 import secrets
 import shutil
 import signal
@@ -79,6 +81,148 @@ def writable_generated_file_mounts(
             ),
         ])
     return mounts
+
+
+def _playwright_results(suites):
+    for suite in suites:
+        for spec in suite.get("specs", []):
+            for test in spec.get("tests", []):
+                yield from test.get("results", [])
+        yield from _playwright_results(suite.get("suites", []))
+
+
+def _playwright_failed_titles(suites):
+    for suite in suites:
+        for spec in suite.get("specs", []):
+            for test in spec.get("tests", []):
+                if any(
+                    result.get("status") != "passed"
+                    for result in test.get("results", [])
+                ):
+                    yield test.get("title") or spec.get("title") or "unnamed test"
+        yield from _playwright_failed_titles(suite.get("suites", []))
+
+
+def validate_playwright_report(
+    report_path: Path,
+    expected_count: int,
+    process_exit_code: int = 0,
+) -> None:
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Playwright report is missing or invalid") from exc
+    runner_errors = report.get("errors") or []
+    if runner_errors:
+        raise RuntimeError(
+            f"Playwright report has runner errors={len(runner_errors)}"
+        )
+
+    stats = report.get("stats", {})
+    expected_stats = {
+        "expected": expected_count,
+        "unexpected": 0,
+        "flaky": 0,
+        "skipped": 0,
+    }
+    if any(stats.get(key) != value for key, value in expected_stats.items()):
+        failed_titles = list(_playwright_failed_titles(report.get("suites", [])))[:10]
+        raise RuntimeError(
+            "Playwright report has non-clean test statistics: "
+            f"expected={stats.get('expected', 0)}, "
+            f"unexpected={stats.get('unexpected', 0)}, "
+            f"flaky={stats.get('flaky', 0)}, "
+            f"skipped={stats.get('skipped', 0)}; "
+            f"failed_titles={failed_titles}"
+        )
+
+    results = list(_playwright_results(report.get("suites", [])))
+    if (
+        len(results) != expected_count
+        or any(result.get("status") != "passed" for result in results)
+    ):
+        failed_titles = list(_playwright_failed_titles(report.get("suites", [])))[:10]
+        raise RuntimeError(
+            "Playwright report has non-passed test results: "
+            f"failed_titles={failed_titles}"
+        )
+    if process_exit_code != 0:
+        raise RuntimeError(
+            f"Playwright process exited with status {process_exit_code}"
+        )
+
+
+def read_playwright_exit_code(status_path: Path) -> int:
+    try:
+        raw_status = status_path.read_text(encoding="utf-8").strip()
+        exit_code = int(raw_status)
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("Playwright process status is missing or invalid") from exc
+    if exit_code < 0 or exit_code > 255:
+        raise RuntimeError("Playwright process status is missing or invalid")
+    return exit_code
+
+
+def redact_diagnostic(
+    diagnostic: str,
+    secret_values: tuple[str, ...] = (),
+) -> str:
+    redacted = diagnostic
+    for secret_value in sorted(
+        {value for value in secret_values if value and len(value) >= 4},
+        key=len,
+        reverse=True,
+    ):
+        redacted = redacted.replace(secret_value, "[redacted]")
+    redacted = re.sub(
+        r"(?i)((?:mysql(?:\+\w+)?|https?)://[^\s:/@]+:)[^\s/@]+@",
+        r"\1[redacted]@",
+        redacted,
+    )
+    redacted = re.sub(
+        r"(?i)\b(csrf(?:_token)?|password|token|cookie|authorization)"
+        r"(\s*[:=]\s*)([^\s,;]+)",
+        r"\1\2[redacted]",
+        redacted,
+    )
+    return redacted
+
+
+def _sensitive_environment_values(environment: dict[str, str]) -> tuple[str, ...]:
+    sensitive_fragments = (
+        "PASSWORD",
+        "SECRET",
+        "TOKEN",
+        "CODE",
+        "DATABASE_URL",
+    )
+    return tuple(
+        value
+        for key, value in environment.items()
+        if any(fragment in key.upper() for fragment in sensitive_fragments)
+    )
+
+
+def _print_redacted_container_logs(
+    name: str,
+    environment: dict[str, str],
+) -> None:
+    result = _run(
+        ["docker", "logs", "--tail", "100", name],
+        capture_output=True,
+        check=False,
+    )
+    output = "\n".join(
+        item for item in (result.stdout, result.stderr) if item
+    )
+    if output:
+        print(
+            redact_diagnostic(
+                output,
+                _sensitive_environment_values(environment),
+            ),
+            file=sys.stderr,
+        )
 
 
 @dataclass(frozen=True)
@@ -190,11 +334,14 @@ def _wait_for_database(name: str, env: dict[str, str]) -> None:
                 flush=True,
             )
         time.sleep(1)
-    _run(["docker", "logs", name])
+    _print_redacted_container_logs(name, env)
     raise RuntimeError("isolated MariaDB did not become ready")
 
 
-def _wait_for_app(name: str) -> None:
+def _wait_for_app(
+    name: str,
+    environment: dict[str, str] | None = None,
+) -> None:
     probe = (
         "import urllib.request; "
         "response=urllib.request.urlopen("
@@ -210,7 +357,7 @@ def _wait_for_app(name: str) -> None:
         if result.returncode == 0:
             return
         time.sleep(1)
-    _run(["docker", "logs", name])
+    _print_redacted_container_logs(name, environment or {})
     raise RuntimeError("isolated E2E backend did not become healthy")
 
 
@@ -435,7 +582,7 @@ def run() -> None:
         created_resources.add(resources.app_container)
         _assert_amd64(resources.app_container)
         _assert_app_has_no_external_secrets(resources.app_container)
-        _wait_for_app(resources.app_container)
+        _wait_for_app(resources.app_container, environment)
 
         playwright_command = """
 set -euo pipefail
@@ -444,15 +591,26 @@ cd /workspace/frontend
 npm ci
 cd /workspace/frontend-mobile
 npm ci
-npm run test:e2e 2>&1 | tee /tmp/mobile-e2e.log
-grep -Eq '27 passed' /tmp/mobile-e2e.log
-grep -Eq '52 passed' /tmp/mobile-e2e.log
-! grep -Eq '[0-9]+ skipped' /tmp/mobile-e2e.log
+set +e
+npx playwright test --config playwright.mock.config.ts --reporter=json > /tmp/e2e-reports/mock.json
+mock_status=$?
+set -e
+printf '%s\n' "$mock_status" > /tmp/e2e-reports/mock.status
+if [ "$mock_status" -eq 0 ]; then
+  set +e
+  npx playwright test --config playwright.real.config.ts --reporter=json > /tmp/e2e-reports/real.json
+  real_status=$?
+  set -e
+  printf '%s\n' "$real_status" > /tmp/e2e-reports/real.status
+else
+  printf '%s\n' '125' > /tmp/e2e-reports/real.status
+fi
 """.strip()
         with tempfile.TemporaryDirectory(
-            prefix=".xianyu-mobile-e2e-generated-",
-            dir=PROJECT_ROOT,
+            prefix="xianyu-mobile-e2e-generated-",
         ) as scratch_directory:
+            reports_directory = Path(scratch_directory) / "reports"
+            reports_directory.mkdir()
             generated_mounts = writable_generated_file_mounts(
                 PROJECT_ROOT,
                 Path(scratch_directory),
@@ -462,10 +620,10 @@ grep -Eq '52 passed' /tmp/mobile-e2e.log
                     "--rm",
                     "--network", resources.network,
                     "--mount", f"type=bind,source={PROJECT_ROOT},target=/workspace,readonly",
+                    "--mount", f"type=bind,source={reports_directory},target=/tmp/e2e-reports",
                     *generated_mounts,
                     "--tmpfs", "/workspace/frontend/node_modules:rw,exec,size=1g",
                     "--tmpfs", "/workspace/frontend-mobile/node_modules:rw,exec,size=1g",
-                    "--tmpfs", "/workspace/frontend-mobile/test-results:rw,size=512m",
                     "--env", "E2E_BACKEND_TARGET=http://e2e-app:5001",
                     "--env", "E2E_SMS_CODE=246810",
                     "--env", "E2E_OUTPUT_DIR=/tmp/playwright-results",
@@ -473,6 +631,20 @@ grep -Eq '52 passed' /tmp/mobile-e2e.log
                     "bash", "-lc", playwright_command,
                 ],
                 env=environment,
+            )
+            validate_playwright_report(
+                reports_directory / "mock.json",
+                expected_count=27,
+                process_exit_code=read_playwright_exit_code(
+                    reports_directory / "mock.status"
+                ),
+            )
+            validate_playwright_report(
+                reports_directory / "real.json",
+                expected_count=52,
+                process_exit_code=read_playwright_exit_code(
+                    reports_directory / "real.status"
+                ),
             )
         print("x86 mobile E2E passed: 27 mock + 52 real-backend", flush=True)
 
@@ -482,3 +654,6 @@ if __name__ == "__main__":
         run()
     except subprocess.CalledProcessError as exc:
         sys.exit(exc.returncode)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)

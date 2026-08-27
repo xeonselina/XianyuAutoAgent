@@ -287,7 +287,7 @@ def test_sms_request_is_generic_for_unknown_and_disabled_members(
     assert auth_api_environment["sender"].send_count == 1
 
 
-def test_verify_sets_secure_session_shape_and_me_rotates_csrf_digest(
+def test_verify_sets_secure_session_shape_and_me_keeps_csrf_stable(
     auth_api_environment,
 ):
     client, verify_response = _login(auth_api_environment)
@@ -314,7 +314,7 @@ def test_verify_sets_secure_session_shape_and_me_rotates_csrf_digest(
     me_response = client.get("/auth/me")
     second_csrf = me_response.get_json()["data"]["csrf_token"]
     assert me_response.status_code == 200
-    assert second_csrf != first_csrf
+    assert second_csrf == first_csrf
     with store.session() as session:
         stored = session.scalars(select(AuthSession)).one()
         assert stored.csrf_token_hash == hash_token(second_csrf)

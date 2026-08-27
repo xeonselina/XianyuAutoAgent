@@ -13,7 +13,7 @@ the authentication bootstrap returns 404, router initialization stops, and the
 real-backend cases fail or skip because their data preconditions are absent.
 
 The existing production authentication flow is already implemented. It supports
-SMS login, a `tenant_session` cookie, CSRF rotation, tenant resolution, and
+SMS login, a `tenant_session` cookie, stable per-session CSRF, tenant resolution, and
 per-tenant database routing. Tencent Cloud credentials have not been configured
 for this release. The E2E environment therefore needs to exercise the real
 authentication flow with the existing non-production fixed-code sender, without
@@ -169,11 +169,12 @@ The real suite uses Playwright global setup to call `/auth/sms/request` and
 the real `AuthService`; the response stores a real host-only `tenant_session`
 cookie. Storage state is kept only inside the temporary Playwright container.
 
-Each page then bootstraps through the real `/auth/me` route. Because `/auth/me`
-rotates the CSRF token, the real project uses one Playwright worker. Test-only
-API helpers refresh the current session immediately before a write and supply
-the returned CSRF token. This avoids sharing stale CSRF values across page and
-API contexts.
+Each page then bootstraps through the real `/auth/me` route. `/auth/me` returns
+the same one-way-derived CSRF token for the lifetime of the current server-side
+session, so multiple pages and API contexts cannot invalidate each other.
+Test-only API helpers still refresh the current session immediately before a
+write and supply the returned CSRF token. The real project uses one Playwright
+worker to keep its deterministic business fixtures isolated.
 
 The mock project does not use global login or storage state. Its existing shared
 mock-auth helper remains limited to pure frontend fixtures.
@@ -197,14 +198,18 @@ because each page owns its routes and has no shared backend state.
 
 ## Error Handling and Cleanup
 
-The harness uses condition-based readiness checks with bounded timeouts. It does
-not mask failures with arbitrary long sleeps or blanket retries.
+The harness uses condition-based readiness checks with bounded timeouts. Both
+Playwright projects explicitly use zero retries. JSON reports are parsed to
+require the exact expected, passed, failed, skipped, flaky, and interrupted
+counts instead of matching human-readable reporter text. The harness also
+requires an empty top-level runner error list and a zero Playwright process
+exit status, so global setup or teardown failures cannot be reported as clean.
 
 On failure it prints:
 
 - The failing stage and command status.
-- Failed test titles.
-- A bounded tail of relevant container logs.
+- Exact report statistics and at most ten failed test titles.
+- A bounded tail of relevant container logs for readiness failures.
 - Architecture and readiness diagnostics.
 
 The diagnostic path redacts passwords, session cookies, fixed codes, CSRF
@@ -212,9 +217,10 @@ tokens, and database URLs. It does not print environment dumps.
 
 An exit trap handles success, test failure, shell error, interrupt, and
 termination. Before removing a resource, cleanup verifies its exact name and
-test-scope label. Playwright reports, screenshots, video, storage state,
-`test-results`, installed dependencies, and copied source remain inside the
-temporary container and disappear with it.
+test-scope label. JSON reports live in an OS temporary directory mounted into
+the container and are deleted when the run exits. Screenshots, video, storage
+state, `test-results`, installed dependencies, and copied source remain inside
+container-local temporary filesystems and disappear with the container.
 
 ## Expected Repository Changes
 

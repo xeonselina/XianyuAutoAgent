@@ -15,9 +15,9 @@ from app.auth import (
     create_auth_session,
     csrf_matches,
     normalize_china_phone,
+    refresh_csrf_token,
     resolve_platform_session,
     revoke_auth_session,
-    rotate_csrf_token,
     session_cookie_options,
 )
 from app.control.models import PlatformAdmin, Tenant, TenantMember
@@ -240,9 +240,10 @@ def login_platform_admin():
 
 @bp.get("/auth/me")
 def current_platform_admin():
-    csrf_token = rotate_csrf_token(
+    csrf_token = refresh_csrf_token(
         _control_store(),
         g.auth_session.id,
+        request.cookies.get("platform_session"),
     )
     if csrf_token is None:
         return _platform_auth_error()

@@ -144,7 +144,7 @@ python -m pytest tests/integration/test_default_tenant_migration.py -q
 6. 把默认仓省市/名称更新为 `province + city + '仓库'`。
 7. 从旧环境变量导入 SF/Kuaimai/Xianyu；配置不完整时保留行或停用店铺，让 UI 明确显示未配置。
 8. 创建/复用首 Admin，设置 tenant provisioning active。
-9. 重新计数并验证所有非空、主子同仓、告警店铺、组合唯一性和 grants。
+9. 重新计数并验证所有非空、主子同仓、告警表的店铺与订单号组合唯一性和 grants；租赁表的重复店铺订单组合必须在迁移前后保持数量一致，不得当作失败。
 
 报告只输出表名/数量、内部 IDs、配置完成布尔值和错误摘要，不输出凭证/地址/手机号原文。
 

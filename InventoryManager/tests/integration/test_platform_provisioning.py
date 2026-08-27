@@ -622,7 +622,7 @@ def test_bootstrap_is_interactive_secret_safe_and_first_admin_only(
         assert len(session.scalars(select(PlatformAdmin)).all()) == 1
 
 
-def test_platform_auth_rotates_csrf_and_cannot_cross_session_boundaries(
+def test_platform_auth_keeps_csrf_stable_and_cannot_cross_session_boundaries(
     platform_environment,
 ):
     _bootstrap_platform_admin(platform_environment)
@@ -653,14 +653,7 @@ def test_platform_auth_rotates_csrf_and_cannot_cross_session_boundaries(
     me_response = client.get("/platform/auth/me")
     assert me_response.status_code == 200
     second_csrf = me_response.get_json()["data"]["csrf_token"]
-    assert second_csrf != first_csrf
-
-    stale_logout = client.post(
-        "/platform/auth/logout",
-        headers={"X-CSRF-Token": first_csrf},
-    )
-    assert stale_logout.status_code == 403
-    assert stale_logout.get_json()["code"] == "CSRF_INVALID"
+    assert second_csrf == first_csrf
 
     business_response = client.get("/api/devices/1")
     assert business_response.status_code == 401
@@ -713,7 +706,7 @@ def test_platform_auth_rotates_csrf_and_cannot_cross_session_boundaries(
 
     logout_response = client.post(
         "/platform/auth/logout",
-        headers={"X-CSRF-Token": second_csrf},
+        headers={"X-CSRF-Token": first_csrf},
     )
     assert logout_response.status_code == 200
     assert "Path=/platform" in logout_response.headers["Set-Cookie"]

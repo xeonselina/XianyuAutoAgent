@@ -172,6 +172,14 @@ def _session_seconds(kind):
     raise ValueError("session kind must be tenant or platform")
 
 
+def _csrf_token_from_session(raw_session_token):
+    return hmac.digest(
+        raw_session_token.encode("utf-8"),
+        b"inventory-manager-csrf-v1",
+        "sha256",
+    ).hex()
+
+
 def create_auth_session(
     session,
     kind,
@@ -186,7 +194,7 @@ def create_auth_session(
         raise ValueError("platform session cannot have tenant_id")
 
     raw_token = secrets.token_urlsafe(32)
-    csrf_token = secrets.token_urlsafe(32)
+    csrf_token = _csrf_token_from_session(raw_token)
     expires_at = now + timedelta(seconds=_session_seconds(kind))
     session.add(
         AuthSession(
@@ -291,12 +299,21 @@ def resolve_platform_session(store, raw_token, now=None):
         )
 
 
-def rotate_csrf_token(store, auth_session_id, now=None):
+def refresh_csrf_token(store, auth_session_id, raw_session_token, now=None):
+    if not raw_session_token:
+        return None
     now = now or _utcnow()
-    csrf_token = secrets.token_urlsafe(32)
+    csrf_token = _csrf_token_from_session(raw_session_token)
     with store.session() as session:
         auth_session = session.get(AuthSession, auth_session_id)
-        if auth_session is None or auth_session.expires_at <= now:
+        if (
+            auth_session is None
+            or auth_session.expires_at <= now
+            or not hmac.compare_digest(
+                auth_session.token_hash,
+                hash_token(raw_session_token),
+            )
+        ):
             return None
         auth_session.csrf_token_hash = hash_token(csrf_token)
         auth_session.last_seen_at = now

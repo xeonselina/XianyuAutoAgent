@@ -40,6 +40,9 @@ logs/
 htmlcov/
 .tox/
 coverage/
+playwright-report/
+test-results/
+xianyu-mobile-e2e-generated-*/
 
 # Chroma database
 chroma_data/

@@ -8,9 +8,9 @@ from app.auth import (
     SmsRateLimitExceeded,
     csrf_matches,
     normalize_china_phone,
+    refresh_csrf_token,
     resolve_tenant_session,
     revoke_auth_session,
-    rotate_csrf_token,
     session_cookie_options,
 )
 from app.utils.response import error, success
@@ -163,9 +163,10 @@ def current_tenant_member():
     identity = _identity_from_cookie()
     if identity is None:
         return _auth_error()
-    csrf_token = rotate_csrf_token(
+    csrf_token = refresh_csrf_token(
         current_app.extensions["control_store"],
         identity.auth_session.id,
+        request.cookies.get("tenant_session"),
     )
     if csrf_token is None:
         return _auth_error()

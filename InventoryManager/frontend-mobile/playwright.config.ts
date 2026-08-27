@@ -11,7 +11,7 @@ export const baseConfig = defineConfig({
   testDir: './e2e',
   outputDir: process.env.E2E_OUTPUT_DIR ?? 'test-results',
   timeout: 30_000,
-  retries: 1,
+  retries: 0,
   reporter: [['list']],
 
   use: {

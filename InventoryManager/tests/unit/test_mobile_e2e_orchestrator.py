@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+import scripts.run_mobile_e2e_x86 as orchestrator
 from scripts.run_mobile_e2e_x86 import (
     AMD64_PLATFORM,
     E2E_LABEL_VALUE,
@@ -25,6 +26,7 @@ from scripts.run_mobile_e2e_x86 import (
     cleanup_on_termination,
     database_ping_command,
     docker_run_prefix,
+    redact_diagnostic,
     writable_generated_file_mounts,
 )
 
@@ -162,6 +164,147 @@ def test_generated_frontend_declarations_are_writable_without_mutating_source(
     ]
     assert (scratch_root / "auto-imports.d.ts").read_text(encoding="utf-8") == "source auto"
     assert (scratch_root / "components.d.ts").read_text(encoding="utf-8") == "source components"
+
+
+def test_playwright_report_requires_exact_clean_pass_count(tmp_path):
+    report = tmp_path / "report.json"
+    report.write_text(json.dumps({
+        "stats": {
+            "expected": 2,
+            "unexpected": 0,
+            "flaky": 0,
+            "skipped": 0,
+        },
+        "suites": [{
+            "specs": [{
+                "tests": [
+                    {"results": [{"status": "passed"}]},
+                    {"results": [{"status": "passed"}]},
+                ],
+            }],
+        }],
+    }), encoding="utf-8")
+
+    orchestrator.validate_playwright_report(report, expected_count=2)
+
+
+@pytest.mark.parametrize(
+    "stats,result_status",
+    [
+        ({"expected": 1, "unexpected": 0, "flaky": 1, "skipped": 0}, "passed"),
+        ({"expected": 1, "unexpected": 0, "flaky": 0, "skipped": 1}, "passed"),
+        ({"expected": 1, "unexpected": 0, "flaky": 0, "skipped": 0}, "interrupted"),
+    ],
+    ids=["flaky", "skipped", "interrupted"],
+)
+def test_playwright_report_rejects_non_clean_results(
+    tmp_path,
+    stats,
+    result_status,
+):
+    report = tmp_path / "report.json"
+    report.write_text(json.dumps({
+        "stats": stats,
+        "suites": [{
+            "specs": [{
+                "tests": [{"results": [{"status": result_status}]}],
+            }],
+        }],
+    }), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="Playwright report"):
+        orchestrator.validate_playwright_report(report, expected_count=1)
+
+
+def test_playwright_report_failure_only_exposes_bounded_test_titles(tmp_path):
+    report = tmp_path / "report.json"
+    tests = [
+        {
+            "title": f"safe static title {index}",
+            "results": [{"status": "failed"}],
+        }
+        for index in range(12)
+    ]
+    report.write_text(json.dumps({
+        "stats": {
+            "expected": 0,
+            "unexpected": 12,
+            "flaky": 0,
+            "skipped": 0,
+        },
+        "suites": [{"specs": [{"tests": tests}]}],
+    }), encoding="utf-8")
+
+    with pytest.raises(RuntimeError) as exc_info:
+        orchestrator.validate_playwright_report(report, expected_count=12)
+
+    message = str(exc_info.value)
+    assert "safe static title 0" in message
+    assert "safe static title 9" in message
+    assert "safe static title 10" not in message
+    assert "unexpected=12" in message
+
+
+def test_playwright_report_rejects_top_level_runner_errors(tmp_path):
+    report = tmp_path / "report.json"
+    report.write_text(json.dumps({
+        "errors": [{"message": "global teardown failed"}],
+        "stats": {
+            "expected": 1,
+            "unexpected": 0,
+            "flaky": 0,
+            "skipped": 0,
+        },
+        "suites": [{
+            "specs": [{
+                "tests": [{"results": [{"status": "passed"}]}],
+            }],
+        }],
+    }), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="runner errors=1"):
+        orchestrator.validate_playwright_report(report, expected_count=1)
+
+
+def test_playwright_report_rejects_nonzero_process_exit(tmp_path):
+    report = tmp_path / "report.json"
+    report.write_text(json.dumps({
+        "errors": [],
+        "stats": {
+            "expected": 1,
+            "unexpected": 0,
+            "flaky": 0,
+            "skipped": 0,
+        },
+        "suites": [{
+            "specs": [{
+                "tests": [{"results": [{"status": "passed"}]}],
+            }],
+        }],
+    }), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="process exited with status 7"):
+        orchestrator.validate_playwright_report(
+            report,
+            expected_count=1,
+            process_exit_code=7,
+        )
+
+
+def test_diagnostic_redaction_covers_known_values_urls_and_auth_fields():
+    message = (
+        "secret=generated-secret "
+        "mysql+pymysql://user:database-pass@db/test "
+        "Cookie: session-value csrf_token=csrf-value"
+    )
+
+    redacted = redact_diagnostic(message, ("generated-secret",))
+
+    assert "generated-secret" not in redacted
+    assert "database-pass" not in redacted
+    assert "session-value" not in redacted
+    assert "csrf-value" not in redacted
+    assert redacted.count("[redacted]") == 4
 
 
 @pytest.mark.parametrize(

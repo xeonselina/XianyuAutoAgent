@@ -836,6 +836,97 @@ def test_first_empty_secrets_remain_unconfigured_and_kuaimai_keeps_secret(
     assert secret_after == secret_before
 
 
+@pytest.mark.parametrize(
+    "path,payload",
+    [
+        ("sf", {"checkword": "   "}),
+        ("sf", {"monthly_card": "\t"}),
+        ("kuaimai", {"app_secret": "  \n"}),
+    ],
+    ids=["sf-checkword", "sf-monthly-card", "kuaimai-secret"],
+)
+def test_warehouse_secret_fields_reject_whitespace_only_values(
+    settings_api_environment,
+    path,
+    payload,
+):
+    warehouse = _create_warehouse(settings_api_environment)
+
+    response = settings_api_environment["admin_client"].put(
+        f"/api/settings/warehouses/{warehouse['id']}/{path}",
+        json=payload,
+        headers=_csrf(settings_api_environment),
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["code"] == "INVALID_REQUEST"
+
+
+def test_nonblank_secret_fields_preserve_opaque_whitespace(
+    settings_api_environment,
+):
+    warehouse = _create_warehouse(settings_api_environment)
+    sf_values = {
+        "checkword": " sf-checkword ",
+        "monthly_card": "\tmonthly-card\n",
+    }
+    kuaimai_value = " kuaimai-secret\t"
+    xianyu_value = "\nxianyu-secret "
+    client = settings_api_environment["admin_client"]
+    headers = _csrf(settings_api_environment)
+
+    assert client.put(
+        f"/api/settings/warehouses/{warehouse['id']}/sf",
+        json=sf_values,
+        headers=headers,
+    ).status_code == 200
+    assert client.put(
+        f"/api/settings/warehouses/{warehouse['id']}/kuaimai",
+        json={"app_secret": kuaimai_value},
+        headers=headers,
+    ).status_code == 200
+    shop_response = client.post(
+        "/api/settings/xianyu-shops",
+        json={
+            "name": "opaque-secret-shop",
+            "app_secret": xianyu_value,
+        },
+        headers=headers,
+    )
+    assert shop_response.status_code == 201
+
+    with settings_api_environment["tenant_engine"].connect() as connection:
+        sf_row = connection.execute(text(
+            "SELECT checkword_ciphertext, monthly_card_ciphertext "
+            "FROM warehouse_sf_configs WHERE warehouse_id=:warehouse_id"
+        ), {"warehouse_id": warehouse["id"]}).one()
+        kuaimai_ciphertext = connection.execute(text(
+            "SELECT app_secret_ciphertext FROM warehouse_kuaimai_configs "
+            "WHERE warehouse_id=:warehouse_id"
+        ), {"warehouse_id": warehouse["id"]}).scalar_one()
+        xianyu_ciphertext = connection.execute(text(
+            "SELECT app_secret_ciphertext FROM xianyu_shops WHERE id=:shop_id"
+        ), {"shop_id": shop_response.get_json()["data"]["id"]}).scalar_one()
+
+    box = SecretBox.from_base64(TEST_MASTER_KEY)
+    assert box.decrypt(
+        sf_row.checkword_ciphertext,
+        purpose="warehouse-sf-checkword",
+    ) == sf_values["checkword"]
+    assert box.decrypt(
+        sf_row.monthly_card_ciphertext,
+        purpose="warehouse-sf-monthly-card",
+    ) == sf_values["monthly_card"]
+    assert box.decrypt(
+        kuaimai_ciphertext,
+        purpose="warehouse-kuaimai-app-secret",
+    ) == kuaimai_value
+    assert box.decrypt(
+        xianyu_ciphertext,
+        purpose="xianyu-shop-app-secret",
+    ) == xianyu_value
+
+
 def _run_concurrent_config_puts(
     environment,
     endpoint,
@@ -1164,3 +1255,21 @@ def test_admin_manages_xianyu_shop_without_exposing_or_clearing_secret(
 
     forbidden = client.patch(path, json={"seller_id": "forbidden"}, headers=headers)
     assert forbidden.status_code == 400
+
+
+def test_xianyu_shop_rejects_whitespace_only_secret(
+    settings_api_environment,
+):
+    response = settings_api_environment["admin_client"].post(
+        "/api/settings/xianyu-shops",
+        json={
+            "name": "空白密钥店铺",
+            "app_key": "app-key",
+            "app_secret": "   ",
+            "is_active": True,
+        },
+        headers=_csrf(settings_api_environment),
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["code"] == "INVALID_REQUEST"

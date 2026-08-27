@@ -66,6 +66,16 @@ def _optional_text(value, field, maximum):
     return value
 
 
+def _secret_text(value, field):
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        raise SettingsValidationError(f"{field} 必须是字符串")
+    if not value.strip():
+        raise SettingsValidationError(f"{field} 不能只包含空白字符")
+    return value
+
+
 def _automatic_warehouse_name(province, city):
     name = f"{province}{city}仓库"
     if len(name) > 100:
@@ -258,12 +268,8 @@ class SettingsService:
                 SF_MONTHLY_CARD_PURPOSE,
             ),
         ):
-            value = payload.get(request_field)
-            if value not in (None, ""):
-                if not isinstance(value, str):
-                    raise SettingsValidationError(
-                        f"{request_field} 必须是字符串"
-                    )
+            value = _secret_text(payload.get(request_field), request_field)
+            if value is not None:
                 setattr(
                     config,
                     model_field,
@@ -297,12 +303,8 @@ class SettingsService:
                     field,
                     _optional_text(payload[field], field, maximum),
                 )
-        secret = payload.get("app_secret")
-        if secret not in (None, ""):
-            if not isinstance(secret, str):
-                raise SettingsValidationError(
-                    "app_secret 必须是字符串"
-                )
+        secret = _secret_text(payload.get("app_secret"), "app_secret")
+        if secret is not None:
             box = secret_box or self.secret_box
             config.app_secret_ciphertext = box.encrypt(
                 secret,
@@ -321,10 +323,8 @@ class SettingsService:
             shop.name = _required_text(payload["name"], "name", 100)
         if "app_key" in payload:
             shop.app_key = _optional_text(payload["app_key"], "app_key", 255) or ""
-        secret = payload.get("app_secret")
-        if secret not in (None, ""):
-            if not isinstance(secret, str):
-                raise SettingsValidationError("app_secret 必须是字符串")
+        secret = _secret_text(payload.get("app_secret"), "app_secret")
+        if secret is not None:
             shop.app_secret_ciphertext = self.secret_box.encrypt(
                 secret, purpose=XIANYU_SECRET_PURPOSE
             )

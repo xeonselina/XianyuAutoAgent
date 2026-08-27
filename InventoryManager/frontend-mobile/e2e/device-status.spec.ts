@@ -27,61 +27,37 @@ test.describe('Device Status View', () => {
   })
 
   test('device list is rendered', async ({ page }) => {
-    // Should have at least some device cards or a loading/empty state
-    const cards = page.locator('.device-card')
-    const empty = page.locator('.van-empty')
-
-    // Either some cards are shown, or an empty state
-    const hasCards = await cards.count() > 0
-    const hasEmpty = await empty.count() > 0
-    expect(hasCards || hasEmpty).toBe(true)
+    const fixtureNames = page.locator('.device-card .device-name').filter({
+      hasText: /^E2E /,
+    })
+    await expect(fixtureNames).toHaveCount(7)
   })
 
   test('lifecycle filter tabs are present', async ({ page }) => {
-    // van-tabs or custom tab buttons
-    const tabs = page.locator('.van-tab, .van-tabs__nav .van-tab')
-    const tabCount = await tabs.count()
-    if (tabCount === 0) {
-      // Maybe rendered as van-tabs__wrap
-      const tabsWrap = page.locator('.van-tabs')
-      await expect(tabsWrap).toBeVisible()
-      return
+    const tabs = page.locator('.van-tab')
+    await expect(tabs).toHaveCount(6)
+    for (const label of ['全部', '使用中', '已售出', '已停用', '已损坏', '已退役']) {
+      await expect(tabs.filter({ hasText: label })).toBeVisible()
     }
-    expect(tabCount).toBeGreaterThanOrEqual(6)
-    await expect(page.locator('.van-tab').filter({ hasText: '使用中' })).toBeVisible()
-    await expect(page.locator('.van-tab').filter({ hasText: '已售出' })).toBeVisible()
   })
 
   test('clicking 使用中 filters to active devices only', async ({ page }) => {
     const activeTab = page.locator('.van-tab').filter({ hasText: '使用中' })
-    if (!await activeTab.isVisible()) {
-      console.log('使用中 tab not found; skipping')
-      return
-    }
-
     await activeTab.click()
-    await page.waitForTimeout(400)
-
-    const inactiveBadges = page.locator('.van-tag').filter({
-      hasText: /已售出|已停用|已损坏|已退役/,
-    })
-    expect(await inactiveBadges.count()).toBe(0)
+    await expect(page.locator('.device-card .device-name')).toHaveCount(3)
+    await expect(page.locator('.device-card .lifecycle-badge')).toHaveText([
+      '使用中',
+      '使用中',
+      '使用中',
+    ])
   })
 
   test('tapping lifecycle badge opens lifecycle options', async ({ page }) => {
     const cards = page.locator('.device-card')
-    if (await cards.count() === 0) {
-      console.log('No device cards; skipping action sheet test')
-      test.skip()
-      return
-    }
+    await expect(cards).toHaveCount(7)
 
     const firstLifecycleTag = page.locator('.device-card .van-tag').first()
-    if (!await firstLifecycleTag.isVisible()) {
-      console.log('No lifecycle tag found; skipping')
-      return
-    }
-
+    await expect(firstLifecycleTag).toBeVisible()
     await firstLifecycleTag.click()
     const sheet = page.locator('.van-action-sheet')
     await expect(sheet).toBeVisible()
@@ -109,10 +85,7 @@ test.describe('Device Status View', () => {
     // Click the settings/device-status icon button (3rd from left = index 2 in right slot)
     const navBtns = page.locator('.van-nav-bar__right .van-button')
     const count = await navBtns.count()
-    if (count < 3) {
-      console.log(`Only ${count} nav buttons found; skipping`)
-      return
-    }
+    expect(count).toBeGreaterThanOrEqual(3)
     await navBtns.nth(count - 2).click()  // second-to-last = settings/device-status icon
 
     await page.waitForURL(/device-status/, { timeout: 8_000 })

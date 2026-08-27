@@ -260,10 +260,7 @@ test.describe('CreateRental: device picker shows real names after date+model sel
     const models: any[] = modelsBody.data ?? []
     await api.dispose()
 
-    if (!models.length) {
-      test.skip()
-      return
-    }
+    expect(models.length).toBeGreaterThan(0)
 
     await page.goto('/mobile/create-rental')
     await page.waitForSelector('.van-form', { timeout: 10_000 })
@@ -310,16 +307,14 @@ test.describe('CreateRental: device picker shows real names after date+model sel
     const deviceField = page.locator('.van-field').filter({ hasText: '可用设备' })
     await deviceField.click()
 
-    const devicePopup = page.locator('.van-popup--bottom')
-    const isVisible = await devicePopup.isVisible().catch(() => false)
-    if (!isVisible) {
-      // No devices available for this slot — that's OK, not a bug
-      console.log('No available devices for selected slot — test skipped')
-      return
-    }
+    const devicePopup = page.locator('.van-popup--bottom').filter({
+      has: page.locator('.van-picker__title', { hasText: '选择可用设备' }),
+    })
+    await expect(devicePopup).toBeVisible({ timeout: 5_000 })
 
     // Check that none of the options contain "undefined"
-    const optionTexts = await page.locator('.van-picker-column__item .van-ellipsis').allTextContents()
+    const optionTexts = await devicePopup.locator('.van-picker-column__item .van-ellipsis').allTextContents()
+    expect(optionTexts.length).toBeGreaterThan(0)
     const undefinedItems = optionTexts.filter(t => t.includes('undefined'))
     expect(
       undefinedItems,
@@ -327,7 +322,7 @@ test.describe('CreateRental: device picker shows real names after date+model sel
     ).toHaveLength(0)
     console.log('Device picker options (first 3):', optionTexts.slice(0, 3))
 
-    await page.locator('.van-picker .van-picker__cancel').click()
+    await devicePopup.locator('.van-picker__cancel').click()
   })
 })
 
@@ -338,13 +333,13 @@ test.describe('EditRental: accessory pickers', () => {
 
   test.beforeAll(async () => {
     rentalId = await getFirstRealRentalId()
+    expect(rentalId, 'E2E fixture must include a rental for edit coverage').not.toBeNull()
     console.log(`Using existing rental #${rentalId} for read-only edit tests`)
   })
 
   test.beforeEach(async ({ page }) => {
-    if (!rentalId) {
-      test.skip()
-      return
+    if (rentalId === null) {
+      throw new Error('E2E fixture rental is missing')
     }
     await page.goto(`/mobile/edit-rental/${rentalId}`)
     // Wait for the form to load (not the initial loading spinner)
@@ -353,7 +348,7 @@ test.describe('EditRental: accessory pickers', () => {
   })
 
   test('Phone holder picker: opens and shows real names (not undefined)', async ({ page }) => {
-    if (!rentalId) { test.skip(); return }
+    if (rentalId === null) throw new Error('E2E fixture rental is missing')
 
     const phoneHolderField = page.locator('.van-field').filter({ hasText: '手机支架' })
     await expect(phoneHolderField).toBeVisible({ timeout: 5_000 })
@@ -370,7 +365,7 @@ test.describe('EditRental: accessory pickers', () => {
   })
 
   test('Tripod picker: opens and shows real names (not undefined)', async ({ page }) => {
-    if (!rentalId) { test.skip(); return }
+    if (rentalId === null) throw new Error('E2E fixture rental is missing')
 
     const tripodField = page.locator('.van-field').filter({ hasText: '三脚架' })
     await expect(tripodField).toBeVisible({ timeout: 5_000 })
@@ -400,7 +395,8 @@ test.describe('EditRental: accessory selection workflow (test rental)', () => {
       const ganttRes = await api.get(`/api/gantt/data?start_date=${today}&end_date=${future}`)
       const ganttBody = await ganttRes.json()
       const devices: any[] = ganttBody.data?.devices ?? []
-      if (!devices.length) return
+      expect(devices.length, 'E2E fixture must include a rentable device').toBeGreaterThan(0)
+      if (!devices.length) throw new Error('E2E fixture rentable device is missing')
 
       testRentalId = await createTestRental(devices[0].id)
       createdRentalIds.push(testRentalId)
@@ -411,9 +407,8 @@ test.describe('EditRental: accessory selection workflow (test rental)', () => {
   })
 
   test.beforeEach(async ({ page }) => {
-    if (!testRentalId) {
-      test.skip()
-      return
+    if (testRentalId === null) {
+      throw new Error('E2E test rental was not created')
     }
     await page.goto(`/mobile/edit-rental/${testRentalId}`)
     await page.waitForSelector('.van-form', { timeout: 15_000 })
@@ -421,7 +416,7 @@ test.describe('EditRental: accessory selection workflow (test rental)', () => {
   })
 
   test('Can open phone holder picker and select an item on a test rental', async ({ page }) => {
-    if (!testRentalId) { test.skip(); return }
+    if (testRentalId === null) throw new Error('E2E test rental was not created')
 
     const phoneHolderField = page.locator('.van-field').filter({ hasText: '手机支架' })
     await expect(phoneHolderField).toBeVisible({ timeout: 5_000 })
@@ -454,7 +449,7 @@ test.describe('EditRental: accessory selection workflow (test rental)', () => {
   })
 
   test('Can open tripod picker and select an item on a test rental', async ({ page }) => {
-    if (!testRentalId) { test.skip(); return }
+    if (testRentalId === null) throw new Error('E2E test rental was not created')
 
     const tripodField = page.locator('.van-field').filter({ hasText: '三脚架' })
     await expect(tripodField).toBeVisible({ timeout: 5_000 })

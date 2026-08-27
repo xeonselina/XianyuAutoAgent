@@ -220,6 +220,7 @@ status 与 provisioning_status 分开：前者控制租户业务使用，后者�
 - 使用 Secure、HttpOnly Cookie。
 - SameSite 使用安全默认值，并按平台与租户路径隔离。
 - 修改请求携带 CSRF Token。
+- CSRF Token 在同一服务端会话内保持稳定，多个标签页或桌面端与移动端共享会话时不得互相失效。
 - CSRF Token 只保存在页面内存，不写 localStorage。
 - 退出登录删除服务端会话。
 - 现有开放 CORS 改为同源或明确域名白名单。
@@ -323,10 +324,10 @@ partner_id 不唯一，允许不同仓库或租户重复使用。省和市从 wa
 - rentals 增加非空 warehouse_id。
 - rentals 增加可空 xianyu_shop_id。
 - xianyu_order_alerts 增加非空 xianyu_shop_id。
-- 闲鱼订单唯一性调整为 xianyu_shop_id 与 xianyu_order_no 的组合。
+- xianyu_shop_id 与 xianyu_order_no 不设组合唯一约束；同一店铺订单号可以绑定多条主租赁。
 - xianyu_order_sync_state 的 last_success_at 与 last_error 迁移到默认店铺后删除该表。
 
-主租赁和所有子租赁保存相同 warehouse_id。子租赁通常不保存闲鱼订单号和店铺，因此组合唯一约束不会与主租赁冲突。
+主租赁和所有子租赁保存相同 warehouse_id。子租赁通常不保存闲鱼订单号和店铺。闲鱼订单号只作为外部业务关联字段，不承担数据库幂等键；每条主租赁继续独立进入现有预约发货流程。
 
 不增加 tenant_id，不改变现有主租赁加子租赁附件的结构，不引入逻辑库存。
 
@@ -543,7 +544,7 @@ API 不返回任何密钥明文。可以返回是否已配置和必要的尾号�
 ### 18.3 迁移前检查
 
 - 记录迁移前所有业务表行数。
-- 检查闲鱼订单组合唯一性冲突。
+- 统计重复的闲鱼店铺与订单号组合，确认迁移前后数量保持一致，不因重复记录中止迁移。
 - 检查无父租赁、无设备和空订单号。
 - 检查所有设备与租赁可以绑定默认仓库。
 - 检查子租赁与父租赁关系。
