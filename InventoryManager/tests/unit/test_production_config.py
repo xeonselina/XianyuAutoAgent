@@ -160,9 +160,15 @@ def test_one_image_and_parameterized_make_contract():
     } <= dockerfile_lines
     assert "HEALTHCHECK" not in dockerfile and "curl" not in dockerfile
     assert "docker-compose" not in dockerfile.lower()
-    assert targets == {"help", "build", "push", "run-app", "run-worker", "worker-once"}
+    assert targets == {
+        "help", "build", "push", "run-app", "run-worker", "worker-once",
+        "build-push", "check-nas", "deploy-nas", "release-nas",
+        "nas-status", "nas-logs",
+    }
+    assert "include .env" not in makefile
+    assert "NAS_PASS :=" not in makefile and "SUDO_PASS :=" not in makefile
     assert all(token not in makefile for token in (
-        "NAS_", "sshpass", "docker-compose", "include .env", "REGISTRY :=",
+        "sshpass", "docker-compose", "REGISTRY :=",
     ))
     assert {"tests/", "frontend/*", "frontend-mobile/", "openspec/"} <= dockerignore
     for key in (
