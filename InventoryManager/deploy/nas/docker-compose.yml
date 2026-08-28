@@ -1,0 +1,56 @@
+services:
+  app:
+    image: "${IMAGE_REF:?IMAGE_REF is required}"
+    restart: unless-stopped
+    env_file:
+      - "${APP_ENV_FILE:?APP_ENV_FILE is required}"
+    networks:
+      frp:
+        aliases:
+          - inventory-manager-app
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:5002/health', timeout=3)
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  worker:
+    image: "${IMAGE_REF:?IMAGE_REF is required}"
+    restart: unless-stopped
+    command: ["python", "worker.py"]
+    env_file:
+      - "${APP_ENV_FILE:?APP_ENV_FILE is required}"
+    environment:
+      PROVISIONER_DATABASE_URL: ""
+      TENCENTCLOUD_SECRET_ID: ""
+      TENCENTCLOUD_SECRET_KEY: ""
+      TENCENT_SMS_SDK_APP_ID: ""
+      TENCENT_SMS_SIGN_NAME: ""
+      TENCENT_SMS_TEMPLATE_ID: ""
+    networks: [frp]
+
+  migrate-control:
+    image: "${IMAGE_REF:?IMAGE_REF is required}"
+    profiles: ["migration"]
+    command: ["alembic", "-c", "control_alembic.ini", "upgrade", "head"]
+    env_file:
+      - "${APP_ENV_FILE:?APP_ENV_FILE is required}"
+    networks: [frp]
+
+  migrate-tenants:
+    image: "${IMAGE_REF:?IMAGE_REF is required}"
+    profiles: ["migration"]
+    command: ["python", "-m", "flask", "--app", "run.py", "upgrade-tenant-databases"]
+    env_file:
+      - "${APP_ENV_FILE:?APP_ENV_FILE is required}"
+    networks: [frp]
+
+networks:
+  frp:
+    external: true
+    name: "${FRPC_NETWORK:?FRPC_NETWORK is required}"
