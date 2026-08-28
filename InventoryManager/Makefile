@@ -6,6 +6,7 @@ RELEASE_TIME ?= $(shell date +%Y%m%d-%H%M%S)
 RELEASE_TAG ?= $(RELEASE_TIME)-$(GIT_SHA)
 BACKUP_VERIFIED ?=
 IMAGE_TAG ?=
+LOG_TAIL ?= 200
 APP_CONTAINER ?= inventory-manager-app
 WORKER_CONTAINER ?= inventory-manager-worker
 APP_PORT ?= 5002
@@ -69,4 +70,5 @@ nas-status:
 	@IMAGE_REPOSITORY="$(IMAGE_REPOSITORY)" bash scripts/deploy_nas.sh status
 
 nas-logs:
-	@IMAGE_REPOSITORY="$(IMAGE_REPOSITORY)" bash scripts/deploy_nas.sh logs
+	@IMAGE_REPOSITORY="$(IMAGE_REPOSITORY)" LOG_TAIL="$(LOG_TAIL)" \
+		bash scripts/deploy_nas.sh logs
