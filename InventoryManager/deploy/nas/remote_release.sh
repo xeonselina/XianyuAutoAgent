@@ -47,7 +47,19 @@ detect_compose() {
 
 compose_with() {
     local env_file="$1"
+    local selected_image_ref selected_app_env_file selected_frpc_network
     shift
+
+    selected_image_ref=$(release_value "$env_file" IMAGE_REF) || \
+        die "$env_file is missing IMAGE_REF"
+    selected_app_env_file=$(release_value "$env_file" APP_ENV_FILE) || \
+        die "$env_file is missing APP_ENV_FILE"
+    selected_frpc_network=$(release_value "$env_file" FRPC_NETWORK) || \
+        die "$env_file is missing FRPC_NETWORK"
+
+    IMAGE_REF="$selected_image_ref" \
+    APP_ENV_FILE="$selected_app_env_file" \
+    FRPC_NETWORK="$selected_frpc_network" \
     "${COMPOSE[@]}" --project-name inventory-manager \
         --project-directory "$DEPLOY_DIR" --env-file "$env_file" \
         --file "$DEPLOY_DIR/docker-compose.yml" "$@"
@@ -140,6 +152,14 @@ cleanup_candidate() {
     if [ -n "${CANDIDATE_ENV:-}" ] && [ -f "$CANDIDATE_ENV" ]; then
         rm -f -- "$CANDIDATE_ENV"
     fi
+    if [ -n "${PROMOTION_NEXT_PREVIOUS:-}" ] && [ -f "$PROMOTION_NEXT_PREVIOUS" ]; then
+        rm -f -- "$PROMOTION_NEXT_PREVIOUS"
+    fi
+    if [ "${KEEP_PROMOTION_BACKUP:-0}" -eq 0 ] && \
+        [ -n "${PROMOTION_PREVIOUS_BACKUP:-}" ] && \
+        [ -f "$PROMOTION_PREVIOUS_BACKUP" ]; then
+        rm -f -- "$PROMOTION_PREVIOUS_BACKUP"
+    fi
 }
 
 compose_with_current_if_present() {
@@ -150,20 +170,52 @@ compose_with_current_if_present() {
 }
 
 promote_candidate() {
-    local previous_temp=""
+    local had_current=0 had_previous=0
 
     if [ -f "$CURRENT_ENV" ]; then
-        previous_temp=$(mktemp "$DEPLOY_DIR/.previous.env.XXXXXX")
-        chmod 600 "$previous_temp"
-        if ! cp "$CURRENT_ENV" "$previous_temp"; then
-            rm -f -- "$previous_temp"
+        had_current=1
+        PROMOTION_NEXT_PREVIOUS=$(mktemp "$DEPLOY_DIR/.next-previous.env.XXXXXX")
+        chmod 600 "$PROMOTION_NEXT_PREVIOUS"
+        if ! cp "$CURRENT_ENV" "$PROMOTION_NEXT_PREVIOUS"; then
             die "could not stage previous release metadata"
         fi
-        mv -f -- "$previous_temp" "$PREVIOUS_ENV"
+
+        if [ -f "$PREVIOUS_ENV" ]; then
+            had_previous=1
+            PROMOTION_PREVIOUS_BACKUP=$(mktemp "$DEPLOY_DIR/.previous-backup.env.XXXXXX")
+            chmod 600 "$PROMOTION_PREVIOUS_BACKUP"
+            if ! cp "$PREVIOUS_ENV" "$PROMOTION_PREVIOUS_BACKUP"; then
+                die "could not journal existing previous release metadata"
+            fi
+        fi
+
+        if ! mv -f -- "$PROMOTION_NEXT_PREVIOUS" "$PREVIOUS_ENV"; then
+            die "could not install previous release metadata"
+        fi
+        PROMOTION_NEXT_PREVIOUS=""
     fi
 
-    mv -f -- "$CANDIDATE_ENV" "$CURRENT_ENV"
+    if ! mv -f -- "$CANDIDATE_ENV" "$CURRENT_ENV"; then
+        if [ "$had_current" -eq 1 ]; then
+            if [ "$had_previous" -eq 1 ]; then
+                if mv -f -- "$PROMOTION_PREVIOUS_BACKUP" "$PREVIOUS_ENV"; then
+                    PROMOTION_PREVIOUS_BACKUP=""
+                else
+                    KEEP_PROMOTION_BACKUP=1
+                    die "candidate promotion failed and previous metadata recovery failed; journal retained at $PROMOTION_PREVIOUS_BACKUP"
+                fi
+            elif ! rm -f -- "$PREVIOUS_ENV"; then
+                die "candidate promotion failed and initial previous metadata could not be removed"
+            fi
+        fi
+        die "candidate promotion failed; current/previous metadata restored"
+    fi
     CANDIDATE_ENV=""
+
+    if [ -n "$PROMOTION_PREVIOUS_BACKUP" ]; then
+        rm -f -- "$PROMOTION_PREVIOUS_BACKUP"
+        PROMOTION_PREVIOUS_BACKUP=""
+    fi
 }
 
 migration_failed() {
@@ -173,20 +225,24 @@ migration_failed() {
     exit 1
 }
 
+validate_health_controls() {
+    HEALTH_ATTEMPTS_VALUE="${HEALTH_ATTEMPTS:-30}"
+    HEALTH_INTERVAL_VALUE="${HEALTH_INTERVAL_SECONDS:-2}"
+
+    [[ "$HEALTH_ATTEMPTS_VALUE" =~ ^[0-9]+$ ]] && \
+        [ "$HEALTH_ATTEMPTS_VALUE" -gt 0 ] || \
+        die "HEALTH_ATTEMPTS must be a positive integer"
+    [[ "$HEALTH_INTERVAL_VALUE" =~ ^[0-9]+$ ]] || \
+        die "HEALTH_INTERVAL_SECONDS must contain only digits"
+}
+
 wait_for_app_health() {
     local container_id status attempt
-    local attempts="${HEALTH_ATTEMPTS:-30}"
-    local interval="${HEALTH_INTERVAL_SECONDS:-2}"
-
-    [[ "$attempts" =~ ^[0-9]+$ ]] && [ "$attempts" -gt 0 ] || \
-        die "HEALTH_ATTEMPTS must be a positive integer"
-    [[ "$interval" =~ ^[0-9]+$ ]] || \
-        die "HEALTH_INTERVAL_SECONDS must contain only digits"
 
     container_id=$(compose_with "$CURRENT_ENV" ps --quiet app)
     [ -n "$container_id" ] || die "app container is not running"
 
-    for ((attempt = 1; attempt <= attempts; attempt++)); do
+    for ((attempt = 1; attempt <= HEALTH_ATTEMPTS_VALUE; attempt++)); do
         status=$(docker inspect --format '{{.State.Health.Status}}' "$container_id" 2>/dev/null || true)
         if [ "$status" = "healthy" ]; then
             return 0
@@ -194,8 +250,8 @@ wait_for_app_health() {
         if [ "$status" = "unhealthy" ]; then
             die "app container is unhealthy"
         fi
-        if [ "$attempt" -lt "$attempts" ]; then
-            sleep "$interval"
+        if [ "$attempt" -lt "$HEALTH_ATTEMPTS_VALUE" ]; then
+            sleep "$HEALTH_INTERVAL_VALUE"
         fi
     done
 
@@ -219,6 +275,7 @@ run_deploy() {
     require_value IMAGE_REF
     [ "${BACKUP_VERIFIED:-}" = "backup-verified" ] || \
         die "BACKUP_VERIFIED must be exactly backup-verified"
+    validate_health_controls
 
     preflight deploy
     trap cleanup_candidate EXIT
@@ -297,6 +354,11 @@ require_value DEPLOY_DIR
 CURRENT_ENV="$DEPLOY_DIR/current.env"
 PREVIOUS_ENV="$DEPLOY_DIR/previous.env"
 CANDIDATE_ENV=""
+PROMOTION_NEXT_PREVIOUS=""
+PROMOTION_PREVIOUS_BACKUP=""
+KEEP_PROMOTION_BACKUP=0
+HEALTH_ATTEMPTS_VALUE=""
+HEALTH_INTERVAL_VALUE=""
 COMPOSE=()
 
 case "$ACTION" in
