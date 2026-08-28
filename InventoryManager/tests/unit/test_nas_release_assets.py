@@ -24,6 +24,18 @@ def test_release_tag_and_single_image_are_visible_in_dry_run():
     assert output.count("20260828-120000-abc123def456") >= 2
 
 
+def test_production_build_targets_ignore_platform_override():
+    for target, arguments in (
+        ("build-push", ()),
+        ("release-nas", ("BACKUP_VERIFIED=backup-verified",)),
+    ):
+        result = run_make("-n", target, *arguments, "PLATFORM=linux/arm64")
+        assert result.returncode == 0
+        output = result.stdout + result.stderr
+        assert '--platform "linux/amd64"' in output
+        assert "linux/arm64" not in output
+
+
 def test_deploy_existing_tag_requires_an_explicit_tag():
     result = run_make("deploy-nas", "IMAGE_TAG=")
     assert result.returncode != 0

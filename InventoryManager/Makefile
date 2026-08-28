@@ -47,7 +47,7 @@ worker-once:
 		"$(IMAGE)" python worker.py --once
 
 build-push:
-	docker buildx build --platform "$(PLATFORM)" \
+	docker buildx build --platform "linux/amd64" \
 		--tag "$(IMAGE_REPOSITORY):$(RELEASE_TAG)" --push .
 
 check-nas:
