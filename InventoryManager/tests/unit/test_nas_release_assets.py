@@ -59,6 +59,7 @@ def test_worker_clears_every_app_only_secret():
         "PROVISIONER_DATABASE_URL", "TENCENTCLOUD_SECRET_ID",
         "TENCENTCLOUD_SECRET_KEY", "TENCENT_SMS_SDK_APP_ID",
         "TENCENT_SMS_SIGN_NAME", "TENCENT_SMS_TEMPLATE_ID",
+        "TENCENT_SMS_REGION",
     ):
         assert f'{key}: ""' in text
 
