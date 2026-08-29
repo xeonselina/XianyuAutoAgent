@@ -175,7 +175,7 @@ def test_one_image_and_parameterized_make_contract():
     for key in (
         "PROVISIONER_DATABASE_URL", "TENCENTCLOUD_SECRET_ID",
         "TENCENTCLOUD_SECRET_KEY", "TENCENT_SMS_SDK_APP_ID",
-        "TENCENT_SMS_SIGN_NAME", "TENCENT_SMS_TEMPLATE_ID",
+        "TENCENT_SMS_SIGN_NAME", "TENCENT_SMS_TEMPLATE_ID", "TENCENT_SMS_REGION",
     ):
         assert makefile.count(f'--env "{key}="') == 2
 

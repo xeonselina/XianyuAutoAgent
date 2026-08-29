@@ -17,6 +17,7 @@ from pathlib import Path
 
 args = sys.argv[1:]
 mode = os.environ.get("FAKE_DOCKER_MODE", "success")
+probe_marker = Path(os.environ["FAKE_PROBE_MARKER"])
 with open(os.environ["FAKE_DOCKER_CALLS"], "a", encoding="utf-8") as stream:
     stream.write(json.dumps(args) + "\n")
 with open(os.environ["FAKE_DOCKER_ENVS"], "a", encoding="utf-8") as stream:
@@ -42,7 +43,8 @@ if args[:2] == ["network", "connect"]:
     raise SystemExit(0)
 if args and args[0] == "inspect" and args[-1] == "frpc":
     print(
-        "true"
+        "false" if mode == "frpc-stops-after-probe" and probe_marker.exists()
+        else "true"
         if "State.Running" in " ".join(args)
         else ("" if mode == "frpc-disconnected" else "connected")
     )
@@ -62,6 +64,7 @@ if "ps" in args and "app" in args:
     print("app-id")
     raise SystemExit(0)
 if args and args[0] == "run":
+    probe_marker.write_text("ran\n")
     raise SystemExit(1 if mode == "probe-fail" else 0)
 raise SystemExit(0)
 '''
@@ -85,6 +88,35 @@ os.execv("/bin/mv", ["/bin/mv", *args])
 '''
 
 
+FAKE_STAT = r'''#!/usr/bin/env python3
+import os
+import stat
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+path = Path(args[-1])
+metadata = os.stat(path)
+mode = stat.S_IMODE(metadata.st_mode)
+owner = (
+    int(os.environ["FAKE_APP_ENV_OWNER"])
+    if str(path) == os.environ["FAKE_APP_ENV"]
+    else metadata.st_uid
+)
+
+if args[:2] == ["-c", "%a"]:
+    print(f"{mode:o}")
+elif args[:2] == ["-c", "%u"]:
+    print(owner)
+elif args[:2] == ["-f", "%Lp"]:
+    print(f"{mode:o}")
+elif args[:2] == ["-f", "%u"]:
+    print(owner)
+else:
+    raise SystemExit(1)
+'''
+
+
 def _release_env(image_ref, app_env, network):
     return (
         f"IMAGE_REF={image_ref}\n"
@@ -95,14 +127,21 @@ def _release_env(image_ref, app_env, network):
 
 def invoke(tmp_path, action, *, mode="success", backup="backup-verified", current=True,
            app_env_mode=0o600, log_tail=None, health_attempts=None,
-           health_interval=None, fs_mode="success", current_metadata=None):
+           health_interval=None, fs_mode="success", current_metadata=None,
+           app_env_owner=0, app_env_symlink=False):
     deploy_dir = tmp_path / "deploy"
     deploy_dir.mkdir(parents=True)
     (deploy_dir / "docker-compose.yml").write_text("services: {}\n")
 
     app_env = tmp_path / "app.env"
-    app_env.write_text("SECRET=value\n")
-    app_env.chmod(app_env_mode)
+    if app_env_symlink:
+        app_env_target = tmp_path / "app.env.target"
+        app_env_target.write_text("SECRET=value\n")
+        app_env_target.chmod(app_env_mode)
+        app_env.symlink_to(app_env_target)
+    else:
+        app_env.write_text("SECRET=value\n")
+        app_env.chmod(app_env_mode)
 
     if current:
         current_metadata = current_metadata or (
@@ -125,9 +164,13 @@ def invoke(tmp_path, action, *, mode="success", backup="backup-verified", curren
     fake_mv = fake_bin / "mv"
     fake_mv.write_text(FAKE_MV)
     fake_mv.chmod(fake_mv.stat().st_mode | stat.S_IXUSR)
+    fake_stat = fake_bin / "stat"
+    fake_stat.write_text(FAKE_STAT)
+    fake_stat.chmod(fake_stat.stat().st_mode | stat.S_IXUSR)
     calls_file = tmp_path / "docker-calls.jsonl"
     envs_file = tmp_path / "docker-envs.jsonl"
     tenant_current = tmp_path / "tenant-current.env"
+    probe_marker = tmp_path / "probe-ran"
 
     env = {
         **os.environ,
@@ -143,6 +186,9 @@ def invoke(tmp_path, action, *, mode="success", backup="backup-verified", curren
         "FAKE_DOCKER_MODE": mode,
         "FAKE_FS_MODE": fs_mode,
         "FAKE_TENANT_CURRENT": str(tenant_current),
+        "FAKE_APP_ENV": str(app_env),
+        "FAKE_APP_ENV_OWNER": str(app_env_owner),
+        "FAKE_PROBE_MARKER": str(probe_marker),
     }
     if log_tail is not None:
         env["LOG_TAIL"] = log_tail
@@ -298,6 +344,13 @@ def test_success_orders_candidate_checks_migrations_start_health_and_probe(tmp_p
         ),
         "probe": next(i for i, call in enumerate(calls) if call and call[0] == "run"),
     }
+    frpc_running_checks = [
+        index for index, call in enumerate(calls)
+        if call and call[0] == "inspect" and call[-1] == "frpc"
+        and "State.Running" in " ".join(call)
+    ]
+    assert len(frpc_running_checks) == 2
+    positions["frpc-after-probe"] = frpc_running_checks[-1]
     assert list(positions.values()) == sorted(positions.values())
     assert "registry.example/inventory:new" in (deploy_dir / "current.env").read_text()
     assert "registry.example/inventory:old" in (deploy_dir / "previous.env").read_text()
@@ -361,6 +414,20 @@ def test_check_rejects_app_env_without_exact_0600_permissions(tmp_path):
     assert not any(call[:2] in (["network", "create"], ["network", "connect"]) for call in calls)
 
 
+def test_check_rejects_app_env_not_owned_by_root_before_docker_changes(tmp_path):
+    result, calls, _ = invoke(tmp_path, "check", app_env_owner=501)
+    assert result.returncode != 0
+    assert "owned by UID 0" in result.stderr
+    assert calls == []
+
+
+def test_check_rejects_symlinked_app_env_before_docker_changes(tmp_path):
+    result, calls, _ = invoke(tmp_path, "check", app_env_symlink=True)
+    assert result.returncode != 0
+    assert "must not be a symlink" in result.stderr
+    assert calls == []
+
+
 def test_check_validates_current_compose_without_mutating_runtime(tmp_path):
     result, calls, _ = invoke(tmp_path, "check")
     assert result.returncode == 0, result.stderr
@@ -375,6 +442,21 @@ def test_probe_failure_keeps_promoted_release_metadata(tmp_path):
     assert any(call and call[0] == "run" for call in calls)
     assert "registry.example/inventory:new" in (deploy_dir / "current.env").read_text()
     assert "registry.example/inventory:old" in (deploy_dir / "previous.env").read_text()
+
+
+def test_post_probe_frpc_failure_prevents_deploy_success(tmp_path):
+    result, calls, deploy_dir = invoke(tmp_path, "deploy", mode="frpc-stops-after-probe")
+    assert result.returncode != 0
+    assert "frpc container is not running: frpc" in result.stderr
+    assert "nas release: deployed" not in result.stdout
+    probe = next(index for index, call in enumerate(calls) if call and call[0] == "run")
+    final_frpc_check = max(
+        index for index, call in enumerate(calls)
+        if call and call[0] == "inspect" and call[-1] == "frpc"
+        and "State.Running" in " ".join(call)
+    )
+    assert probe < final_frpc_check
+    assert "registry.example/inventory:new" in (deploy_dir / "current.env").read_text()
 
 
 def test_health_failure_keeps_promoted_release_metadata(tmp_path):

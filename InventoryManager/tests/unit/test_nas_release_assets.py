@@ -185,6 +185,8 @@ def test_deployment_guide_documents_release_network_and_recovery():
     for token in (
         "make release-nas", "make deploy-nas IMAGE_TAG=", "inventory-manager-app",
         "FRPC_NETWORK", "backup-verified", "make nas-status", "make nas-logs",
-        "迁移失败", "向前修复",
+        "迁移失败", "向前修复", "~/.config/xianyu-agent/nas.env",
+        "make release-nas BACKUP_VERIFIED=backup-verified",
+        'localIP = "inventory-manager-app"', "localPort = 5002", "root-owned",
     ):
         assert token in text

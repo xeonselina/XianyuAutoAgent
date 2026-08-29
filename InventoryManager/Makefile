@@ -41,13 +41,13 @@ run-app:
 run-worker:
 	docker run --rm --name "$$WORKER_CONTAINER" --env-file "$$ENV_FILE" \
 		--env "PROVISIONER_DATABASE_URL=" --env "TENCENTCLOUD_SECRET_ID=" --env "TENCENTCLOUD_SECRET_KEY=" \
-		--env "TENCENT_SMS_SDK_APP_ID=" --env "TENCENT_SMS_SIGN_NAME=" --env "TENCENT_SMS_TEMPLATE_ID=" \
+		--env "TENCENT_SMS_SDK_APP_ID=" --env "TENCENT_SMS_SIGN_NAME=" --env "TENCENT_SMS_TEMPLATE_ID=" --env "TENCENT_SMS_REGION=" \
 		"$$IMAGE" python worker.py
 
 worker-once:
 	docker run --rm --name "$$WORKER_CONTAINER" --env-file "$$ENV_FILE" \
 		--env "PROVISIONER_DATABASE_URL=" --env "TENCENTCLOUD_SECRET_ID=" --env "TENCENTCLOUD_SECRET_KEY=" \
-		--env "TENCENT_SMS_SDK_APP_ID=" --env "TENCENT_SMS_SIGN_NAME=" --env "TENCENT_SMS_TEMPLATE_ID=" \
+		--env "TENCENT_SMS_SDK_APP_ID=" --env "TENCENT_SMS_SIGN_NAME=" --env "TENCENT_SMS_TEMPLATE_ID=" --env "TENCENT_SMS_REGION=" \
 		"$$IMAGE" python worker.py --once
 
 build-push:

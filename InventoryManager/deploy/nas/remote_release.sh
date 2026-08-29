@@ -26,6 +26,21 @@ file_mode() {
     printf '%s\n' "$mode"
 }
 
+file_owner() {
+    local path="$1"
+    local owner
+
+    if owner=$(stat -c '%u' "$path" 2>/dev/null); then
+        :
+    elif owner=$(stat -f '%u' "$path" 2>/dev/null); then
+        :
+    else
+        die "cannot read ownership for $path"
+    fi
+    [[ "$owner" =~ ^[0-9]+$ ]] || die "cannot read ownership for $path"
+    printf '%s\n' "$owner"
+}
+
 require_mode_0600() {
     local path="$1"
     local mode
@@ -33,6 +48,17 @@ require_mode_0600() {
     [ -f "$path" ] || die "$path is not a regular file"
     mode=$(file_mode "$path")
     [ "$mode" = "600" ] || die "$path must have mode 0600 (found $mode)"
+}
+
+require_root_owned_regular_file_0600() {
+    local path="$1"
+    local owner
+
+    [ ! -L "$path" ] || die "$path must not be a symlink"
+    [ -f "$path" ] || die "$path is not a regular file"
+    owner=$(file_owner "$path")
+    [ "$owner" = "0" ] || die "$path must be owned by UID 0 (found $owner)"
+    require_mode_0600 "$path"
 }
 
 detect_compose() {
@@ -96,19 +122,25 @@ validate_deploy_layout() {
         die "Compose file does not exist: $DEPLOY_DIR/docker-compose.yml"
 
     require_value APP_ENV_FILE
-    require_mode_0600 "$APP_ENV_FILE"
+    require_root_owned_regular_file_0600 "$APP_ENV_FILE"
+}
+
+require_running_frpc() {
+    local running
+
+    require_value FRPC_CONTAINER
+    running=$(docker inspect --format '{{.State.Running}}' "$FRPC_CONTAINER" 2>/dev/null) || \
+        die "cannot inspect frpc container: $FRPC_CONTAINER"
+    [ "$running" = "true" ] || die "frpc container is not running: $FRPC_CONTAINER"
 }
 
 ensure_frpc_network() {
     local action="$1"
-    local running connected network_created=0
+    local connected network_created=0
 
     require_value FRPC_CONTAINER
     require_value FRPC_NETWORK
-
-    running=$(docker inspect --format '{{.State.Running}}' "$FRPC_CONTAINER" 2>/dev/null) || \
-        die "cannot inspect frpc container: $FRPC_CONTAINER"
-    [ "$running" = "true" ] || die "frpc container is not running: $FRPC_CONTAINER"
+    require_running_frpc
 
     if ! docker network inspect "$FRPC_NETWORK" >/dev/null 2>&1; then
         [ "$action" = "deploy" ] || die "external network does not exist: $FRPC_NETWORK"
@@ -296,6 +328,7 @@ run_deploy() {
     compose_with "$CURRENT_ENV" up --detach --remove-orphans app worker
     wait_for_app_health
     probe_from_frp_network
+    require_running_frpc
     printf 'nas release: deployed %s\n' "$IMAGE_REF"
 }
 
