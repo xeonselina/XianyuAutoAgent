@@ -11,5 +11,4 @@
 ## 3. Verification and rollout
 - [x] 3.1 Add backend coverage for password validation and hashed persistence.
 - [x] 3.2 Add frontend coverage for create-store validation and request serialization.
-- [ ] 3.3 Run full regression checks and deploy the production image with rollback metadata.
-
+- [x] 3.3 Run full regression checks and deploy the production image with rollback metadata.
