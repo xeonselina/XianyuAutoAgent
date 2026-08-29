@@ -104,6 +104,18 @@ class TenantMember(TimestampMixin, ControlBase):
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="active"
     )
+    password_hash: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    failed_password_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    password_locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    password_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
 
 
 class AuthSession(ControlBase):

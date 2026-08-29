@@ -23,6 +23,10 @@ export type TenantSessionData = {
   tenant: Tenant
 }
 
+export type TenantAuthConfig = {
+  method: 'sms' | 'password'
+}
+
 export type PlatformSessionData = {
   csrf_token: string
   admin: { id: number; username: string }
@@ -80,6 +84,11 @@ export const requestTenantCode = async (phone: string): Promise<void> => {
   await axios.post('/auth/sms/request', { phone })
 }
 
+export const fetchTenantAuthConfig = async (): Promise<TenantAuthConfig> => {
+  const response = await axios.get<ApiEnvelope<TenantAuthConfig>>('/auth/config')
+  return responseData(response.data)
+}
+
 export const verifyTenantCode = async (
   phone: string,
   code: string,
@@ -89,6 +98,32 @@ export const verifyTenantCode = async (
     { phone, code },
   )
   return responseData(response.data)
+}
+
+export const loginTenantPassword = async (
+  phone: string,
+  password: string,
+): Promise<TenantSessionData> => {
+  const response = await axios.post<ApiEnvelope<TenantSessionData>>(
+    '/auth/password/login',
+    { phone, password },
+  )
+  return responseData(response.data)
+}
+
+export const changeTenantPassword = async (
+  currentPassword: string,
+  newPassword: string,
+  csrfToken: string,
+): Promise<void> => {
+  await axios.post(
+    '/auth/password/change',
+    {
+      current_password: currentPassword,
+      new_password: newPassword,
+    },
+    { headers: csrfHeaders(csrfToken) },
+  )
 }
 
 export const fetchTenantSession = async (): Promise<TenantSessionData> => {

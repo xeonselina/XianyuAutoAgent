@@ -190,5 +190,7 @@ def test_deployment_guide_documents_release_network_and_recovery():
         'localIP = "inventory-manager-app"', "localPort = 5002", "root-owned",
         "MIN_FREE_SPACE_MB=1024", "PATH=/usr/local/bin:/usr/bin:/bin",
         "previous.env", "原始 stop 状态", "make nas-logs LOG_TAIL=200",
+        "--env-file current.env", "set-tenant-password", "--password-stdin",
     ):
         assert token in text
+    assert ".xianyu-agent-release/current.env" not in text

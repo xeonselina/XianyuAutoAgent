@@ -85,7 +85,8 @@ def test_control_baseline_has_exact_domain_columns(migrated_control_database):
         },
         "tenant_members": {
             "id", "tenant_id", "phone", "role", "status", "created_at",
-            "updated_at",
+            "updated_at", "password_hash", "failed_password_attempts",
+            "password_locked_until", "password_changed_at",
         },
         "auth_sessions": {
             "id", "kind", "subject_id", "tenant_id", "token_hash",
@@ -255,3 +256,23 @@ def test_control_baseline_downgrades_all_domain_tables(
     with engine.connect() as connection:
         tables = set(inspect(connection).get_table_names())
     assert not tables & DOMAIN_TABLES
+
+
+def test_password_auth_migration_downgrades_to_shipped_baseline(
+    migrated_control_database,
+):
+    engine, alembic_config = migrated_control_database
+
+    command.downgrade(alembic_config, "20260824_control_baseline")
+
+    with engine.connect() as connection:
+        member_columns = {
+            column["name"]
+            for column in inspect(connection).get_columns("tenant_members")
+        }
+    assert not member_columns & {
+        "password_hash",
+        "failed_password_attempts",
+        "password_locked_until",
+        "password_changed_at",
+    }

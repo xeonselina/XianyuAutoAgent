@@ -64,6 +64,8 @@ uploads/*
 
 # 前端构建
 node_modules/
+**/node_modules/
+static/vue-dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -88,14 +90,12 @@ migrations_backup/
 .pytest_cache
 *.pid
 
-# Vue前端开发文件
-frontend/*
-!frontend/src/
-frontend/src/*
-!frontend/src/assets/
-frontend/src/assets/*
-!frontend/src/assets/安装调试教程.jpg
-!frontend/src/assets/照片传输教程.png
+# Desktop frontend is built inside Docker; omit only non-build inputs.
+frontend/tests/
+frontend/.vscode/
+frontend/app/
+frontend/*.md
+frontend/vitest.config.ts
 frontend-mobile/
 vue-demo/
 

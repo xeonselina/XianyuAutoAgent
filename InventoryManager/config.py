@@ -52,6 +52,7 @@ class Config:
     )
     DEV_SMS_CODE = os.environ.get('DEV_SMS_CODE')
     SMS_SENDER = None
+    TENANT_AUTH_MODE = os.environ.get('TENANT_AUTH_MODE') or 'sms'
     IS_PRODUCTION = False
 
     # 腾讯云短信

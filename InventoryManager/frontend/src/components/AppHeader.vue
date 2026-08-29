@@ -48,6 +48,13 @@ onMounted(() => {
 
     <span>{{ roleLabel }}</span>
     <RouterLink
+      v-if="auth.authMethod === 'password'"
+      data-testid="change-password-link"
+      to="/change-password"
+    >
+      修改密码
+    </RouterLink>
+    <RouterLink
       v-if="auth.member?.role === 'admin'"
       data-testid="settings-link"
       to="/settings"

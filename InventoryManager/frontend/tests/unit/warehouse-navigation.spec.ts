@@ -97,6 +97,7 @@ const mountHeader = async (role: 'admin' | 'operator') => {
       access_status: 'active',
     },
   })
+  auth.setAuthMethod('password')
   const wrapper = mount(AppHeader, {
     global: {
       plugins: [pinia],
@@ -121,6 +122,19 @@ describe('warehouse-aware tenant navigation', () => {
     axiosPut.mockReset()
     axiosPatch.mockReset()
   })
+
+  it.each(['admin', 'operator'] as const)(
+    'shows the password-change entry to an authenticated %s',
+    async (role) => {
+      axiosGet.mockResolvedValue({ data: { success: true, data: [] } })
+
+      const { wrapper } = await mountHeader(role)
+
+      expect(wrapper.get('[data-testid="change-password-link"]').attributes('href')).toBe(
+        '/change-password',
+      )
+    },
+  )
 
   it('shares one warehouse initialization and marks the session ready only after it resolves', async () => {
     const response = deferred<{ data: { success: boolean; data: typeof warehouses } }>()

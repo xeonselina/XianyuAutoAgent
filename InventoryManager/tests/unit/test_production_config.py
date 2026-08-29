@@ -97,6 +97,7 @@ def test_runtime_template_has_only_safe_delivery_configuration():
     assert {
         "FLASK_ENV", "DATABASE_URL", "CONTROL_DATABASE_URL",
         "PROVISIONER_DATABASE_URL", "SAAS_MASTER_KEY", "SECRET_KEY",
+        "TENANT_AUTH_MODE",
         "TENANT_DB_HOST", "TENANT_DB_PORT", "TENANT_DB_NAME_PREFIX",
         "TENANT_DB_USER_PREFIX", "CONTROL_DB_POOL_SIZE",
         "TENANT_DB_POOL_SIZE", "CORS_ORIGINS", "TRUSTED_PROXY_HOPS",
@@ -110,6 +111,7 @@ def test_runtime_template_has_only_safe_delivery_configuration():
         "TENCENTCLOUD_SECRET_KEY", "TENCENT_SMS_SDK_APP_ID",
         "TENCENT_SMS_SIGN_NAME", "TENCENT_SMS_TEMPLATE_ID",
     ))
+    assert active["TENANT_AUTH_MODE"] == "sms"
     for legacy in (
         "SF_PARTNER_ID", "SF_CHECKWORD", "SF_MONTHLY_CARD",
         "KUAIMAI_APP_ID", "KUAIMAI_APP_SECRET", "KUAIMAI_PRINTER_SN",
@@ -132,12 +134,23 @@ def test_runtime_image_context_excludes_sensitive_and_local_files():
     } <= ignored
 
 
-def test_runtime_image_context_keeps_only_shipping_slip_qr_assets():
+def test_runtime_image_builds_frontend_but_directly_copies_only_qr_assets():
     ignored = set((ROOT / ".dockerignore").read_text().splitlines())
-    assert "frontend/src/*" in ignored and {
-        "!frontend/src/assets/安装调试教程.jpg",
-        "!frontend/src/assets/照片传输教程.png",
+    dockerfile_lines = (ROOT / "Dockerfile").read_text().splitlines()
+
+    assert "frontend/src/*" not in ignored
+    assert "frontend/*" not in ignored
+    assert {
+        "frontend/tests/", "frontend/.vscode/", "frontend/app/",
+        "frontend/*.md", "frontend/vitest.config.ts",
     } <= ignored
+    assert [
+        line for line in dockerfile_lines
+        if line.startswith("COPY frontend/src/assets/")
+    ] == [
+        "COPY frontend/src/assets/安装调试教程.jpg ./frontend/src/assets/安装调试教程.jpg",
+        "COPY frontend/src/assets/照片传输教程.png ./frontend/src/assets/照片传输教程.png",
+    ]
 
 
 def test_one_image_and_parameterized_make_contract():
@@ -171,7 +184,10 @@ def test_one_image_and_parameterized_make_contract():
     assert all(token not in makefile for token in (
         "sshpass", "docker-compose", "REGISTRY :=",
     ))
-    assert {"tests/", "frontend/*", "frontend-mobile/", "openspec/"} <= dockerignore
+    assert {
+        "tests/", "frontend/tests/", "frontend-mobile/", "openspec/",
+        "static/vue-dist/",
+    } <= dockerignore
     for key in (
         "PROVISIONER_DATABASE_URL", "TENCENTCLOUD_SECRET_ID",
         "TENCENTCLOUD_SECRET_KEY", "TENCENT_SMS_SDK_APP_ID",
@@ -189,7 +205,7 @@ def test_handoff_and_retired_artifacts_are_sanitized():
         "upgrade-tenant-databases", "python worker.py", "--once",
         "维护窗口", "完整备份", "NAS", "公网入口",
     ))
-    assert text.count("python -m flask --app run.py") == 3
+    assert text.count("python -m flask --app run.py") == 4
     assert "Docker Compose" in text
     for path in (
         ROOT / ".env.docker", ROOT / "env.production", ROOT / "deploy.sh",

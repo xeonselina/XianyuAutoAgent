@@ -16,6 +16,7 @@ import { useInspectionStore } from '@/stores/inspection'
 import { useTenantStore } from '@/stores/tenant'
 import AccessRestrictedView from '@/views/AccessRestrictedView.vue'
 import LoginView from '@/views/LoginView.vue'
+import PasswordChangeView from '@/views/PasswordChangeView.vue'
 import PlatformLoginView from '@/views/PlatformLoginView.vue'
 import PlatformTenantsView from '@/views/PlatformTenantsView.vue'
 import {
@@ -32,10 +33,13 @@ import { useMobileTenantStore } from '../../../frontend-mobile/src/stores/tenant
 
 const apiMocks = vi.hoisted(() => ({
   createTenant: vi.fn(),
+  changeTenantPassword: vi.fn(),
+  fetchTenantAuthConfig: vi.fn(),
   fetchPlatformSession: vi.fn(),
   fetchTenantSession: vi.fn(),
   listTenants: vi.fn(),
   loginPlatform: vi.fn(),
+  loginTenantPassword: vi.fn(),
   logoutPlatformSession: vi.fn(),
   logoutTenantSession: vi.fn(),
   patchTenant: vi.fn(),
@@ -355,6 +359,7 @@ describe('tenant auth store and login form', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.resetAllMocks()
+    apiMocks.fetchTenantAuthConfig.mockResolvedValue({ method: 'sms' })
   })
 
   it('keeps tenant and platform CSRF values in memory without browser storage', async () => {
@@ -498,6 +503,9 @@ describe('tenant auth store and login form', () => {
       global: { plugins: [pinia, router] },
     })
 
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="phone"]').exists()).toBe(true)
+    })
     await wrapper.get('[data-testid="phone"]').setValue('13800138000')
     await wrapper.get('[data-testid="request-code"]').trigger('click')
     expect(apiMocks.requestTenantCode).toHaveBeenCalledWith('13800138000')
@@ -514,6 +522,78 @@ describe('tenant auth store and login form', () => {
       '123456',
     )
     expect(router.currentRoute.value.fullPath).toBe('/login?next=/business')
+  })
+
+  it('loads password mode and submits phone plus password without SMS controls', async () => {
+    apiMocks.fetchTenantAuthConfig.mockResolvedValue({ method: 'password' })
+    apiMocks.loginTenantPassword.mockResolvedValue(tenantData())
+    const pinia = createPinia()
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/login', component: LoginView },
+        { path: '/business', component: EmptyView },
+      ],
+    })
+    await router.push('/login?next=/business')
+    await router.isReady()
+    const wrapper = mount(LoginView, {
+      global: { plugins: [pinia, router] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="password"]').exists()).toBe(true)
+    })
+    expect(wrapper.find('[data-testid="request-code"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="code"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="phone"]').setValue('13800138000')
+    await wrapper.get('[data-testid="password"]').setValue('Initial-pass-123')
+    await wrapper.get('form').trigger('submit')
+
+    await vi.waitFor(() => {
+      expect(apiMocks.loginTenantPassword).toHaveBeenCalledWith(
+        '13800138000',
+        'Initial-pass-123',
+      )
+    })
+    expect(apiMocks.requestTenantCode).not.toHaveBeenCalled()
+    expect(apiMocks.verifyTenantCode).not.toHaveBeenCalled()
+  })
+
+  it('changes password without clearing or replacing the active CSRF token', async () => {
+    apiMocks.changeTenantPassword.mockResolvedValue(undefined)
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const auth = useAuthStore()
+    auth.applyTenantSession(tenantData('active', 'operator'))
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/change-password', component: PasswordChangeView }],
+    })
+    await router.push('/change-password')
+    await router.isReady()
+    const wrapper = mount(PasswordChangeView, {
+      global: { plugins: [pinia, router] },
+    })
+
+    await wrapper.get('[data-testid="current-password"]').setValue('Initial-pass-123')
+    await wrapper.get('[data-testid="new-password"]').setValue('Updated-pass-456')
+    await wrapper.get('[data-testid="confirm-password"]').setValue('Updated-pass-456')
+    await wrapper.get('form').trigger('submit')
+
+    await vi.waitFor(() => {
+      expect(apiMocks.changeTenantPassword).toHaveBeenCalledWith(
+        'Initial-pass-123',
+        'Updated-pass-456',
+        'tenant-csrf',
+      )
+    })
+    expect(auth.csrfToken).toBe('tenant-csrf')
+    expect(axios.defaults.headers.common['X-CSRF-Token']).toBe('tenant-csrf')
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('密码已更新')
+    })
   })
 
   it('explains an expired tenant without exposing business content', async () => {

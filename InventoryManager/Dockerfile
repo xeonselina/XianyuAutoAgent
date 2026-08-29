@@ -9,6 +9,17 @@ ARG https_proxy
 ARG no_proxy
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Stage 0: frontend-builder —— 每次镜像构建都从锁文件生成桌面前端产物
+# ══════════════════════════════════════════════════════════════════════════════
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS frontend-builder
+
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Stage 1: builder —— 编译 Python wheels（含 build-essential / libssl 等编译依赖）
 # ══════════════════════════════════════════════════════════════════════════════
 FROM python:3.10-slim-bookworm AS builder
@@ -79,6 +90,7 @@ COPY app/ ./app/
 COPY control_migrations/ ./control_migrations/
 COPY migrations/ ./migrations/
 COPY static/ ./static/
+COPY --from=frontend-builder /static/vue-dist ./static/vue-dist
 COPY templates/ ./templates/
 COPY config.py run.py worker.py gunicorn_config.py control_alembic.ini ./
 COPY frontend/src/assets/安装调试教程.jpg ./frontend/src/assets/安装调试教程.jpg

@@ -33,6 +33,18 @@ sudo chmod 600 /volume1/docker/inventory-manager/app.env
 迁移任务读取这个文件；worker 也读取它，但 Compose 会显式清空
 `PROVISIONER_DATABASE_URL` 及所有 Tencent SMS app-only 配置，维持最小权限。
 
+租户登录方式由 `TENANT_AUTH_MODE` 明确选择，只允许 `sms` 或 `password`，省略时
+默认为 `sms`。短信模式必须填写完整的 Tencent Cloud SMS 配置；密码模式填写：
+
+```dotenv
+TENANT_AUTH_MODE=password
+```
+
+密码模式不需要 Tencent SMS 凭据，相关变量应留空；app 不会初始化短信发送器，短信
+接口也会以 `AUTH_METHOD_DISABLED` 关闭。两种模式都必须保持
+`SESSION_COOKIE_SECURE=true`，不要为 HTTP 生产访问创建例外。worker 从不初始化
+租户认证发送器，因此不需要 Tencent 凭据。
+
 ### 2. 为开发机创建仓库外的 NAS 连接配置
 
 `scripts/deploy_nas.sh` 只从开发机用户目录读取连接配置，默认路径固定为
@@ -77,23 +89,22 @@ timestamp 或 NOPASSWD 使 sudo 不读取密码时关闭未读输入，密码不
 Docker/Compose。所有 root 动作都使用固定的 `PATH=/usr/local/bin:/usr/bin:/bin` 和
 `HOME=/root`。
 
-### 3. 一次性登录镜像仓库
+### 3. 镜像仓库登录边界
 
-开发机需要登录才能推送；NAS 的 root Docker 上下文需要登录才能在远端以
-`sudo docker compose pull` 拉取私有镜像。分别在可信终端交互式完成一次登录，
-不要把 token 放进命令行或 `nas.env`：
+开发机需要登录才能推送，默认的
+`docker.cnb.cool/tdcc-demo/jimmy/inventory-manager` 镜像仓库是公开仓库，NAS 拉取
+这个默认镜像前不需要预先执行 registry 登录。只在可信终端交互式登录开发机：
 
 ```bash
 # 开发机
 docker login docker.cnb.cool
-
-# NAS（SSH 或 NAS 终端；按提示交互输入凭据）
-sudo docker login docker.cnb.cool
 ```
 
-默认仓库是 `docker.cnb.cool/tdcc-demo/jimmy/inventory-manager`；如有必要可在
-调用 Make 时用 `IMAGE_REPOSITORY` 覆盖。远端 release metadata 只记录完整
-`IMAGE_REF`、`APP_ENV_FILE` 和 `FRPC_NETWORK`，不含任何登录信息。
+如将 `IMAGE_REPOSITORY` 覆盖为私有仓库，或 NAS 实际拉取返回明确的 authorization
+failure，才在 NAS 的 root Docker 上下文中交互式执行 `sudo docker login` 后重试。
+不要预防性登录，不要把 token 放进命令行、`nas.env`、脚本或文档。远端 release
+metadata 只记录完整 `IMAGE_REF`、`APP_ENV_FILE` 和 `FRPC_NETWORK`，不含任何
+登录信息。
 
 ### 4. 配置 FRP external Docker network
 
@@ -208,6 +219,11 @@ alembic -c control_alembic.ini upgrade head
 python -m flask --app run.py upgrade-tenant-databases
 ```
 
+镜像构建本身使用 `frontend/package-lock.json` 在独立 Node stage 中执行 `npm ci` 和
+前端构建，再把新生成的 `static/vue-dist` 复制进运行镜像。因此
+`make release-nas` 不依赖工作区中被 Git 忽略的旧前端产物，每个不可变 tag 都包含
+与该提交一致的桌面前端。
+
 ## 本地同一镜像的进程（非 NAS 发布）
 
 本地或其他受控环境仍可使用同一个镜像启动两个进程：
@@ -260,6 +276,34 @@ Tencent SMS app-only 配置。
 
 新租户由超级管理员页面创建。app 使用 `PROVISIONER_DATABASE_URL` 同步建库、授权并
 迁移；worker 不参与 provisioning。
+
+### 密码模式的一次性成员密码设置
+
+控制库迁移到最新版本并部署密码模式后，每个需要登录的租户成员必须先设置密码。
+命令只接受 `--phone`，密码只能从隐藏提示或标准输入读取；不要把密码放进 argv、环境
+文件、Compose 文件或 shell history。自动化必须使用 `-T`，使 stdin 在没有伪终端时
+也能传入。以下操作在 NAS 的交互式 root shell 中完成，shell 变量不是环境变量且应在
+命令后立即清除：
+
+```bash
+sudo -i
+cd /volume1/docker/inventory-manager
+read -r -s tenant_password; printf '\n'
+printf '%s\n' "$tenant_password" | docker compose \
+  --project-directory . \
+  --env-file current.env \
+  --file docker-compose.yml \
+  run --rm -T app \
+  python -m flask --app run.py set-tenant-password \
+  --phone '<member-phone>' --password-stdin
+unset tenant_password
+exit
+```
+
+密码必须为 12 至 128 个字符。命令会按现有规则规范化大陆手机号，只保存 Werkzeug
+密码哈希，并撤销该成员已有的全部租户会话。未知成员或不合规密码会明确失败，但不会
+输出输入的密码。忘记密码时重复运行同一命令即可安全重置；系统不会在密码模式下退回
+短信恢复。
 
 ## 失败处理与恢复
 

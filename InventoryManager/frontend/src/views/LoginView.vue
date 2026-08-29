@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { apiErrorMessage } from '@/api/auth'
@@ -12,10 +12,22 @@ const route = useRoute()
 const router = useRouter()
 const phone = ref('')
 const code = ref('')
+const password = ref('')
 const codeRequested = ref(false)
 const busy = ref(false)
 const message = ref('')
 const errorMessage = ref('')
+const configLoading = ref(true)
+
+onMounted(async () => {
+  try {
+    await auth.loadAuthConfig()
+  } catch (error) {
+    errorMessage.value = apiErrorMessage(error)
+  } finally {
+    configLoading.value = false
+  }
+})
 
 const requestCode = async () => {
   errorMessage.value = ''
@@ -35,7 +47,10 @@ const login = async () => {
   errorMessage.value = ''
   busy.value = true
   try {
-    if (!await auth.verifyCode(phone.value, code.value)) return
+    const applied = auth.authMethod === 'password'
+      ? await auth.verifyPassword(phone.value, password.value)
+      : await auth.verifyCode(phone.value, code.value)
+    if (!applied) return
     await navigateAfterTenantLogin(
       route.query.next,
       (next) => router.replace(next),
@@ -51,9 +66,9 @@ const login = async () => {
 
 <template>
   <main class="auth-page">
-    <form class="auth-card" @submit.prevent="login">
+    <form v-if="!configLoading" class="auth-card" @submit.prevent="login">
       <p class="eyebrow">租赁库存管理</p>
-      <h1>短信验证码登录</h1>
+      <h1>{{ auth.authMethod === 'password' ? '密码登录' : '短信验证码登录' }}</h1>
       <label>
         手机号
         <input
@@ -66,6 +81,7 @@ const login = async () => {
         >
       </label>
       <button
+        v-if="auth.authMethod === 'sms'"
         data-testid="request-code"
         type="button"
         :disabled="busy || phone.length !== 11"
@@ -73,7 +89,7 @@ const login = async () => {
       >
         获取验证码
       </button>
-      <label v-if="codeRequested">
+      <label v-if="auth.authMethod === 'sms' && codeRequested">
         验证码
         <input
           v-model.trim="code"
@@ -84,17 +100,29 @@ const login = async () => {
           placeholder="6 位验证码"
         >
       </label>
+      <label v-if="auth.authMethod === 'password'">
+        密码
+        <input
+          v-model="password"
+          data-testid="password"
+          type="password"
+          autocomplete="current-password"
+          maxlength="128"
+          placeholder="请输入密码"
+        >
+      </label>
       <button
-        v-if="codeRequested"
+        v-if="auth.authMethod === 'password' || codeRequested"
         data-testid="login"
         type="submit"
-        :disabled="busy || code.length !== 6"
+        :disabled="busy || (auth.authMethod === 'password' ? password.length === 0 : code.length !== 6)"
       >
         登录
       </button>
       <p v-if="message" class="hint">{{ message }}</p>
       <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
     </form>
+    <p v-else>正在加载登录方式…</p>
   </main>
 </template>
 

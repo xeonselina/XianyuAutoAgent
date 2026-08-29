@@ -170,6 +170,12 @@ const router = createRouter({
       meta: requiresTenant,
     },
     {
+      path: '/change-password',
+      name: 'change-password',
+      component: () => import('@/views/PasswordChangeView.vue'),
+      meta: requiresTenant,
+    },
+    {
       path: '/platform/login',
       name: 'platform-login',
       component: () => import('@/views/PlatformLoginView.vue'),
