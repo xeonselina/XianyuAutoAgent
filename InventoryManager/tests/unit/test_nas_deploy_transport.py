@@ -1,5 +1,6 @@
 import json
 import os
+import hashlib
 import stat
 import subprocess
 from pathlib import Path
@@ -24,6 +25,9 @@ with open(os.environ["FAKE_SSH_LOG"], "a") as handle:
         "stdin_size": len(stdin_bytes),
         "has_nas_pass_environment": "NAS_PASS" in os.environ,
         "has_sudo_pass_environment": "SUDO_PASS" in os.environ,
+        "has_nas_password_environment": "NAS_PASSWORD" in os.environ,
+        "has_sudo_password_environment": "SUDO_PASSWORD" in os.environ,
+        "has_sshpass_environment": "SSHPASS" in os.environ,
     }) + "\n")
 
 command = argv[-1] if argv else ""
@@ -33,6 +37,28 @@ if command == "printf '%s\\n' \"$HOME\"":
 failure = os.environ.get("FAKE_SSH_FAIL_MATCH", "")
 if failure and failure in command:
     sys.exit(41)
+'''
+
+
+FAKE_STAT = r'''#!/usr/bin/env python3
+import json
+import os
+import sys
+
+with open(os.environ["FAKE_EARLY_LOG"], "a") as handle:
+    handle.write(json.dumps({
+        "credential_environment": {
+            name: name in os.environ
+            for name in (
+                "NAS_PASS", "SUDO_PASS", "NAS_PASSWORD", "SUDO_PASSWORD", "SSHPASS",
+            )
+        },
+    }) + "\n")
+
+if sys.argv[1:3] == ["-c", "%a"] or sys.argv[1:3] == ["-f", "%Lp"]:
+    print("600")
+    sys.exit(0)
+sys.exit(1)
 '''
 
 
@@ -92,8 +118,10 @@ def invoke(
     fake_bin.mkdir()
     ssh_log = tmp_path / "ssh.jsonl"
     sshpass_log = tmp_path / "sshpass.jsonl"
+    early_log = tmp_path / "early.jsonl"
     write_executable(fake_bin / "ssh", FAKE_SSH)
     write_executable(fake_bin / "sshpass", FAKE_SSHPASS)
+    write_executable(fake_bin / "stat", FAKE_STAT)
 
     config = dict(BASE_CONFIG)
     config.update(config_updates or {})
@@ -111,13 +139,22 @@ def invoke(
     config_file.chmod(0o600)
 
     env = dict(os.environ)
-    for key in (*BASE_CONFIG, "NAS_PASS", "SUDO_PASS", "SSH_KEY", "SSHPASS"):
+    for key in (
+        *BASE_CONFIG,
+        "NAS_PASS",
+        "SUDO_PASS",
+        "NAS_PASSWORD",
+        "SUDO_PASSWORD",
+        "SSH_KEY",
+        "SSHPASS",
+    ):
         env.pop(key, None)
     env.update({
         "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
         "XDG_CONFIG_HOME": str(config_home),
         "FAKE_SSH_LOG": str(ssh_log),
         "FAKE_SSHPASS_LOG": str(sshpass_log),
+        "FAKE_EARLY_LOG": str(early_log),
         "IMAGE_REPOSITORY": "registry.example.test/team/inventory-manager",
         "IMAGE_TAG": "20260828-120000-abc123def456",
         "BACKUP_VERIFIED": "backup-verified",
@@ -139,6 +176,7 @@ def invoke(
     return result, {
         "ssh": read_json_lines(ssh_log),
         "sshpass": read_json_lines(sshpass_log),
+        "early": read_json_lines(early_log),
     }
 
 
@@ -166,6 +204,45 @@ def test_password_never_appears_in_xtrace_or_process_arguments(tmp_path):
     assert all(call["has_sshpass_environment"] for call in calls["sshpass"])
     assert not any(call["has_nas_pass_environment"] for call in calls["ssh"])
     assert not any(call["has_sudo_pass_environment"] for call in calls["ssh"])
+    assert not any(call["has_nas_password_environment"] for call in calls["ssh"])
+    assert not any(call["has_sudo_password_environment"] for call in calls["ssh"])
+
+
+def test_credentials_are_unexported_before_the_first_external_process(tmp_path):
+    public_password = "public-transport-secret"
+    public_sudo_password = "public-sudo-secret"
+    inherited_alias = "inherited-private-alias"
+    inherited_sshpass = "inherited-sshpass"
+    result, calls = invoke(
+        tmp_path,
+        "check",
+        env_updates={
+            "NAS_PASS": public_password,
+            "SUDO_PASS": public_sudo_password,
+            "NAS_PASSWORD": inherited_alias,
+            "SUDO_PASSWORD": inherited_alias,
+            "SSHPASS": inherited_sshpass,
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert calls["early"]
+    assert all(
+        not present
+        for present in calls["early"][0]["credential_environment"].values()
+    )
+    assert all(not call["has_nas_pass_environment"] for call in calls["ssh"])
+    assert all(not call["has_sudo_pass_environment"] for call in calls["ssh"])
+    assert all(not call["has_nas_password_environment"] for call in calls["ssh"])
+    assert all(not call["has_sudo_password_environment"] for call in calls["ssh"])
+    serialized = result.stdout + result.stderr + json.dumps(calls)
+    for secret in (
+        public_password,
+        public_sudo_password,
+        inherited_alias,
+        inherited_sshpass,
+    ):
+        assert secret not in serialized
 
 
 def test_upload_uses_ssh_stdin_instead_of_sftp_scp_or_rsync(tmp_path):
@@ -180,6 +257,7 @@ def test_upload_uses_ssh_stdin_instead_of_sftp_scp_or_rsync(tmp_path):
     assert len(uploads) == 2
     assert all(call["stdin_size"] > 0 for call in uploads)
     assert all("/volume1/homes/deployer/.xianyu-agent-" in call["argv"][-1] for call in uploads)
+    assert all("set -C; cat >" in call["argv"][-1] for call in uploads)
 
 
 def test_unknown_action_fails_before_ssh(tmp_path):
@@ -243,34 +321,62 @@ def test_unsafe_configuration_fails_before_ssh(tmp_path, updates, extra_lines):
     assert calls["ssh"] == []
 
 
-def test_deploy_installs_assets_then_runs_installed_release_script(tmp_path):
+def test_actions_install_verified_root_assets_then_run_root_release_script(tmp_path):
     result, calls = invoke(tmp_path, "deploy")
 
     assert result.returncode == 0, result.stderr
     commands = ssh_commands(calls)
-    install_index = next(i for i, command in enumerate(commands) if " install " in command)
-    lifecycle_index = next(i for i, command in enumerate(commands) if "remote_release.sh' 'deploy'" in command)
+    install_index = next(i for i, command in enumerate(commands) if "install -d -o root" in command)
+    lifecycle_index = next(
+        i for i, command in enumerate(commands)
+        if ".xianyu-agent-release/remote_release.sh' 'deploy'" in command
+    )
     assert install_index < lifecycle_index
     assert "sudo -n" in commands[install_index]
     assert "/volume1/docker/inventory-manager/docker-compose.yml" in commands[install_index]
-    assert "/volume1/docker/inventory-manager/remote_release.sh" in commands[install_index]
-    assert "/volume1/docker/inventory-manager/remote_release.sh" in commands[lifecycle_index]
+    assert "/volume1/docker/inventory-manager/.xianyu-agent-release/remote_release.sh" in commands[install_index]
+    assert "install -o root -g root -m 0644" in commands[install_index]
+    assert "install -o root -g root -m 0755" in commands[install_index]
+    assert "[ ! -L /volume1/homes/deployer/.xianyu-agent-compose-" in commands[install_index]
+    assert "[ ! -L /volume1/homes/deployer/.xianyu-agent-remote_release-" in commands[install_index]
+    assert "/volume1/docker/inventory-manager/.xianyu-agent-release/remote_release.sh" in commands[lifecycle_index]
+    assert ".xianyu-agent-remote_release-" not in commands[lifecycle_index]
     assert "registry.example.test/team/inventory-manager:20260828-120000-abc123def456" in commands[lifecycle_index]
+
+    compose_hash = hashlib.sha256((ROOT / "deploy/nas/docker-compose.yml").read_bytes()).hexdigest()
+    release_hash = hashlib.sha256((ROOT / "deploy/nas/remote_release.sh").read_bytes()).hexdigest()
+    assert commands[install_index].count(compose_hash) == 2
+    assert commands[install_index].count(release_hash) == 2
+    assert "hash_file()" in commands[install_index]
+    assert commands[install_index].count("hash_file ") == 4
+    assert "mv /volume1/homes/deployer/.xianyu-agent-compose-" in commands[install_index]
+    assert "chown root:root" in commands[install_index]
 
 
 @pytest.mark.parametrize("action", ("check", "status", "logs"))
-def test_read_only_actions_use_temp_script_and_do_not_install(action, tmp_path):
+def test_read_only_actions_refresh_verified_assets_but_only_run_read_only_action(action, tmp_path):
     result, calls = invoke(tmp_path, action)
 
     assert result.returncode == 0, result.stderr
     commands = ssh_commands(calls)
-    assert not any(" install " in command for command in commands)
-    assert any(f".sh' '{action}'" in command and "remote_release-" in command for command in commands)
+    install_index = next(i for i, command in enumerate(commands) if "install -d -o root" in command)
+    lifecycle_index = next(
+        i for i, command in enumerate(commands)
+        if f".xianyu-agent-release/remote_release.sh' '{action}'" in command
+    )
+    assert install_index < lifecycle_index
+    assert ".xianyu-agent-remote_release-" not in commands[lifecycle_index]
+    assert "'deploy'" not in commands[lifecycle_index]
+    assert "docker " not in commands[lifecycle_index]
     cleanup = commands[-1]
     assert cleanup.startswith("rm -f -- ")
     assert "/volume1/homes/deployer/.xianyu-agent-" in cleanup
     assert "rm -r" not in cleanup
     assert "/volume1/docker/inventory-manager" not in cleanup
+    root_cleanup = commands[-2]
+    assert "sudo -n rm -f -- " in root_cleanup
+    assert ".xianyu-agent-release/.incoming-compose-" in root_cleanup
+    assert ".xianyu-agent-release/.incoming-remote_release-" in root_cleanup
 
 
 def test_sudo_password_is_sent_only_over_stdin(tmp_path):
@@ -281,7 +387,7 @@ def test_sudo_password_is_sent_only_over_stdin(tmp_path):
     serialized = result.stdout + result.stderr + json.dumps(calls)
     assert secret not in serialized
     sudo_calls = [call for call in calls["ssh"] if "sudo -S -p ''" in call["argv"][-1]]
-    assert len(sudo_calls) == 2
+    assert len(sudo_calls) == 3
     assert all(call["stdin_size"] > 0 for call in sudo_calls)
     assert not any("sudo -n" in call["argv"][-1] for call in sudo_calls)
 

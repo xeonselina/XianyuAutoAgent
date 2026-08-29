@@ -12,6 +12,9 @@ WORKER_CONTAINER ?= inventory-manager-worker
 APP_PORT ?= 5002
 ENV_FILE ?= .env
 
+export IMAGE PLATFORM IMAGE_REPOSITORY GIT_SHA RELEASE_TIME RELEASE_TAG \
+	BACKUP_VERIFIED IMAGE_TAG LOG_TAIL APP_CONTAINER WORKER_CONTAINER APP_PORT ENV_FILE
+
 .DEFAULT_GOAL := help
 .PHONY: help build push run-app run-worker worker-once build-push check-nas deploy-nas release-nas nas-status nas-logs
 
@@ -26,49 +29,46 @@ help:
 	@echo "make release-nas BACKUP_VERIFIED=backup-verified"
 
 build:
-	docker build --platform "$(PLATFORM)" --tag "$(IMAGE)" .
+	docker build --platform "$$PLATFORM" --tag "$$IMAGE" .
 
 push:
-	docker push "$(IMAGE)"
+	docker push "$$IMAGE"
 
 run-app:
-	docker run --rm --name "$(APP_CONTAINER)" --env-file "$(ENV_FILE)" \
-		--publish "$(APP_PORT):5002" "$(IMAGE)"
+	docker run --rm --name "$$APP_CONTAINER" --env-file "$$ENV_FILE" \
+		--publish "$$APP_PORT:5002" "$$IMAGE"
 
 run-worker:
-	docker run --rm --name "$(WORKER_CONTAINER)" --env-file "$(ENV_FILE)" \
+	docker run --rm --name "$$WORKER_CONTAINER" --env-file "$$ENV_FILE" \
 		--env "PROVISIONER_DATABASE_URL=" --env "TENCENTCLOUD_SECRET_ID=" --env "TENCENTCLOUD_SECRET_KEY=" \
 		--env "TENCENT_SMS_SDK_APP_ID=" --env "TENCENT_SMS_SIGN_NAME=" --env "TENCENT_SMS_TEMPLATE_ID=" \
-		"$(IMAGE)" python worker.py
+		"$$IMAGE" python worker.py
 
 worker-once:
-	docker run --rm --name "$(WORKER_CONTAINER)" --env-file "$(ENV_FILE)" \
+	docker run --rm --name "$$WORKER_CONTAINER" --env-file "$$ENV_FILE" \
 		--env "PROVISIONER_DATABASE_URL=" --env "TENCENTCLOUD_SECRET_ID=" --env "TENCENTCLOUD_SECRET_KEY=" \
 		--env "TENCENT_SMS_SDK_APP_ID=" --env "TENCENT_SMS_SIGN_NAME=" --env "TENCENT_SMS_TEMPLATE_ID=" \
-		"$(IMAGE)" python worker.py --once
+		"$$IMAGE" python worker.py --once
 
 build-push:
 	docker buildx build --platform "linux/amd64" \
-		--tag "$(IMAGE_REPOSITORY):$(RELEASE_TAG)" --push .
+		--tag "$$IMAGE_REPOSITORY:$$RELEASE_TAG" --push .
 
 check-nas:
-	@IMAGE_REPOSITORY="$(IMAGE_REPOSITORY)" BACKUP_VERIFIED="$(BACKUP_VERIFIED)" \
-		bash scripts/deploy_nas.sh check
+	@bash scripts/deploy_nas.sh check
 
 deploy-nas:
-	@test -n "$(IMAGE_TAG)" || { echo "IMAGE_TAG is required" >&2; exit 2; }
-	@IMAGE_REPOSITORY="$(IMAGE_REPOSITORY)" IMAGE_TAG="$(IMAGE_TAG)" \
-		BACKUP_VERIFIED="$(BACKUP_VERIFIED)" bash scripts/deploy_nas.sh deploy
+	@test -n "$$IMAGE_TAG" || { echo "IMAGE_TAG is required" >&2; exit 2; }
+	@bash scripts/deploy_nas.sh deploy
 
 release-nas:
-	@test "$(BACKUP_VERIFIED)" = "backup-verified" || { echo "BACKUP_VERIFIED=backup-verified is required" >&2; exit 2; }
+	@test "$$BACKUP_VERIFIED" = "backup-verified" || { echo "BACKUP_VERIFIED=backup-verified is required" >&2; exit 2; }
 	@test -z "$$(git status --porcelain -- .)" || { echo "InventoryManager working tree must be clean" >&2; exit 2; }
-	@$(MAKE) --no-print-directory build-push RELEASE_TAG="$(RELEASE_TAG)"
-	@$(MAKE) --no-print-directory deploy-nas IMAGE_TAG="$(RELEASE_TAG)" BACKUP_VERIFIED="$(BACKUP_VERIFIED)"
+	@$(MAKE) --no-print-directory build-push
+	@IMAGE_TAG="$$RELEASE_TAG" $(MAKE) --no-print-directory deploy-nas
 
 nas-status:
-	@IMAGE_REPOSITORY="$(IMAGE_REPOSITORY)" bash scripts/deploy_nas.sh status
+	@bash scripts/deploy_nas.sh status
 
 nas-logs:
-	@IMAGE_REPOSITORY="$(IMAGE_REPOSITORY)" LOG_TAIL="$(LOG_TAIL)" \
-		bash scripts/deploy_nas.sh logs
+	@bash scripts/deploy_nas.sh logs
