@@ -547,6 +547,9 @@ describe('tenant auth store and login form', () => {
     })
     expect(wrapper.find('[data-testid="request-code"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="code"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="platform-login-entry"]').attributes('href')).toBe(
+      '/platform/login',
+    )
 
     await wrapper.get('[data-testid="phone"]').setValue('13800138000')
     await wrapper.get('[data-testid="password"]').setValue('Initial-pass-123')
@@ -746,6 +749,12 @@ describe('authenticated shell and platform tenant actions', () => {
     })
     await nextTick()
 
+    expect(wrapper.get('[data-testid="platform-store-page"]').text()).toContain(
+      '创建客户店铺、设置首位店铺管理员',
+    )
+    expect(wrapper.get('.summary-grid').text()).toContain('需要处理')
+    expect(wrapper.get('.summary-grid').text()).toContain('1')
+
     await wrapper.get('[data-testid="new-tenant"]').trigger('click')
     await vi.waitFor(() => {
       expect(wrapper.find('[data-testid="tenant-name"]').exists()).toBe(true)
@@ -753,6 +762,9 @@ describe('authenticated shell and platform tenant actions', () => {
     await wrapper.get('[data-testid="tenant-name"]').setValue('租户乙')
     await wrapper.get('[data-testid="admin-phone"]').setValue('13900139000')
     await wrapper.get('[data-testid="tenant-expiry"]').setValue('2026-10-01T08:00')
+    expect(wrapper.get('.create-panel').text()).toContain(
+      '只用于首位店铺管理员登录，不是 App Key 或 App Secret',
+    )
 
     await wrapper.get('[data-testid="initial-password"]').setValue('too-short')
     await wrapper.get('[data-testid="confirm-password"]').setValue('too-short')

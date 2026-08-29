@@ -2,119 +2,110 @@
   <div class="gantt-container">
     <!-- 工具栏 -->
     <div class="toolbar">
-      <el-row :gutter="16" align="middle">
-        <el-col :span="8">
-          <el-button-group>
-            <el-button @click="ganttStore.navigateWeek(-1)">
-              <el-icon><ArrowLeft /></el-icon>
-              上周
-            </el-button>
-            <el-button @click="ganttStore.goToToday">今天</el-button>
-            <el-button @click="ganttStore.navigateWeek(1)">
-              下周
-              <el-icon><ArrowRight /></el-icon>
-            </el-button>
-          </el-button-group>
-          <el-date-picker
-            v-model="selectedDatePicker"
-            type="date"
-            placeholder="跳转到日期"
-            size="default"
-            style="margin-left: 12px; width: 160px;"
-            @change="handleDateJump"
-            :clearable="false"
-          />
-        </el-col>
-        
-        <el-col :span="8" class="text-center">
-          <span class="current-period">{{ ganttStore.currentPeriod }}</span>
-        </el-col>
-        
-        <el-col :span="8" class="text-right">
-          <el-button
-            type="primary"
-            :icon="Sort"
-            :disabled="tenantStore.currentWarehouseId === 'all'"
-            @click="showScheduleReorderDialog = true"
-          >
-            一键重排档期
+      <div class="toolbar-navigation" data-testid="gantt-date-navigation">
+        <el-button-group>
+          <el-button aria-label="查看上周" @click="ganttStore.navigateWeek(-1)">
+            <el-icon><ArrowLeft /></el-icon>
+            上周
           </el-button>
-          <el-button
-            type="success"
-            @click="showAddDeviceDialog = true"
-            :icon="Plus"
-            :disabled="tenantStore.currentWarehouseId === 'all'"
-          >
-            添加设备
+          <el-button @click="ganttStore.goToToday">今天</el-button>
+          <el-button aria-label="查看下周" @click="ganttStore.navigateWeek(1)">
+            下周
+            <el-icon><ArrowRight /></el-icon>
           </el-button>
+        </el-button-group>
+        <el-date-picker
+          v-model="selectedDatePicker"
+          type="date"
+          placeholder="跳转到日期"
+          size="default"
+          class="date-jump"
+          @change="handleDateJump"
+          :clearable="false"
+        />
+      </div>
+
+      <span class="current-period">{{ ganttStore.currentPeriod }}</span>
+
+      <div class="toolbar-actions" data-testid="gantt-toolbar-actions">
+        <el-button
+          data-testid="manual-booking-button"
+          type="primary"
+          :icon="Plus"
+          @click="openManualBooking"
+        >
+          预定设备
+        </el-button>
+        <el-button
+          data-testid="add-device-button"
+          :icon="Plus"
+          :disabled="tenantStore.currentWarehouseId === 'all'"
+          @click="showAddDeviceDialog = true"
+        >
+          添加设备
+        </el-button>
+        <el-badge
+          :value="pendingReturnsCount"
+          :hidden="pendingReturnsCount === 0"
+          class="pending-returns-badge"
+        >
           <el-button
-            type="primary"
-            @click="openManualBooking"
-            :icon="Plus"
+            data-testid="pending-returns-button"
+            class="pending-action"
+            :icon="Bell"
+            @click="openPendingReturns"
           >
-            预定设备
+            待归还
           </el-button>
-          <el-button
-            type="warning"
-            @click="openBatchShipping"
-          >
-            📦 批量发货
+        </el-badge>
+        <el-button
+          data-testid="customer-history-button"
+          :icon="User"
+          @click="showCustomerHistoryDialog = true"
+        >
+          客户历史
+        </el-button>
+        <el-dropdown data-testid="gantt-more-actions" @command="handleMoreCommand">
+          <el-button>
+            更多操作
+            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
           </el-button>
-          <el-badge
-            :value="pendingReturnsCount"
-            :hidden="pendingReturnsCount === 0"
-            class="pending-returns-badge"
-          >
-            <el-button
-              data-testid="pending-returns-button"
-              type="danger"
-              :icon="Bell"
-              @click="openPendingReturns"
-            >
-              待归还
-            </el-button>
-          </el-badge>
-          <el-button
-            @click="showCustomerHistoryDialog = true"
-            :icon="User"
-          >
-            客户历史
-          </el-button>
-          <el-dropdown @command="handleMoreCommand">
-            <el-button type="info">
-              更多
-              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-            </el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="rental-stats">
-                  <el-icon><TrendCharts /></el-icon>
-                  出租周期统计
-                </el-dropdown-item>
-                <el-dropdown-item command="sf-tracking">
-                  <el-icon><Location /></el-icon>
-                  物流查询
-                </el-dropdown-item>
-                <el-dropdown-item command="relay-management">
-                  <el-icon><Connection /></el-icon>
-                  接力管理
-                </el-dropdown-item>
-                <el-dropdown-item command="inspection">
-                  <el-icon><CircleCheck /></el-icon>
-                  验机
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-          <el-button
-            @click="ganttStore.loadData()"
-            :loading="ganttStore.loading"
-            :icon="Refresh"
-          >
-            刷新
-          </el-button>
-        </el-col>
-      </el-row>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="batch-shipping">
+                批量发货
+              </el-dropdown-item>
+              <el-dropdown-item
+                command="schedule-reorder"
+                :disabled="tenantStore.currentWarehouseId === 'all'"
+              >
+                <el-icon><Sort /></el-icon>
+                一键重排档期
+              </el-dropdown-item>
+              <el-dropdown-item command="refresh">
+                <el-icon><Refresh /></el-icon>
+                刷新档期
+              </el-dropdown-item>
+              <el-dropdown-item divided command="rental-stats">
+                <el-icon><TrendCharts /></el-icon>
+                出租周期统计
+              </el-dropdown-item>
+              <el-dropdown-item command="sf-tracking">
+                <el-icon><Location /></el-icon>
+                物流查询
+              </el-dropdown-item>
+              <el-dropdown-item command="relay-management">
+                <el-icon><Connection /></el-icon>
+                接力管理
+              </el-dropdown-item>
+              <el-dropdown-item command="inspection">
+                <el-icon><CircleCheck /></el-icon>
+                验机
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
     </div>
 
     <XianyuOrderAlertBar
@@ -1092,6 +1083,19 @@ const handleMarkPendingReturnReturned = async (rentalId: number) => {
 // 处理"更多"菜单命令
 const handleMoreCommand = (command: string) => {
   switch (command) {
+    case 'batch-shipping':
+      openBatchShipping()
+      break
+    case 'schedule-reorder':
+      if (tenantStore.currentWarehouseId === 'all') {
+        ElMessage.warning('请选择具体仓库')
+        break
+      }
+      showScheduleReorderDialog.value = true
+      break
+    case 'refresh':
+      void ganttStore.loadData()
+      break
     case 'rental-stats':
       router.push('/rental-stats')
       break
@@ -1339,26 +1343,86 @@ onUnmounted(() => {
 }
 
 .toolbar {
+  display: grid;
+  grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr);
+  align-items: center;
+  gap: 16px;
   flex: 0 0 auto;
   margin-bottom: 20px;
+  padding: 12px 14px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+  background: var(--el-bg-color);
 }
 
 .pending-returns-badge {
-  margin-right: 12px;
+  margin-right: 2px;
 }
 
 .current-period {
+  justify-self: center;
   font-weight: 600;
   font-size: 16px;
   color: var(--el-text-color-primary);
+  white-space: nowrap;
 }
 
-.text-center {
-  text-align: center;
+.toolbar-navigation,
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.text-right {
-  text-align: right;
+.toolbar-actions {
+  justify-content: flex-end;
+}
+
+.date-jump {
+  width: 160px;
+}
+
+.pending-action {
+  color: var(--el-color-danger);
+  border-color: var(--el-color-danger-light-5);
+  background: var(--el-color-danger-light-9);
+}
+
+@media (max-width: 1280px) {
+  .toolbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .current-period {
+    justify-self: end;
+  }
+
+  .toolbar-actions {
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 720px) {
+  .toolbar {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .toolbar-navigation,
+  .toolbar-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .current-period {
+    justify-self: start;
+    order: -1;
+  }
+
+  .date-jump {
+    width: 145px;
+  }
 }
 
 .filters {

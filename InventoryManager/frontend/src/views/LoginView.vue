@@ -126,6 +126,13 @@ const login = async () => {
       </button>
       <p v-if="message" class="hint">{{ message }}</p>
       <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
+      <RouterLink
+        data-testid="platform-login-entry"
+        class="platform-entry"
+        to="/platform/login"
+      >
+        超级管理员入口
+      </RouterLink>
     </form>
     <section v-else-if="!configLoading" class="auth-card" role="alert">
       <p class="eyebrow">租赁库存管理</p>
@@ -154,4 +161,6 @@ button { padding: 11px 16px; border: 0; border-radius: 8px; color: white; backgr
 button:disabled { opacity: .5; cursor: default; }
 .hint { margin: 0; color: #475467; }
 .error { margin: 0; color: #b42318; }
+.platform-entry { margin-top: 4px; padding-top: 15px; border-top: 1px solid #eaecf0; color: #667085; font-size: 13px; text-align: center; text-decoration: none; }
+.platform-entry:hover { color: #315fc5; }
 </style>
