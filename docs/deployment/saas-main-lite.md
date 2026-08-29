@@ -69,11 +69,13 @@ MIN_FREE_SPACE_MB=1024
 `nas.env` 可以包含受保护的
 `NAS_PASS` 与 `SUDO_PASS` 键，但只能保存实际凭据于这个 mode-`0600` 的仓库外
 文件，绝不能复制到文档、shell history、CI 变量回显或 Git。优先使用 SSH key 和
-受限的 passwordless sudo。密码 sudo 在同一个 SSH 远程 shell 内严格分为认证和执行
-阶段：密码只进入专用的 `sudo -v` 标准输入；认证成功后 shell 先把自己的标准输入
-替换为 `/dev/null`，安装、生命周期或清理才通过 `sudo -n` 执行。因此即使 sudo
-timestamp 或 NOPASSWD 使认证阶段不读取密码，未读输入也会在 root 动作开始前关闭，
-不会流入 root 脚本或 Docker/Compose。
+受限的 passwordless sudo。每个 root 动作只调用一次 sudo：密码模式使用受保护的
+`sudo -S` 标准输入，passwordless 模式使用 `sudo -n`。sudo 直接启动一个最小化 root
+wrapper；该 wrapper 的第一个操作是把标准输入替换为 `/dev/null`，然后才执行安装、
+生命周期或清理动作。因此既兼容群晖非 TTY 下不可复用 sudo timestamp 的行为，也能在
+timestamp 或 NOPASSWD 使 sudo 不读取密码时关闭未读输入，密码不会流入 root 脚本或
+Docker/Compose。所有 root 动作都使用固定的 `PATH=/usr/local/bin:/usr/bin:/bin` 和
+`HOME=/root`。
 
 ### 3. 一次性登录镜像仓库
 

@@ -63,3 +63,26 @@ Implementation commit: `fix: isolate sudo authentication from root commands` (th
 - Failure-path coverage proves a lifecycle status of 41 remains the final status while password-mode root cleanup and user-temp cleanup still run through their separated stdin boundaries.
 
 Round 2 verification uses the same syntax, Make dry-run, strict OpenSpec, diff, and secret-scan commands listed above. The expanded relevant regression suite completed with `99 passed, 79 warnings`.
+
+## Round 3 DSM single-sudo compatibility fix
+
+Implementation commit: `fix: make sudo wrapper compatible with DSM` (the focused commit containing this round; exact hash reported after commit creation).
+
+- Live DSM verification showed that a successful non-TTY `sudo -S -p '' -v` did not authorize the following `sudo -n`, even in the same remote shell. Password mode therefore no longer depends on a reusable sudo timestamp.
+- Every privileged action now uses one sudo invocation. Sudo directly launches `env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/root sh -c ...`; the minimal root wrapper's first command replaces stdin with `/dev/null`, then uses `exec "$@"` to run the validated argv without `eval`.
+- The same boundary works when sudo consumes the password and when cached/NOPASSWD authorization leaves the password input unread. Passwordless mode uses the identical wrapper through one `sudo -n` invocation. Install, lifecycle, and exact staging cleanup all receive the controlled root environment, while only lifecycle receives its validated release variables.
+- Remote action construction now quotes each argv element independently. This preserves the nested install `sh -c` script and lifecycle environment assignments without treating either as executable login-shell syntax.
+- The executable fake-SSH/fake-sudo harness runs the committed remote command through `/bin/sh`. Fake SSH deliberately leaves root-command stdin untouched; fake sudo separately models password consumption, cached/NOPASSWD unread input, and authentication failure. Root probes prove install/lifecycle/cleanup each see zero stdin bytes, the controlled PATH/HOME, no credential or Make environment, and the expected order.
+- Failure coverage proves sudo authentication failure prevents every root action, still attempts only the exact configured cleanup paths, and returns status 73. A lifecycle status of 41 remains final while cached-password root cleanup and user-temp cleanup still run.
+
+Round 3 verification:
+
+- Executable transport suite: `31 passed`.
+- Full relevant regression suite: `101 passed, 79 warnings`.
+- `bash -n InventoryManager/scripts/deploy_nas.sh InventoryManager/deploy/nas/remote_release.sh`: passed.
+- Make dry-runs for `check-nas`, explicit-tag `deploy-nas`, and `release-nas`: passed.
+- `openspec validate add-nas-release-automation --strict`: passed.
+- `git diff --check`: passed.
+- Credential/private-key Git scan over `InventoryManager` and `docs/deployment`: no matches.
+
+Round 3 residual: the controller must re-run the read-only `make check-nas` against DSM; this implementation task intentionally did not access the live NAS.

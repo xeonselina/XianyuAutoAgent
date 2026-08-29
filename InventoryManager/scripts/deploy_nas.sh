@@ -197,24 +197,42 @@ upload() {
     ssh_command "umask 077; set -C; cat > '$remote'" <"$source"
 }
 
+quote_remote_arg() {
+    local value="$1"
+    local prefix
+
+    printf "'"
+    while [[ "$value" == *"'"* ]]; do
+        prefix=${value%%\'*}
+        printf "%s'\\''" "$prefix"
+        value=${value#*\'}
+    done
+    printf "%s'" "$value"
+}
+
 sudo_remote() {
-    local command="$1"
-    local root_command="sudo -n env -i PATH='/usr/local/bin:/usr/bin:/bin' HOME='/root' $command"
+    local arg quoted
+    local sudo_options="-n"
+    local remote_command
 
     if [ -n "$SUDO_PASSWORD" ]; then
-        # Keep authentication and the action in the same remote shell so sudo
-        # timestamp policies remain effective, but replace that shell's stdin
-        # with /dev/null after validation. If sudo -v uses a cached timestamp or
-        # NOPASSWD and leaves the here-string unread, exec closes that input
-        # before the privileged command can start.
-        ssh_command "sudo -S -p '' -v && exec </dev/null && $root_command" \
-            <<<"$SUDO_PASSWORD"
-        return
+        sudo_options="-S -p ''"
     fi
 
-    # Passwordless actions also receive immediate EOF and the same minimal
-    # DSM-compatible root environment.
-    ssh_command "$root_command" </dev/null
+    # sudo authenticates only once and directly launches a minimal root wrapper.
+    # Whether sudo consumes the password or uses cached/NOPASSWD authorization,
+    # the wrapper's first operation closes stdin before it executes the action.
+    remote_command="sudo $sudo_options env -i PATH='/usr/local/bin:/usr/bin:/bin' HOME='/root' sh -c 'exec </dev/null; exec \"\$@\"' sh"
+    for arg in "$@"; do
+        quoted=$(quote_remote_arg "$arg")
+        remote_command="$remote_command $quoted"
+    done
+
+    if [ -n "$SUDO_PASSWORD" ]; then
+        ssh_command "$remote_command" <<<"$SUDO_PASSWORD"
+    else
+        ssh_command "$remote_command" </dev/null
+    fi
 }
 
 cleanup() {
@@ -225,7 +243,7 @@ cleanup() {
     trap - EXIT
     if [ -n "${ROOT_COMPOSE_STAGE:-}" ] && [ -n "${ROOT_RELEASE_STAGE:-}" ]; then
         set +e
-        sudo_remote "rm -f -- '$ROOT_COMPOSE_STAGE' '$ROOT_RELEASE_STAGE'"
+        sudo_remote rm -f -- "$ROOT_COMPOSE_STAGE" "$ROOT_RELEASE_STAGE"
         current_cleanup_status="$?"
         set -e
         if [ "$cleanup_status" -eq 0 ]; then
@@ -369,10 +387,10 @@ upload "$LOCAL_RELEASE_SCRIPT" "$REMOTE_SCRIPT_TMP"
 # on the same filesystem as its final path. After ownership, mode, and digest
 # checks, rename the prepared files into place atomically. The deploy directory
 # is made root-owned and non-writable to the login user before either rename.
-# The outer single quotes ensure that the remote login shell cannot expand the
-# checksum variables before sudo starts the root-owned shell.
+# sudo_remote quotes this script as one remote argv element, so the login shell
+# cannot expand its checksum variables before sudo starts the root-owned shell.
 REMOTE_HASH_FUNCTION='hash_file() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1"; else return 127; fi; }'
-INSTALL_COMMAND="sh -c 'set -eu; $REMOTE_HASH_FUNCTION; \
+INSTALL_SCRIPT="set -eu; $REMOTE_HASH_FUNCTION; \
 [ ! -L $REMOTE_COMPOSE_TMP ] && [ -f $REMOTE_COMPOSE_TMP ]; \
 [ ! -L $REMOTE_SCRIPT_TMP ] && [ -f $REMOTE_SCRIPT_TMP ]; \
 [ ! -L $NAS_DEPLOY_DIR ]; \
@@ -400,12 +418,18 @@ mv -f -- $ROOT_RELEASE_STAGE $ROOT_RELEASE_SCRIPT; \
 [ ! -L $ROOT_RELEASE_SCRIPT ] && [ -f $ROOT_RELEASE_SCRIPT ]; \
 compose_hash=\$(hash_file $ROOT_COMPOSE); compose_hash=\${compose_hash%% *}; [ \"\$compose_hash\" = $COMPOSE_SHA256 ]; \
 script_hash=\$(hash_file $ROOT_RELEASE_SCRIPT); script_hash=\${script_hash%% *}; [ \"\$script_hash\" = $RELEASE_SCRIPT_SHA256 ]; \
-rm -f -- $ROOT_COMPOSE_STAGE $ROOT_RELEASE_STAGE'"
-sudo_remote "$INSTALL_COMMAND"
-RELEASE_PROGRAM="'$ROOT_RELEASE_SCRIPT' '$ACTION'"
+rm -f -- $ROOT_COMPOSE_STAGE $ROOT_RELEASE_STAGE"
+sudo_remote sh -c "$INSTALL_SCRIPT"
 
-RELEASE_COMMAND="DEPLOY_DIR='$NAS_DEPLOY_DIR' APP_ENV_FILE='$APP_ENV_FILE' FRPC_CONTAINER='$FRPC_CONTAINER' FRPC_NETWORK='$FRPC_NETWORK' LOG_TAIL='$LOG_TAIL' MIN_FREE_SPACE_MB='$MIN_FREE_SPACE_MB'"
+RELEASE_ENV=(
+    "DEPLOY_DIR=$NAS_DEPLOY_DIR"
+    "APP_ENV_FILE=$APP_ENV_FILE"
+    "FRPC_CONTAINER=$FRPC_CONTAINER"
+    "FRPC_NETWORK=$FRPC_NETWORK"
+    "LOG_TAIL=$LOG_TAIL"
+    "MIN_FREE_SPACE_MB=$MIN_FREE_SPACE_MB"
+)
 if [ "$ACTION" = "deploy" ]; then
-    RELEASE_COMMAND="$RELEASE_COMMAND IMAGE_REF='$IMAGE_REF' BACKUP_VERIFIED='$BACKUP_VERIFIED'"
+    RELEASE_ENV+=("IMAGE_REF=$IMAGE_REF" "BACKUP_VERIFIED=$BACKUP_VERIFIED")
 fi
-sudo_remote "$RELEASE_COMMAND $RELEASE_PROGRAM"
+sudo_remote env "${RELEASE_ENV[@]}" "$ROOT_RELEASE_SCRIPT" "$ACTION"
