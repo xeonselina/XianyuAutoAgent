@@ -178,3 +178,13 @@ def test_app_healthcheck_uses_python_stdlib():
     text = COMPOSE.read_text()
     assert "urllib.request.urlopen" in text
     assert "http://127.0.0.1:5002/health" in text
+
+
+def test_deployment_guide_documents_release_network_and_recovery():
+    text = (ROOT.parent / "docs/deployment/saas-main-lite.md").read_text()
+    for token in (
+        "make release-nas", "make deploy-nas IMAGE_TAG=", "inventory-manager-app",
+        "FRPC_NETWORK", "backup-verified", "make nas-status", "make nas-logs",
+        "迁移失败", "向前修复",
+    ):
+        assert token in text

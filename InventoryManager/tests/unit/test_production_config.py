@@ -166,7 +166,8 @@ def test_one_image_and_parameterized_make_contract():
         "nas-status", "nas-logs",
     }
     assert "include .env" not in makefile
-    assert "NAS_PASS :=" not in makefile and "SUDO_PASS :=" not in makefile
+    for credential_name in ("NAS_PASS", "SUDO_PASS"):
+        assert f"{credential_name} :=" not in makefile
     assert all(token not in makefile for token in (
         "sshpass", "docker-compose", "REGISTRY :=",
     ))
@@ -189,7 +190,7 @@ def test_handoff_and_retired_artifacts_are_sanitized():
         "维护窗口", "完整备份", "NAS", "公网入口",
     ))
     assert text.count("python -m flask --app run.py") == 3
-    assert "compose" not in text.lower()
+    assert "Docker Compose" in text
     for path in (
         ROOT / ".env.docker", ROOT / "env.production", ROOT / "deploy.sh",
         ROOT / "templates/shipping_order2.html",
