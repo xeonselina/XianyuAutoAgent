@@ -20,11 +20,18 @@ import subprocess
 import sys
 
 argv = sys.argv[1:]
-stdin_bytes = sys.stdin.buffer.read()
+command = argv[-1] if argv else ""
+password_sudo_prefix = "sudo -S -p '' -v && exec </dev/null && "
+stdin_read = not (
+    os.environ.get("FAKE_SUDO_AUTH_DONT_READ") == "1"
+    and command.startswith(password_sudo_prefix)
+)
+stdin_bytes = sys.stdin.buffer.read() if stdin_read else b""
 with open(os.environ["FAKE_SSH_LOG"], "a") as handle:
     handle.write(json.dumps({
         "argv": argv,
         "stdin_size": len(stdin_bytes),
+        "stdin_read": stdin_read,
         "has_nas_pass_environment": "NAS_PASS" in os.environ,
         "has_sudo_pass_environment": "SUDO_PASS" in os.environ,
         "has_nas_password_environment": "NAS_PASSWORD" in os.environ,
@@ -32,29 +39,43 @@ with open(os.environ["FAKE_SSH_LOG"], "a") as handle:
         "has_sshpass_environment": "SSHPASS" in os.environ,
     }) + "\n")
 
-command = argv[-1] if argv else ""
 if command == "printf '%s\\n' \"$HOME\"":
     print("/volume1/homes/deployer")
 
-if (
-    os.environ.get("FAKE_EXECUTE_LIFECYCLE") == "1"
-    and any(
-        command.endswith(f"remote_release.sh' '{action}'")
-        for action in ("check", "deploy", "status", "logs")
-    )
+root_action = (
+    command[len(password_sudo_prefix):]
+    if command.startswith(password_sudo_prefix)
+    else command
+)
+if os.environ.get("FAKE_EXECUTE_ROOT_COMMANDS") == "1" and root_action.startswith(
+    "sudo -n env -i "
 ):
-    tokens = shlex.split(command)
+    tokens = shlex.split(root_action)
     env_index = tokens.index("env")
-    lifecycle = tokens[env_index:]
-    lifecycle[-2:] = [
+    root_command = tokens[env_index:]
+    command_index = 1
+    if root_command[command_index] == "-i":
+        command_index += 1
+    while "=" in root_command[command_index]:
+        command_index += 1
+    privileged_argv = root_command[command_index:]
+    if privileged_argv[0] == "sh":
+        label = "install"
+    elif privileged_argv[0] == "rm":
+        label = "cleanup"
+    elif any("remote_release.sh" in part for part in privileged_argv):
+        label = "lifecycle"
+    else:
+        raise SystemExit(97)
+    root_command[command_index:] = [
         sys.executable,
         os.environ["FAKE_ROOT_PROBE"],
         os.environ["FAKE_ROOT_PROBE_LOG"],
-        lifecycle[-1],
+        label,
     ]
     completed = subprocess.run(
-        lifecycle,
-        input=stdin_bytes,
+        root_command,
+        input=b"",
         capture_output=True,
         env=os.environ,
     )
@@ -113,9 +134,11 @@ import json
 import os
 import sys
 
-with open(sys.argv[1], "w") as handle:
+stdin_bytes = sys.stdin.buffer.read()
+with open(sys.argv[1], "a") as handle:
     json.dump({
-        "argv": sys.argv[2:],
+        "label": sys.argv[2],
+        "stdin_size": len(stdin_bytes),
         "path": os.environ.get("PATH"),
         "home": os.environ.get("HOME"),
         "min_free_space_mb": os.environ.get("MIN_FREE_SPACE_MB"),
@@ -130,6 +153,7 @@ with open(sys.argv[1], "w") as handle:
             if name in os.environ
         ],
     }, handle)
+    handle.write("\n")
 '''
 
 
@@ -167,7 +191,8 @@ def invoke(
     trace=False,
     password=None,
     sudo_password=None,
-    execute_lifecycle=False,
+    execute_root_commands=False,
+    sudo_auth_dont_read=False,
 ):
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -220,8 +245,10 @@ def invoke(
         "BACKUP_VERIFIED": "backup-verified",
     })
     env.update(env_updates or {})
-    if execute_lifecycle:
-        env["FAKE_EXECUTE_LIFECYCLE"] = "1"
+    if execute_root_commands:
+        env["FAKE_EXECUTE_ROOT_COMMANDS"] = "1"
+    if sudo_auth_dont_read:
+        env["FAKE_SUDO_AUTH_DONT_READ"] = "1"
 
     command = ["bash"]
     if trace:
@@ -239,7 +266,7 @@ def invoke(
         "ssh": read_json_lines(ssh_log),
         "sshpass": read_json_lines(sshpass_log),
         "early": read_json_lines(early_log),
-        "root_probe": json.loads(root_probe_log.read_text()) if root_probe_log.exists() else None,
+        "root_probe": read_json_lines(root_probe_log),
     }
 
 
@@ -424,14 +451,15 @@ def test_actions_install_verified_root_assets_then_run_root_release_script(tmp_p
 
 
 @pytest.mark.parametrize("sudo_password", (None, "synthetic-sudo-password"))
-def test_root_lifecycle_executes_with_controlled_dsm_path_and_clean_environment(
+def test_root_commands_have_clean_environment_and_no_password_stdin_when_auth_is_cached(
     tmp_path, sudo_password
 ):
     result, calls = invoke(
         tmp_path,
         "deploy",
         sudo_password=sudo_password,
-        execute_lifecycle=True,
+        execute_root_commands=True,
+        sudo_auth_dont_read=True,
         env_updates={
             "MAKEFLAGS": "--eval=bad-target:;touch /tmp/never",
             "MAKELEVEL": "9",
@@ -440,23 +468,51 @@ def test_root_lifecycle_executes_with_controlled_dsm_path_and_clean_environment(
     )
 
     assert result.returncode == 0, result.stderr
-    probe = calls["root_probe"]
-    assert probe == {
-        "argv": ["deploy"],
-        "path": "/usr/local/bin:/usr/bin:/bin",
-        "home": "/root",
-        "min_free_space_mb": "1024",
-        "credential_names": [],
-        "make_names": [],
-    }
-    lifecycle = next(
-        command for command in ssh_commands(calls)
-        if ".xianyu-agent-release/remote_release.sh' 'deploy'" in command
+    assert [record["label"] for record in calls["root_probe"]] == [
+        "install", "lifecycle", "cleanup",
+    ]
+    for record in calls["root_probe"]:
+        assert record["stdin_size"] == 0
+        assert record["path"] == "/usr/local/bin:/usr/bin:/bin"
+        assert record["home"] == "/root"
+        assert record["credential_names"] == []
+        assert record["make_names"] == []
+    lifecycle_probe = next(
+        record for record in calls["root_probe"] if record["label"] == "lifecycle"
     )
-    assert "env -i PATH='/usr/local/bin:/usr/bin:/bin' HOME='/root'" in lifecycle
-    assert "MAKE" not in lifecycle
-    assert "NAS_PASS" not in lifecycle
-    assert "SUDO_PASS" not in lifecycle
+    assert lifecycle_probe["min_free_space_mb"] == "1024"
+
+    root_calls = [
+        call for call in calls["ssh"]
+        if "sudo -n env -i " in call["argv"][-1]
+    ]
+    assert len(root_calls) == 3
+    assert all(
+        "PATH='/usr/local/bin:/usr/bin:/bin' HOME='/root'" in call["argv"][-1]
+        for call in root_calls
+    )
+    password_root_calls = [
+        call for call in root_calls
+        if call["argv"][-1].startswith(
+            "sudo -S -p '' -v && exec </dev/null && sudo -n env -i "
+        )
+    ]
+    if sudo_password is None:
+        assert password_root_calls == []
+        assert all(call["stdin_read"] and call["stdin_size"] == 0 for call in root_calls)
+    else:
+        assert len(password_root_calls) == 3
+        assert all(
+            not call["stdin_read"] and call["stdin_size"] == 0
+            for call in password_root_calls
+        )
+
+    serialized = result.stdout + result.stderr + json.dumps(calls)
+    if sudo_password is not None:
+        assert sudo_password not in serialized
+    assert "--eval=bad-target" not in json.dumps(calls["root_probe"])
+    assert not any("NAS_PASS" in call["argv"][-1] for call in root_calls)
+    assert not any("SUDO_PASS" in call["argv"][-1] for call in root_calls)
 
 
 @pytest.mark.parametrize("action", ("check", "status", "logs"))
@@ -480,7 +536,7 @@ def test_read_only_actions_refresh_verified_assets_but_only_run_read_only_action
     assert "rm -r" not in cleanup
     assert "/volume1/docker/inventory-manager" not in cleanup
     root_cleanup = commands[-2]
-    assert "sudo -n rm -f -- " in root_cleanup
+    assert "sudo -n env -i PATH='/usr/local/bin:/usr/bin:/bin' HOME='/root' rm -f -- " in root_cleanup
     assert ".xianyu-agent-release/.incoming-compose-" in root_cleanup
     assert ".xianyu-agent-release/.incoming-remote_release-" in root_cleanup
 
@@ -492,10 +548,18 @@ def test_sudo_password_is_sent_only_over_stdin(tmp_path):
     assert result.returncode == 0, result.stderr
     serialized = result.stdout + result.stderr + json.dumps(calls)
     assert secret not in serialized
-    sudo_calls = [call for call in calls["ssh"] if "sudo -S -p ''" in call["argv"][-1]]
-    assert len(sudo_calls) == 3
-    assert all(call["stdin_size"] > 0 for call in sudo_calls)
-    assert not any("sudo -n" in call["argv"][-1] for call in sudo_calls)
+    password_root_calls = [
+        call for call in calls["ssh"]
+        if call["argv"][-1].startswith(
+            "sudo -S -p '' -v && exec </dev/null && sudo -n env -i "
+        )
+    ]
+    assert len(password_root_calls) == 3
+    assert all(
+        call["stdin_read"] and call["stdin_size"] > 0
+        for call in password_root_calls
+    )
+    assert all("exec </dev/null" in call["argv"][-1] for call in password_root_calls)
 
 
 def test_ssh_key_and_required_options_are_argv_elements(tmp_path):
@@ -533,4 +597,27 @@ def test_cleanup_runs_after_remote_failure_without_masking_status(tmp_path):
     )
 
     assert result.returncode == 41
+    assert ssh_commands(calls)[-1].startswith("rm -f -- ")
+
+
+def test_cached_password_sudo_cleanup_preserves_lifecycle_failure_status(tmp_path):
+    result, calls = invoke(
+        tmp_path,
+        "check",
+        sudo_password="synthetic-sudo-password",
+        sudo_auth_dont_read=True,
+        env_updates={"FAKE_SSH_FAIL_MATCH": ".sh' 'check'"},
+    )
+
+    assert result.returncode == 41
+    root_calls = [
+        call for call in calls["ssh"]
+        if call["argv"][-1].startswith(
+            "sudo -S -p '' -v && exec </dev/null && sudo -n env -i "
+        )
+    ]
+    assert len(root_calls) == 3
+    assert all(
+        not call["stdin_read"] and call["stdin_size"] == 0 for call in root_calls
+    )
     assert ssh_commands(calls)[-1].startswith("rm -f -- ")

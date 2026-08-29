@@ -51,3 +51,15 @@ Implementation commit: `fix: resolve NAS release final review findings` (the com
 
 - OpenSpec tasks 4.3 and 4.4 remain intentionally open: real Synology read-only discovery and the authorized first production release require operator access, a verified backup, and a maintenance window.
 - When Docker storage discovery is unavailable, only the known deployment filesystem is enforced and the warning must be reviewed before production release.
+
+## Round 2 credential-boundary fix
+
+Implementation commit: `fix: isolate sudo authentication from root commands` (the focused commit containing this round; exact hash reported after commit creation).
+
+- Each password-sudo SSH command has a dedicated authentication phase whose only operation is `sudo -S -p '' -v`. Authentication and execution stay in one remote shell so DSM sudo timestamp policies remain effective.
+- After authentication the remote shell executes `exec </dev/null`; only then does root asset install, lifecycle execution, or exact staging cleanup run through `sudo -n`. Cached/NOPASSWD unread bytes are therefore closed before the privileged action starts.
+- All three privileged action types now start with `env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/root`; only the lifecycle receives the validated non-sensitive release variables.
+- The executing fake-SSH harness models cached/NOPASSWD sudo by deliberately not reading authentication stdin. In password and passwordless modes it executes install/lifecycle/cleanup probes and proves zero privileged-command stdin bytes, a controlled root PATH/HOME, and no credential or Make variables.
+- Failure-path coverage proves a lifecycle status of 41 remains the final status while password-mode root cleanup and user-temp cleanup still run through their separated stdin boundaries.
+
+Round 2 verification uses the same syntax, Make dry-run, strict OpenSpec, diff, and secret-scan commands listed above. The expanded relevant regression suite completed with `99 passed, 79 warnings`.

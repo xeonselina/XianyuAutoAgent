@@ -69,7 +69,11 @@ MIN_FREE_SPACE_MB=1024
 `nas.env` 可以包含受保护的
 `NAS_PASS` 与 `SUDO_PASS` 键，但只能保存实际凭据于这个 mode-`0600` 的仓库外
 文件，绝不能复制到文档、shell history、CI 变量回显或 Git。优先使用 SSH key 和
-受限的 passwordless sudo。
+受限的 passwordless sudo。密码 sudo 在同一个 SSH 远程 shell 内严格分为认证和执行
+阶段：密码只进入专用的 `sudo -v` 标准输入；认证成功后 shell 先把自己的标准输入
+替换为 `/dev/null`，安装、生命周期或清理才通过 `sudo -n` 执行。因此即使 sudo
+timestamp 或 NOPASSWD 使认证阶段不读取密码，未读输入也会在 root 动作开始前关闭，
+不会流入 root 脚本或 Docker/Compose。
 
 ### 3. 一次性登录镜像仓库
 
@@ -120,10 +124,11 @@ Compose 文件和远端生命周期脚本。传输端先计算 SHA-256，再将�
 
 临时文件只会出现在远端登录用户的 home 目录。root 会把文件移入部署目录同一文件
 系统内的私有 staging 路径，设置 ownership/mode 并校验摘要，再用原子 rename 替换
-最终文件并复核最终摘要；精确命名的残留 staging 文件会被清理。所有动作只在受控的
-`PATH=/usr/local/bin:/usr/bin:/bin` 下执行这个 root-owned 且已验证的脚本；`app.env`、
-本机 `.env` 和任何凭据均不会被上传。远端的 `current.env`/`previous.env` 也由 root
-创建并要求 `0600`。
+最终文件并复核最终摘要；精确命名的残留 staging 文件会被清理。root 资产安装、
+生命周期和 root staging 清理全部从空环境开始，只设置受控的
+`PATH=/usr/local/bin:/usr/bin:/bin` 与 `HOME=/root`（生命周期另接收已验证的非敏感
+配置）。`app.env`、本机 `.env` 和任何凭据均不会被上传。远端的
+`current.env`/`previous.env` 也由 root 创建并要求 `0600`。
 
 ## 日常发布
 

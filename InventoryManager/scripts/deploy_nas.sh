@@ -199,12 +199,22 @@ upload() {
 
 sudo_remote() {
     local command="$1"
+    local root_command="sudo -n env -i PATH='/usr/local/bin:/usr/bin:/bin' HOME='/root' $command"
 
     if [ -n "$SUDO_PASSWORD" ]; then
-        printf '%s\n' "$SUDO_PASSWORD" | ssh_command "sudo -S -p '' $command"
-    else
-        ssh_command "sudo -n $command" </dev/null
+        # Keep authentication and the action in the same remote shell so sudo
+        # timestamp policies remain effective, but replace that shell's stdin
+        # with /dev/null after validation. If sudo -v uses a cached timestamp or
+        # NOPASSWD and leaves the here-string unread, exec closes that input
+        # before the privileged command can start.
+        ssh_command "sudo -S -p '' -v && exec </dev/null && $root_command" \
+            <<<"$SUDO_PASSWORD"
+        return
     fi
+
+    # Passwordless actions also receive immediate EOF and the same minimal
+    # DSM-compatible root environment.
+    ssh_command "$root_command" </dev/null
 }
 
 cleanup() {
@@ -394,7 +404,7 @@ rm -f -- $ROOT_COMPOSE_STAGE $ROOT_RELEASE_STAGE'"
 sudo_remote "$INSTALL_COMMAND"
 RELEASE_PROGRAM="'$ROOT_RELEASE_SCRIPT' '$ACTION'"
 
-RELEASE_COMMAND="env -i PATH='/usr/local/bin:/usr/bin:/bin' HOME='/root' DEPLOY_DIR='$NAS_DEPLOY_DIR' APP_ENV_FILE='$APP_ENV_FILE' FRPC_CONTAINER='$FRPC_CONTAINER' FRPC_NETWORK='$FRPC_NETWORK' LOG_TAIL='$LOG_TAIL' MIN_FREE_SPACE_MB='$MIN_FREE_SPACE_MB'"
+RELEASE_COMMAND="DEPLOY_DIR='$NAS_DEPLOY_DIR' APP_ENV_FILE='$APP_ENV_FILE' FRPC_CONTAINER='$FRPC_CONTAINER' FRPC_NETWORK='$FRPC_NETWORK' LOG_TAIL='$LOG_TAIL' MIN_FREE_SPACE_MB='$MIN_FREE_SPACE_MB'"
 if [ "$ACTION" = "deploy" ]; then
     RELEASE_COMMAND="$RELEASE_COMMAND IMAGE_REF='$IMAGE_REF' BACKUP_VERIFIED='$BACKUP_VERIFIED'"
 fi
