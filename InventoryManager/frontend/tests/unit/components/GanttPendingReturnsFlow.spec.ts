@@ -153,6 +153,11 @@ describe('GanttChart pending-returns flow', () => {
     observeGanttBody.mockClear()
     disconnectGanttBody.mockClear()
     vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+    vi.stubGlobal('matchMedia', vi.fn(() => ({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })))
     axiosGet.mockReset()
     axiosPost.mockReset()
     axiosPut.mockReset()
@@ -293,6 +298,44 @@ describe('GanttChart pending-returns flow', () => {
     const openWindow = vi.spyOn(window, 'open').mockImplementation(() => null)
     dropdown.vm.$emit('command', 'batch-shipping')
     expect(openWindow).toHaveBeenCalledWith('/batch-shipping', '_blank')
+  })
+
+  it('collapses secondary actions into the overflow menu on compact screens', async () => {
+    const addEventListener = vi.fn()
+    const removeEventListener = vi.fn()
+    vi.stubGlobal('matchMedia', vi.fn(() => ({
+      matches: true,
+      addEventListener,
+      removeEventListener,
+    })))
+
+    const { wrapper } = await mountGantt()
+    const actionLabels = wrapper
+      .get('[data-testid="gantt-toolbar-actions"]')
+      .findAll('button')
+      .map((button) => button.text().trim())
+
+    expect(actionLabels).toEqual(['预定设备', '待归还', '更多操作'])
+    expect(wrapper.get('.period-compact').text()).toMatch(
+      /^\d{2}\.\d{2} – \d{2}\.\d{2}$/,
+    )
+
+    const dropdown = wrapper.findComponent(ElDropdownStub)
+    dropdown.vm.$emit('command', 'add-device')
+    await wrapper.vm.$nextTick()
+    expect(
+      wrapper.get('[data-testid="add-device-dialog"]').attributes('modelvalue'),
+    ).toBe('true')
+
+    dropdown.vm.$emit('command', 'customer-history')
+    await wrapper.vm.$nextTick()
+    expect(
+      wrapper.findComponent({ name: 'CustomerHistoryDialog' }).props('modelValue'),
+    ).toBe(true)
+
+    wrapper.unmount()
+    expect(addEventListener).toHaveBeenCalledOnce()
+    expect(removeEventListener).toHaveBeenCalledOnce()
   })
 
   it('marks a row returned and refreshes the gantt data', async () => {

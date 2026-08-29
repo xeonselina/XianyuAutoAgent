@@ -2,6 +2,7 @@
 - [x] 1.1 Replace the fixed toolbar row with a responsive grid.
 - [x] 1.2 Keep booking, adding a device, pending returns, and customer history as direct actions.
 - [x] 1.3 Move occasional operational and navigation actions into one overflow menu.
+- [x] 1.4 Collapse secondary actions at laptop width so the command bar remains one row.
 
 ## 2. Platform store management
 - [x] 2.1 Redesign the platform tenant list as a customer-store dashboard.

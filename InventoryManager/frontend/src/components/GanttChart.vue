@@ -6,11 +6,11 @@
         <el-button-group>
           <el-button aria-label="查看上周" @click="ganttStore.navigateWeek(-1)">
             <el-icon><ArrowLeft /></el-icon>
-            上周
+            <span class="navigation-label">上周</span>
           </el-button>
           <el-button @click="ganttStore.goToToday">今天</el-button>
           <el-button aria-label="查看下周" @click="ganttStore.navigateWeek(1)">
-            下周
+            <span class="navigation-label">下周</span>
             <el-icon><ArrowRight /></el-icon>
           </el-button>
         </el-button-group>
@@ -25,7 +25,10 @@
         />
       </div>
 
-      <span class="current-period">{{ ganttStore.currentPeriod }}</span>
+      <span class="current-period" :title="ganttStore.currentPeriod">
+        <span class="period-full">{{ ganttStore.currentPeriod }}</span>
+        <span class="period-compact">{{ compactPeriod }}</span>
+      </span>
 
       <div class="toolbar-actions" data-testid="gantt-toolbar-actions">
         <el-button
@@ -37,6 +40,7 @@
           预定设备
         </el-button>
         <el-button
+          v-if="!compactToolbar"
           data-testid="add-device-button"
           :icon="Plus"
           :disabled="tenantStore.currentWarehouseId === 'all'"
@@ -59,6 +63,7 @@
           </el-button>
         </el-badge>
         <el-button
+          v-if="!compactToolbar"
           data-testid="customer-history-button"
           :icon="User"
           @click="showCustomerHistoryDialog = true"
@@ -72,7 +77,19 @@
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="batch-shipping">
+              <el-dropdown-item
+                v-if="compactToolbar"
+                command="add-device"
+                :disabled="tenantStore.currentWarehouseId === 'all'"
+              >
+                <el-icon><Plus /></el-icon>
+                添加设备
+              </el-dropdown-item>
+              <el-dropdown-item v-if="compactToolbar" command="customer-history">
+                <el-icon><User /></el-icon>
+                客户历史
+              </el-dropdown-item>
+              <el-dropdown-item command="batch-shipping" :divided="compactToolbar">
                 批量发货
               </el-dropdown-item>
               <el-dropdown-item
@@ -318,6 +335,7 @@
 
     <!-- 添加设备对话框 -->
     <el-dialog 
+      data-testid="add-device-dialog"
       v-model="showAddDeviceDialog" 
       title="添加设备" 
       width="500px"
@@ -472,6 +490,18 @@ const selectedDeviceType = ref<string[]>([])
 const selectedLifecycleStatus = ref<string>('active')  // 默认只显示使用中设备
 const selectedDatePicker = ref<Date>(ganttStore.currentDate)
 const dailyStats = ref<Record<string, {available_count: number, ship_out_count: number, accessory_ship_out_count: number}>>({})
+const compactToolbarMedia = typeof window !== 'undefined'
+  && typeof window.matchMedia === 'function'
+  ? window.matchMedia('(max-width: 1280px)')
+  : null
+const compactToolbar = ref(compactToolbarMedia?.matches ?? false)
+const compactPeriod = computed(() => {
+  const { start, end } = ganttStore.dateRange
+  return `${dayjs(start).format('MM.DD')} – ${dayjs(end).format('MM.DD')}`
+})
+const updateCompactToolbar = (event: MediaQueryListEvent) => {
+  compactToolbar.value = event.matches
+}
 const {
   snapshot: xianyuAlertSnapshot,
   loading: xianyuAlertsLoading,
@@ -1083,6 +1113,16 @@ const handleMarkPendingReturnReturned = async (rentalId: number) => {
 // 处理"更多"菜单命令
 const handleMoreCommand = (command: string) => {
   switch (command) {
+    case 'add-device':
+      if (tenantStore.currentWarehouseId === 'all') {
+        ElMessage.warning('请选择具体仓库')
+        break
+      }
+      showAddDeviceDialog.value = true
+      break
+    case 'customer-history':
+      showCustomerHistoryDialog.value = true
+      break
     case 'batch-shipping':
       openBatchShipping()
       break
@@ -1296,6 +1336,7 @@ watch(showBookingDialog, (visible) => {
 
 // 生命周期
 onMounted(async () => {
+  compactToolbarMedia?.addEventListener('change', updateCompactToolbar)
   await Promise.all([
     ganttStore.loadData(),
     loadDailyStats(),
@@ -1312,6 +1353,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  compactToolbarMedia?.removeEventListener('change', updateCompactToolbar)
   if (ganttBodyRef.value) {
     ganttBodyRef.value.removeEventListener('scroll', handleScroll)
   }
@@ -1344,12 +1386,12 @@ onUnmounted(() => {
 
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr);
+  grid-template-columns: auto minmax(110px, 1fr) auto;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   flex: 0 0 auto;
-  margin-bottom: 20px;
-  padding: 12px 14px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 10px;
   background: var(--el-bg-color);
@@ -1362,7 +1404,7 @@ onUnmounted(() => {
 .current-period {
   justify-self: center;
   font-weight: 600;
-  font-size: 16px;
+  font-size: 14px;
   color: var(--el-text-color-primary);
   white-space: nowrap;
 }
@@ -1379,7 +1421,11 @@ onUnmounted(() => {
 }
 
 .date-jump {
-  width: 160px;
+  width: 150px;
+}
+
+.period-compact {
+  display: none;
 }
 
 .pending-action {
@@ -1389,39 +1435,38 @@ onUnmounted(() => {
 }
 
 @media (max-width: 1280px) {
-  .toolbar {
-    grid-template-columns: minmax(0, 1fr) auto;
+  .period-full {
+    display: none;
   }
 
-  .current-period {
-    justify-self: end;
-  }
-
-  .toolbar-actions {
-    grid-column: 1 / -1;
-    flex-wrap: wrap;
+  .period-compact {
+    display: inline;
   }
 }
 
 @media (max-width: 720px) {
   .toolbar {
-    grid-template-columns: 1fr;
-    align-items: stretch;
+    display: flex;
+    overflow-x: auto;
+    scrollbar-width: thin;
   }
 
   .toolbar-navigation,
   .toolbar-actions {
-    justify-content: flex-start;
-    flex-wrap: wrap;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
   }
 
   .current-period {
-    justify-self: start;
-    order: -1;
+    display: none;
   }
 
   .date-jump {
-    width: 145px;
+    width: 125px;
+  }
+
+  .navigation-label {
+    display: none;
   }
 }
 
