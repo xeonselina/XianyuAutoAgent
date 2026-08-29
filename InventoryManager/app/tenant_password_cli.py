@@ -23,6 +23,10 @@ def _password_from_stdin():
     return password
 
 
+def _stdin_is_tty():
+    return bool(click.get_text_stream("stdin").isatty())
+
+
 @click.command("set-tenant-password")
 @click.option("--phone", required=True, help="Tenant member phone number.")
 @click.option(
@@ -49,15 +53,19 @@ def set_tenant_password(phone, password_stdin):
     if member_exists is None:
         raise click.ClickException("Tenant member was not found.")
 
-    password = (
-        _password_from_stdin()
-        if password_stdin
-        else click.prompt(
+    if password_stdin:
+        password = _password_from_stdin()
+    else:
+        if not _stdin_is_tty():
+            raise click.ClickException(
+                "Hidden password prompting requires a TTY; "
+                "use --password-stdin for non-interactive input."
+            )
+        password = click.prompt(
             "Password",
             hide_input=True,
             confirmation_prompt=True,
         )
-    )
     try:
         set_tenant_member_password(store, normalized_phone, password)
     except PasswordPolicyError as exc:

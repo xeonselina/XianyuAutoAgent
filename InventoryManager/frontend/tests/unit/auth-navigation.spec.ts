@@ -561,6 +561,36 @@ describe('tenant auth store and login form', () => {
     expect(apiMocks.verifyTenantCode).not.toHaveBeenCalled()
   })
 
+  it('fails closed with retry UI when auth config cannot be loaded', async () => {
+    apiMocks.fetchTenantAuthConfig
+      .mockRejectedValueOnce(apiRejection('登录方式加载失败', 503))
+      .mockResolvedValueOnce({ method: 'password' })
+    const pinia = createPinia()
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/login', component: LoginView }],
+    })
+    await router.push('/login')
+    await router.isReady()
+    const wrapper = mount(LoginView, {
+      global: { plugins: [pinia, router] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="auth-config-retry"]').exists()).toBe(true)
+    })
+    expect(wrapper.find('form').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="request-code"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('登录方式加载失败')
+
+    await wrapper.get('[data-testid="auth-config-retry"]').trigger('click')
+
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="password"]').exists()).toBe(true)
+    })
+    expect(apiMocks.fetchTenantAuthConfig).toHaveBeenCalledTimes(2)
+  })
+
   it('changes password without clearing or replacing the active CSRF token', async () => {
     apiMocks.changeTenantPassword.mockResolvedValue(undefined)
     const pinia = createPinia()

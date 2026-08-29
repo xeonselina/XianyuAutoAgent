@@ -1,5 +1,6 @@
 import base64
 import importlib.util
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from app import create_app
 from app.auth import create_auth_session
+from app.crypto import hash_token
 from app.control.models import (
     AuthSession,
     ControlBase,
@@ -257,12 +259,73 @@ def test_ineligible_identities_run_dummy_password_verification(
 
     monkeypatch.setattr(auth_module, "check_password_hash", recording_check)
 
-    for phone in ("13800138001", "13800138002", "13900139000"):
+    for phone in (
+        "13800138001",
+        "13800138002",
+        "13900139000",
+        "not-a-phone",
+    ):
         _, response = _password_login(password_environment, phone=phone)
         assert response.status_code == 401
 
-    assert len(checked_hashes) == 3
-    assert checked_hashes[1] == checked_hashes[2]
+    assert len(checked_hashes) == 4
+    assert checked_hashes[1] == checked_hashes[2] == checked_hashes[3]
+
+
+def test_normalized_password_candidates_use_hashed_advisory_lock(
+    password_environment,
+    monkeypatch,
+):
+    store = password_environment["store"]
+    original_locked_session = store.locked_session
+    lock_calls = []
+
+    @contextmanager
+    def recording_locked_session(names, timeout=0):
+        lock_calls.append((tuple(names), timeout))
+        with original_locked_session(names, timeout=timeout) as session:
+            yield session
+
+    monkeypatch.setattr(store, "locked_session", recording_locked_session)
+
+    for phone in ("13800138000", "13900139000"):
+        _, response = _password_login(
+            password_environment,
+            phone=phone,
+            password="definitely-wrong",
+        )
+        assert response.status_code == 401
+
+    assert lock_calls == [
+        ((f"password-login-{hash_token('+8613800138000')[:48]}",), 5),
+        ((f"password-login-{hash_token('+8613900139000')[:48]}",), 5),
+    ]
+    assert all("+86" not in names[0] for names, _timeout in lock_calls)
+
+
+def test_password_advisory_lock_timeout_returns_generic_failure(
+    password_environment,
+    monkeypatch,
+):
+    _, ordinary_failure = _password_login(
+        password_environment,
+        phone="13900139000",
+    )
+
+    @contextmanager
+    def timed_out_locked_session(_names, timeout=0):
+        assert timeout == 5
+        raise TimeoutError("test lock timeout")
+        yield
+
+    store = password_environment["store"]
+    monkeypatch.setattr(store, "locked_session", timed_out_locked_session)
+
+    _, response = _password_login(password_environment)
+
+    assert response.status_code == 401
+    assert response.get_json() == ordinary_failure.get_json()
+    assert response.get_json()["code"] == "AUTH_INVALID"
 
 
 def test_password_login_uses_existing_session_and_resets_failures(
@@ -511,6 +574,26 @@ def test_set_tenant_password_cli_rejects_unknown_and_invalid_passwords(
     assert invalid.exit_code != 0
     assert "12" in invalid.output and "128" in invalid.output
     assert "too-short" not in invalid.output
+
+
+def test_set_tenant_password_cli_rejects_hidden_prompt_without_tty(
+    password_environment,
+):
+    secret = "must-not-be-read-or-echoed"
+    result = password_environment["app"].test_cli_runner().invoke(
+        args=[
+            "set-tenant-password",
+            "--phone",
+            "13800138000",
+        ],
+        input=f"{secret}\n",
+    )
+
+    assert result.exit_code != 0
+    assert "--password-stdin" in result.output
+    assert secret not in result.output
+    assert "warning" not in result.output.lower()
+    assert "getpass" not in result.output.lower()
 
 
 def test_password_control_migration_is_forward_and_reversible(monkeypatch):

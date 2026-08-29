@@ -42,7 +42,7 @@ Tenant member passwords MUST be stored only as Werkzeug password hashes. The sys
 - **THEN** the system returns a safe policy error without changing credentials or sessions
 
 ### Requirement: Tenant password login and brute-force protection
-Password login MUST accept normalized mainland-China phone plus password, MUST use the existing tenant session and login payload shape, and MUST return the same generic authentication failure for unknown, disabled, passwordless, wrong-password, and locked identities. Five consecutive failed password attempts MUST lock the member for fifteen minutes; a successful login MUST reset failure state. Login MUST NOT bypass existing member, tenant, provisioning, expiry, or business access semantics.
+Password login MUST accept normalized mainland-China phone plus password, MUST use the existing tenant session and login payload shape, and MUST return the same generic authentication failure for unknown, disabled, passwordless, wrong-password, locked, and advisory-lock-timeout identities. Each syntactically valid normalized phone MUST acquire the same bounded, hashed-name MariaDB advisory lock before member lookup and Werkzeug verification so concurrent existing and unknown candidates serialize equivalently. Invalid phones MUST still perform dummy Werkzeug verification. Five consecutive failed password attempts MUST lock the member for fifteen minutes; a successful login MUST reset failure state. Login MUST NOT bypass existing member, tenant, provisioning, expiry, or business access semantics.
 
 #### Scenario: Active member signs in successfully
 - **WHEN** an active password-enabled member submits the correct phone and password while not locked
@@ -55,6 +55,10 @@ Password login MUST accept normalized mainland-China phone plus password, MUST u
 #### Scenario: Locked and nonexistent identities are indistinguishable
 - **WHEN** a locked member or an unknown phone attempts login
 - **THEN** both receive the same status, code, and generic message
+
+#### Scenario: Concurrent candidate checks serialize without identity leakage
+- **WHEN** concurrent requests submit the same normalized phone, whether it belongs to a member or not
+- **THEN** they serialize through the same hashed-name advisory lock and any lock timeout returns the generic authentication failure
 
 #### Scenario: Restricted tenant receives no business access
 - **WHEN** a member authenticates correctly but their tenant is suspended, expired, or not provisioned
@@ -86,12 +90,20 @@ The application MUST register a CLI that selects a tenant member by normalized p
 - **WHEN** the normalized phone does not identify a tenant member
 - **THEN** the command fails clearly without creating credentials or echoing input
 
+#### Scenario: Hidden prompt has no terminal
+- **WHEN** the command omits `--password-stdin` while standard input is not a real TTY
+- **THEN** it fails before reading input and instructs the operator to use `--password-stdin` without emitting a fallback warning or secret
+
 ### Requirement: Mode-aware tenant user interface
 The desktop frontend MUST load the public authentication configuration before rendering tenant login, MUST preserve the existing SMS UI in SMS mode, and MUST render phone/password login in password mode. The authenticated shell MUST provide both admins and operators a password-change page and MUST preserve the active CSRF header after a successful change.
 
 #### Scenario: Password-mode login renders
 - **WHEN** the public configuration selects password mode
 - **THEN** the login page shows phone and password fields and does not show SMS code controls
+
+#### Scenario: Authentication configuration cannot be loaded
+- **WHEN** the public configuration request fails
+- **THEN** the login page renders no SMS or password form and provides an explicit retry state
 
 #### Scenario: Operator opens password change
 - **WHEN** an authenticated operator uses the AppHeader password-change link

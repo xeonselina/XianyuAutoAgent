@@ -8,7 +8,8 @@ def test_runtime_image_builds_fresh_desktop_frontend_from_lockfile():
     dockerfile = (PROJECT_ROOT / "Dockerfile").read_text()
 
     assert (
-        "FROM --platform=$BUILDPLATFORM node:22-bookworm-slim "
+        "FROM --platform=$BUILDPLATFORM node:22-bookworm-slim@sha256:"
+        "83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 "
         "AS frontend-builder"
     ) in dockerfile
     assert "COPY frontend/package.json frontend/package-lock.json ./" in dockerfile

@@ -18,3 +18,8 @@
 - [x] 4.1 Update `.env.example` and SaaS deployment documentation for password mode, safe one-time initialization, and public-image registry login behavior.
 - [x] 4.2 Run strict OpenSpec validation, focused backend/frontend tests, frontend typecheck/build, migration/static checks, `git diff --check`, and a secret-pattern scan.
 - [x] 4.3 Commit the complete scoped implementation while preserving existing NAS automation work.
+
+## 5. Review hardening
+- [x] 5.1 Serialize normalized password candidates with a hashed MariaDB advisory lock and cover unknown/existing concurrency plus timeout behavior.
+- [x] 5.2 Add the password-change SPA fallback, non-TTY CLI refusal, and fail-closed auth-config retry UI with regressions.
+- [x] 5.3 Document the pre-password-image rollback compatibility boundary and preserve ordinary rollback between password-capable tags.

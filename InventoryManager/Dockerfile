@@ -11,7 +11,7 @@ ARG no_proxy
 # ══════════════════════════════════════════════════════════════════════════════
 # Stage 0: frontend-builder —— 每次镜像构建都从锁文件生成桌面前端产物
 # ══════════════════════════════════════════════════════════════════════════════
-FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS frontend-builder
 
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./

@@ -191,6 +191,11 @@ def test_deployment_guide_documents_release_network_and_recovery():
         "MIN_FREE_SPACE_MB=1024", "PATH=/usr/local/bin:/usr/bin:/bin",
         "previous.env", "原始 stop 状态", "make nas-logs LOG_TAIL=200",
         "--env-file current.env", "set-tenant-password", "--password-stdin",
+        "密码认证能力", "pre-password-auth", "root-only SMS",
+        "original environment",
+        "不能也不得伪造", "向后恢复的唯一途径", "首次 NAS 部署",
     ):
         assert token in text
     assert ".xianyu-agent-release/current.env" not in text
+    assert "make deploy-nas IMAGE_TAG=<previous-tag>" in text
+    assert "previous.env" in text

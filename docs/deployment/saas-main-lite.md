@@ -45,6 +45,14 @@ TENANT_AUTH_MODE=password
 `SESSION_COOKIE_SECURE=true`，不要为 HTTP 生产访问创建例外。worker 从不初始化
 租户认证发送器，因此不需要 Tencent 凭据。
 
+`app.env` 是跨版本共享且可变的生产环境文件。如果从一个真实配置完成的短信版本升级，
+切换到密码模式前必须保留该版本原有的、仅 root 可读（`0600`）的短信环境文件
+（root-only SMS env）；其中应已有 `TENANT_AUTH_MODE=sms` 和完整有效的 Tencent SMS
+凭据，不要在文档、仓库或发布 metadata 中复制这些值。本次首次 NAS 部署没有有效
+Tencent SMS 凭据，不能也不得伪造这种恢复环境；在建立第一个具备密码认证能力的 tag
+之前，向后恢复的唯一途径是使用部署前单独停止的 legacy container 及其 original
+environment。
+
 ### 2. 为开发机创建仓库外的 NAS 连接配置
 
 `scripts/deploy_nas.sh` 只从开发机用户目录读取连接配置，默认路径固定为
@@ -192,6 +200,11 @@ active 租户迁移。不要省略备份确认，即使只是重新部署相同�
 相同 `IMAGE_REF` 的重复部署会刷新 `current.env`，但不会把它旋转到
 `previous.env`；`previous.env` 始终指向最近一个不同版本。
 
+普通回滚仅适用于两个都具备密码认证能力的 tag：可以从 `previous.env` 读取前一个
+镜像引用，再显式运行 `make deploy-nas IMAGE_TAG=<previous-tag>`。首次 NAS 发布前没有
+Compose `previous.env` tag；不要把一个部署前单独停止的旧容器误认为脚本可管理的
+previous release。
+
 ## 发布顺序与验收
 
 部署脚本按以下顺序工作：
@@ -319,6 +332,16 @@ exit
   `make nas-status`、`make nas-logs LOG_TAIL=200`。只有在确认新迁移向后兼容时，才
   能显式用 `make deploy-nas IMAGE_TAG=<previous-tag>` 重建旧镜像；否则进行向前修复。
   该命令仍会执行 upgrade，不会执行数据库 downgrade。
+- 密码模式兼容边界：把共享 `app.env` 切换为密码模式后，禁止直接通过
+  `previous.env` 或 `make deploy-nas` 降级到 `pre-password-auth` 镜像。这类旧镜像只懂
+  短信认证，在缺少 Tencent 配置时不能启动。从真实短信版本升级且保留了原环境时，
+  确需这种降级必须先在维护窗口把 `app.env` 恢复为该 `0600`、root-only SMS 环境
+  （已有有效 Tencent 凭据和 `TENANT_AUTH_MODE=sms`），再人工执行受控降级。本次首次
+  NAS 部署没有这样的有效短信环境，因此在第一个密码能力 tag 建立前，只能启动部署前
+  被单独停止的 legacy container，并使用其 original environment；不能通过
+  `previous.env`/`deploy-nas` 回到旧镜像。不要为兼容旧镜像伪造 Tencent 凭据。两个
+  都支持密码模式的普通 tag 之间仍可按上一条使用
+  `make deploy-nas IMAGE_TAG=<previous-tag>` 回滚。
 
 接流量前必须同时确认 app `/health`、FRP 网络内探针、frpc running 状态和单实例
 worker advisory lock；随后再从既有公网入口验证 `/health`。真实 NAS 的只读预检、

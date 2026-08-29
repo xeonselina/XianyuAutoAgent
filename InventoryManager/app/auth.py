@@ -35,6 +35,7 @@ PASSWORD_MIN_LENGTH = 12
 PASSWORD_MAX_LENGTH = 128
 PASSWORD_MAX_ATTEMPTS = 5
 PASSWORD_LOCK_MINUTES = 15
+PASSWORD_LOGIN_LOCK_TIMEOUT_SECONDS = 5
 _PHONE_PATTERN = re.compile(r"^1[3-9][0-9]{9}$")
 _DUMMY_PASSWORD_HASH = generate_password_hash(
     "tenant-auth-dummy-password-never-used"
@@ -406,67 +407,76 @@ class AuthService:
         supplied_password = password if isinstance(password, str) else ""
         now = self.now()
 
-        with self.store.session() as session:
-            member = None
-            if phone is not None:
+        if phone is None:
+            check_password_hash(_DUMMY_PASSWORD_HASH, supplied_password)
+            return None
+
+        lock_name = f"password-login-{hash_token(phone)[:48]}"
+        try:
+            with self.store.locked_session(
+                (lock_name,),
+                timeout=PASSWORD_LOGIN_LOCK_TIMEOUT_SECONDS,
+            ) as session:
                 member = session.scalar(
                     select(TenantMember)
                     .where(TenantMember.phone == phone)
                     .with_for_update()
                 )
 
-            candidate_hash = (
-                member.password_hash
-                if member is not None and member.password_hash
-                else _DUMMY_PASSWORD_HASH
-            )
-            password_matches = check_password_hash(
-                candidate_hash,
-                supplied_password,
-            )
-            eligible = (
-                member is not None
-                and member.status == "active"
-                and member.password_hash is not None
-            )
-            if not eligible:
-                return None
+                candidate_hash = (
+                    member.password_hash
+                    if member is not None and member.password_hash
+                    else _DUMMY_PASSWORD_HASH
+                )
+                password_matches = check_password_hash(
+                    candidate_hash,
+                    supplied_password,
+                )
+                eligible = (
+                    member is not None
+                    and member.status == "active"
+                    and member.password_hash is not None
+                )
+                if not eligible:
+                    return None
 
-            if (
-                member.password_locked_until is not None
-                and member.password_locked_until > now
-            ):
-                return None
-            if member.password_locked_until is not None:
+                if (
+                    member.password_locked_until is not None
+                    and member.password_locked_until > now
+                ):
+                    return None
+                if member.password_locked_until is not None:
+                    member.failed_password_attempts = 0
+                    member.password_locked_until = None
+
+                if not password_matches:
+                    member.failed_password_attempts += 1
+                    if member.failed_password_attempts >= PASSWORD_MAX_ATTEMPTS:
+                        member.failed_password_attempts = PASSWORD_MAX_ATTEMPTS
+                        member.password_locked_until = now + timedelta(
+                            minutes=PASSWORD_LOCK_MINUTES
+                        )
+                    return None
+
                 member.failed_password_attempts = 0
                 member.password_locked_until = None
-
-            if not password_matches:
-                member.failed_password_attempts += 1
-                if member.failed_password_attempts >= PASSWORD_MAX_ATTEMPTS:
-                    member.failed_password_attempts = PASSWORD_MAX_ATTEMPTS
-                    member.password_locked_until = now + timedelta(
-                        minutes=PASSWORD_LOCK_MINUTES
-                    )
-                return None
-
-            member.failed_password_attempts = 0
-            member.password_locked_until = None
-            tenant = session.get(Tenant, member.tenant_id)
-            if tenant is None:
-                return None
-            credentials = create_auth_session(
-                session,
-                kind="tenant",
-                subject_id=member.id,
-                tenant_id=tenant.id,
-                now=now,
-            )
-            return TenantLogin(
-                member=member,
-                tenant=tenant,
-                credentials=credentials,
-            )
+                tenant = session.get(Tenant, member.tenant_id)
+                if tenant is None:
+                    return None
+                credentials = create_auth_session(
+                    session,
+                    kind="tenant",
+                    subject_id=member.id,
+                    tenant_id=tenant.id,
+                    now=now,
+                )
+                return TenantLogin(
+                    member=member,
+                    tenant=tenant,
+                    credentials=credentials,
+                )
+        except TimeoutError:
+            return None
 
     def change_password(
         self,

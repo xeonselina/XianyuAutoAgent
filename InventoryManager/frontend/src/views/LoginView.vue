@@ -18,16 +18,21 @@ const busy = ref(false)
 const message = ref('')
 const errorMessage = ref('')
 const configLoading = ref(true)
+const configError = ref('')
 
-onMounted(async () => {
+const loadConfig = async () => {
+  configLoading.value = true
+  configError.value = ''
   try {
     await auth.loadAuthConfig()
   } catch (error) {
-    errorMessage.value = apiErrorMessage(error)
+    configError.value = apiErrorMessage(error)
   } finally {
     configLoading.value = false
   }
-})
+}
+
+onMounted(loadConfig)
 
 const requestCode = async () => {
   errorMessage.value = ''
@@ -66,7 +71,7 @@ const login = async () => {
 
 <template>
   <main class="auth-page">
-    <form v-if="!configLoading" class="auth-card" @submit.prevent="login">
+    <form v-if="!configLoading && auth.authMethod" class="auth-card" @submit.prevent="login">
       <p class="eyebrow">租赁库存管理</p>
       <h1>{{ auth.authMethod === 'password' ? '密码登录' : '短信验证码登录' }}</h1>
       <label>
@@ -122,6 +127,18 @@ const login = async () => {
       <p v-if="message" class="hint">{{ message }}</p>
       <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
     </form>
+    <section v-else-if="!configLoading" class="auth-card" role="alert">
+      <p class="eyebrow">租赁库存管理</p>
+      <h1>无法加载登录方式</h1>
+      <p class="error">{{ configError }}</p>
+      <button
+        data-testid="auth-config-retry"
+        type="button"
+        @click="loadConfig"
+      >
+        重试
+      </button>
+    </section>
     <p v-else>正在加载登录方式…</p>
   </main>
 </template>

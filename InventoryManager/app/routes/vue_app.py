@@ -65,6 +65,7 @@ def unified_favicon():
 @bp.route('/inspection')
 @bp.route('/inspection-records')
 @bp.route('/login')
+@bp.route('/change-password')
 @bp.route('/access-restricted')
 @bp.route('/settings')
 @bp.route('/platform/login')

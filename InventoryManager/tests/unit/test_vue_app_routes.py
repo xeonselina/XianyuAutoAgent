@@ -24,6 +24,7 @@ def test_named_auth_and_platform_pages_use_desktop_spa_fallback(tmp_path):
 
     for path in (
         "/login",
+        "/change-password",
         "/access-restricted",
         "/settings",
         "/platform/login",
