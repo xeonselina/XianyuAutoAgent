@@ -205,11 +205,16 @@ describe('warehouse-aware tenant navigation', () => {
 
     const admin = await mountHeader('admin')
     expect(admin.wrapper.find('[data-testid="settings-link"]').exists()).toBe(true)
+    expect(admin.wrapper.get('[data-testid="user-menu"]').text()).toContain('店铺设置')
+    expect(admin.wrapper.get('[data-testid="user-menu"]').text()).toContain('账号安全')
+    expect(admin.wrapper.get('[data-testid="user-menu"]').text()).toContain('退出登录')
     admin.wrapper.unmount()
 
     const operator = await mountHeader('operator')
     expect(operator.wrapper.find('[data-testid="warehouse-selector"]').exists()).toBe(true)
     expect(operator.wrapper.find('[data-testid="settings-link"]').exists()).toBe(false)
+    expect(operator.wrapper.get('[data-testid="user-menu"]').text()).not.toContain('店铺设置')
+    expect(operator.wrapper.get('[data-testid="user-menu"]').text()).toContain('账号安全')
   })
 
   it('uses configured flags without receiving secrets and leaves blank secret fields unchanged', async () => {
@@ -279,6 +284,25 @@ describe('warehouse-aware tenant navigation', () => {
     axiosPatch.mockResolvedValue({ data: { success: true, data: {} } })
 
     expect(shallowMount(SettingsView).findComponent(XianyuShopSettings).exists()).toBe(true)
+    const shopSettings = shallowMount(XianyuShopSettings, {
+      global: {
+        directives: { loading: () => undefined },
+        stubs: {
+          ElButton: true,
+          ElDialog: true,
+          ElForm: true,
+          ElFormItem: true,
+          ElInput: true,
+          ElSwitch: true,
+          ElTable: { template: '<div><slot /></div>' },
+          ElTableColumn: { template: '<div><slot :row="{}" /></div>' },
+        },
+      },
+    })
+    await flushPromises()
+    expect(shopSettings.text()).toContain('App Key 用于标识该闲鱼店铺的接口身份')
+    expect(shopSettings.text()).toContain('不是本站登录密码、闲鱼账号密码或 Cookie')
+    expect(shopSettings.text()).toContain('App Secret 会加密保存，保存后不再回显')
     expect((await listXianyuShops())[0].app_secret_configured).toBe(true)
     await updateXianyuShop(7, { name: '深圳主店', app_secret: '' })
     expect(axiosPatch).toHaveBeenCalledWith('/api/settings/xianyu-shops/7', {

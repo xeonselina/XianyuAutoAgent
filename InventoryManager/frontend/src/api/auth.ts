@@ -53,6 +53,7 @@ type ApiEnvelope<T> = {
 type NewTenant = {
   name: string
   admin_phone: string
+  initial_password: string
   expires_at: string
 }
 

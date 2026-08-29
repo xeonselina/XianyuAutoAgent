@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.auth import (
+    PasswordPolicyError,
     create_auth_session,
     csrf_matches,
     normalize_china_phone,
@@ -296,6 +297,7 @@ def create_tenant():
             body.get("name"),
             body.get("admin_phone"),
             expires_at,
+            body.get("initial_password"),
         )
     except TenantPhoneConflict:
         return error(
@@ -303,8 +305,10 @@ def create_tenant():
             status_code=409,
             code="PHONE_CONFLICT",
         ).to_flask_response()
+    except PasswordPolicyError:
+        return _invalid_request("初始密码必须为 12 至 128 个字符")
     except ValueError:
-        return _invalid_request("租户名称、手机号或到期时间无效")
+        return _invalid_request("店铺名称、管理员手机号或到期时间无效")
 
     data = _tenant_payload_by_id(tenant.id)
     if tenant.provisioning_status != "active":

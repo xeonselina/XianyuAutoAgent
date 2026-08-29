@@ -25,7 +25,13 @@ const listErrorMessage = ref('')
 const errorMessage = computed(() => (
   [operationErrorMessage.value, listErrorMessage.value].filter(Boolean).join('；')
 ))
-const form = reactive({ name: '', adminPhone: '', expiresAt: '' })
+const form = reactive({
+  name: '',
+  adminPhone: '',
+  initialPassword: '',
+  confirmPassword: '',
+  expiresAt: '',
+})
 const expiryDrafts = reactive<Record<number, string>>({})
 
 const csrf = () => {
@@ -56,6 +62,14 @@ const load = async (refreshAfterOperationFailure = false) => {
 
 const submitCreate = async () => {
   if (mutationBusy.value) return
+  if (form.initialPassword.length < 12 || form.initialPassword.length > 128) {
+    operationErrorMessage.value = '初始密码必须为 12 至 128 个字符'
+    return
+  }
+  if (form.initialPassword !== form.confirmPassword) {
+    operationErrorMessage.value = '两次输入的初始密码不一致'
+    return
+  }
   mutationBusy.value = true
   operationErrorMessage.value = ''
   try {
@@ -63,12 +77,19 @@ const submitCreate = async () => {
       {
         name: form.name,
         admin_phone: form.adminPhone,
+        initial_password: form.initialPassword,
         expires_at: new Date(form.expiresAt).toISOString(),
       },
       csrf(),
     )
     replaceTenant(created)
-    Object.assign(form, { name: '', adminPhone: '', expiresAt: '' })
+    Object.assign(form, {
+      name: '',
+      adminPhone: '',
+      initialPassword: '',
+      confirmPassword: '',
+      expiresAt: '',
+    })
     showCreate.value = false
   } catch (error) {
     operationErrorMessage.value = apiErrorMessage(error)
@@ -123,8 +144,8 @@ onMounted(load)
   <main class="platform-page">
     <header>
       <div>
-        <p>平台管理</p>
-        <h1>租户</h1>
+        <p>超级管理员</p>
+        <h1>客户店铺</h1>
       </div>
       <div class="header-actions">
         <span>{{ auth.platformAdmin?.username }}</span>
@@ -134,17 +155,19 @@ onMounted(load)
           :disabled="loading || mutationBusy"
           @click="showCreate = !showCreate"
         >
-          创建租户
+          创建店铺
         </button>
         <button type="button" class="secondary" @click="logout">退出</button>
       </div>
     </header>
 
     <form v-if="showCreate" class="create-form" @submit.prevent="submitCreate">
-      <label>租户名称<input v-model.trim="form.name" data-testid="tenant-name" :disabled="mutationBusy" required></label>
-      <label>首个 Admin 手机号<input v-model.trim="form.adminPhone" data-testid="admin-phone" :disabled="mutationBusy" required></label>
-      <label>到期时间<input v-model="form.expiresAt" data-testid="tenant-expiry" type="datetime-local" :disabled="mutationBusy" required></label>
-      <button data-testid="create-tenant" type="submit" :disabled="mutationBusy">确认创建</button>
+      <label>店铺名称<input v-model.trim="form.name" data-testid="tenant-name" :disabled="mutationBusy" required></label>
+      <label>初始管理员手机号<input v-model.trim="form.adminPhone" data-testid="admin-phone" inputmode="numeric" :disabled="mutationBusy" required></label>
+      <label>初始登录密码<input v-model="form.initialPassword" data-testid="initial-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" :disabled="mutationBusy" required><small>12 至 128 个字符，由店铺管理员首次登录后自行修改</small></label>
+      <label>确认初始密码<input v-model="form.confirmPassword" data-testid="confirm-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" :disabled="mutationBusy" required></label>
+      <label>服务到期时间<input v-model="form.expiresAt" data-testid="tenant-expiry" type="datetime-local" :disabled="mutationBusy" required></label>
+      <button data-testid="create-tenant" type="submit" :disabled="mutationBusy">确认创建店铺</button>
     </form>
 
     <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
@@ -154,7 +177,7 @@ onMounted(load)
         <div class="tenant-title">
           <div>
             <h2>{{ tenant.name }}</h2>
-            <p>{{ tenant.db_name }} · Admin {{ tenant.admin_phone }}</p>
+            <p>{{ tenant.db_name }} · 初始管理员 {{ tenant.admin_phone }}</p>
           </div>
           <span :class="['badge', tenant.status]">{{ tenant.status }}</span>
           <span :class="['badge', tenant.provisioning_status]">
@@ -211,9 +234,11 @@ header p, header h1, article h2, article p { margin: 0; }
 button { padding: 9px 13px; border: 0; border-radius: 7px; color: white; background: #175cd3; cursor: pointer; }
 button.secondary { color: #344054; background: #e4e7ec; }
 .create-form, article { max-width: 1180px; margin: 0 auto 16px; padding: 20px; border: 1px solid #e4e7ec; border-radius: 12px; background: white; }
-.create-form { display: grid; grid-template-columns: repeat(3, 1fr) auto; gap: 12px; align-items: end; }
+.create-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: end; }
 label { display: grid; gap: 6px; font-weight: 600; }
 input { min-width: 150px; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 7px; font: inherit; }
+small { color: #667085; font-size: 12px; font-weight: 400; }
+.create-form > button { justify-self: start; }
 .tenant-title { flex-wrap: wrap; }
 .tenant-title > div { flex: 1; }
 .badge { padding: 4px 8px; border-radius: 999px; background: #eaecf0; font-size: 13px; }

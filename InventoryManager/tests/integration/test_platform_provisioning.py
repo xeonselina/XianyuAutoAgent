@@ -40,6 +40,7 @@ from config import TestingConfig
 
 TEST_MASTER_KEY = base64.b64encode(bytes(range(32))).decode("ascii")
 TEST_PLATFORM_PASSWORD = "platform-admin-test-password"
+TEST_TENANT_INITIAL_PASSWORD = "tenant-initial-password-123"
 TEST_TOTP_SECRET = "JBSWY3DPEHPK3PXP"
 TEST_DATABASE_PREFIX = "inventory_test_tenant_"
 TEST_USER_PREFIX = "im_test_t"
@@ -321,6 +322,7 @@ def _create_tenant(client, csrf_token, phone="13800138000", name="Acme"):
         json={
             "name": name,
             "admin_phone": phone,
+            "initial_password": TEST_TENANT_INITIAL_PASSWORD,
             "expires_at": (
                 datetime.utcnow() + timedelta(days=30)
             ).replace(microsecond=0).isoformat() + "Z",
@@ -347,6 +349,7 @@ def _tenant_snapshot(store, tenant_id):
             "provisioning_error": tenant.provisioning_error,
             "member_id": member.id,
             "member_phone": member.phone,
+            "member_password_hash": member.password_hash,
         }
 
 
@@ -735,6 +738,7 @@ def test_platform_create_runs_real_migrations_with_minimal_grants_and_retries(
         json={
             "name": "No CSRF",
             "admin_phone": "13800138000",
+            "initial_password": TEST_TENANT_INITIAL_PASSWORD,
             "expires_at": "2030-01-01T00:00:00Z",
         },
     )
@@ -746,12 +750,30 @@ def test_platform_create_runs_real_migrations_with_minimal_grants_and_retries(
         json={
             "name": "Invalid expiry",
             "admin_phone": "13800138000",
+            "initial_password": TEST_TENANT_INITIAL_PASSWORD,
             "expires_at": "0999-12-31T23:59:59Z",
         },
         headers={"X-CSRF-Token": csrf_token},
     )
     assert invalid_expiry.status_code == 400
     assert invalid_expiry.get_json()["code"] == "INVALID_REQUEST"
+
+    invalid_password = client.post(
+        "/platform/api/tenants",
+        json={
+            "name": "Weak password",
+            "admin_phone": "13800138000",
+            "initial_password": "too-short",
+            "expires_at": "2030-01-01T00:00:00Z",
+        },
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    assert invalid_password.status_code == 400
+    assert invalid_password.get_json() == {
+        "success": False,
+        "message": "初始密码必须为 12 至 128 个字符",
+        "code": "INVALID_REQUEST",
+    }
 
     create_response = _create_tenant(client, csrf_token)
     assert create_response.status_code == 201, create_response.get_json()
@@ -769,6 +791,11 @@ def test_platform_create_runs_real_migrations_with_minimal_grants_and_retries(
         f"{TEST_USER_PREFIX}{tenant_payload['id']:08d}"
     )
     assert first_snapshot["provisioning_error"] is None
+    assert first_snapshot["member_password_hash"] != TEST_TENANT_INITIAL_PASSWORD
+    assert check_password_hash(
+        first_snapshot["member_password_hash"],
+        TEST_TENANT_INITIAL_PASSWORD,
+    )
     _smoke_current_business_models(platform_environment, first_snapshot)
 
     tenant_engine = _tenant_engine(platform_environment, first_snapshot)

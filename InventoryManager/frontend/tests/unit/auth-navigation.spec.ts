@@ -81,6 +81,7 @@ const platformData = {
   csrf_token: 'platform-csrf',
   admin: { id: 1, username: 'root-admin' },
 }
+const tenantInitialPassword = 'tenant-initial-password-123'
 
 const apiRejection = (message: string, status: number) => Object.assign(
   new Error(message),
@@ -752,12 +753,27 @@ describe('authenticated shell and platform tenant actions', () => {
     await wrapper.get('[data-testid="tenant-name"]').setValue('租户乙')
     await wrapper.get('[data-testid="admin-phone"]').setValue('13900139000')
     await wrapper.get('[data-testid="tenant-expiry"]').setValue('2026-10-01T08:00')
+
+    await wrapper.get('[data-testid="initial-password"]').setValue('too-short')
+    await wrapper.get('[data-testid="confirm-password"]').setValue('too-short')
+    await wrapper.get('.create-form').trigger('submit')
+    expect(apiMocks.createTenant).not.toHaveBeenCalled()
+    expect(wrapper.get('[role="alert"]').text()).toBe('初始密码必须为 12 至 128 个字符')
+
+    await wrapper.get('[data-testid="initial-password"]').setValue(tenantInitialPassword)
+    await wrapper.get('[data-testid="confirm-password"]').setValue(`${tenantInitialPassword}-mismatch`)
+    await wrapper.get('.create-form').trigger('submit')
+    expect(apiMocks.createTenant).not.toHaveBeenCalled()
+    expect(wrapper.get('[role="alert"]').text()).toBe('两次输入的初始密码不一致')
+
+    await wrapper.get('[data-testid="confirm-password"]').setValue(tenantInitialPassword)
     await wrapper.get('.create-form').trigger('submit')
     await vi.waitFor(() => expect(apiMocks.createTenant).toHaveBeenCalledOnce())
     expect(apiMocks.createTenant).toHaveBeenCalledWith(
       {
         name: '租户乙',
         admin_phone: '13900139000',
+        initial_password: tenantInitialPassword,
         expires_at: '2026-10-01T00:00:00.000Z',
       },
       'platform-csrf',
@@ -918,6 +934,8 @@ describe('authenticated shell and platform tenant actions', () => {
     })
     await wrapper.get('[data-testid="tenant-name"]').setValue('租户乙')
     await wrapper.get('[data-testid="admin-phone"]').setValue('13900139000')
+    await wrapper.get('[data-testid="initial-password"]').setValue(tenantInitialPassword)
+    await wrapper.get('[data-testid="confirm-password"]').setValue(tenantInitialPassword)
     await wrapper.get('[data-testid="tenant-expiry"]').setValue('2026-10-01T08:00')
     await wrapper.get('.create-form').trigger('submit')
 
@@ -1014,6 +1032,8 @@ describe('authenticated shell and platform tenant actions', () => {
     await wrapper.get('[data-testid="new-tenant"]').trigger('click')
     await wrapper.get('[data-testid="tenant-name"]').setValue('租户乙')
     await wrapper.get('[data-testid="admin-phone"]').setValue('13900139000')
+    await wrapper.get('[data-testid="initial-password"]').setValue(tenantInitialPassword)
+    await wrapper.get('[data-testid="confirm-password"]').setValue(tenantInitialPassword)
     await wrapper.get('[data-testid="tenant-expiry"]').setValue('2026-10-01T08:00')
     await wrapper.get('.create-form').trigger('submit')
 
@@ -1105,6 +1125,8 @@ describe('authenticated shell and platform tenant actions', () => {
     await wrapper.get('[data-testid="new-tenant"]').trigger('click')
     await wrapper.get('[data-testid="tenant-name"]').setValue('租户乙')
     await wrapper.get('[data-testid="admin-phone"]').setValue('13900139000')
+    await wrapper.get('[data-testid="initial-password"]').setValue(tenantInitialPassword)
+    await wrapper.get('[data-testid="confirm-password"]').setValue(tenantInitialPassword)
     await wrapper.get('[data-testid="tenant-expiry"]').setValue('2026-10-01T08:00')
     await wrapper.get('.create-form').trigger('submit')
     await vi.waitFor(() => expect(apiMocks.createTenant).toHaveBeenCalledOnce())
@@ -1172,6 +1194,8 @@ describe('authenticated shell and platform tenant actions', () => {
     })
     await wrapper.get('[data-testid="tenant-name"]').setValue('租户乙')
     await wrapper.get('[data-testid="admin-phone"]').setValue('13900139000')
+    await wrapper.get('[data-testid="initial-password"]').setValue(tenantInitialPassword)
+    await wrapper.get('[data-testid="confirm-password"]').setValue(tenantInitialPassword)
     await wrapper.get('[data-testid="tenant-expiry"]').setValue('2026-10-01T08:00')
     await wrapper.get('.create-form').trigger('submit')
     await wrapper.get('.create-form').trigger('submit')
