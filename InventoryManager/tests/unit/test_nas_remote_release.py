@@ -31,6 +31,10 @@ with open(os.environ["FAKE_DOCKER_ENVS"], "a", encoding="utf-8") as stream:
 
 if args[:2] == ["compose", "version"]:
     raise SystemExit(0)
+if args and args[0] == "info":
+    if os.environ.get("FAKE_DOCKER_ROOT_DISCOVERY") != "unavailable":
+        print(os.environ["FAKE_DOCKER_ROOT"])
+    raise SystemExit(0)
 if "config" in args:
     raise SystemExit(1 if mode == "config-fail" else 0)
 if "pull" in args:
@@ -57,11 +61,19 @@ if "migrate-tenants" in args:
         current = Path(os.environ["DEPLOY_DIR"]) / "current.env"
         Path(marker).write_text(current.read_text() if current.exists() else "<missing>")
     raise SystemExit(1 if mode == "tenant-migration-fail" else 0)
+if "stop" in args:
+    raise SystemExit(37 if mode.startswith("stop-fail-") else 0)
+if "up" in args:
+    raise SystemExit(53 if mode == "stop-fail-recovery-fail" else 0)
 if args and args[0] == "inspect" and args[-1] == "app-id":
     print("unhealthy" if mode == "health-fail" else "healthy")
     raise SystemExit(0)
-if "ps" in args and "app" in args:
+if "ps" in args and "--quiet" in args and "app" in args:
     print("app-id")
+    raise SystemExit(0)
+if "ps" in args and "app" in args and "worker" in args:
+    print("app running")
+    print("worker running")
     raise SystemExit(0)
 if args and args[0] == "run":
     probe_marker.write_text("ran\n")
@@ -117,6 +129,35 @@ else:
 '''
 
 
+FAKE_DF = r'''#!/usr/bin/env python3
+import os
+import sys
+
+path = sys.argv[-1]
+mode = os.environ.get("FAKE_DISK_MODE", "success")
+available = 50_000_000
+if mode == "deploy-low" and path == os.environ["DEPLOY_DIR"]:
+    available = 100
+if mode == "docker-low" and path == os.environ["FAKE_DOCKER_ROOT"]:
+    available = 100
+print("Filesystem 1024-blocks Used Available Capacity Mounted on")
+print(f"fake 50000000 0 {available} 1% {path}")
+'''
+
+
+FAKE_RM = r'''#!/usr/bin/env python3
+import os
+import sys
+
+if (
+    os.environ.get("FAKE_FS_MODE") == "journal-cleanup-fail"
+    and any(".previous-backup.env." in arg for arg in sys.argv[1:])
+):
+    raise SystemExit(59)
+os.execv("/bin/rm", ["/bin/rm", *sys.argv[1:]])
+'''
+
+
 def _release_env(image_ref, app_env, network):
     return (
         f"IMAGE_REF={image_ref}\n"
@@ -128,7 +169,9 @@ def _release_env(image_ref, app_env, network):
 def invoke(tmp_path, action, *, mode="success", backup="backup-verified", current=True,
            app_env_mode=0o600, log_tail=None, health_attempts=None,
            health_interval=None, fs_mode="success", current_metadata=None,
-           app_env_owner=0, app_env_symlink=False):
+           app_env_owner=0, app_env_symlink=False,
+           image_ref="registry.example/inventory:new", disk_mode="success",
+           docker_root_discovery="available", min_free_space_mb=None):
     deploy_dir = tmp_path / "deploy"
     deploy_dir.mkdir(parents=True)
     (deploy_dir / "docker-compose.yml").write_text("services: {}\n")
@@ -167,17 +210,25 @@ def invoke(tmp_path, action, *, mode="success", backup="backup-verified", curren
     fake_stat = fake_bin / "stat"
     fake_stat.write_text(FAKE_STAT)
     fake_stat.chmod(fake_stat.stat().st_mode | stat.S_IXUSR)
+    fake_df = fake_bin / "df"
+    fake_df.write_text(FAKE_DF)
+    fake_df.chmod(fake_df.stat().st_mode | stat.S_IXUSR)
+    fake_rm = fake_bin / "rm"
+    fake_rm.write_text(FAKE_RM)
+    fake_rm.chmod(fake_rm.stat().st_mode | stat.S_IXUSR)
     calls_file = tmp_path / "docker-calls.jsonl"
     envs_file = tmp_path / "docker-envs.jsonl"
     tenant_current = tmp_path / "tenant-current.env"
     probe_marker = tmp_path / "probe-ran"
+    docker_root = tmp_path / "docker-root"
+    docker_root.mkdir()
 
     env = {
         **os.environ,
         "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
         "DEPLOY_DIR": str(deploy_dir),
         "APP_ENV_FILE": str(app_env),
-        "IMAGE_REF": "registry.example/inventory:new",
+        "IMAGE_REF": image_ref,
         "FRPC_CONTAINER": "frpc",
         "FRPC_NETWORK": "frp-network",
         "BACKUP_VERIFIED": backup,
@@ -185,6 +236,9 @@ def invoke(tmp_path, action, *, mode="success", backup="backup-verified", curren
         "FAKE_DOCKER_ENVS": str(envs_file),
         "FAKE_DOCKER_MODE": mode,
         "FAKE_FS_MODE": fs_mode,
+        "FAKE_DISK_MODE": disk_mode,
+        "FAKE_DOCKER_ROOT": str(docker_root),
+        "FAKE_DOCKER_ROOT_DISCOVERY": docker_root_discovery,
         "FAKE_TENANT_CURRENT": str(tenant_current),
         "FAKE_APP_ENV": str(app_env),
         "FAKE_APP_ENV_OWNER": str(app_env_owner),
@@ -196,6 +250,8 @@ def invoke(tmp_path, action, *, mode="success", backup="backup-verified", curren
         env["HEALTH_ATTEMPTS"] = health_attempts
     if health_interval is not None:
         env["HEALTH_INTERVAL_SECONDS"] = health_interval
+    if min_free_space_mb is not None:
+        env["MIN_FREE_SPACE_MB"] = min_free_space_mb
 
     result = subprocess.run(
         ["bash", str(SCRIPT), action],
@@ -221,6 +277,57 @@ def test_pull_failure_never_stops_old_services(tmp_path):
     assert result.returncode != 0
     assert not any("stop" in call for call in calls)
     assert "registry.example/inventory:old" in (deploy_dir / "current.env").read_text()
+
+
+def test_partial_stop_failure_restores_current_release_and_returns_stop_status(tmp_path):
+    result, calls, deploy_dir = invoke(
+        tmp_path, "deploy", mode="stop-fail-recovery-success"
+    )
+
+    assert result.returncode == 37
+    stop = next(index for index, call in enumerate(calls) if "stop" in call)
+    recovery = next(index for index, call in enumerate(calls) if "up" in call)
+    assert stop < recovery
+    assert not any(
+        "run" in call and ("migrate-control" in call or "migrate-tenants" in call)
+        for call in calls
+    )
+    assert "recovery succeeded" in result.stderr
+    assert "registry.example/inventory:old" in (deploy_dir / "current.env").read_text()
+    assert "registry.example/inventory:older" in (deploy_dir / "previous.env").read_text()
+
+
+def test_partial_stop_failure_reports_failed_recovery_but_preserves_stop_status(tmp_path):
+    result, calls, _ = invoke(
+        tmp_path, "deploy", mode="stop-fail-recovery-fail"
+    )
+
+    assert result.returncode == 37
+    stop = next(index for index, call in enumerate(calls) if "stop" in call)
+    recovery = next(index for index, call in enumerate(calls) if "up" in call)
+    assert stop < recovery
+    assert "recovery failed with status 53" in result.stderr
+    assert "original stop status 37" in result.stderr
+
+
+def test_low_space_on_deploy_or_docker_filesystem_fails_before_stop(tmp_path):
+    for disk_mode in ("deploy-low", "docker-low"):
+        result, calls, _ = invoke(
+            tmp_path / disk_mode, "deploy", disk_mode=disk_mode
+        )
+        assert result.returncode != 0
+        assert "filesystem has less than 1024 MiB free" in result.stderr
+        assert not any("pull" in call or "stop" in call or "up" in call for call in calls)
+
+
+def test_unavailable_docker_storage_discovery_warns_without_guessing_a_path(tmp_path):
+    result, calls, _ = invoke(
+        tmp_path, "deploy", docker_root_discovery="unavailable"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Docker storage path could not be discovered" in result.stderr
+    assert any("stop" in call for call in calls)
 
 
 def test_compose_uses_selected_release_metadata_instead_of_ambient_values(tmp_path):
@@ -314,6 +421,36 @@ def test_promotion_failure_restores_both_metadata_files_and_never_starts(tmp_pat
     assert (deploy_dir / "previous.env").read_bytes() == previous_before
 
 
+def test_same_tag_redeploy_refreshes_current_without_rotating_previous(tmp_path):
+    previous_before = _release_env(
+        "registry.example/inventory:older", tmp_path / "app.env", "frp-network"
+    ).encode()
+    result, calls, deploy_dir = invoke(
+        tmp_path,
+        "deploy",
+        image_ref="registry.example/inventory:old",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (deploy_dir / "previous.env").read_bytes() == previous_before
+    assert "registry.example/inventory:old" in (deploy_dir / "current.env").read_text()
+    assert any("migrate-control" in call for call in calls)
+    assert any("migrate-tenants" in call for call in calls)
+    assert not list(deploy_dir.glob(".previous-backup.env.*"))
+
+
+def test_promotion_journal_cleanup_failure_does_not_prevent_startup(tmp_path):
+    result, calls, deploy_dir = invoke(
+        tmp_path, "deploy", fs_mode="journal-cleanup-fail"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "could not remove promotion journal" in result.stderr
+    assert any("up" in call for call in calls)
+    assert "deployment succeeded" in result.stdout
+    assert list(deploy_dir.glob(".previous-backup.env.*"))
+
+
 def test_disconnected_frpc_is_connected_before_service_stop(tmp_path):
     result, calls, _ = invoke(tmp_path, "deploy", mode="frpc-disconnected")
     assert result.returncode == 0
@@ -371,6 +508,7 @@ def test_backup_confirmation_is_exact_and_blocks_stop_and_migrations(tmp_path):
 def test_invalid_health_controls_fail_before_destructive_work(tmp_path):
     cases = (
         {"health_attempts": "0"},
+        {"health_attempts": "08"},
         {"health_attempts": "three"},
         {"health_interval": "1.5"},
         {"health_interval": "-1"},
@@ -468,6 +606,25 @@ def test_health_failure_keeps_promoted_release_metadata(tmp_path):
     assert not any(call and call[0] == "run" for call in calls)
     assert "registry.example/inventory:new" in (deploy_dir / "current.env").read_text()
     assert "registry.example/inventory:old" in (deploy_dir / "previous.env").read_text()
+
+
+def test_success_summary_has_versions_container_state_and_safe_log_command(tmp_path):
+    result, calls, _ = invoke(tmp_path, "deploy")
+
+    assert result.returncode == 0, result.stderr
+    assert "new IMAGE_REF=registry.example/inventory:new" in result.stdout
+    assert "previous IMAGE_REF=registry.example/inventory:old" in result.stdout
+    assert "container state:" in result.stdout
+    assert "app running" in result.stdout
+    assert "worker running" in result.stdout
+    assert "follow-up logs: make nas-logs LOG_TAIL=200" in result.stdout
+    assert "SECRET=value" not in result.stdout + result.stderr
+    assert "APP_ENV_FILE" not in result.stdout
+    summary_ps = next(
+        call for call in calls
+        if "ps" in call and "app" in call and "worker" in call
+    )
+    assert summary_ps[-3:] == ["ps", "app", "worker"]
 
 
 def test_status_prints_only_release_image_metadata_and_compose_ps(tmp_path):

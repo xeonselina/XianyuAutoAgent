@@ -15,6 +15,8 @@ SCRIPT = ROOT / "scripts/deploy_nas.sh"
 FAKE_SSH = r'''#!/usr/bin/env python3
 import json
 import os
+import shlex
+import subprocess
 import sys
 
 argv = sys.argv[1:]
@@ -33,6 +35,32 @@ with open(os.environ["FAKE_SSH_LOG"], "a") as handle:
 command = argv[-1] if argv else ""
 if command == "printf '%s\\n' \"$HOME\"":
     print("/volume1/homes/deployer")
+
+if (
+    os.environ.get("FAKE_EXECUTE_LIFECYCLE") == "1"
+    and any(
+        command.endswith(f"remote_release.sh' '{action}'")
+        for action in ("check", "deploy", "status", "logs")
+    )
+):
+    tokens = shlex.split(command)
+    env_index = tokens.index("env")
+    lifecycle = tokens[env_index:]
+    lifecycle[-2:] = [
+        sys.executable,
+        os.environ["FAKE_ROOT_PROBE"],
+        os.environ["FAKE_ROOT_PROBE_LOG"],
+        lifecycle[-1],
+    ]
+    completed = subprocess.run(
+        lifecycle,
+        input=stdin_bytes,
+        capture_output=True,
+        env=os.environ,
+    )
+    sys.stdout.buffer.write(completed.stdout)
+    sys.stderr.buffer.write(completed.stderr)
+    raise SystemExit(completed.returncode)
 
 failure = os.environ.get("FAKE_SSH_FAIL_MATCH", "")
 if failure and failure in command:
@@ -80,6 +108,31 @@ os.execvpe(argv[1], argv[1:], os.environ)
 '''
 
 
+FAKE_ROOT_PROBE = r'''#!/usr/bin/env python3
+import json
+import os
+import sys
+
+with open(sys.argv[1], "w") as handle:
+    json.dump({
+        "argv": sys.argv[2:],
+        "path": os.environ.get("PATH"),
+        "home": os.environ.get("HOME"),
+        "min_free_space_mb": os.environ.get("MIN_FREE_SPACE_MB"),
+        "credential_names": [
+            name for name in (
+                "NAS_PASS", "SUDO_PASS", "NAS_PASSWORD", "SUDO_PASSWORD", "SSHPASS",
+            )
+            if name in os.environ
+        ],
+        "make_names": [
+            name for name in ("MAKEFLAGS", "MAKELEVEL", "MFLAGS")
+            if name in os.environ
+        ],
+    }, handle)
+'''
+
+
 BASE_CONFIG = {
     "NAS_HOST": "nas.example.test",
     "NAS_USER": "deployer",
@@ -89,6 +142,7 @@ BASE_CONFIG = {
     "FRPC_CONTAINER": "frpc-client",
     "FRPC_NETWORK": "xianyu-frp",
     "LOG_TAIL": "200",
+    "MIN_FREE_SPACE_MB": "1024",
 }
 
 
@@ -113,12 +167,16 @@ def invoke(
     trace=False,
     password=None,
     sudo_password=None,
+    execute_lifecycle=False,
 ):
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     ssh_log = tmp_path / "ssh.jsonl"
     sshpass_log = tmp_path / "sshpass.jsonl"
     early_log = tmp_path / "early.jsonl"
+    root_probe_log = tmp_path / "root-probe.json"
+    root_probe = tmp_path / "root-probe.py"
+    root_probe.write_text(FAKE_ROOT_PROBE)
     write_executable(fake_bin / "ssh", FAKE_SSH)
     write_executable(fake_bin / "sshpass", FAKE_SSHPASS)
     write_executable(fake_bin / "stat", FAKE_STAT)
@@ -155,11 +213,15 @@ def invoke(
         "FAKE_SSH_LOG": str(ssh_log),
         "FAKE_SSHPASS_LOG": str(sshpass_log),
         "FAKE_EARLY_LOG": str(early_log),
+        "FAKE_ROOT_PROBE": str(root_probe),
+        "FAKE_ROOT_PROBE_LOG": str(root_probe_log),
         "IMAGE_REPOSITORY": "registry.example.test/team/inventory-manager",
         "IMAGE_TAG": "20260828-120000-abc123def456",
         "BACKUP_VERIFIED": "backup-verified",
     })
     env.update(env_updates or {})
+    if execute_lifecycle:
+        env["FAKE_EXECUTE_LIFECYCLE"] = "1"
 
     command = ["bash"]
     if trace:
@@ -177,6 +239,7 @@ def invoke(
         "ssh": read_json_lines(ssh_log),
         "sshpass": read_json_lines(sshpass_log),
         "early": read_json_lines(early_log),
+        "root_probe": json.loads(root_probe_log.read_text()) if root_probe_log.exists() else None,
     }
 
 
@@ -307,6 +370,7 @@ def test_config_values_are_literal_and_split_only_on_first_equals(tmp_path):
         ({"FRPC_CONTAINER": "frpc;bad"}, ()),
         ({"FRPC_NETWORK": "frp network"}, ()),
         ({"LOG_TAIL": "200;bad"}, ()),
+        ({"MIN_FREE_SPACE_MB": "08"}, ()),
     ),
 )
 def test_unsafe_configuration_fails_before_ssh(tmp_path, updates, extra_lines):
@@ -335,8 +399,9 @@ def test_actions_install_verified_root_assets_then_run_root_release_script(tmp_p
     assert "sudo -n" in commands[install_index]
     assert "/volume1/docker/inventory-manager/docker-compose.yml" in commands[install_index]
     assert "/volume1/docker/inventory-manager/.xianyu-agent-release/remote_release.sh" in commands[install_index]
-    assert "install -o root -g root -m 0644" in commands[install_index]
-    assert "install -o root -g root -m 0755" in commands[install_index]
+    assert "chown root:root /volume1/docker/inventory-manager; chmod 0755" in commands[install_index]
+    assert "chmod 0644" in commands[install_index]
+    assert "chmod 0755" in commands[install_index]
     assert "[ ! -L /volume1/homes/deployer/.xianyu-agent-compose-" in commands[install_index]
     assert "[ ! -L /volume1/homes/deployer/.xianyu-agent-remote_release-" in commands[install_index]
     assert "/volume1/docker/inventory-manager/.xianyu-agent-release/remote_release.sh" in commands[lifecycle_index]
@@ -351,6 +416,47 @@ def test_actions_install_verified_root_assets_then_run_root_release_script(tmp_p
     assert commands[install_index].count("hash_file ") == 4
     assert "mv /volume1/homes/deployer/.xianyu-agent-compose-" in commands[install_index]
     assert "chown root:root" in commands[install_index]
+    assert "mv -f -- /volume1/docker/inventory-manager/.xianyu-agent-release/.incoming-compose-" in commands[install_index]
+    assert " /volume1/docker/inventory-manager/docker-compose.yml" in commands[install_index]
+    assert "mv -f -- /volume1/docker/inventory-manager/.xianyu-agent-release/.incoming-remote_release-" in commands[install_index]
+    assert " /volume1/docker/inventory-manager/.xianyu-agent-release/remote_release.sh" in commands[install_index]
+    assert "install -o root -g root" not in commands[install_index]
+
+
+@pytest.mark.parametrize("sudo_password", (None, "synthetic-sudo-password"))
+def test_root_lifecycle_executes_with_controlled_dsm_path_and_clean_environment(
+    tmp_path, sudo_password
+):
+    result, calls = invoke(
+        tmp_path,
+        "deploy",
+        sudo_password=sudo_password,
+        execute_lifecycle=True,
+        env_updates={
+            "MAKEFLAGS": "--eval=bad-target:;touch /tmp/never",
+            "MAKELEVEL": "9",
+            "MFLAGS": "-k",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    probe = calls["root_probe"]
+    assert probe == {
+        "argv": ["deploy"],
+        "path": "/usr/local/bin:/usr/bin:/bin",
+        "home": "/root",
+        "min_free_space_mb": "1024",
+        "credential_names": [],
+        "make_names": [],
+    }
+    lifecycle = next(
+        command for command in ssh_commands(calls)
+        if ".xianyu-agent-release/remote_release.sh' 'deploy'" in command
+    )
+    assert "env -i PATH='/usr/local/bin:/usr/bin:/bin' HOME='/root'" in lifecycle
+    assert "MAKE" not in lifecycle
+    assert "NAS_PASS" not in lifecycle
+    assert "SUDO_PASS" not in lifecycle
 
 
 @pytest.mark.parametrize("action", ("check", "status", "logs"))

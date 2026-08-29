@@ -7,6 +7,10 @@ die() {
     exit 1
 }
 
+warn() {
+    printf 'nas release: warning: %s\n' "$1" >&2
+}
+
 require_value() {
     local name="$1"
     [ -n "${!name:-}" ] || die "$name is required"
@@ -170,7 +174,56 @@ preflight() {
     validate_deploy_layout
     command -v docker >/dev/null 2>&1 || die "Docker is unavailable"
     detect_compose
+    validate_disk_controls
+    check_disk_space
     ensure_frpc_network "$action"
+}
+
+validate_disk_controls() {
+    MIN_FREE_SPACE_MB_VALUE="${MIN_FREE_SPACE_MB:-1024}"
+    [[ "$MIN_FREE_SPACE_MB_VALUE" =~ ^[1-9][0-9]*$ ]] && \
+        [ "${#MIN_FREE_SPACE_MB_VALUE}" -le 9 ] || \
+        die "MIN_FREE_SPACE_MB must be a positive base-10 integer"
+}
+
+available_kb() {
+    local path="$1"
+
+    df -Pk "$path" 2>/dev/null | awk '
+        NR > 1 { available = $4 }
+        END {
+            if (available ~ /^[0-9]+$/) print available
+            else exit 1
+        }
+    '
+}
+
+require_free_space() {
+    local label="$1"
+    local path="$2"
+    local available
+
+    available=$(available_kb "$path") || \
+        die "cannot determine free space for $label filesystem: $path"
+    awk -v available="$available" -v minimum_mb="$MIN_FREE_SPACE_MB_VALUE" \
+        'BEGIN { exit !(available >= minimum_mb * 1024) }' || \
+        die "$label filesystem has less than ${MIN_FREE_SPACE_MB_VALUE} MiB free: $path"
+}
+
+check_disk_space() {
+    local docker_root
+
+    require_free_space "deployment" "$DEPLOY_DIR"
+    docker_root=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)
+    if [ -z "$docker_root" ]; then
+        warn "Docker storage path could not be discovered; deployment filesystem check passed"
+        return 0
+    fi
+    if [ ! -d "$docker_root" ]; then
+        warn "Docker storage path is unavailable; skipping its space check: $docker_root"
+        return 0
+    fi
+    require_free_space "Docker storage" "$docker_root"
 }
 
 write_candidate_env() {
@@ -194,17 +247,23 @@ cleanup_candidate() {
     fi
 }
 
-compose_with_current_if_present() {
-    if [ -f "$CURRENT_ENV" ]; then
-        validate_release_env "$CURRENT_ENV"
-        compose_with "$CURRENT_ENV" "$@"
-    fi
-}
-
 promote_candidate() {
     local had_current=0 had_previous=0
+    local candidate_image_ref current_image_ref
 
     if [ -f "$CURRENT_ENV" ]; then
+        candidate_image_ref=$(release_value "$CANDIDATE_ENV" IMAGE_REF) || \
+            die "$CANDIDATE_ENV is missing IMAGE_REF"
+        current_image_ref=$(release_value "$CURRENT_ENV" IMAGE_REF) || \
+            die "$CURRENT_ENV is missing IMAGE_REF"
+        if [ "$candidate_image_ref" = "$current_image_ref" ]; then
+            if ! mv -f -- "$CANDIDATE_ENV" "$CURRENT_ENV"; then
+                die "same-release metadata refresh failed; current/previous metadata retained"
+            fi
+            CANDIDATE_ENV=""
+            return 0
+        fi
+
         had_current=1
         PROMOTION_NEXT_PREVIOUS=$(mktemp "$DEPLOY_DIR/.next-previous.env.XXXXXX")
         chmod 600 "$PROMOTION_NEXT_PREVIOUS"
@@ -245,9 +304,32 @@ promote_candidate() {
     CANDIDATE_ENV=""
 
     if [ -n "$PROMOTION_PREVIOUS_BACKUP" ]; then
-        rm -f -- "$PROMOTION_PREVIOUS_BACKUP"
+        if ! rm -f -- "$PROMOTION_PREVIOUS_BACKUP"; then
+            warn "could not remove promotion journal; deployment will continue: $PROMOTION_PREVIOUS_BACKUP"
+        fi
         PROMOTION_PREVIOUS_BACKUP=""
     fi
+}
+
+stop_current_services() {
+    local stop_status recovery_status
+
+    [ -f "$CURRENT_ENV" ] || return 0
+    validate_release_env "$CURRENT_ENV"
+    if compose_with "$CURRENT_ENV" stop worker app; then
+        return 0
+    else
+        stop_status="$?"
+    fi
+
+    warn "stopping current app/worker failed with status $stop_status; attempting recovery"
+    if compose_with "$CURRENT_ENV" up --detach --remove-orphans app worker; then
+        warn "current app/worker recovery succeeded; deployment aborted"
+    else
+        recovery_status="$?"
+        warn "current app/worker recovery failed with status $recovery_status; deployment aborted with original stop status $stop_status"
+    fi
+    return "$stop_status"
 }
 
 migration_failed() {
@@ -261,9 +343,8 @@ validate_health_controls() {
     HEALTH_ATTEMPTS_VALUE="${HEALTH_ATTEMPTS:-30}"
     HEALTH_INTERVAL_VALUE="${HEALTH_INTERVAL_SECONDS:-2}"
 
-    [[ "$HEALTH_ATTEMPTS_VALUE" =~ ^[0-9]+$ ]] && \
-        [ "$HEALTH_ATTEMPTS_VALUE" -gt 0 ] || \
-        die "HEALTH_ATTEMPTS must be a positive integer"
+    [[ "$HEALTH_ATTEMPTS_VALUE" =~ ^[1-9][0-9]*$ ]] || \
+        die "HEALTH_ATTEMPTS must be a positive base-10 integer without leading zeros"
     [[ "$HEALTH_INTERVAL_VALUE" =~ ^[0-9]+$ ]] || \
         die "HEALTH_INTERVAL_SECONDS must contain only digits"
 }
@@ -295,6 +376,27 @@ probe_from_frp_network() {
         -c "import urllib.request; urllib.request.urlopen('http://inventory-manager-app:5002/health', timeout=5)"
 }
 
+print_success_summary() {
+    local container_state new_image_ref previous_image_ref
+
+    new_image_ref=$(release_value "$CURRENT_ENV" IMAGE_REF) || \
+        die "$CURRENT_ENV is missing IMAGE_REF"
+    previous_image_ref="<none>"
+    if [ -f "$PREVIOUS_ENV" ]; then
+        previous_image_ref=$(release_value "$PREVIOUS_ENV" IMAGE_REF) || \
+            previous_image_ref="<unavailable>"
+    fi
+    container_state=$(compose_with "$CURRENT_ENV" ps app worker) || \
+        die "could not read app/worker container state after deployment"
+
+    printf 'nas release: deployment succeeded\n'
+    printf 'new IMAGE_REF=%s\n' "$new_image_ref"
+    printf 'previous IMAGE_REF=%s\n' "$previous_image_ref"
+    printf 'container state:\n'
+    printf '%s\n' "$container_state"
+    printf 'follow-up logs: make nas-logs LOG_TAIL=200\n'
+}
+
 run_check() {
     preflight check
     [ -f "$CURRENT_ENV" ] || die "current release metadata does not exist: $CURRENT_ENV"
@@ -315,7 +417,7 @@ run_deploy() {
 
     compose_with "$CANDIDATE_ENV" config >/dev/null
     compose_with "$CANDIDATE_ENV" pull app worker migrate-control migrate-tenants
-    compose_with_current_if_present stop worker app
+    stop_current_services
 
     if ! compose_with "$CANDIDATE_ENV" run --rm migrate-control; then
         migration_failed "control migration"
@@ -329,7 +431,7 @@ run_deploy() {
     wait_for_app_health
     probe_from_frp_network
     require_running_frpc
-    printf 'nas release: deployed %s\n' "$IMAGE_REF"
+    print_success_summary
 }
 
 prepare_current_compose() {
@@ -392,6 +494,7 @@ PROMOTION_PREVIOUS_BACKUP=""
 KEEP_PROMOTION_BACKUP=0
 HEALTH_ATTEMPTS_VALUE=""
 HEALTH_INTERVAL_VALUE=""
+MIN_FREE_SPACE_MB_VALUE=""
 COMPOSE=()
 
 case "$ACTION" in

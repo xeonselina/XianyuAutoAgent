@@ -57,11 +57,16 @@ NAS_DEPLOY_DIR=/volume1/docker/inventory-manager
 APP_ENV_FILE=/volume1/docker/inventory-manager/app.env
 FRPC_CONTAINER=frpc
 FRPC_NETWORK=xianyu-frp
+MIN_FREE_SPACE_MB=1024
 # SSH_KEY=/absolute/path/to/private-key
 ```
 
-`NAS_PORT` 默认为 `22`，`LOG_TAIL` 默认为 `200`；`SSH_KEY` 可省略并优先使用
-本机 SSH 配置。若现有 NAS 必须使用密码认证，`nas.env` 可以包含受保护的
+`NAS_PORT` 默认为 `22`，`LOG_TAIL` 默认为 `200`，`MIN_FREE_SPACE_MB` 默认为
+`1024`。空间阈值同时用于部署目录和可发现的 Docker storage filesystem；可以按镜像
+规模提高，但必须填写不带前导零的正整数。若 `docker info` 无法发现 storage 路径，
+脚本会给出警告并只使用已完成的部署目录检查，不会猜测群晖的存储路径。
+`SSH_KEY` 可省略并优先使用本机 SSH 配置。若现有 NAS 必须使用密码认证，
+`nas.env` 可以包含受保护的
 `NAS_PASS` 与 `SUDO_PASS` 键，但只能保存实际凭据于这个 mode-`0600` 的仓库外
 文件，绝不能复制到文档、shell history、CI 变量回显或 Git。优先使用 SSH key 和
 受限的 passwordless sudo。
@@ -113,9 +118,12 @@ Compose 文件和远端生命周期脚本。传输端先计算 SHA-256，再将�
 - `$NAS_DEPLOY_DIR/docker-compose.yml`：root:root、`0644`；
 - `$NAS_DEPLOY_DIR/.xianyu-agent-release/remote_release.sh`：root:root、`0755`。
 
-临时文件只会出现在远端登录用户的 home 目录，安装前后均会校验摘要并清理。所有
-动作只执行这个 root-owned 且已验证的脚本；`app.env`、本机 `.env` 和任何凭据均不
-会被上传。远端的 `current.env`/`previous.env` 也由 root 创建并要求 `0600`。
+临时文件只会出现在远端登录用户的 home 目录。root 会把文件移入部署目录同一文件
+系统内的私有 staging 路径，设置 ownership/mode 并校验摘要，再用原子 rename 替换
+最终文件并复核最终摘要；精确命名的残留 staging 文件会被清理。所有动作只在受控的
+`PATH=/usr/local/bin:/usr/bin:/bin` 下执行这个 root-owned 且已验证的脚本；`app.env`、
+本机 `.env` 和任何凭据均不会被上传。远端的 `current.env`/`previous.env` 也由 root
+创建并要求 `0600`。
 
 ## 日常发布
 
@@ -139,7 +147,8 @@ make nas-logs LOG_TAIL=200
 
 `make check-nas` 不会停止、拉取、创建网络或重建 app/worker；它验证已部署 release
 的 Docker/Compose、root-owned Compose、`app.env` 存在且为 `0600`、frpc 正在运行、
-外部网络已存在且 frpc 已接入，以及 Compose 配置可解析。首次部署尚无
+部署目录和 Docker storage 可用空间、外部网络已存在且 frpc 已接入，以及 Compose
+配置可解析。首次部署尚无
 `current.env` 时，或网络尚未准备好时，该命令预期会以未就绪状态结束；修复明确的
 前置条件后重试。首个 `release-nas` 的 deploy 预检仍会在停止服务前执行同样的
 Docker、Compose、环境文件和 frpc 检查，并可创建/接入缺失的 external network。
@@ -162,13 +171,15 @@ make nas-logs LOG_TAIL=200
 
 `make deploy-nas IMAGE_TAG=` 后必须给出非空 tag，并且仍会运行幂等的控制库和所有
 active 租户迁移。不要省略备份确认，即使只是重新部署相同版本。
+相同 `IMAGE_REF` 的重复部署会刷新 `current.env`，但不会把它旋转到
+`previous.env`；`previous.env` 始终指向最近一个不同版本。
 
 ## 发布顺序与验收
 
 部署脚本按以下顺序工作：
 
 1. 验证本地配置和 root-owned 发布资产；在 NAS 预检 Docker、Compose、`app.env`、
-   frpc 容器与 `FRPC_NETWORK`。
+   部署目录/Docker storage 可用空间、frpc 容器与 `FRPC_NETWORK`。
 2. 渲染候选 release metadata 并检查 Compose 配置，拉取 app、worker 和迁移所用的
    同一完整镜像引用。
 3. 只有这些步骤成功后，才停止当前 worker 与 app，随后依次运行控制库迁移和全部
@@ -178,8 +189,9 @@ active 租户迁移。不要省略备份确认，即使只是重新部署相同�
    `http://inventory-manager-app:5002/health`，并确认 frpc 仍在运行。
 
 因此预检、Compose 配置或镜像拉取失败时，旧 app/worker 不会被停止。发布成功后用
-`make nas-status` 与有限日志检查当前版本、容器状态和健康结果；镜像清理是独立运维
-操作，至少保留 current 与 previous tag。
+脚本直接输出新版本、前一个不同版本、app/worker 容器状态和后续
+`make nas-logs LOG_TAIL=200` 命令。镜像清理是独立运维操作，至少保留 current 与
+previous tag。
 
 日常发布自动执行的数据库步骤与以下命令等价；只在排障或经维护窗口授权的人工操作
 中单独运行它们：
@@ -246,6 +258,9 @@ Tencent SMS app-only 配置。
 
 - 预检、Compose 配置或镜像拉取失败：旧 app/worker 保持运行；修正可见错误后从
   `make check-nas` 或指定 tag 部署重新开始。
+- 停止旧 app/worker 返回非零：脚本会立即用 `current.env` 对当前版本执行一次
+  best-effort `up` 恢复，明确报告恢复成功或失败，并始终返回原始 stop 状态；不会进入
+  迁移。若恢复失败，保持维护窗口并人工检查两个容器状态。
 - 迁移失败：app 和 worker 会保持停止，`current.env` 与 `previous.env` 保留以供诊断。
   脚本绝不自动降级 schema 或猜测数据库回滚。保留迁移日志，依据已经验证的备份恢复
   或进行向前修复，然后重新部署；没有明确的人为恢复决策，不要恢复业务流量。

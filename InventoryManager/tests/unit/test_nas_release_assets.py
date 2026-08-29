@@ -188,5 +188,7 @@ def test_deployment_guide_documents_release_network_and_recovery():
         "迁移失败", "向前修复", "~/.config/xianyu-agent/nas.env",
         "make release-nas BACKUP_VERIFIED=backup-verified",
         'localIP = "inventory-manager-app"', "localPort = 5002", "root-owned",
+        "MIN_FREE_SPACE_MB=1024", "PATH=/usr/local/bin:/usr/bin:/bin",
+        "previous.env", "原始 stop 状态", "make nas-logs LOG_TAIL=200",
     ):
         assert token in text

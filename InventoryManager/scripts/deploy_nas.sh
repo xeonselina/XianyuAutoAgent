@@ -96,6 +96,9 @@ load_config() {
             LOG_TAIL)
                 [ -n "$EXPLICIT_LOG_TAIL" ] || printf -v LOG_TAIL '%s' "$value"
                 ;;
+            MIN_FREE_SPACE_MB)
+                [ -n "$EXPLICIT_MIN_FREE_SPACE_MB" ] || printf -v MIN_FREE_SPACE_MB '%s' "$value"
+                ;;
             *) die "unsupported configuration key: $key" ;;
         esac
     done <"$path"
@@ -141,6 +144,9 @@ validate_config() {
     [[ "$FRPC_NETWORK" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || \
         die "FRPC_NETWORK is invalid"
     [[ "$LOG_TAIL" =~ ^[0-9]+$ ]] || die "LOG_TAIL must contain only digits"
+    [[ "$MIN_FREE_SPACE_MB" =~ ^[1-9][0-9]*$ ]] && \
+        [ "${#MIN_FREE_SPACE_MB}" -le 9 ] || \
+        die "MIN_FREE_SPACE_MB must be a positive base-10 integer"
 
     if [ -n "$SSH_KEY" ]; then
         [ -f "$SSH_KEY" ] || die "SSH_KEY is not a regular file"
@@ -267,6 +273,7 @@ EXPLICIT_FRPC_CONTAINER="${FRPC_CONTAINER+x}"
 EXPLICIT_FRPC_NETWORK="${FRPC_NETWORK+x}"
 EXPLICIT_SSH_KEY="${SSH_KEY+x}"
 EXPLICIT_LOG_TAIL="${LOG_TAIL+x}"
+EXPLICIT_MIN_FREE_SPACE_MB="${MIN_FREE_SPACE_MB+x}"
 
 CONFIG_HOME="${XDG_CONFIG_HOME:-${HOME:?HOME is required}/.config}"
 CONFIG_FILE="$CONFIG_HOME/xianyu-agent/nas.env"
@@ -274,6 +281,7 @@ load_config "$CONFIG_FILE"
 
 [ "${NAS_PORT+x}" = x ] || NAS_PORT=22
 [ "${LOG_TAIL+x}" = x ] || LOG_TAIL=200
+[ "${MIN_FREE_SPACE_MB+x}" = x ] || MIN_FREE_SPACE_MB=1024
 NAS_HOST="${NAS_HOST-}"
 NAS_USER="${NAS_USER-}"
 NAS_DEPLOY_DIR="${NAS_DEPLOY_DIR-}"
@@ -346,11 +354,12 @@ RELEASE_SCRIPT_SHA256=$(sha256_file "$LOCAL_RELEASE_SCRIPT")
 upload "$LOCAL_COMPOSE" "$REMOTE_COMPOSE_TMP"
 upload "$LOCAL_RELEASE_SCRIPT" "$REMOTE_SCRIPT_TMP"
 
-# The temporary paths are untrusted user-home paths.  Reject symlinks while
-# uploading, then move each file under sudo into an exact root-only staging
-# path.  mv moves a raced-in symlink as a symlink rather than following it;
-# the root-side checks reject it before chown, hashing, or installation.  The
-# outer single quotes ensure that the remote login shell cannot expand the
+# The temporary paths are untrusted user-home paths. Reject symlinks while
+# uploading, then move each file under sudo into the root-only asset directory
+# on the same filesystem as its final path. After ownership, mode, and digest
+# checks, rename the prepared files into place atomically. The deploy directory
+# is made root-owned and non-writable to the login user before either rename.
+# The outer single quotes ensure that the remote login shell cannot expand the
 # checksum variables before sudo starts the root-owned shell.
 REMOTE_HASH_FUNCTION='hash_file() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1"; else return 127; fi; }'
 INSTALL_COMMAND="sh -c 'set -eu; $REMOTE_HASH_FUNCTION; \
@@ -359,8 +368,10 @@ INSTALL_COMMAND="sh -c 'set -eu; $REMOTE_HASH_FUNCTION; \
 [ ! -L $NAS_DEPLOY_DIR ]; \
 install -d -o root -g root -m 0755 $NAS_DEPLOY_DIR; \
 [ -d $NAS_DEPLOY_DIR ] && [ ! -L $NAS_DEPLOY_DIR ]; \
+chown root:root $NAS_DEPLOY_DIR; chmod 0755 $NAS_DEPLOY_DIR; \
 install -d -o root -g root -m 0700 $ROOT_ASSET_DIR; \
 [ -d $ROOT_ASSET_DIR ] && [ ! -L $ROOT_ASSET_DIR ]; \
+chown root:root $ROOT_ASSET_DIR; chmod 0700 $ROOT_ASSET_DIR; \
 [ ! -e $ROOT_COMPOSE_STAGE ] && [ ! -L $ROOT_COMPOSE_STAGE ]; \
 [ ! -e $ROOT_RELEASE_STAGE ] && [ ! -L $ROOT_RELEASE_STAGE ]; \
 mv $REMOTE_COMPOSE_TMP $ROOT_COMPOSE_STAGE; \
@@ -368,20 +379,22 @@ mv $REMOTE_SCRIPT_TMP $ROOT_RELEASE_STAGE; \
 [ ! -L $ROOT_COMPOSE_STAGE ] && [ -f $ROOT_COMPOSE_STAGE ]; \
 [ ! -L $ROOT_RELEASE_STAGE ] && [ -f $ROOT_RELEASE_STAGE ]; \
 chown root:root $ROOT_COMPOSE_STAGE $ROOT_RELEASE_STAGE; \
-chmod 0600 $ROOT_COMPOSE_STAGE $ROOT_RELEASE_STAGE; \
+chmod 0644 $ROOT_COMPOSE_STAGE; chmod 0755 $ROOT_RELEASE_STAGE; \
 compose_hash=\$(hash_file $ROOT_COMPOSE_STAGE); compose_hash=\${compose_hash%% *}; [ \"\$compose_hash\" = $COMPOSE_SHA256 ]; \
 script_hash=\$(hash_file $ROOT_RELEASE_STAGE); script_hash=\${script_hash%% *}; [ \"\$script_hash\" = $RELEASE_SCRIPT_SHA256 ]; \
 [ ! -L $ROOT_COMPOSE ] && [ ! -d $ROOT_COMPOSE ]; \
 [ ! -L $ROOT_RELEASE_SCRIPT ] && [ ! -d $ROOT_RELEASE_SCRIPT ]; \
-install -o root -g root -m 0644 $ROOT_COMPOSE_STAGE $ROOT_COMPOSE; \
-install -o root -g root -m 0755 $ROOT_RELEASE_STAGE $ROOT_RELEASE_SCRIPT; \
+mv -f -- $ROOT_COMPOSE_STAGE $ROOT_COMPOSE; \
+mv -f -- $ROOT_RELEASE_STAGE $ROOT_RELEASE_SCRIPT; \
+[ ! -L $ROOT_COMPOSE ] && [ -f $ROOT_COMPOSE ]; \
+[ ! -L $ROOT_RELEASE_SCRIPT ] && [ -f $ROOT_RELEASE_SCRIPT ]; \
 compose_hash=\$(hash_file $ROOT_COMPOSE); compose_hash=\${compose_hash%% *}; [ \"\$compose_hash\" = $COMPOSE_SHA256 ]; \
 script_hash=\$(hash_file $ROOT_RELEASE_SCRIPT); script_hash=\${script_hash%% *}; [ \"\$script_hash\" = $RELEASE_SCRIPT_SHA256 ]; \
 rm -f -- $ROOT_COMPOSE_STAGE $ROOT_RELEASE_STAGE'"
 sudo_remote "$INSTALL_COMMAND"
 RELEASE_PROGRAM="'$ROOT_RELEASE_SCRIPT' '$ACTION'"
 
-RELEASE_COMMAND="env DEPLOY_DIR='$NAS_DEPLOY_DIR' APP_ENV_FILE='$APP_ENV_FILE' FRPC_CONTAINER='$FRPC_CONTAINER' FRPC_NETWORK='$FRPC_NETWORK' LOG_TAIL='$LOG_TAIL'"
+RELEASE_COMMAND="env -i PATH='/usr/local/bin:/usr/bin:/bin' HOME='/root' DEPLOY_DIR='$NAS_DEPLOY_DIR' APP_ENV_FILE='$APP_ENV_FILE' FRPC_CONTAINER='$FRPC_CONTAINER' FRPC_NETWORK='$FRPC_NETWORK' LOG_TAIL='$LOG_TAIL' MIN_FREE_SPACE_MB='$MIN_FREE_SPACE_MB'"
 if [ "$ACTION" = "deploy" ]; then
     RELEASE_COMMAND="$RELEASE_COMMAND IMAGE_REF='$IMAGE_REF' BACKUP_VERIFIED='$BACKUP_VERIFIED'"
 fi
