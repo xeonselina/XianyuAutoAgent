@@ -592,15 +592,15 @@ def test_set_tenant_password_cli_rejects_unknown_and_invalid_passwords(
             "13800138000",
             "--password-stdin",
         ],
-        input="too-short\n",
+        input="short7!\n",
     )
 
     assert unknown.exit_code != 0
     assert "not found" in unknown.output.lower()
     assert NEW_PASSWORD not in unknown.output
     assert invalid.exit_code != 0
-    assert "12" in invalid.output and "128" in invalid.output
-    assert "too-short" not in invalid.output
+    assert "8" in invalid.output and "128" in invalid.output
+    assert "short7!" not in invalid.output
 
 
 def test_set_tenant_password_cli_rejects_hidden_prompt_without_tty(

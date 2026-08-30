@@ -775,7 +775,7 @@ def test_platform_create_runs_real_migrations_with_minimal_grants_and_retries(
         json={
             "name": "Weak password",
             "admin_phone": "13800138000",
-            "initial_password": "too-short",
+            "initial_password": "short7!",
             "expires_at": "2030-01-01T00:00:00Z",
         },
         headers={"X-CSRF-Token": csrf_token},
@@ -783,7 +783,7 @@ def test_platform_create_runs_real_migrations_with_minimal_grants_and_retries(
     assert invalid_password.status_code == 400
     assert invalid_password.get_json() == {
         "success": False,
-        "message": "初始密码必须为 12 至 128 个字符",
+        "message": "初始密码必须为 8 至 128 个字符",
         "code": "INVALID_REQUEST",
     }
 

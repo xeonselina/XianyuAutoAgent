@@ -93,17 +93,39 @@ def list_members():
 @require_role("admin")
 def create_member():
     try:
-        body = _json_body({"phone", "role"})
+        body = _json_body({"phone", "role", "initial_password"})
         if "phone" not in body:
             raise SettingsValidationError("phone 不能为空")
+        if "initial_password" not in body:
+            raise SettingsValidationError("初始密码不能为空")
         member = _service().create_member(
-            body["phone"], body.get("role", "operator")
+            body["phone"],
+            body["initial_password"],
+            body.get("role", "operator"),
         )
         return created(data=member).to_flask_response()
     except (
         SettingsValidationError,
         MemberPhoneConflictError,
     ) as exc:
+        return _handle_settings_error(exc)
+
+
+@bp.put("/members/<int:member_id>/password")
+@require_role("admin")
+def reset_member_password(member_id):
+    try:
+        body = _json_body({"new_password"})
+        if "new_password" not in body:
+            raise SettingsValidationError("新密码不能为空")
+        member = _service().reset_member_password(
+            member_id, body["new_password"]
+        )
+        return success(
+            data=member,
+            message="成员密码已重置",
+        ).to_flask_response()
+    except (SettingsValidationError, SettingsNotFoundError) as exc:
         return _handle_settings_error(exc)
 
 

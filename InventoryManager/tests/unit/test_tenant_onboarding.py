@@ -64,7 +64,7 @@ def test_super_admin_creation_sets_a_hashed_initial_admin_password(provisioner):
         assert member.password_changed_at is not None
 
 
-@pytest.mark.parametrize("initial_password", [None, "too-short", "x" * 129])
+@pytest.mark.parametrize("initial_password", [None, "short7!", "x" * 129])
 def test_invalid_initial_password_creates_no_tenant(provisioner, initial_password):
     service, store = provisioner
 

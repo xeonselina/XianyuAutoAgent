@@ -31,14 +31,14 @@ The system MUST expose a public authentication configuration response containing
 - **THEN** the endpoint returns `AUTH_METHOD_DISABLED` without checking a member password
 
 ### Requirement: Password credential storage and policy
-Tenant member passwords MUST be stored only as Werkzeug password hashes. The system MUST accept passwords from 12 through 128 characters and MUST persist failed-attempt count, lock expiry, and password-change time in the control database through a new reversible migration.
+Tenant member passwords MUST be stored only as Werkzeug password hashes. The system MUST accept passwords from 8 through 128 characters and MUST persist failed-attempt count, lock expiry, and password-change time in the control database through a new reversible migration.
 
 #### Scenario: Valid password is stored
-- **WHEN** an authorized CLI or password-change request sets a 12 to 128 character password
+- **WHEN** an authorized CLI or password-change request sets an 8 to 128 character password
 - **THEN** only its salted hash and non-secret state are persisted
 
 #### Scenario: Invalid password is rejected
-- **WHEN** a password is shorter than 12 or longer than 128 characters
+- **WHEN** a password is shorter than 8 or longer than 128 characters
 - **THEN** the system returns a safe policy error without changing credentials or sessions
 
 ### Requirement: Tenant password login and brute-force protection

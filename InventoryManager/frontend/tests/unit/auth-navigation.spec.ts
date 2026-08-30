@@ -766,11 +766,11 @@ describe('authenticated shell and platform tenant actions', () => {
       '只用于首位店铺管理员登录，不是 App Key 或 App Secret',
     )
 
-    await wrapper.get('[data-testid="initial-password"]').setValue('too-short')
-    await wrapper.get('[data-testid="confirm-password"]').setValue('too-short')
+    await wrapper.get('[data-testid="initial-password"]').setValue('short7!')
+    await wrapper.get('[data-testid="confirm-password"]').setValue('short7!')
     await wrapper.get('.create-form').trigger('submit')
     expect(apiMocks.createTenant).not.toHaveBeenCalled()
-    expect(wrapper.get('[role="alert"]').text()).toBe('初始密码必须为 12 至 128 个字符')
+    expect(wrapper.get('[role="alert"]').text()).toBe('初始密码必须为 8 至 128 个字符')
 
     await wrapper.get('[data-testid="initial-password"]').setValue(tenantInitialPassword)
     await wrapper.get('[data-testid="confirm-password"]').setValue(`${tenantInitialPassword}-mismatch`)

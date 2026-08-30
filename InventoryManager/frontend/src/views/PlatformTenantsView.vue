@@ -90,8 +90,8 @@ const load = async (refreshAfterOperationFailure = false) => {
 
 const submitCreate = async () => {
   if (mutationBusy.value) return
-  if (form.initialPassword.length < 12 || form.initialPassword.length > 128) {
-    operationErrorMessage.value = '初始密码必须为 12 至 128 个字符'
+  if (form.initialPassword.length < 8 || form.initialPassword.length > 128) {
+    operationErrorMessage.value = '初始密码必须为 8 至 128 个字符'
     return
   }
   if (form.initialPassword !== form.confirmPassword) {
@@ -229,8 +229,8 @@ onMounted(load)
       <form class="create-form" @submit.prevent="submitCreate">
         <label>店铺名称<input v-model.trim="form.name" data-testid="tenant-name" :disabled="mutationBusy" placeholder="例如：深圳光影租界" required></label>
         <label>初始管理员手机号<input v-model.trim="form.adminPhone" data-testid="admin-phone" inputmode="numeric" maxlength="11" :disabled="mutationBusy" placeholder="大陆手机号" required></label>
-        <label>初始登录密码<input v-model="form.initialPassword" data-testid="initial-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" :disabled="mutationBusy" placeholder="12 至 128 个字符" required><small>只用于首位店铺管理员登录，不是 App Key 或 App Secret。</small></label>
-        <label>确认初始密码<input v-model="form.confirmPassword" data-testid="confirm-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" :disabled="mutationBusy" placeholder="再次输入初始密码" required></label>
+        <label>初始登录密码<input v-model="form.initialPassword" data-testid="initial-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" :disabled="mutationBusy" placeholder="8 至 128 个字符" required><small>只用于首位店铺管理员登录，不是 App Key 或 App Secret。</small></label>
+        <label>确认初始密码<input v-model="form.confirmPassword" data-testid="confirm-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" :disabled="mutationBusy" placeholder="再次输入初始密码" required></label>
         <label>服务到期时间<input v-model="form.expiresAt" data-testid="tenant-expiry" type="datetime-local" :disabled="mutationBusy" required><small>到期后停止业务访问，但保留店铺数据。</small></label>
         <div class="form-footer">
           <p>密码仅在本次创建时使用，服务端只保存密码哈希且不会回显。</p>

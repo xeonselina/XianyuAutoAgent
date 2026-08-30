@@ -1,10 +1,17 @@
 """Explicit tenant member and warehouse settings operations."""
 
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from datetime import datetime
 
-from app.auth import normalize_china_phone
-from app.control.models import TenantMember
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
+from werkzeug.security import generate_password_hash
+
+from app.auth import (
+    PasswordPolicyError,
+    normalize_china_phone,
+    validate_tenant_password,
+)
+from app.control.models import AuthSession, TenantMember
 from app.models.warehouse import (
     Warehouse,
     WarehouseKuaimaiConfig,
@@ -73,6 +80,15 @@ def _automatic_warehouse_name(province, city):
     return name
 
 
+def _validated_password(value, field):
+    try:
+        return validate_tenant_password(value)
+    except PasswordPolicyError as exc:
+        raise SettingsValidationError(
+            f"{field}必须为 8 至 128 个字符"
+        ) from exc
+
+
 class SettingsService:
     def __init__(self, business_session, control_store, tenant_id):
         self.business_session = business_session
@@ -89,13 +105,16 @@ class SettingsService:
             ).all()
             return [member_to_dict(member) for member in members]
 
-    def create_member(self, phone, role="operator"):
+    def create_member(self, phone, initial_password, role="operator"):
         try:
             normalized_phone = normalize_china_phone(phone)
         except ValueError as exc:
             raise SettingsValidationError("请输入有效的大陆手机号") from exc
         if not isinstance(role, str) or role not in {"admin", "operator"}:
             raise SettingsValidationError("role 必须是 admin 或 operator")
+        initial_password = _validated_password(
+            initial_password, "初始密码"
+        )
         try:
             with self.control_store.tenant_members_locked_session(
                 self.tenant_id
@@ -105,6 +124,8 @@ class SettingsService:
                     phone=normalized_phone,
                     role=role,
                     status="active",
+                    password_hash=generate_password_hash(initial_password),
+                    password_changed_at=datetime.utcnow(),
                 )
                 session.add(member)
                 session.flush()
@@ -112,6 +133,34 @@ class SettingsService:
             return result
         except IntegrityError as exc:
             raise MemberPhoneConflictError from exc
+
+    def reset_member_password(self, member_id, new_password):
+        new_password = _validated_password(new_password, "新密码")
+        with self.control_store.tenant_members_locked_session(
+            self.tenant_id
+        ) as (session, members):
+            member = next(
+                (
+                    candidate
+                    for candidate in members
+                    if candidate.id == member_id
+                ),
+                None,
+            )
+            if member is None:
+                raise SettingsNotFoundError("成员不存在")
+            member.password_hash = generate_password_hash(new_password)
+            member.password_changed_at = datetime.utcnow()
+            member.failed_password_attempts = 0
+            member.password_locked_until = None
+            session.execute(
+                delete(AuthSession).where(
+                    AuthSession.kind == "tenant",
+                    AuthSession.subject_id == member.id,
+                    AuthSession.tenant_id == self.tenant_id,
+                )
+            )
+            return member_to_dict(member)
 
     def update_member(self, member_id, payload):
         role = payload.get("role")

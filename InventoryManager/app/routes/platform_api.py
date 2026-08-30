@@ -313,7 +313,7 @@ def create_tenant():
             code="PHONE_CONFLICT",
         ).to_flask_response()
     except PasswordPolicyError:
-        return _invalid_request("初始密码必须为 12 至 128 个字符")
+        return _invalid_request("初始密码必须为 8 至 128 个字符")
     except ValueError:
         return _invalid_request("店铺名称、管理员手机号或到期时间无效")
 

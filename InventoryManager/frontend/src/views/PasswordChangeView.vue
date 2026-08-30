@@ -20,8 +20,8 @@ const submit = async () => {
     errorMessage.value = '两次输入的新密码不一致'
     return
   }
-  if (newPassword.value.length < 12 || newPassword.value.length > 128) {
-    errorMessage.value = '新密码必须为 12 至 128 个字符'
+  if (newPassword.value.length < 8 || newPassword.value.length > 128) {
+    errorMessage.value = '新密码必须为 8 至 128 个字符'
     return
   }
   busy.value = true
@@ -43,7 +43,7 @@ const submit = async () => {
   <main class="password-page">
     <form class="password-card" @submit.prevent="submit">
       <h1>修改密码</h1>
-      <p>新密码需为 12 至 128 个字符。更新后，其他设备会退出登录。</p>
+      <p>新密码需为 8 至 128 个字符。更新后，其他设备会退出登录。</p>
       <label>
         当前密码
         <input
@@ -61,6 +61,7 @@ const submit = async () => {
           data-testid="new-password"
           type="password"
           autocomplete="new-password"
+          minlength="8"
           maxlength="128"
         >
       </label>
@@ -71,6 +72,7 @@ const submit = async () => {
           data-testid="confirm-password"
           type="password"
           autocomplete="new-password"
+          minlength="8"
           maxlength="128"
         >
       </label>

@@ -31,7 +31,7 @@ PLATFORM_SESSION_SECONDS = 12 * 60 * 60
 SMS_CODE_MINUTES = 5
 SMS_MAX_ATTEMPTS = 5
 SMS_RETENTION_DAYS = 7
-PASSWORD_MIN_LENGTH = 12
+PASSWORD_MIN_LENGTH = 8
 PASSWORD_MAX_LENGTH = 128
 PASSWORD_MAX_ATTEMPTS = 5
 PASSWORD_LOCK_MINUTES = 15
@@ -182,7 +182,7 @@ def validate_tenant_password(password):
         PASSWORD_MIN_LENGTH <= len(password) <= PASSWORD_MAX_LENGTH
     ):
         raise PasswordPolicyError(
-            "Password must contain 12 to 128 characters."
+            "Password must contain 8 to 128 characters."
         )
     return password
 

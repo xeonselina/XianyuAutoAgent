@@ -273,7 +273,7 @@ def change_password():
         )
     except PasswordPolicyError:
         return error(
-            "新密码必须为 12 至 128 个字符",
+            "新密码必须为 8 至 128 个字符",
             status_code=400,
             code="PASSWORD_POLICY",
         ).to_flask_response()

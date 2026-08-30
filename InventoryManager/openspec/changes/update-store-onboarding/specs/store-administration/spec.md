@@ -1,14 +1,14 @@
 ## ADDED Requirements
 
 ### Requirement: Platform-created first store administrator
-The platform super administrator MUST provide a store name, first administrator phone number, 12–128 character initial password, and service expiration when creating a customer store. The system MUST normalize the phone number, persist only a password hash, create the first member as an active store administrator, and MUST NOT return the plaintext password or password hash in any tenant response.
+The platform super administrator MUST provide a store name, first administrator phone number, 8–128 character initial password, and service expiration when creating a customer store. The system MUST normalize the phone number, persist only a password hash, create the first member as an active store administrator, and MUST NOT return the plaintext password or password hash in any tenant response.
 
 #### Scenario: Newly created administrator can use password login
 - **WHEN** a platform super administrator creates a store with valid initial administrator credentials and provisioning succeeds
 - **THEN** the supplied phone and initial password authenticate the active store administrator through the normal tenant password-login flow
 
 #### Scenario: Invalid initial password is rejected atomically
-- **WHEN** the initial password is missing, shorter than 12 characters, or longer than 128 characters
+- **WHEN** the initial password is missing, shorter than 8 characters, or longer than 128 characters
 - **THEN** the create-store request fails before any tenant or member row is created
 
 ### Requirement: Store-owned Xianyu API credentials
