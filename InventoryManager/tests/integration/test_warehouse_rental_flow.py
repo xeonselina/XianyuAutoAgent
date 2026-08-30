@@ -469,6 +469,8 @@ def test_device_model_library_crud_and_device_write_validation(
             "description": "高端相机",
             "device_value": 12999.5,
             "is_accessory": False,
+            "allowed_lens_combos": ["lens_400mm", "bare"],
+            "default_lens_combo": "bare",
         },
     )
     assert created.status_code == 201
@@ -524,6 +526,53 @@ def test_device_model_library_crud_and_device_write_validation(
     saved = next(row for row in rows if row["id"] == model_id)
     assert saved["display_name"] == "Camera Pro II"
     assert saved["device_count"] == 1
+    assert saved["allowed_lens_combos"] == ["lens_400mm", "bare"]
+    assert saved["default_lens_combo"] == "bare"
+
+    invalid_default = client.put(
+        f"/api/device-models/{model_id}",
+        json={
+            "allowed_lens_combos": ["lens_400mm"],
+            "default_lens_combo": "bare",
+        },
+    )
+    assert invalid_default.status_code == 400
+    assert "默认镜头组合" in invalid_default.get_json()["message"]
+
+
+def test_rental_uses_canonical_model_lens_combo_configuration(
+    client, app, warehouse_case
+):
+    with app.app_context():
+        model = db.session.get(DeviceModel, warehouse_case["model"])
+        model.set_allowed_lens_combos_list(["bare"])
+        model.default_lens_combo = "bare"
+        db.session.commit()
+
+    rejected = client.post(
+        "/api/rentals",
+        json=_rental_payload(warehouse_case, lens_combo="lens_200mm"),
+    )
+    assert rejected.status_code == 400
+    assert "不允许镜头组合" in rejected.get_json()["message"]
+
+    created = client.post(
+        "/api/rentals",
+        json=_rental_payload(warehouse_case),
+    )
+    assert created.status_code == 201
+    rental_id = created.get_json()["data"]["main_rental"]["id"]
+    assert created.get_json()["data"]["main_rental"]["lens_combo"] == "bare"
+
+    with app.app_context():
+        model = db.session.get(DeviceModel, warehouse_case["model"])
+        model.set_allowed_lens_combos_list(["lens_200mm"])
+        model.default_lens_combo = "lens_200mm"
+        db.session.commit()
+
+    historical = client.get(f"/api/rentals/{rental_id}")
+    assert historical.status_code == 200
+    assert historical.get_json()["data"]["lens_combo"] == "bare"
 
 
 def test_device_model_mutations_require_tenant_admin(app):

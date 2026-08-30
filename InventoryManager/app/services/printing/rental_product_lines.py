@@ -2,16 +2,14 @@
 租赁品名清单渲染服务
 
 根据租赁记录的机型 + lens_combo，生成发货单/面单的品名行。
-同时提供镜头组合的合法性校验与中文化展示。
+同时提供镜头组合的中文化展示和旧数据兼容函数。
 """
 
-# 各机型允许的镜头组合及默认值
-# 命名严格对齐 rentals.lens_combo Enum
-MODEL_LENS_COMBOS = {
-    'x200u':   {'allowed': ('lens_200mm', 'bare'),                              'default': 'lens_200mm'},
-    'x300pro': {'allowed': ('lens_200mm', 'bare'),                              'default': 'lens_200mm'},
-    'x300u':   {'allowed': ('lens_400mm', 'lens_200mm', 'bare', 'lens_dual'),   'default': 'lens_400mm'},
-}
+from app.lens_combos import (
+    LENS_COMBO_DISPLAY,
+    compatibility_lens_combo_config,
+    normalize_legacy_model_name,
+)
 
 # 机型 -> 主机品名中文显示
 MODEL_DISPLAY = {
@@ -20,57 +18,28 @@ MODEL_DISPLAY = {
     'x300u':   'VIVO X300 Ultra',
 }
 
-# lens_combo -> 中文（用于 tooltip、客户历史明细）
-LENS_COMBO_DISPLAY = {
-    'lens_400mm': '400MM 镜头',
-    'lens_200mm': '200MM 镜头',
-    'bare':       '裸机',
-    'lens_dual':  '双镜头',
-}
-
-
 def normalize_model_name(model_name):
     """将数据库机型名（如 'VIVO X300U 16+512'）归一化为配置 key（x200u/x300pro/x300u）。
 
     注意 x300pro 必须先于 x300u 判断，否则 'X300PRO' 会被 'x300' 误命中。
     无法识别时返回 None。
     """
-    if not model_name:
-        return None
-    if model_name in MODEL_LENS_COMBOS:
-        return model_name
-    s = model_name.lower().replace(' ', '').replace('+', '')
-    if 'x300pro' in s:
-        return 'x300pro'
-    if 'x300u' in s:
-        return 'x300u'
-    if 'x200u' in s:
-        return 'x200u'
-    return None
+    return normalize_legacy_model_name(model_name)
 
 
 def get_allowed_combos(model_name):
     """返回指定机型允许的镜头组合列表。未知机型回退到 x200u 的可选集。"""
-    cfg = MODEL_LENS_COMBOS.get(normalize_model_name(model_name))
-    if not cfg:
-        return list(MODEL_LENS_COMBOS['x200u']['allowed'])
-    return list(cfg['allowed'])
+    return compatibility_lens_combo_config(model_name)[0]
 
 
 def get_default_combo(model_name):
     """返回指定机型的默认镜头组合。"""
-    cfg = MODEL_LENS_COMBOS.get(normalize_model_name(model_name))
-    if not cfg:
-        return 'lens_200mm'
-    return cfg['default']
+    return compatibility_lens_combo_config(model_name)[1]
 
 
 def validate_combo(model_name, lens_combo):
     """校验「机型-镜头组合」是否合法。"""
-    cfg = MODEL_LENS_COMBOS.get(normalize_model_name(model_name))
-    if not cfg:
-        return False
-    return lens_combo in cfg['allowed']
+    return lens_combo in get_allowed_combos(model_name)
 
 
 def lens_combo_display(lens_combo):
@@ -90,8 +59,13 @@ def _resolve_model_name(rental):
     return getattr(device, 'model', None)
 
 
-def _resolve_model_display(model_name):
-    return MODEL_DISPLAY.get(model_name, model_name or '主机')
+def _resolve_model_display(rental, model_name):
+    device = getattr(rental, 'device', None)
+    device_model = getattr(device, 'device_model', None) if device else None
+    if device_model and getattr(device_model, 'display_name', None):
+        return device_model.display_name
+    normalized = normalize_model_name(model_name)
+    return MODEL_DISPLAY.get(normalized, model_name or '主机')
 
 
 def get_product_lines(rental):
@@ -105,7 +79,7 @@ def get_product_lines(rental):
     combo = getattr(rental, 'lens_combo', None) or get_default_combo(model_name)
 
     lines = [
-        {'name': _resolve_model_display(model_name), 'qty': 1, 'is_main': True},
+        {'name': _resolve_model_display(rental, model_name), 'qty': 1, 'is_main': True},
         {'name': '90w 充电头+充电线', 'qty': 1, 'is_main': False},
     ]
 

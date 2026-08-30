@@ -6,6 +6,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import type { DeviceModel } from '@/stores/gantt'
 import { useAuthStore } from '@/stores/auth'
+import {
+  LENS_COMBO_DISPLAY,
+  LENS_COMBO_VALUES,
+  type LensCombo,
+} from '@/config/lensCombo'
 
 
 type LibraryModel = DeviceModel & {
@@ -31,6 +36,8 @@ type ModelForm = {
   parent_model_id?: number
   is_active: boolean
   default_accessories_text: string
+  allowed_lens_combos: LensCombo[]
+  default_lens_combo?: LensCombo
 }
 
 const emit = defineEmits<{ changed: [] }>()
@@ -56,6 +63,8 @@ const blankForm = (): ModelForm => ({
   parent_model_id: undefined,
   is_active: true,
   default_accessories_text: '',
+  allowed_lens_combos: ['lens_200mm', 'bare'],
+  default_lens_combo: 'lens_200mm',
 })
 const form = reactive<ModelForm>(blankForm())
 
@@ -114,6 +123,8 @@ const openEdit = (model: LibraryModel) => {
     parent_model_id: model.parent_model_id ?? undefined,
     is_active: model.is_active,
     default_accessories_text: (model.default_accessories || []).join('\n'),
+    allowed_lens_combos: [...(model.allowed_lens_combos || ['lens_200mm', 'bare'])],
+    default_lens_combo: model.default_lens_combo || 'lens_200mm',
   })
   editorVisible.value = true
 }
@@ -121,6 +132,14 @@ const openEdit = (model: LibraryModel) => {
 const saveModel = async () => {
   if (!form.name.trim() || !form.display_name.trim()) {
     ElMessage.warning('请填写型号编码和显示名称')
+    return
+  }
+  if (!form.is_accessory && !form.allowed_lens_combos.length) {
+    ElMessage.warning('主设备至少要选择一个镜头组合')
+    return
+  }
+  if (!form.is_accessory && (!form.default_lens_combo || !form.allowed_lens_combos.includes(form.default_lens_combo))) {
+    ElMessage.warning('请选择一个允许的组合作为默认镜头组合')
     return
   }
   saving.value = true
@@ -137,6 +156,8 @@ const saveModel = async () => {
         .split('\n')
         .map((item) => item.trim())
         .filter(Boolean),
+      allowed_lens_combos: form.is_accessory ? [] : form.allowed_lens_combos,
+      default_lens_combo: form.is_accessory ? null : form.default_lens_combo,
     }
     if (editorMode.value === 'create') {
       await axios.post('/api/device-models', payload)
@@ -154,6 +175,21 @@ const saveModel = async () => {
     saving.value = false
   }
 }
+
+const ensureDefaultLensCombo = () => {
+  if (!form.allowed_lens_combos.includes(form.default_lens_combo as LensCombo)) {
+    form.default_lens_combo = form.allowed_lens_combos[0]
+  }
+}
+
+const lensComboSummary = (model: LibraryModel) => {
+  if (model.is_accessory) return '—'
+  return (model.allowed_lens_combos || [])
+    .map((combo) => LENS_COMBO_DISPLAY[combo])
+    .join('、') || '未配置'
+}
+
+const lensComboLabel = (combo: LensCombo) => LENS_COMBO_DISPLAY[combo]
 
 const toggleModel = async (model: LibraryModel) => {
   const nextActive = !model.is_active
@@ -322,6 +358,17 @@ defineExpose({ loadLibrary, openCreate })
           {{ row.device_value == null ? '—' : `¥${Number(row.device_value).toLocaleString()}` }}
         </template>
       </el-table-column>
+      <el-table-column label="镜头组合" min-width="230" show-overflow-tooltip>
+        <template #default="{ row }">
+          <span>{{ lensComboSummary(row) }}</span>
+          <el-tag
+            v-if="!row.is_accessory && row.default_lens_combo"
+            class="default-combo-tag"
+            size="small"
+            type="info"
+          >默认：{{ lensComboLabel(row.default_lens_combo) }}</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="device_count" label="关联设备" width="100" />
       <el-table-column label="状态" width="90">
         <template #default="{ row }">
@@ -390,6 +437,28 @@ defineExpose({ loadLibrary, openCreate })
             />
           </el-select>
         </el-form-item>
+        <div v-else class="lens-config-card">
+          <el-form-item label="允许的镜头组合" required>
+            <el-checkbox-group v-model="form.allowed_lens_combos" @change="ensureDefaultLensCombo">
+              <el-checkbox
+                v-for="combo in LENS_COMBO_VALUES"
+                :key="combo"
+                :value="combo"
+              >{{ LENS_COMBO_DISPLAY[combo] }}</el-checkbox>
+            </el-checkbox-group>
+            <div class="field-tip">预定设备时只展示这里勾选的组合。</div>
+          </el-form-item>
+          <el-form-item label="默认镜头组合" required>
+            <el-select v-model="form.default_lens_combo" style="width: 100%" placeholder="选择默认组合">
+              <el-option
+                v-for="combo in form.allowed_lens_combos"
+                :key="combo"
+                :label="LENS_COMBO_DISPLAY[combo]"
+                :value="combo"
+              />
+            </el-select>
+          </el-form-item>
+        </div>
         <el-form-item label="默认附件清单">
           <el-input
             v-model="form.default_accessories_text"
@@ -429,6 +498,9 @@ defineExpose({ loadLibrary, openCreate })
 .model-name { display: grid; gap: 3px; }
 .model-name code { width: fit-content; padding: 1px 5px; border-radius: 4px; color: #475467; background: #f2f4f7; font-size: 11px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.default-combo-tag { margin-left: 6px; }
+.lens-config-card { margin-bottom: 14px; padding: 12px 14px 2px; border: 1px solid #d0d5dd; border-radius: 8px; background: #f9fafb; }
+.field-tip { margin-top: 4px; color: #667085; font-size: 12px; }
 
 @media (max-width: 760px) {
   .model-toolbar { align-items: stretch; flex-direction: column; }

@@ -22,6 +22,7 @@ MIGRATIONS_DIRECTORY = str(
 CURRENT_PHASE_1_HEAD = "20260825_audit_schema"
 EXPAND_REVISION = "20260824_saas_lite_expand"
 CONTRACT_REVISION = "20260824_saas_lite_contract"
+MODEL_LENS_COMBO_REVISION = "20260830_model_lens_combos"
 APPROVED_NEW_TABLES = {
     "warehouses",
     "warehouse_sf_configs",
@@ -281,7 +282,7 @@ def _insert_legacy_rows(engine):
         )
 
 
-def test_phase_2_uses_exactly_two_linear_revisions():
+def test_phase_2_and_model_configuration_use_a_linear_chain():
     config = AlembicConfig()
     config.set_main_option("script_location", MIGRATIONS_DIRECTORY)
     script = ScriptDirectory.from_config(config)
@@ -291,7 +292,8 @@ def test_phase_2_uses_exactly_two_linear_revisions():
 
     assert revisions[EXPAND_REVISION].down_revision == CURRENT_PHASE_1_HEAD
     assert revisions[CONTRACT_REVISION].down_revision == EXPAND_REVISION
-    assert script.get_heads() == [CONTRACT_REVISION]
+    assert revisions[MODEL_LENS_COMBO_REVISION].down_revision == CONTRACT_REVISION
+    assert script.get_heads() == [MODEL_LENS_COMBO_REVISION]
     phase_2_revisions = {
         revision.revision
         for revision in script.walk_revisions(
@@ -299,6 +301,50 @@ def test_phase_2_uses_exactly_two_linear_revisions():
         )
     } - {CURRENT_PHASE_1_HEAD}
     assert phase_2_revisions == {EXPAND_REVISION, CONTRACT_REVISION}
+
+
+def test_model_lens_combo_migration_seeds_main_models_only(
+    empty_business_database,
+):
+    database_url, engine = empty_business_database
+    _upgrade(database_url, CONTRACT_REVISION)
+    with engine.begin() as connection:
+        connection.execute(text(
+            """
+            INSERT INTO device_models (
+                name, display_name, is_active, is_accessory,
+                created_at, updated_at
+            ) VALUES
+                ('x300u', 'X300 Ultra', 1, 0,
+                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+                ('camera-pro', 'Camera Pro', 1, 0,
+                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+                ('tripod', 'Tripod', 1, 1,
+                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """
+        ))
+
+    _upgrade(database_url, "head")
+
+    with engine.connect() as connection:
+        rows = {
+            row["name"]: row
+            for row in connection.execute(text(
+                "SELECT name, allowed_lens_combos, default_lens_combo "
+                "FROM device_models WHERE name IN "
+                "('x200u', 'x300u', 'camera-pro', 'tripod')"
+            )).mappings()
+        }
+        assert rows["x300u"]["allowed_lens_combos"] == (
+            '["lens_400mm", "lens_200mm", "bare", "lens_dual"]'
+        )
+        assert rows["x300u"]["default_lens_combo"] == "lens_400mm"
+        assert rows["x200u"]["allowed_lens_combos"] == (
+            '["lens_200mm", "bare"]'
+        )
+        assert rows["camera-pro"]["default_lens_combo"] == "lens_200mm"
+        assert rows["tripod"]["allowed_lens_combos"] is None
+        assert rows["tripod"]["default_lens_combo"] is None
 
 
 def test_fresh_chain_has_only_the_approved_tables_and_columns(
@@ -327,9 +373,13 @@ def test_fresh_chain_has_only_the_approved_tables_and_columns(
             "id", "name", "app_key", "app_secret_ciphertext", "is_active",
             "last_success_at", "last_error", "created_at", "updated_at",
         }
+        assert {
+            "allowed_lens_combos",
+            "default_lens_combo",
+        } <= _column_names(inspector, "device_models")
         assert connection.execute(
             text("SELECT version_num FROM alembic_version")
-        ).scalar_one() == CONTRACT_REVISION
+        ).scalar_one() == MODEL_LENS_COMBO_REVISION
 
 
 def test_contract_backfills_old_business_rows_and_removes_sync_state(

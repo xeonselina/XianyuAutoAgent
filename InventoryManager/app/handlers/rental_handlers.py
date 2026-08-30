@@ -11,11 +11,7 @@ from app.services.rental.rental_service import (
     WarehouseMismatchError,
 )
 from app.models.warehouse import resolve_read_warehouse_id
-from app.services.printing.rental_product_lines import (
-    validate_combo,
-    get_default_combo,
-    MODEL_LENS_COMBOS,
-)
+from app.lens_combos import compatibility_lens_combo_config
 from app.utils.logistics_estimator import estimate_sf_logistics
 from app.utils.response import (
     ApiResponse,
@@ -28,34 +24,36 @@ from app.utils.response import (
 )
 
 
-def _resolve_model_for_device(device_id):
-    """根据 device_id 获取机型 short name，用于 lens_combo 校验。"""
+def _resolve_lens_combo_config_for_device(device_id):
+    """根据设备读取型号库镜头配置；旧设备使用兼容规则。"""
     if not device_id:
-        return None
+        return None, None, None
     from app.models.device import Device
     device = Device.query.get(device_id)
     if not device:
-        return None
-    if device.device_model and device.device_model.name:
-        return device.device_model.name
-    return getattr(device, 'model', None)
+        return None, None, None
+    if device.device_model:
+        allowed, default = device.device_model.get_effective_lens_combo_config()
+        return device.device_model.name, allowed, default
+    model_name = getattr(device, 'model', None)
+    allowed, default = compatibility_lens_combo_config(model_name)
+    return model_name, allowed, default
 
 
 def _normalize_and_validate_lens_combo(data, device_id):
     """根据机型校验/补全 lens_combo，非法时返回错误字符串，合法返回 None。"""
     combo = data.get('lens_combo')
-    model_name = _resolve_model_for_device(device_id)
+    model_name, allowed, default = _resolve_lens_combo_config_for_device(device_id)
     if not model_name:
         # 找不到机型时，沿用前端传入或默认 lens_400mm（迁移占位）
         data['lens_combo'] = combo or 'lens_400mm'
         return None
     if combo:
-        if not validate_combo(model_name, combo):
-            allowed = MODEL_LENS_COMBOS.get(model_name, {}).get('allowed', [])
+        if combo not in allowed:
             return f'机型 {model_name} 不允许镜头组合 {combo}，允许值: {list(allowed)}'
         return None
     # 未传 → 用机型默认
-    data['lens_combo'] = get_default_combo(model_name)
+    data['lens_combo'] = default
     return None
 
 

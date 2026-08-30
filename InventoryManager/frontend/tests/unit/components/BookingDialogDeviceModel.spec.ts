@@ -60,6 +60,8 @@ const models = [
     name: 'x200u',
     display_name: 'VIVO X200 Ultra',
     is_active: true,
+    allowed_lens_combos: ['lens_200mm', 'bare'],
+    default_lens_combo: 'bare',
     accessories: [],
     created_at: '',
     updated_at: '',
@@ -69,6 +71,8 @@ const models = [
     name: 'x300u',
     display_name: 'VIVO X300 Ultra',
     is_active: true,
+    allowed_lens_combos: ['lens_400mm', 'lens_dual'],
+    default_lens_combo: 'lens_dual',
     accessories: [],
     created_at: '',
     updated_at: '',
@@ -218,6 +222,7 @@ describe('BookingDialog device model selection', () => {
     expect(wrapper.find('option[value="11"]').text()).toBe('VIVO X200 Ultra 01')
     expect(wrapper.find('option[value="12"]').attributes('disabled')).toBeDefined()
     expect(wrapper.find('option[value="21"]').exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'LensComboSelector' }).props('model')).toEqual(models[0])
   })
 
   it('changing the dialog model clears stale selection without updating the parent prop', async () => {

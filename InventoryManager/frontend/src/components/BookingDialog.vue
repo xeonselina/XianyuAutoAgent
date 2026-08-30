@@ -227,7 +227,7 @@
       <!-- 镜头组合 -->
       <LensComboSelector
         v-model="form.lensCombo"
-        :model-name="selectedModelName"
+        :model="selectedModel"
       />
 
       <!-- 代传照片 - 复选框 -->
@@ -460,11 +460,6 @@ const filteredDevices = computed(() => {
     return deviceModelNames.some(name => selectedModelNames.includes(name))
   })
 })
-
-// 当前所选型号的 short name（用于镜头组合选项）
-const selectedModelName = computed<string | null>(() =>
-  selectedModel.value?.name || null
-)
 
 // UI State
 const submitting = ref(false)

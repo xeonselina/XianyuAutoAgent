@@ -3,6 +3,10 @@
 """
 
 from app import db
+from app.lens_combos import (
+    compatibility_lens_combo_config,
+    parse_allowed_lens_combos,
+)
 from datetime import datetime
 import json
 
@@ -27,6 +31,8 @@ class DeviceModel(db.Model):
     # 价值字段（主设备和附件共用）
     default_accessories = db.Column(db.Text, nullable=True, comment='默认附件列表，JSON格式')
     device_value = db.Column(db.Numeric(precision=10, scale=2), nullable=True, comment='设备/附件价值')
+    allowed_lens_combos = db.Column(db.Text, nullable=True, comment='允许的镜头组合，JSON格式')
+    default_lens_combo = db.Column(db.String(30), nullable=True, comment='默认镜头组合')
 
     # 时间戳
     created_at = db.Column(db.DateTime, default=datetime.utcnow, comment='创建时间')
@@ -53,6 +59,8 @@ class DeviceModel(db.Model):
             'parent_model_id': self.parent_model_id,
             'default_accessories': self.get_default_accessories_list(),
             'device_value': float(self.device_value) if self.device_value else None,
+            'allowed_lens_combos': self.get_effective_lens_combo_config()[0],
+            'default_lens_combo': self.get_effective_lens_combo_config()[1],
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat()
         }
@@ -89,6 +97,25 @@ class DeviceModel(db.Model):
             self.default_accessories = json.dumps(accessories_list, ensure_ascii=False)
         else:
             self.default_accessories = None
+
+    def get_allowed_lens_combos_list(self):
+        """读取型号自身保存的镜头组合。"""
+        return parse_allowed_lens_combos(self.allowed_lens_combos)
+
+    def set_allowed_lens_combos_list(self, combinations):
+        """保存型号镜头组合。"""
+        self.allowed_lens_combos = (
+            json.dumps(combinations, ensure_ascii=False) if combinations else None
+        )
+
+    def get_effective_lens_combo_config(self):
+        """返回预定时使用的配置，并兼容迁移前或旧数据。"""
+        if self.is_accessory:
+            return [], None
+        allowed = self.get_allowed_lens_combos_list()
+        if allowed and self.default_lens_combo in allowed:
+            return allowed, self.default_lens_combo
+        return compatibility_lens_combo_config(self.name)
 
     def get_active_accessories(self):
         """获取该型号的所有激活附件"""

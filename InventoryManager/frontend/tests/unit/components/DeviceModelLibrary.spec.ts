@@ -35,6 +35,8 @@ const model = {
   device_value: 12000,
   device_count: 3,
   accessory_count: 0,
+  allowed_lens_combos: ['lens_200mm', 'bare'],
+  default_lens_combo: 'lens_200mm',
   accessories: [],
   created_at: '2026-08-01T00:00:00',
   updated_at: '2026-08-01T00:00:00',
@@ -58,6 +60,8 @@ const mountLibrary = async () => {
       stubs: {
         ElAlert: true,
         ElButton: true,
+        ElCheckbox: true,
+        ElCheckboxGroup: true,
         ElDialog: true,
         ElEmpty: true,
         ElForm: true,
@@ -125,6 +129,8 @@ describe('DeviceModelLibrary', () => {
       is_accessory: false,
       is_active: true,
       default_accessories_text: '电池\n充电器',
+      allowed_lens_combos: ['lens_400mm', 'lens_200mm', 'bare'],
+      default_lens_combo: 'lens_400mm',
     })
 
     await vm.saveModel()
@@ -133,6 +139,8 @@ describe('DeviceModelLibrary', () => {
       name: 'x300pro',
       display_name: '富士 X300 Pro',
       default_accessories: ['电池', '充电器'],
+      allowed_lens_combos: ['lens_400mm', 'lens_200mm', 'bare'],
+      default_lens_combo: 'lens_400mm',
     }))
   })
 

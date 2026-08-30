@@ -9,6 +9,7 @@ import {
   formatDisplayDate
 } from '@/utils/dateUtils'
 import dayjs from 'dayjs'
+import type { LensCombo } from '@/config/lensCombo'
 
 export interface DeviceModel {
   id: number
@@ -19,6 +20,8 @@ export interface DeviceModel {
   default_accessories?: any[]
   model_accessories?: ModelAccessory[]
   device_value?: number
+  allowed_lens_combos?: LensCombo[]
+  default_lens_combo?: LensCombo | null
   created_at: string
   updated_at: string
   accessories: ModelAccessory[]
@@ -91,7 +94,7 @@ export interface Rental {
   // 代传照片标记
   photo_transfer: boolean
   // 镜头组合
-  lens_combo?: 'lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual'
+  lens_combo?: LensCombo
   xianyu_order_no?: string
   order_amount?: number
   buyer_id?: string

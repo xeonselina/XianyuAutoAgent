@@ -395,7 +395,7 @@ import axios from 'axios'
 import dayjs from 'dayjs'
 import { useGanttStore } from '@/stores/gantt'
 import { useMobileTenantStore } from '@/stores/tenant'
-import type { Rental, Device } from '@/stores/gantt'
+import type { DeviceModel, Rental, Device } from '@/stores/gantt'
 import RentalConfirmationPopup from '@/components/RentalConfirmationPopup.vue'
 import { useConflictDetection } from '@/composables/useConflictDetection'
 import {
@@ -473,19 +473,23 @@ const selectedTripodName = ref('')
 // 配件数据
 const accessories = ref<{ phoneHolders: Device[], tripods: Device[] }>({ phoneHolders: [], tripods: [] })
 
-// 镜头组合：来源于关联的 rental.device.device_model.name 或 rental.device.model
+// 所有可用设备
+const allDevices = ref<Device[]>([])
+
+// 镜头组合：来源于当前选中设备的正式型号配置
 const currentRental = ref<Rental | null>(null)
-const currentModelShortName = computed<string | null>(() => {
-  const d = currentRental.value?.device as any
-  if (!d) return null
-  return d.device_model?.name || d.model || null
+const currentModelConfig = computed<DeviceModel | string | null>(() => {
+  const selected = allDevices.value.find(device => device.id === form.value.deviceId)
+  const device = selected || currentRental.value?.device
+  if (!device) return null
+  return device.device_model || device.model || null
 })
-const allowedCombos = computed<LensCombo[]>(() => getAllowedCombos(currentModelShortName.value))
+const allowedCombos = computed<LensCombo[]>(() => getAllowedCombos(currentModelConfig.value))
 const lensComboModel = computed<LensCombo>({
   get: () => {
     const v = form.value.lensCombo
-    if (v && isComboAllowed(currentModelShortName.value, v)) return v as LensCombo
-    return getDefaultCombo(currentModelShortName.value)
+    if (v && isComboAllowed(currentModelConfig.value, v)) return v as LensCombo
+    return getDefaultCombo(currentModelConfig.value)
   },
   set: (v: LensCombo) => { form.value.lensCombo = v }
 })
@@ -497,9 +501,6 @@ const shipOutDateParts = ref<string[]>([])
 const shipOutTimeStr = ref('09:00')
 const shipInDateParts = ref<string[]>([])
 const shipInTimeStr = ref('18:00')
-
-// 所有可用设备
-const allDevices = ref<Device[]>([])
 
 const endDateMin = computed(() => {
   return form.value.startDate ? new Date(form.value.startDate) : undefined

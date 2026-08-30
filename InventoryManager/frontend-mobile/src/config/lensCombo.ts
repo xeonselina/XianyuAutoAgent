@@ -1,20 +1,17 @@
 /**
- * 镜头组合配置 - 与后端 app/services/printing/rental_product_lines.py 保持一致
- * 移动端共享 PC 端定义，逻辑完全一致。
+ * 镜头组合的稳定枚举和展示规则；型号可选项由型号库接口提供。
  */
 
 export type LensCombo = 'lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual'
 
-export interface LensComboModelConfig {
-  allowed: LensCombo[]
-  default: LensCombo
+export interface LensComboConfigSource {
+  name?: string | null
+  allowed_lens_combos?: LensCombo[] | null
+  default_lens_combo?: LensCombo | null
 }
 
-export const MODEL_LENS_COMBOS: Record<string, LensComboModelConfig> = {
-  x200u:   { allowed: ['lens_200mm', 'bare'],                              default: 'lens_200mm' },
-  x300pro: { allowed: ['lens_200mm', 'bare'],                              default: 'lens_200mm' },
-  x300u:   { allowed: ['lens_400mm', 'lens_200mm', 'bare', 'lens_dual'],   default: 'lens_400mm' },
-}
+export const LENS_COMBO_VALUES: LensCombo[] = ['lens_400mm', 'lens_200mm', 'bare', 'lens_dual']
+const FALLBACK_ALLOWED: LensCombo[] = ['lens_200mm', 'bare']
 
 export const LENS_COMBO_DISPLAY: Record<LensCombo, string> = {
   lens_400mm: '400MM 镜头',
@@ -30,7 +27,6 @@ export const LENS_COMBO_DISPLAY: Record<LensCombo, string> = {
  */
 export function normalizeModelName(modelName?: string | null): string | null {
   if (!modelName) return null
-  if (MODEL_LENS_COMBOS[modelName]) return modelName
   const s = modelName.toLowerCase().replace(/[\s+]/g, '')
   if (s.includes('x300pro')) return 'x300pro'
   if (s.includes('x300u')) return 'x300u'
@@ -38,23 +34,36 @@ export function normalizeModelName(modelName?: string | null): string | null {
   return null
 }
 
-export function getAllowedCombos(modelName?: string | null): LensCombo[] {
-  const key = normalizeModelName(modelName)
-  if (!key) return [...MODEL_LENS_COMBOS.x200u.allowed]
-  const cfg = MODEL_LENS_COMBOS[key]
-  return cfg ? [...cfg.allowed] : [...MODEL_LENS_COMBOS.x200u.allowed]
+function compatibilityConfig(modelName?: string | null): { allowed: LensCombo[]; default: LensCombo } {
+  if (normalizeModelName(modelName) === 'x300u') {
+    return { allowed: [...LENS_COMBO_VALUES], default: 'lens_400mm' }
+  }
+  return { allowed: [...FALLBACK_ALLOWED], default: 'lens_200mm' }
 }
 
-export function getDefaultCombo(modelName?: string | null): LensCombo {
-  const key = normalizeModelName(modelName)
-  if (!key) return 'lens_200mm'
-  return MODEL_LENS_COMBOS[key]?.default ?? 'lens_200mm'
+function resolveConfig(source?: LensComboConfigSource | string | null) {
+  if (source && typeof source === 'object') {
+    const allowed = (source.allowed_lens_combos || []).filter(
+      (combo): combo is LensCombo => LENS_COMBO_VALUES.includes(combo as LensCombo),
+    )
+    if (allowed.length && source.default_lens_combo && allowed.includes(source.default_lens_combo)) {
+      return { allowed: [...allowed], default: source.default_lens_combo }
+    }
+    return compatibilityConfig(source.name)
+  }
+  return compatibilityConfig(typeof source === 'string' ? source : undefined)
 }
 
-export function isComboAllowed(modelName: string | null | undefined, combo: LensCombo | string | null | undefined): boolean {
-  const key = normalizeModelName(modelName)
-  if (!key || !combo) return false
-  return MODEL_LENS_COMBOS[key]?.allowed.includes(combo as LensCombo) ?? false
+export function getAllowedCombos(source?: LensComboConfigSource | string | null): LensCombo[] {
+  return resolveConfig(source).allowed
+}
+
+export function getDefaultCombo(source?: LensComboConfigSource | string | null): LensCombo {
+  return resolveConfig(source).default
+}
+
+export function isComboAllowed(source: LensComboConfigSource | string | null | undefined, combo: LensCombo | string | null | undefined): boolean {
+  return Boolean(combo && resolveConfig(source).allowed.includes(combo as LensCombo))
 }
 
 export function lensComboDisplay(combo?: LensCombo | string | null): string {

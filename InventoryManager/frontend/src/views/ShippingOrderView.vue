@@ -212,7 +212,11 @@ const modelName = computed<string | undefined>(() => {
 })
 
 // 按机型 + 镜头组合渲染的品名清单
-const productLines = computed(() => getProductLines(modelName.value, lensCombo.value))
+const productLines = computed(() => getProductLines(
+  modelName.value,
+  lensCombo.value,
+  rental.value?.device?.device_model?.display_name,
+))
 
 // 镜头组合中文化（主机行的备注栏）
 const lensComboLabel = computed(() => lensComboDisplay(lensCombo.value))

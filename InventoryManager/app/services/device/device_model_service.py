@@ -8,6 +8,10 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from app import db
+from app.lens_combos import (
+    LENS_COMBO_VALUES,
+    compatibility_lens_combo_config,
+)
 from app.models.device import Device
 from app.models.device_model import DeviceModel
 
@@ -164,6 +168,47 @@ class DeviceModelService:
         return parent
 
     @staticmethod
+    def _apply_lens_combo_fields(model, data, *, creating=False, type_changed=False):
+        if model.is_accessory:
+            model.set_allowed_lens_combos_list([])
+            model.default_lens_combo = None
+            return
+
+        should_apply = (
+            creating
+            or type_changed
+            or "allowed_lens_combos" in data
+            or "default_lens_combo" in data
+        )
+        if not should_apply:
+            return
+
+        fallback_allowed, fallback_default = compatibility_lens_combo_config(
+            model.name
+        )
+        current_allowed = model.get_allowed_lens_combos_list()
+        allowed = data.get(
+            "allowed_lens_combos",
+            current_allowed or fallback_allowed,
+        )
+        default = data.get(
+            "default_lens_combo",
+            model.default_lens_combo or fallback_default,
+        )
+        if not isinstance(allowed, list) or not allowed:
+            raise ValueError("主设备至少要选择一个镜头组合")
+        if any(not isinstance(item, str) for item in allowed):
+            raise ValueError("镜头组合必须是文本列表")
+        allowed = list(dict.fromkeys(allowed))
+        invalid = [item for item in allowed if item not in LENS_COMBO_VALUES]
+        if invalid:
+            raise ValueError(f"无效的镜头组合: {invalid}")
+        if default not in allowed:
+            raise ValueError("默认镜头组合必须属于允许的组合")
+        model.set_allowed_lens_combos_list(allowed)
+        model.default_lens_combo = default
+
+    @staticmethod
     def _apply_editable_fields(model, data, *, creating=False):
         if creating:
             name = DeviceModelService._required_text(data, "name", 50)
@@ -187,10 +232,12 @@ class DeviceModelService:
             model.description = (
                 str(description).strip() if description not in (None, "") else None
             )
+        type_changed = False
         if creating or "is_accessory" in data:
             requested_accessory = DeviceModelService._parse_bool(
                 data, "is_accessory", False
             )
+            type_changed = not creating and requested_accessory != model.is_accessory
             if not creating and requested_accessory != model.is_accessory:
                 if model.devices.first() is not None:
                     raise DeviceModelConflict("已有设备引用的型号不能改变类型")
@@ -226,6 +273,13 @@ class DeviceModelService:
                 model.parent_model_id = parent.id if parent else None
         else:
             model.parent_model_id = None
+
+        DeviceModelService._apply_lens_combo_fields(
+            model,
+            data,
+            creating=creating,
+            type_changed=type_changed,
+        )
 
     @staticmethod
     def create(data) -> dict:

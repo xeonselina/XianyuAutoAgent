@@ -360,25 +360,24 @@ const endDateMin = computed(() => {
   return form.value.startDate ? new Date(form.value.startDate) : undefined
 })
 
-// 镜头组合：当前所选机型 short name & 选项
-const selectedModelShortName = computed<string | null>(() => {
+// 镜头组合：直接读取当前型号在型号库中的配置
+const selectedModelConfig = computed<DeviceModel | null>(() => {
   if (!form.value.modelId) return null
-  const m = deviceModels.value.find(dm => dm.id === form.value.modelId)
-  return m?.name ?? null
+  return deviceModels.value.find(dm => dm.id === form.value.modelId) || null
 })
-const allowedCombos = computed<LensCombo[]>(() => getAllowedCombos(selectedModelShortName.value))
+const allowedCombos = computed<LensCombo[]>(() => getAllowedCombos(selectedModelConfig.value))
 const lensComboModel = computed<LensCombo>({
   get: () => {
     const v = form.value.lensCombo
-    if (v && isComboAllowed(selectedModelShortName.value, v)) return v as LensCombo
-    return getDefaultCombo(selectedModelShortName.value)
+    if (v && isComboAllowed(selectedModelConfig.value, v)) return v as LensCombo
+    return getDefaultCombo(selectedModelConfig.value)
   },
   set: (v: LensCombo) => { form.value.lensCombo = v }
 })
 const comboLabel = (v: LensCombo) => lensComboDisplay(v)
 
 // 机型切换 → 重置不合法的镜头组合
-watch(selectedModelShortName, (newModel) => {
+watch(selectedModelConfig, (newModel) => {
   if (form.value.lensCombo && !isComboAllowed(newModel, form.value.lensCombo)) {
     form.value.lensCombo = getDefaultCombo(newModel)
   }

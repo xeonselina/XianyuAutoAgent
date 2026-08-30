@@ -10,8 +10,8 @@
           {{ display(opt) }}
         </el-radio-button>
       </el-radio-group>
-      <div class="form-tip" v-if="!modelName">未识别机型，使用默认组合</div>
-      <div class="form-tip" v-else>不同组合会影响发货单/面单的品名清单</div>
+      <div class="form-tip" v-if="!model">未选择型号，使用默认组合</div>
+      <div class="form-tip" v-else>选项由型号库维护，并会影响发货单/面单的品名清单</div>
     </div>
   </el-form-item>
 </template>
@@ -25,28 +25,29 @@ import {
   lensComboDisplay,
   type LensCombo,
 } from '@/config/lensCombo'
+import type { DeviceModel } from '@/stores/gantt'
 
 const props = defineProps<{
   modelValue: LensCombo | undefined
-  modelName: string | null | undefined
+  model: DeviceModel | null | undefined
 }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: LensCombo): void }>()
 
-const allowed = computed(() => getAllowedCombos(props.modelName ?? undefined))
+const allowed = computed(() => getAllowedCombos(props.model))
 
 const combo = computed<LensCombo>({
-  get: () => (props.modelValue && isComboAllowed(props.modelName ?? undefined, props.modelValue))
+  get: () => (props.modelValue && isComboAllowed(props.model, props.modelValue))
     ? props.modelValue
-    : getDefaultCombo(props.modelName ?? undefined),
+    : getDefaultCombo(props.model),
   set: (v) => emit('update:modelValue', v)
 })
 
 const display = (v: LensCombo) => lensComboDisplay(v)
 
 // 机型切换：当前 combo 不在新机型允许范围内 → 回退默认
-watch(() => props.modelName, (newModel) => {
-  if (props.modelValue && !isComboAllowed(newModel ?? undefined, props.modelValue)) {
-    emit('update:modelValue', getDefaultCombo(newModel ?? undefined))
+watch(() => props.model, (newModel) => {
+  if (props.modelValue && !isComboAllowed(newModel, props.modelValue)) {
+    emit('update:modelValue', getDefaultCombo(newModel))
   }
 })
 </script>

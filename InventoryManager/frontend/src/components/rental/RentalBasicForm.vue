@@ -33,7 +33,7 @@
     <!-- 镜头组合 -->
     <LensComboSelector
       v-model="form.lensCombo"
-      :model-name="selectedModelName"
+      :model="selectedModel"
     />
 
     <!-- 客户信息（只读） -->
@@ -130,10 +130,9 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const selectedModelName = computed<string | null>(() => {
+const selectedModel = computed(() => {
   const dev = props.availableDevices.find(d => d.id === props.form.deviceId)
-  if (!dev) return null
-  return dev.device_model?.name || dev.model || null
+  return dev?.device_model || null
 })
 
 const emit = defineEmits<{
