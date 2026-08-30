@@ -6,6 +6,8 @@ from app import db
 from app.models.device import Device
 from app.models.device_model import DeviceModel
 from app.models.rental import Rental
+from app.models.rental_relay_binding import RentalRelayBinding
+from app.models.rental_relay_case import RentalRelayCase
 from app.models.warehouse import Warehouse
 
 
@@ -108,6 +110,30 @@ def test_pending_returns_includes_due_today_and_overdue_main_rentals(
             ),
             _rental(main_device.id, end_date=today),
         ])
+        relay_successor = _rental(
+            main_device.id,
+            end_date=today + timedelta(days=6),
+            status="not_shipped",
+        )
+        unconfirmed_successor = _rental(
+            main_device.id,
+            end_date=today + timedelta(days=12),
+            status="not_shipped",
+        )
+        db_session.add_all([relay_successor, unconfirmed_successor])
+        db_session.flush()
+        relay_successor_id = relay_successor.id
+        db_session.add_all([
+            RentalRelayBinding(
+                predecessor_rental_id=pending_rentals[0].id,
+                successor_rental_id=relay_successor_id,
+            ),
+            RentalRelayCase(
+                predecessor_rental_id=pending_rentals[1].id,
+                successor_rental_id=unconfirmed_successor.id,
+                status="pending",
+            ),
+        ])
         db_session.commit()
 
         response = client.get("/api/rentals/pending-returns")
@@ -136,6 +162,19 @@ def test_pending_returns_includes_due_today_and_overdue_main_rentals(
         and row["customer_phone"] == "13800138000"
         and row["status"] == "shipped"
         for row in payload["data"]["rentals"]
+    )
+    relay_rows = {
+        row["id"]: row
+        for row in payload["data"]["rentals"]
+    }
+    assert relay_rows[pending_ids[0]]["is_relay_handoff"] is True
+    assert relay_rows[pending_ids[0]]["relay_successor_rental_id"] == relay_successor_id
+    assert relay_rows[pending_ids[1]]["is_relay_handoff"] is False
+    assert relay_rows[pending_ids[1]]["relay_successor_rental_id"] is None
+    assert all(
+        row["is_relay_handoff"] is False
+        for rental_id, row in relay_rows.items()
+        if rental_id not in {pending_ids[0]}
     )
 
 

@@ -37,7 +37,19 @@
               <tbody>
                 <tr v-for="rental in group.rentals" :key="rental.id">
                   <td class="model-cell">
-                    <div>{{ rental.device_model }}</div>
+                    <div class="device-model-line">
+                      <span>{{ rental.device_model }}</span>
+                      <el-tag
+                        v-if="rental.is_relay_handoff"
+                        type="warning"
+                        effect="dark"
+                        size="small"
+                        class="relay-tag"
+                        data-test="relay-tag"
+                      >
+                        接力
+                      </el-tag>
+                    </div>
                     <div class="device-name">
                       机器编号：{{ rental.device_name || '-' }}
                     </div>
@@ -243,6 +255,16 @@ const groups = computed(() => [
 .model-cell {
   min-width: 140px;
   font-weight: 600;
+}
+
+.device-model-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.relay-tag {
+  flex: none;
 }
 
 .device-name {

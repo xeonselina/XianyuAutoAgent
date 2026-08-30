@@ -11,6 +11,8 @@ const pendingReturn: PendingReturn = {
   device_model: 'iPhone 15 Pro Max',
   device_name: '手机-12',
   customer_name: '张三',
+  is_relay_handoff: false,
+  relay_successor_rental_id: null,
   start_date: '2026-07-20',
   end_date: '2026-07-28',
   due_date: '2026-07-29',
@@ -69,6 +71,9 @@ const mountDrawer = (
         props: ['description'],
         template: '<div class="empty">{{ description }}</div>',
       },
+      ElTag: {
+        template: '<span><slot /></span>',
+      },
     },
     directives: {
       loading: () => undefined,
@@ -118,6 +123,19 @@ describe('PendingReturnsDrawer', () => {
     expect(wrapper.text()).toContain('张三')
     expect(wrapper.text()).toContain('13900139000')
     expect(wrapper.text()).toContain('标记为已寄回')
+  })
+
+  it('marks only confirmed relay handoffs', () => {
+    const relayRental = {
+      ...pendingReturn,
+      is_relay_handoff: true,
+      relay_successor_rental_id: 99,
+    }
+    const relayWrapper = mountDrawer([relayRental])
+    const regularWrapper = mountDrawer([pendingReturn])
+
+    expect(relayWrapper.get('[data-test="relay-tag"]').text()).toBe('接力')
+    expect(regularWrapper.find('[data-test="relay-tag"]').exists()).toBe(false)
   })
 
   it('hides empty groups', () => {

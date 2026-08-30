@@ -24,6 +24,8 @@ const pendingReturn: PendingReturn = {
   device_model: 'iPhone 15 Pro',
   device_name: '手机-07',
   customer_name: '提醒测试客户',
+  is_relay_handoff: false,
+  relay_successor_rental_id: null,
   start_date: '2026-07-25',
   end_date: '2026-07-28',
   due_date: '2026-07-29',

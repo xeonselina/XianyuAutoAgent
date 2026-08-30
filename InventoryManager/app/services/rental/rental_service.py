@@ -8,6 +8,7 @@ from flask import current_app
 from sqlalchemy.orm import joinedload
 from app import db
 from app.models.rental import Rental
+from app.models.rental_relay_binding import RentalRelayBinding
 from app.models.device import Device
 from app.models.warehouse import resolve_write_warehouse_id
 from app.models.xianyu_order_alert import XianyuOrderAlert
@@ -50,6 +51,19 @@ class RentalService:
             query = query.filter(Rental.warehouse_id == warehouse_id)
         rentals = query.all()
 
+        rental_ids = [rental.id for rental in rentals]
+        relay_bindings = (
+            RentalRelayBinding.query.filter(
+                RentalRelayBinding.predecessor_rental_id.in_(rental_ids)
+            ).all()
+            if rental_ids
+            else []
+        )
+        relay_by_predecessor = {
+            binding.predecessor_rental_id: binding
+            for binding in relay_bindings
+        }
+
         rows = []
         for rental in rentals:
             due_date = rental.end_date + timedelta(days=1)
@@ -60,6 +74,7 @@ class RentalService:
                 if device.device_model:
                     device_model = device.device_model.display_name
                 device_model = device_model or device.model or device.name
+            relay_binding = relay_by_predecessor.get(rental.id)
 
             rows.append({
                 'id': rental.id,
@@ -67,6 +82,11 @@ class RentalService:
                 'device_model': device_model or '-',
                 'device_name': device.name if device and device.name else '-',
                 'customer_name': rental.customer_name,
+                'is_relay_handoff': relay_binding is not None,
+                'relay_successor_rental_id': (
+                    relay_binding.successor_rental_id
+                    if relay_binding else None
+                ),
                 'start_date': rental.start_date.isoformat(),
                 'end_date': rental.end_date.isoformat(),
                 'due_date': due_date.isoformat(),
