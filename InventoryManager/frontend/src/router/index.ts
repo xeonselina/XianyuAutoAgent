@@ -190,6 +190,18 @@ const router = createRouter({
     { path: '/', name: 'gantt', component: GanttView, meta: requiresTenant },
     { path: '/gantt', redirect: '/' },
     {
+      path: '/devices',
+      name: 'devices',
+      component: () => import('@/views/DeviceManagementView.vue'),
+      meta: requiresTenant,
+    },
+    {
+      path: '/operations',
+      name: 'operations',
+      component: () => import('@/views/OperationsView.vue'),
+      meta: requiresTenant,
+    },
+    {
       path: '/shipping/:id',
       name: 'shipping-order',
       component: ShippingOrderView,

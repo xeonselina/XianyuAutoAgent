@@ -39,15 +39,6 @@
         >
           预定设备
         </el-button>
-        <el-button
-          v-if="!compactToolbar"
-          data-testid="add-device-button"
-          :icon="Plus"
-          :disabled="tenantStore.currentWarehouseId === 'all'"
-          @click="showAddDeviceDialog = true"
-        >
-          添加设备
-        </el-button>
         <el-badge
           :value="pendingReturnsCount"
           :hidden="pendingReturnsCount === 0"
@@ -70,31 +61,21 @@
         >
           客户历史
         </el-button>
-        <el-dropdown data-testid="gantt-more-actions" @command="handleMoreCommand">
+        <el-dropdown data-testid="gantt-schedule-actions" @command="handleScheduleCommand">
           <el-button>
-            更多操作
+            档期操作
             <el-icon class="el-icon--right"><ArrowDown /></el-icon>
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item
-                v-if="compactToolbar"
-                command="add-device"
-                :disabled="tenantStore.currentWarehouseId === 'all'"
-              >
-                <el-icon><Plus /></el-icon>
-                添加设备
-              </el-dropdown-item>
               <el-dropdown-item v-if="compactToolbar" command="customer-history">
                 <el-icon><User /></el-icon>
                 客户历史
               </el-dropdown-item>
-              <el-dropdown-item command="batch-shipping" :divided="compactToolbar">
-                批量发货
-              </el-dropdown-item>
               <el-dropdown-item
                 command="schedule-reorder"
                 :disabled="tenantStore.currentWarehouseId === 'all'"
+                :divided="compactToolbar"
               >
                 <el-icon><Sort /></el-icon>
                 一键重排档期
@@ -102,22 +83,6 @@
               <el-dropdown-item command="refresh">
                 <el-icon><Refresh /></el-icon>
                 刷新档期
-              </el-dropdown-item>
-              <el-dropdown-item divided command="rental-stats">
-                <el-icon><TrendCharts /></el-icon>
-                出租周期统计
-              </el-dropdown-item>
-              <el-dropdown-item command="sf-tracking">
-                <el-icon><Location /></el-icon>
-                物流查询
-              </el-dropdown-item>
-              <el-dropdown-item command="relay-management">
-                <el-icon><Connection /></el-icon>
-                接力管理
-              </el-dropdown-item>
-              <el-dropdown-item command="inspection">
-                <el-icon><CircleCheck /></el-icon>
-                验机
               </el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -279,8 +244,6 @@
                 :style="{ height: `${itemHeight}px` }"
                 @edit-rental="handleEditRental"
                 @delete-rental="handleDeleteRental"
-                @update-device-lifecycle="handleUpdateDeviceLifecycle"
-                @move-device="openWarehouseMovement"
               />
             </div>
           </div>
@@ -325,123 +288,14 @@
       @completed="handleScheduleReorderCompleted"
     />
 
-    <WarehouseMovementDialog
-      v-if="movementDevice?.warehouse_id"
-      v-model="showWarehouseMovement"
-      :device-id="movementDevice.id"
-      :current-warehouse-id="movementDevice.warehouse_id"
-      @moved="handleWarehouseMoved"
-    />
-
-    <!-- 添加设备对话框 -->
-    <el-dialog 
-      data-testid="add-device-dialog"
-      v-model="showAddDeviceDialog" 
-      title="添加设备" 
-      width="500px"
-      @close="resetAddDeviceForm"
-    >
-      <el-form 
-        ref="addDeviceFormRef" 
-        :model="addDeviceForm" 
-        :rules="addDeviceRules"
-        label-width="100px"
-      >
-        <el-form-item label="设备名称" prop="name">
-          <el-input 
-            v-model="addDeviceForm.name" 
-            placeholder="请输入设备名称" 
-            maxlength="100"
-            show-word-limit
-          />
-        </el-form-item>
-        
-        <el-form-item label="序列号" prop="serial_number">
-          <el-input 
-            v-model="addDeviceForm.serial_number" 
-            placeholder="请输入设备序列号" 
-            maxlength="50"
-            show-word-limit
-          />
-        </el-form-item>
-        
-        <el-form-item label="型号" prop="model_id">
-          <el-select
-            v-model="addDeviceForm.model_id"
-            placeholder="请选择型号"
-            style="width: 100%"
-            @change="onModelChange"
-          >
-            <el-option
-              v-for="model in deviceModels"
-              :key="model.id"
-              :label="model.display_name"
-              :value="model.id"
-            />
-          </el-select>
-        </el-form-item>
-
-        <el-form-item
-          v-if="selectedModelAccessories.length > 0"
-          label="附件类型"
-          prop="accessory_type"
-        >
-          <el-select
-            v-model="addDeviceForm.accessory_type"
-            placeholder="选择附件类型（可选）"
-            style="width: 100%"
-            clearable
-            @change="onAccessoryTypeChange"
-          >
-            <el-option
-              v-for="accessory in selectedModelAccessories"
-              :key="accessory.id"
-              :label="accessory.accessory_name"
-              :value="accessory.accessory_name"
-            />
-          </el-select>
-        </el-form-item>
-        
-        <el-form-item label="设备类型" prop="is_accessory">
-          <el-checkbox v-model="addDeviceForm.is_accessory">
-            附件设备（手柄等不在租赁列表中显示）
-          </el-checkbox>
-        </el-form-item>
-        
-        <el-form-item label="设备描述" prop="description">
-          <el-input 
-            v-model="addDeviceForm.description" 
-            type="textarea"
-            :rows="3"
-            placeholder="请输入设备描述（可选）" 
-            maxlength="500"
-            show-word-limit
-          />
-        </el-form-item>
-      </el-form>
-      
-      <template #footer>
-        <span class="dialog-footer">
-          <el-button @click="showAddDeviceDialog = false">取消</el-button>
-          <el-button 
-            type="primary" 
-            @click="handleAddDevice"
-            :loading="addingDevice"
-          >
-            添加设备
-          </el-button>
-        </span>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { useGanttStore, type Device, type Rental, type DeviceModel, type ModelAccessory } from '@/stores/gantt'
+import { useGanttStore, type Device, type Rental } from '@/stores/gantt'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, ArrowLeft, ArrowRight, Search, ArrowDown, Location, CircleCheck, TrendCharts, User, Sort, Bell } from '@element-plus/icons-vue'
+import { Plus, Refresh, ArrowLeft, ArrowRight, Search, ArrowDown, User, Sort, Bell } from '@element-plus/icons-vue'
 import axios from 'axios'
 import GanttRow from './GanttRow.vue'
 import BookingDialog from './BookingDialog.vue'
@@ -450,7 +304,6 @@ import { EditRentalDialogNew } from './rental'
 import BatchPrintDialog from './rental/BatchPrintDialog.vue'
 import CustomerHistoryDialog from './CustomerHistoryDialog.vue'
 import ScheduleReorderDialog from './ScheduleReorderDialog.vue'
-import WarehouseMovementDialog from './WarehouseMovementDialog.vue'
 import XianyuOrderAlertBar from './XianyuOrderAlertBar.vue'
 import PendingReturnsDrawer from './PendingReturnsDrawer.vue'
 import { useXianyuOrderAlerts } from '@/composables/useXianyuOrderAlerts'
@@ -465,7 +318,6 @@ import {
 import dayjs from 'dayjs'
 import { useTenantStore } from '@/stores/tenant'
 
-const router = useRouter()
 const ganttStore = useGanttStore()
 const tenantStore = useTenantStore()
 
@@ -474,13 +326,10 @@ const showBookingDialog = ref(false)
 const bookingOrderNo = ref<string>()
 const bookingShopId = ref<number>()
 const showEditDialog = ref(false)
-const showAddDeviceDialog = ref(false)
 const showCustomerHistoryDialog = ref(false)
 const showBatchPrintDialog = ref(false)
 const showScheduleReorderDialog = ref(false)
 const showPendingReturnsDrawer = ref(false)
-const showWarehouseMovement = ref(false)
-const movementDevice = ref<Device | null>(null)
 const selectedRental = ref<Rental | null>(null)
 const showRentalConfirmationDialog = ref(false)
 const confirmationRental = ref<Rental | null>(null)
@@ -528,46 +377,6 @@ const scrollTop = ref(0)
 const startIndex = ref(0)
 const endIndex = ref(0)
 let ganttBodyResizeObserver: ResizeObserver | null = null
-
-// 添加设备表单
-const addDeviceFormRef = ref()
-const addingDevice = ref(false)
-const deviceModels = ref<DeviceModel[]>([])
-const selectedModelAccessories = ref<ModelAccessory[]>([])
-const addDeviceForm = ref<{
-  name: string
-  serial_number: string
-  model: string
-  model_id?: number
-  accessory_type: string
-  is_accessory: boolean
-  description: string
-}>({
-  name: '',
-  serial_number: '',
-  model: '',
-  model_id: undefined,
-  accessory_type: '',
-  is_accessory: false,
-  description: ''
-})
-
-const addDeviceRules = {
-  name: [
-    { required: true, message: '请输入设备名称', trigger: 'blur' },
-    { min: 1, max: 100, message: '设备名称长度在 1 到 100 个字符', trigger: 'blur' }
-  ],
-  serial_number: [
-    { required: true, message: '请输入序列号', trigger: 'blur' },
-    { min: 1, max: 50, message: '序列号长度在 1 到 50 个字符', trigger: 'blur' }
-  ],
-  model_id: [
-    { required: true, message: '请选择型号', trigger: 'change' }
-  ],
-  description: [
-    { max: 500, message: '描述不能超过 500 个字符', trigger: 'blur' }
-  ]
-}
 
 // 计算属性
 const dateArray = computed(() => {
@@ -932,90 +741,6 @@ const handleEditSuccess = async (rentalId?: number) => {
   }
 }
 
-// 加载设备型号
-const loadDeviceModels = async () => {
-  try {
-    const response = await axios.get('/api/device-models')
-    if (response.data.success) {
-      deviceModels.value = response.data.data
-    }
-  } catch (error) {
-    console.error('加载设备型号失败:', error)
-    ElMessage.error('加载设备型号失败')
-  }
-}
-
-// 型号选择变化处理
-const onModelChange = (modelId: number) => {
-  const selectedModel = deviceModels.value.find(model => model.id === modelId)
-  if (selectedModel) {
-    addDeviceForm.value.model_id = modelId
-    addDeviceForm.value.model = selectedModel.name
-    selectedModelAccessories.value = selectedModel.accessories || []
-    // 清空附件类型选择
-    addDeviceForm.value.accessory_type = ''
-    addDeviceForm.value.is_accessory = false
-  }
-}
-
-// 附件类型选择变化处理
-const onAccessoryTypeChange = (accessoryType: string) => {
-  if (accessoryType) {
-    addDeviceForm.value.is_accessory = true
-    // 根据附件类型自动设置设备名称
-    const selectedModel = deviceModels.value.find(model => model.id === addDeviceForm.value.model_id)
-    if (selectedModel && !addDeviceForm.value.name) {
-      addDeviceForm.value.name = accessoryType
-    }
-  } else {
-    addDeviceForm.value.is_accessory = false
-  }
-}
-
-// 添加设备相关处理函数
-const resetAddDeviceForm = () => {
-  addDeviceForm.value = {
-    name: '',
-    serial_number: '',
-    model: '',
-    model_id: undefined,
-    accessory_type: '',
-    is_accessory: false,
-    description: ''
-  }
-  selectedModelAccessories.value = []
-  if (addDeviceFormRef.value) {
-    addDeviceFormRef.value.resetFields()
-  }
-}
-
-const handleAddDevice = async () => {
-  if (!addDeviceFormRef.value) return
-  
-  try {
-    await addDeviceFormRef.value.validate()
-    addingDevice.value = true
-    
-    // 调用API添加设备
-    await ganttStore.addDevice(addDeviceForm.value)
-    
-    ElMessage.success('设备添加成功！')
-    showAddDeviceDialog.value = false
-    resetAddDeviceForm()
-    
-    // 重新加载数据
-    await ganttStore.loadData()
-  } catch (error) {
-    if (typeof error === 'string') {
-      // 表单验证错误
-      return
-    }
-    ElMessage.error('添加设备失败：' + (error as Error).message)
-  } finally {
-    addingDevice.value = false
-  }
-}
-
 const handleDeleteRental = async (rental: Rental) => {
   if (tenantStore.currentWarehouseId === 'all') {
     ElMessage.warning('请选择具体仓库')
@@ -1048,43 +773,6 @@ const handleDeleteRental = async (rental: Rental) => {
   }
 }
 
-const handleUpdateDeviceLifecycle = async (device: Device, newLifecycle: string) => {
-  if (tenantStore.currentWarehouseId === 'all') {
-    ElMessage.warning('请选择具体仓库')
-    return
-  }
-  try {
-    await ganttStore.updateDeviceLifecycle(device.id, newLifecycle)
-    const labels: Record<string, string> = {
-      active: '使用中', sold: '已售出', damaged: '已损坏',
-      decommissioned: '已停用', retired: '已退役'
-    }
-    ElMessage.success(`设备 ${device.name} 已标记为「${labels[newLifecycle] || newLifecycle}」`)
-    await ganttStore.loadData()
-  } catch (error) {
-    ElMessage.error('更新失败：' + (error as Error).message)
-    await ganttStore.loadData()
-  }
-}
-
-const openWarehouseMovement = (device: Device) => {
-  if (!device.warehouse_id) {
-    ElMessage.error('设备缺少仓库信息')
-    return
-  }
-  movementDevice.value = device
-  showWarehouseMovement.value = true
-}
-
-const handleWarehouseMoved = async () => {
-  await ganttStore.loadData()
-  movementDevice.value = null
-}
-
-const openBatchShipping = () => {
-  window.open('/batch-shipping', '_blank')
-}
-
 const openPendingReturns = async () => {
   showPendingReturnsDrawer.value = true
   try {
@@ -1110,21 +798,10 @@ const handleMarkPendingReturnReturned = async (rentalId: number) => {
   }
 }
 
-// 处理"更多"菜单命令
-const handleMoreCommand = (command: string) => {
+const handleScheduleCommand = (command: string) => {
   switch (command) {
-    case 'add-device':
-      if (tenantStore.currentWarehouseId === 'all') {
-        ElMessage.warning('请选择具体仓库')
-        break
-      }
-      showAddDeviceDialog.value = true
-      break
     case 'customer-history':
       showCustomerHistoryDialog.value = true
-      break
-    case 'batch-shipping':
-      openBatchShipping()
       break
     case 'schedule-reorder':
       if (tenantStore.currentWarehouseId === 'all') {
@@ -1135,18 +812,6 @@ const handleMoreCommand = (command: string) => {
       break
     case 'refresh':
       void ganttStore.loadData()
-      break
-    case 'rental-stats':
-      router.push('/rental-stats')
-      break
-    case 'sf-tracking':
-      router.push('/sf-tracking')
-      break
-    case 'relay-management':
-      router.push('/relay-management')
-      break
-    case 'inspection':
-      window.open('/inspection-records', '_blank')
       break
   }
 }
@@ -1310,8 +975,6 @@ watch(() => tenantStore.currentWarehouseId, async () => {
   showEditDialog.value = false
   confirmationRental.value = null
   showRentalConfirmationDialog.value = false
-  movementDevice.value = null
-  showWarehouseMovement.value = false
   dailyStats.value = {}
   await Promise.all([
     ganttStore.loadData(),
@@ -1340,7 +1003,6 @@ onMounted(async () => {
   await Promise.all([
     ganttStore.loadData(),
     loadDailyStats(),
-    loadDeviceModels(),
     loadXianyuAlerts(),
     loadPendingReturns().catch((error) => {
       ElMessage.error((error as Error).message)

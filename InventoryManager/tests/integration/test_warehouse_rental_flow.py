@@ -406,6 +406,50 @@ def test_single_warehouse_device_write_auto_selects_and_update_cannot_move(
     assert response.status_code == 400
 
 
+def test_device_management_search_update_and_delete(
+    client, warehouse_case
+):
+    created = client.post(
+        "/api/devices",
+        json={
+            "name": "设备管理搜索样例",
+            "serial_number": "DEVICE-MANAGEMENT-001",
+            "model": "x200u",
+            "warehouse_id": warehouse_case["warehouse_a"],
+        },
+    )
+    assert created.status_code == 201
+    device_id = created.get_json()["data"]["id"]
+
+    searched = client.get(
+        "/api/devices",
+        query_string={
+            "q": "MANAGEMENT-001",
+            "warehouse_id": warehouse_case["warehouse_a"],
+        },
+    )
+    assert searched.status_code == 200
+    assert [row["id"] for row in searched.get_json()["devices"]] == [
+        device_id
+    ]
+
+    updated = client.put(
+        f"/api/devices/{device_id}",
+        json={
+            "name": "设备管理已编辑",
+            "serial_number": "DEVICE-MANAGEMENT-002",
+            "model": "x200u",
+            "is_accessory": False,
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.get_json()["data"]["name"] == "设备管理已编辑"
+
+    deleted = client.delete(f"/api/devices/{device_id}")
+    assert deleted.status_code == 200
+    assert deleted.get_json()["success"] is True
+
+
 def test_rental_create_persists_one_warehouse_for_main_and_children(
     client, warehouse_case
 ):

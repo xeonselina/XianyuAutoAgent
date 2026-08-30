@@ -268,7 +268,7 @@ describe('GanttChart pending-returns flow', () => {
     ).toBe(true)
   })
 
-  it('keeps only frequent actions visible and moves occasional work into one menu', async () => {
+  it('keeps only schedule actions in the schedule command bar', async () => {
     const { wrapper, loadData } = await mountGantt()
     const actionLabels = wrapper
       .get('[data-testid="gantt-toolbar-actions"]')
@@ -277,10 +277,9 @@ describe('GanttChart pending-returns flow', () => {
 
     expect(actionLabels).toEqual([
       '预定设备',
-      '添加设备',
       '待归还',
       '客户历史',
-      '更多操作',
+      '档期操作',
     ])
     expect(actionLabels).not.toContain('一键重排档期')
     expect(actionLabels).not.toContain('批量发货')
@@ -295,9 +294,8 @@ describe('GanttChart pending-returns flow', () => {
     await wrapper.vm.$nextTick()
     expect(wrapper.findComponent({ name: 'ScheduleReorderDialog' }).props('modelValue')).toBe(true)
 
-    const openWindow = vi.spyOn(window, 'open').mockImplementation(() => null)
-    dropdown.vm.$emit('command', 'batch-shipping')
-    expect(openWindow).toHaveBeenCalledWith('/batch-shipping', '_blank')
+    expect(wrapper.text()).not.toContain('批量发货')
+    expect(wrapper.text()).not.toContain('出租周期统计')
   })
 
   it('collapses secondary actions into the overflow menu on compact screens', async () => {
@@ -315,18 +313,12 @@ describe('GanttChart pending-returns flow', () => {
       .findAll('button')
       .map((button) => button.text().trim())
 
-    expect(actionLabels).toEqual(['预定设备', '待归还', '更多操作'])
+    expect(actionLabels).toEqual(['预定设备', '待归还', '档期操作'])
     expect(wrapper.get('.period-compact').text()).toMatch(
       /^\d{2}\.\d{2} – \d{2}\.\d{2}$/,
     )
 
     const dropdown = wrapper.findComponent(ElDropdownStub)
-    dropdown.vm.$emit('command', 'add-device')
-    await wrapper.vm.$nextTick()
-    expect(
-      wrapper.get('[data-testid="add-device-dialog"]').attributes('modelvalue'),
-    ).toBe('true')
-
     dropdown.vm.$emit('command', 'customer-history')
     await wrapper.vm.$nextTick()
     expect(

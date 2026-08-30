@@ -78,15 +78,16 @@ describe('XianyuOrderAlertBar', () => {
     ).toBe(false)
   })
 
-  it('keeps a visible failure warning when no trusted result exists', () => {
+  it('hides sync failures when there are no orders that need attention', () => {
     const failed = makeSnapshot()
     failed.alerts = []
     failed.count = 0
     failed.sync.last_success_at = null
     failed.sync.last_error = '请求超时'
 
-    expect(mountBar(failed).text()).toContain('暂时无法检查漏录订单')
-    expect(mountBar(failed).text()).toContain('请求超时')
+    expect(
+      mountBar(failed).find('[data-testid="xianyu-order-alert-bar"]').exists(),
+    ).toBe(false)
   })
 
   it('requires a reason and confirmation before emitting permanent ignore', async () => {

@@ -156,7 +156,12 @@ def update_device(device_id):
                 'error': '设备不存在'
             }), 404
         
-        data = request.get_json()
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return jsonify({
+                'success': False,
+                'error': '缺少请求数据'
+            }), 400
 
         if 'warehouse_id' in data:
             return jsonify({
@@ -166,11 +171,23 @@ def update_device(device_id):
         
         # 更新字段
         if 'name' in data:
-            device.name = data['name']
+            name = str(data['name'] or '').strip()
+            if not name:
+                return jsonify({
+                    'success': False,
+                    'error': '设备名称不能为空'
+                }), 400
+            device.name = name
         if 'serial_number' in data:
+            serial_number = str(data['serial_number'] or '').strip()
+            if not serial_number:
+                return jsonify({
+                    'success': False,
+                    'error': '序列号不能为空'
+                }), 400
             # 检查序列号是否已被其他设备使用
             existing_device = Device.query.filter(
-                Device.serial_number == data['serial_number'],
+                Device.serial_number == serial_number,
                 Device.id != device_id
             ).first()
             if existing_device:
@@ -178,9 +195,11 @@ def update_device(device_id):
                     'success': False,
                     'error': '序列号已被其他设备使用'
                 }), 400
-            device.serial_number = data['serial_number']
+            device.serial_number = serial_number
         if 'model' in data:
             device.model = data['model']
+        if 'model_id' in data:
+            device.model_id = data['model_id']
         if 'is_accessory' in data:
             device.is_accessory = data['is_accessory']
         if 'status' in data:
@@ -270,7 +289,7 @@ def delete_device(device_id):
             }), 404
         
         # 检查设备是否有关联的租赁记录
-        if device.rentals:
+        if device.rentals.first():
             return jsonify({
                 'success': False,
                 'error': '设备有关联的租赁记录，无法删除'

@@ -17,9 +17,11 @@ const showRouteContent = computed(
 </script>
 
 <template>
-  <div id="app">
+  <div id="app" :class="{ 'tenant-shell': showTenantHeader }">
     <AppHeader v-if="showTenantHeader" />
-    <RouterView v-if="showRouteContent" />
+    <main v-if="showRouteContent" :class="{ 'tenant-route': showTenantHeader }">
+      <RouterView />
+    </main>
   </div>
 </template>
 
@@ -29,6 +31,20 @@ const showRouteContent = computed(
   padding: 0;
   min-height: 100vh;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+#app.tenant-shell {
+  display: flex;
+  height: 100vh;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tenant-route {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 * {

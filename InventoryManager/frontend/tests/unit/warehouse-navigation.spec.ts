@@ -42,6 +42,7 @@ vi.mock('vue-router', () => ({
     props: ['to'],
     template: '<a :href="to"><slot /></a>',
   },
+  useRoute: () => ({ path: '/' }),
   useRouter: () => ({ replace: vi.fn() }),
 }))
 
@@ -135,6 +136,17 @@ describe('warehouse-aware tenant navigation', () => {
       )
     },
   )
+
+  it('shows four primary business workspaces in the compact header', async () => {
+    axiosGet.mockResolvedValue({ data: { success: true, data: warehouses } })
+
+    const { wrapper } = await mountHeader('admin')
+
+    expect(wrapper.get('[data-testid="primary-nav-schedule"]').attributes('href')).toBe('/')
+    expect(wrapper.get('[data-testid="primary-nav-devices"]').attributes('href')).toBe('/devices')
+    expect(wrapper.get('[data-testid="primary-nav-statistics"]').attributes('href')).toBe('/rental-stats')
+    expect(wrapper.get('[data-testid="primary-nav-operations"]').attributes('href')).toBe('/operations')
+  })
 
   it('shares one warehouse initialization and marks the session ready only after it resolves', async () => {
     const response = deferred<{ data: { success: boolean; data: typeof warehouses } }>()

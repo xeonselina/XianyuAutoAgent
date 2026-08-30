@@ -80,20 +80,10 @@ const emit = defineEmits<{
 
 const expanded = ref(false)
 
-const visible = computed(() => (
-  props.snapshot.count > 0
-  || Boolean(props.snapshot.sync.last_error)
-  || !props.snapshot.sync.last_success_at
-))
+const visible = computed(() => props.snapshot.count > 0)
 
 const headline = computed(() => {
-  if (props.snapshot.count > 0) {
-    return `发现 ${props.snapshot.count} 笔待发货订单尚未录入库存管理`
-  }
-  if (props.snapshot.sync.last_error) {
-    return '暂时无法检查漏录订单'
-  }
-  return '正在检查闲鱼漏录订单…'
+  return `发现 ${props.snapshot.count} 笔待发货订单尚未录入库存管理`
 })
 
 const statusText = computed(() => {

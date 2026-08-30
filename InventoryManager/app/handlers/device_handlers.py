@@ -17,6 +17,7 @@ class DeviceHandlers:
         try:
             page = int(request.args.get('page', 1))
             per_page = int(request.args.get('per_page', 20))
+            q = request.args.get('q')
             name = request.args.get('name')
             model = request.args.get('model')
             if 'status' in request.args:
@@ -35,6 +36,7 @@ class DeviceHandlers:
             return DeviceService.get_devices_with_filters(
                 page=page,
                 per_page=per_page,
+                q=q,
                 name=name,
                 model=model,
                 lifecycle_status=lifecycle_status,
@@ -58,8 +60,8 @@ class DeviceHandlers:
             
             # 通用搜索字段 'q' 可以用于名称和序列号
             q = data.get('q')
-            name = data.get('name') or (q if q else None)
-            serial_number = data.get('serial_number') or (q if q else None)
+            name = data.get('name')
+            serial_number = data.get('serial_number')
             model = data.get('model')
             if 'status' in data:
                 return bad_request('status 参数已移除，请使用 lifecycle_status')
@@ -74,6 +76,7 @@ class DeviceHandlers:
             return DeviceService.get_devices_with_filters(
                 page=page,
                 per_page=per_page,
+                q=q,
                 name=name,
                 model=model,
                 lifecycle_status=lifecycle_status,

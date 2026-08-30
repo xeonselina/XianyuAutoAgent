@@ -5,29 +5,6 @@
         <div class="device-name">{{ device.name }}</div>
         <div class="device-details">
           <span class="device-sn">{{ device.serial_number }}</span>
-          <el-button
-            link
-            size="small"
-            data-testid="move-device"
-            @click="$emit('move-device', device)"
-          >
-            移仓
-          </el-button>
-        </div>
-        <div class="device-lifecycle">
-          <el-select
-            :model-value="device.lifecycle_status || 'active'"
-            size="small"
-            style="width: 100px;"
-            :disabled="readOnly"
-            @change="updateLifecycleStatus"
-          >
-            <el-option label="🟢 使用中" value="active" />
-            <el-option label="💰 已售出" value="sold" />
-            <el-option label="🔧 已损坏" value="damaged" />
-            <el-option label="⛔ 已停用" value="decommissioned" />
-            <el-option label="📦 已退役" value="retired" />
-          </el-select>
         </div>
       </div>
     </div>
@@ -138,8 +115,6 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   'edit-rental': [rental: Rental]
   'delete-rental': [rental: Rental]
-  'update-device-lifecycle': [device: Device, newLifecycle: string]
-  'move-device': [device: Device]
 }>()
 
 // Tooltip相关状态
@@ -148,11 +123,6 @@ const tooltipVisible = ref(false)
 const tooltipTriggerRef = ref<HTMLElement>()
 let showTimer: number | null = null
 let hideTimer: number | null = null
-
-// 更新设备生命周期状态
-const updateLifecycleStatus = (newLifecycle: string) => {
-  emit('update-device-lifecycle', props.device, newLifecycle)
-}
 
 // 检查租赁是否包含附件
 const hasAccessories = (rental: Rental): boolean => {
