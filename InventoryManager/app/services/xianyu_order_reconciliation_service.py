@@ -56,11 +56,9 @@ class XianyuOrderReconciliationService:
 
     def _locked_session(self, shop_id):
         connection = db.session.get_bind().connect()
-        session = Session(bind=connection)
         if connection.dialect.name not in {"mysql", "mariadb"}:
             if current_app.testing:
-                return connection, session, None
-            session.close()
+                return connection, Session(bind=connection), None
             connection.close()
             raise RuntimeError("Xianyu reconciliation requires MariaDB")
         database = connection.execute(text("SELECT DATABASE()")) .scalar_one()
@@ -68,10 +66,14 @@ class XianyuOrderReconciliationService:
         if connection.execute(
             text("SELECT GET_LOCK(:name, 0)"), {"name": name}
         ).scalar_one() != 1:
-            session.close()
             connection.close()
             return None
-        return connection, session, name
+        # GET_LOCK starts an implicit transaction on MariaDB.  Close that
+        # transaction before binding the ORM session; otherwise Session.commit
+        # only completes its nested transaction and connection.close rolls the
+        # business changes back.
+        connection.commit()
+        return connection, Session(bind=connection), name
 
     @staticmethod
     def _release_lock(resources):
@@ -79,9 +81,14 @@ class XianyuOrderReconciliationService:
             return
         connection, session, name = resources
         session.close()
-        if name:
-            connection.execute(text("SELECT RELEASE_LOCK(:name)"), {"name": name})
-        connection.close()
+        try:
+            if name:
+                connection.execute(
+                    text("SELECT RELEASE_LOCK(:name)"), {"name": name}
+                )
+                connection.commit()
+        finally:
+            connection.close()
 
     @staticmethod
     def _unix_datetime(value):

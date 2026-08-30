@@ -117,6 +117,70 @@ def make_alert(**values):
     return XianyuOrderAlert(**values)
 
 
+def test_mariadb_lock_transaction_closes_before_business_session(
+    app,
+    monkeypatch,
+):
+    from app import db
+    from app.services import xianyu_order_reconciliation_service as module
+
+    calls = []
+
+    class Result:
+        def __init__(self, value):
+            self.value = value
+
+        def scalar_one(self):
+            return self.value
+
+    class Connection:
+        dialect = type("Dialect", (), {"name": "mariadb"})()
+
+        def execute(self, statement, _params=None):
+            sql = str(statement)
+            calls.append(sql)
+            if "DATABASE" in sql:
+                return Result("inventory_test")
+            return Result(1)
+
+        def commit(self):
+            calls.append("connection.commit")
+
+        def close(self):
+            calls.append("connection.close")
+
+    connection = Connection()
+
+    class Bind:
+        def connect(self):
+            calls.append("engine.connect")
+            return connection
+
+    class BusinessSession:
+        def __init__(self, bind):
+            assert bind is connection
+            calls.append("session.open")
+
+        def close(self):
+            calls.append("session.close")
+
+    monkeypatch.setattr(db.session, "get_bind", lambda: Bind())
+    monkeypatch.setattr(module, "Session", BusinessSession)
+
+    with app.app_context():
+        resources = module.XianyuOrderReconciliationService()._locked_session(7)
+        module.XianyuOrderReconciliationService._release_lock(resources)
+
+    assert calls.index("connection.commit") < calls.index("session.open")
+    release_index = next(
+        index for index, call in enumerate(calls) if "RELEASE_LOCK" in call
+    )
+    assert calls[release_index + 1:] == [
+        "connection.commit",
+        "connection.close",
+    ]
+
+
 def test_alert_serializes_amount_and_order_fields(app, db_session):
     with app.app_context():
         alert = make_alert(
