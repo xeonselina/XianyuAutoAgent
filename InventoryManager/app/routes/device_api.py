@@ -4,6 +4,7 @@
 
 from flask import Blueprint, request, jsonify, current_app
 from app.models.device import Device
+from app.models.device_model import DeviceModel
 from app.models.rental import Rental
 from app.models.warehouse import (
     resolve_read_warehouse_id,
@@ -28,6 +29,29 @@ from app import db
 from datetime import datetime, date, timedelta
 
 bp = Blueprint('device_api', __name__)
+
+
+def _resolve_device_model(model_id, *, current_model_id=None):
+    if model_id in (None, ""):
+        raise ValueError('请选择设备型号')
+    try:
+        model_id = int(model_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError('设备型号无效') from exc
+    model = db.session.get(DeviceModel, model_id)
+    if model is None:
+        raise ValueError('设备型号不存在')
+    if not model.is_active and model.id != current_model_id:
+        raise ValueError('设备型号已停用')
+    return model
+
+
+def _validate_model_type(data, model):
+    if 'is_accessory' not in data:
+        return
+    requested = data['is_accessory']
+    if not isinstance(requested, bool) or requested != model.is_accessory:
+        raise ValueError('设备类型必须与所选型号一致')
 
 
 # ===================== 增强的设备查询API =====================
@@ -108,13 +132,16 @@ def create_device():
         if existing_device:
             return bad_request('序列号已存在')
         
+        model = _resolve_device_model(data.get('model_id'))
+        _validate_model_type(data, model)
+
         # 创建设备
         device = Device(
             name=data['name'],
             serial_number=data['serial_number'],
-            model=data.get('model', 'x200u'),
-            model_id=data.get('model_id'),
-            is_accessory=data.get('is_accessory', False),
+            model=model.name,
+            model_id=model.id,
+            is_accessory=model.is_accessory,
             lifecycle_status='active',
             warehouse_id=warehouse_id,
         )
@@ -196,12 +223,25 @@ def update_device(device_id):
                     'error': '序列号已被其他设备使用'
                 }), 400
             device.serial_number = serial_number
-        if 'model' in data:
-            device.model = data['model']
         if 'model_id' in data:
-            device.model_id = data['model_id']
+            model = _resolve_device_model(
+                data['model_id'], current_model_id=device.model_id
+            )
+            _validate_model_type(data, model)
+            device.model = model.name
+            device.model_id = model.id
+            device.is_accessory = model.is_accessory
+        elif 'model' in data:
+            return jsonify({
+                'success': False,
+                'error': '请通过 model_id 选择正式型号'
+            }), 400
         if 'is_accessory' in data:
-            device.is_accessory = data['is_accessory']
+            if device.model_id is not None:
+                model = db.session.get(DeviceModel, device.model_id)
+                _validate_model_type(data, model)
+            else:
+                device.is_accessory = data['is_accessory']
         if 'status' in data:
             return jsonify({
                 'success': False,
@@ -219,12 +259,23 @@ def update_device(device_id):
                 'name': device.name,
                 'serial_number': device.serial_number,
                 'model': device.model,
+                'model_id': device.model_id,
+                'device_model': (
+                    device.device_model.to_dict()
+                    if device.device_model else None
+                ),
                 'is_accessory': device.is_accessory,
                 'warehouse_id': device.warehouse_id,
                 'lifecycle_status': device.lifecycle_status
             }
         })
         
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 400
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"更新设备失败: {e}")

@@ -16,12 +16,16 @@ export interface DeviceModel {
   display_name: string
   description?: string
   is_active: boolean
+  is_accessory: boolean
+  parent_model_id?: number | null
   default_accessories?: any[]
   model_accessories?: ModelAccessory[]
   device_value?: number
+  device_count?: number
+  accessory_count?: number
   created_at: string
   updated_at: string
-  accessories: ModelAccessory[]
+  accessories?: DeviceModel[]
 }
 
 export interface ModelAccessory {

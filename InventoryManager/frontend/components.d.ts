@@ -13,6 +13,7 @@ declare module 'vue' {
     BookingDialog: typeof import('./src/components/BookingDialog.vue')['default']
     ChecklistForm: typeof import('./src/components/inspection/ChecklistForm.vue')['default']
     CustomerHistoryDialog: typeof import('./src/components/CustomerHistoryDialog.vue')['default']
+    DeviceModelLibrary: typeof import('./src/components/DeviceModelLibrary.vue')['default']
     DeviceSearchInput: typeof import('./src/components/inspection/DeviceSearchInput.vue')['default']
     EditInspectionDialog: typeof import('./src/components/inspection/EditInspectionDialog.vue')['default']
     EditRentalDialogNew: typeof import('./src/components/rental/EditRentalDialogNew.vue')['default']

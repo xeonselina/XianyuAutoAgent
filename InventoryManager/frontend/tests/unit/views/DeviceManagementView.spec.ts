@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h } from 'vue'
 
 import DeviceManagementView from '@/views/DeviceManagementView.vue'
+import { useAuthStore } from '@/stores/auth'
 import { useTenantStore } from '@/stores/tenant'
 
 
@@ -30,7 +31,14 @@ const device = {
   serial_number: 'SN-007',
   model: 'x200u',
   model_id: 1,
-  device_model: { display_name: 'X200 Ultra' },
+  device_model: {
+    id: 1,
+    name: 'x200u',
+    display_name: 'X200 Ultra',
+    is_active: true,
+    is_accessory: false,
+    accessories: [],
+  },
   is_accessory: false,
   lifecycle_status: 'active',
   warehouse_id: 11,
@@ -49,6 +57,12 @@ const ElTableColumnStub = defineComponent({
 const mountView = async () => {
   const pinia = createPinia()
   setActivePinia(pinia)
+  useAuthStore().member = {
+    id: 1,
+    phone: '+8613800138000',
+    role: 'admin',
+    status: 'active',
+  }
   useTenantStore().setWarehousesForSession([{
     id: 11,
     name: '深圳仓',
@@ -98,11 +112,20 @@ describe('DeviceManagementView', () => {
     axiosPost.mockReset()
     axiosPut.mockReset()
     axiosGet.mockImplementation((url: string) => {
-      if (url === '/api/device-models') {
+      if (url === '/api/device-models/library') {
         return Promise.resolve({
           data: {
             success: true,
-            data: [{ id: 1, name: 'x200u', display_name: 'X200 Ultra' }],
+            data: {
+              models: [{
+                id: 1,
+                name: 'x200u',
+                display_name: 'X200 Ultra',
+                is_active: true,
+                is_accessory: false,
+                accessories: [],
+              }],
+            },
           },
         })
       }
@@ -135,6 +158,16 @@ describe('DeviceManagementView', () => {
     })
   })
 
+  it('switches between device list and model library subpages', async () => {
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-testid="model-library-tab"]').trigger('click')
+
+    expect(wrapper.text()).toContain('型号库')
+    expect((wrapper.vm as any).activeSection).toBe('models')
+    expect(wrapper.findComponent({ name: 'DeviceModelLibrary' }).exists()).toBe(true)
+  })
+
   it('creates a device in the selected warehouse', async () => {
     const wrapper = await mountView()
     const vm = wrapper.vm as any
@@ -152,8 +185,60 @@ describe('DeviceManagementView', () => {
     expect(axiosPost).toHaveBeenCalledWith('/api/devices', expect.objectContaining({
       name: 'X200U 08',
       serial_number: 'SN-008',
+      model_id: 1,
       warehouse_id: 11,
     }))
+  })
+
+  it('quick-creates a model and selects it in the device editor', async () => {
+    const wrapper = await mountView()
+    const vm = wrapper.vm as any
+    axiosPost.mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          id: 2,
+          name: 'tripod-pro',
+          display_name: '专业三脚架',
+          is_active: true,
+          is_accessory: true,
+          accessories: [],
+        },
+      },
+    })
+    axiosGet.mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          models: [
+            device.device_model,
+            {
+              id: 2,
+              name: 'tripod-pro',
+              display_name: '专业三脚架',
+              is_active: true,
+              is_accessory: true,
+              accessories: [],
+            },
+          ],
+        },
+      },
+    })
+    Object.assign(vm.quickModelForm, {
+      name: 'tripod-pro',
+      display_name: '专业三脚架',
+      is_accessory: true,
+    })
+
+    await vm.createQuickModel()
+
+    expect(axiosPost).toHaveBeenCalledWith('/api/device-models', expect.objectContaining({
+      name: 'tripod-pro',
+      is_accessory: true,
+    }))
+    expect(vm.form.model_id).toBe(2)
+    expect(vm.form.is_accessory).toBe(true)
+    expect(vm.editorModelOptions.some((item: any) => item.id === 2)).toBe(true)
   })
 
   it('asks for confirmation before deleting a device', async () => {

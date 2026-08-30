@@ -3,8 +3,10 @@
 import os
 from datetime import date, datetime, time, timedelta
 from threading import Barrier, Thread
+from types import SimpleNamespace
 
 import pytest
+from flask import g
 
 from app import create_app, db
 from app.models.device import Device
@@ -392,7 +394,12 @@ def test_single_warehouse_device_write_auto_selects_and_update_cannot_move(
 
     created = client.post(
         "/api/devices",
-        json={"name": "自动选仓设备", "serial_number": "AUTO-WH"},
+        json={
+            "name": "自动选仓设备",
+            "serial_number": "AUTO-WH",
+            "model_id": warehouse_case["model"],
+            "is_accessory": False,
+        },
     )
     assert created.status_code == 201
     assert created.get_json()["data"]["warehouse_id"] == warehouse_case[
@@ -414,7 +421,8 @@ def test_device_management_search_update_and_delete(
         json={
             "name": "设备管理搜索样例",
             "serial_number": "DEVICE-MANAGEMENT-001",
-            "model": "x200u",
+            "model_id": warehouse_case["model"],
+            "is_accessory": False,
             "warehouse_id": warehouse_case["warehouse_a"],
         },
     )
@@ -438,7 +446,7 @@ def test_device_management_search_update_and_delete(
         json={
             "name": "设备管理已编辑",
             "serial_number": "DEVICE-MANAGEMENT-002",
-            "model": "x200u",
+            "model_id": warehouse_case["model"],
             "is_accessory": False,
         },
     )
@@ -448,6 +456,128 @@ def test_device_management_search_update_and_delete(
     deleted = client.delete(f"/api/devices/{device_id}")
     assert deleted.status_code == 200
     assert deleted.get_json()["success"] is True
+
+
+def test_device_model_library_crud_and_device_write_validation(
+    client, app, warehouse_case
+):
+    created = client.post(
+        "/api/device-models",
+        json={
+            "name": "camera-pro",
+            "display_name": "Camera Pro",
+            "description": "高端相机",
+            "device_value": 12999.5,
+            "is_accessory": False,
+        },
+    )
+    assert created.status_code == 201
+    model_id = created.get_json()["data"]["id"]
+
+    device = client.post(
+        "/api/devices",
+        json={
+            "name": "型号库测试设备",
+            "serial_number": "MODEL-LIBRARY-001",
+            "model_id": model_id,
+            "is_accessory": False,
+            "warehouse_id": warehouse_case["warehouse_a"],
+        },
+    )
+    assert device.status_code == 201
+    assert device.get_json()["data"]["model"] == "camera-pro"
+
+    in_use = client.delete(f"/api/device-models/{model_id}")
+    assert in_use.status_code == 409
+    assert in_use.get_json()["code"] == "MODEL_IN_USE"
+
+    disabled = client.put(
+        f"/api/device-models/{model_id}",
+        json={"display_name": "Camera Pro II", "is_active": False},
+    )
+    assert disabled.status_code == 200
+    assert disabled.get_json()["data"]["is_active"] is False
+    assert disabled.get_json()["data"]["device_count"] == 1
+
+    rejected = client.post(
+        "/api/devices",
+        json={
+            "name": "不应创建",
+            "serial_number": "MODEL-LIBRARY-002",
+            "model_id": model_id,
+            "warehouse_id": warehouse_case["warehouse_a"],
+        },
+    )
+    assert rejected.status_code == 400
+    assert "停用" in rejected.get_json()["message"]
+
+    unused = client.post(
+        "/api/device-models",
+        json={"name": "unused-model", "display_name": "未使用型号"},
+    )
+    unused_id = unused.get_json()["data"]["id"]
+    assert client.delete(f"/api/device-models/{unused_id}").status_code == 200
+
+    library = client.get("/api/device-models/library")
+    assert library.status_code == 200
+    rows = library.get_json()["data"]["models"]
+    saved = next(row for row in rows if row["id"] == model_id)
+    assert saved["display_name"] == "Camera Pro II"
+    assert saved["device_count"] == 1
+
+
+def test_device_model_mutations_require_tenant_admin(app):
+    from app.routes.device_model_api import _require_tenant_admin
+
+    with app.test_request_context("/api/device-models", method="POST"):
+        g.member = SimpleNamespace(role="operator")
+        denied = _require_tenant_admin()
+        assert denied.status_code == 403
+        assert denied.code == "ADMIN_REQUIRED"
+
+    with app.test_request_context("/api/device-models", method="POST"):
+        g.member = SimpleNamespace(role="admin")
+        assert _require_tenant_admin() is None
+
+
+def test_legacy_device_model_group_can_be_assigned_atomically(
+    client, app, warehouse_case
+):
+    with app.app_context():
+        legacy_devices = [
+            Device(
+                name=f"历史设备 {suffix}",
+                serial_number=f"LEGACY-{suffix}",
+                model=model,
+                model_id=None,
+                is_accessory=False,
+                warehouse_id=warehouse_case["warehouse_a"],
+            )
+            for suffix, model in (("A", " Legacy Camera "), ("B", "legacy camera"))
+        ]
+        db.session.add_all(legacy_devices)
+        db.session.commit()
+
+    library = client.get("/api/device-models/library").get_json()["data"]
+    group = next(
+        row for row in library["legacy_groups"]
+        if row["normalized_model"] == "legacy camera"
+    )
+    assert group["device_count"] == 2
+
+    assigned = client.post(
+        "/api/device-models/assign-legacy",
+        json={
+            "legacy_model": "legacy camera",
+            "model_id": warehouse_case["model"],
+        },
+    )
+    assert assigned.status_code == 200
+    assert assigned.get_json()["data"]["updated_count"] == 2
+    with app.app_context():
+        rows = Device.query.filter(Device.serial_number.like("LEGACY-%")).all()
+        assert {row.model_id for row in rows} == {warehouse_case["model"]}
+        assert {row.model for row in rows} == {"warehouse-camera"}
 
 
 def test_rental_create_persists_one_warehouse_for_main_and_children(
