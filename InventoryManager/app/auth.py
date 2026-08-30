@@ -244,6 +244,11 @@ def session_cookie_options(kind, secure):
     }
 
 
+def should_secure_session_cookie(configured_secure, request_is_secure):
+    """Keep Secure cookies on HTTPS while allowing an explicit HTTP entry."""
+    return bool(configured_secure and request_is_secure)
+
+
 def csrf_matches(auth_session, raw_token):
     if not raw_token:
         return False

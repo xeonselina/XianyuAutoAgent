@@ -358,6 +358,9 @@ def test_session_primitives_support_both_cookie_scopes(auth_service):
         "path": "/platform",
         "max_age": 12 * 60 * 60,
     }
+    assert auth_service.module.should_secure_session_cookie(True, True)
+    assert not auth_service.module.should_secure_session_cookie(True, False)
+    assert not auth_service.module.should_secure_session_cookie(False, True)
 
 
 def test_operator_is_rejected_by_admin_role_decorator(auth_module):

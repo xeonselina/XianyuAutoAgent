@@ -13,6 +13,7 @@ from app.auth import (
     revoke_auth_session,
     rotate_csrf_token,
     session_cookie_options,
+    should_secure_session_cookie,
 )
 from app.utils.response import error, success
 
@@ -97,7 +98,10 @@ def _login_response(login):
         login.credentials.raw_token,
         **session_cookie_options(
             "tenant",
-            secure=current_app.config.get("SESSION_COOKIE_SECURE", False),
+            secure=should_secure_session_cookie(
+                current_app.config.get("SESSION_COOKIE_SECURE", False),
+                request.is_secure,
+            ),
         ),
     )
     return response
@@ -326,7 +330,10 @@ def logout_tenant_member():
     response.delete_cookie(
         "tenant_session",
         path="/",
-        secure=current_app.config.get("SESSION_COOKIE_SECURE", False),
+        secure=should_secure_session_cookie(
+            current_app.config.get("SESSION_COOKIE_SECURE", False),
+            request.is_secure,
+        ),
         httponly=True,
         samesite="Lax",
     )

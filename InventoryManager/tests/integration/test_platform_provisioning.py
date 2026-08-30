@@ -304,6 +304,7 @@ def _bootstrap_platform_admin(environment, username="platform-admin"):
 
 def _platform_login(environment):
     client = environment["app"].test_client()
+    client.environ_base["wsgi.url_scheme"] = "https"
     response = client.post(
         "/platform/auth/login",
         json={
@@ -641,6 +642,17 @@ def test_platform_auth_rotates_csrf_and_cannot_cross_session_boundaries(
     )
     assert wrong_totp.status_code == 401
     assert wrong_totp.get_json()["code"] == "AUTH_INVALID"
+
+    http_login = app.test_client().post(
+        "/platform/auth/login",
+        json={
+            "username": "platform-admin",
+            "password": TEST_PLATFORM_PASSWORD,
+            "totp": pyotp.TOTP(TEST_TOTP_SECRET).now(),
+        },
+    )
+    assert http_login.status_code == 200
+    assert "Secure" not in http_login.headers["Set-Cookie"]
 
     client, first_csrf, login_response = _platform_login(
         platform_environment

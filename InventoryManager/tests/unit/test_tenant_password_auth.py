@@ -356,6 +356,33 @@ def test_password_login_uses_existing_session_and_resets_failures(
     assert client.get("/auth/me").status_code == 200
 
 
+def test_password_login_cookie_security_follows_request_scheme(
+    password_environment,
+):
+    app = password_environment["app"]
+    app.config["SESSION_COOKIE_SECURE"] = True
+    payload = {
+        "phone": "13800138000",
+        "password": INITIAL_PASSWORD,
+    }
+
+    http_response = app.test_client().post(
+        "/auth/password/login",
+        json=payload,
+        base_url="http://inventory.example",
+    )
+    https_response = app.test_client().post(
+        "/auth/password/login",
+        json=payload,
+        base_url="https://inventory.example",
+    )
+
+    assert http_response.status_code == 200
+    assert "Secure" not in http_response.headers["Set-Cookie"]
+    assert https_response.status_code == 200
+    assert "Secure" in https_response.headers["Set-Cookie"]
+
+
 def test_password_failures_are_generic_and_fifth_attempt_locks_for_15_minutes(
     password_environment,
 ):

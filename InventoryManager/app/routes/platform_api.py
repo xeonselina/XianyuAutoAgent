@@ -20,6 +20,7 @@ from app.auth import (
     revoke_auth_session,
     rotate_csrf_token,
     session_cookie_options,
+    should_secure_session_cookie,
 )
 from app.control.models import PlatformAdmin, Tenant, TenantMember
 from app.crypto import hash_token
@@ -230,9 +231,12 @@ def login_platform_admin():
         credentials.raw_token,
         **session_cookie_options(
             "platform",
-            secure=current_app.config.get(
-                "SESSION_COOKIE_SECURE",
-                False,
+            secure=should_secure_session_cookie(
+                current_app.config.get(
+                    "SESSION_COOKIE_SECURE",
+                    False,
+                ),
+                request.is_secure,
             ),
         ),
     )
@@ -262,7 +266,10 @@ def logout_platform_admin():
     response.delete_cookie(
         "platform_session",
         path="/platform",
-        secure=current_app.config.get("SESSION_COOKIE_SECURE", False),
+        secure=should_secure_session_cookie(
+            current_app.config.get("SESSION_COOKIE_SECURE", False),
+            request.is_secure,
+        ),
         httponly=True,
         samesite="Lax",
     )

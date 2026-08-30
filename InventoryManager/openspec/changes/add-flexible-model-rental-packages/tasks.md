@@ -18,4 +18,4 @@
 ## 4. Verification and rollout
 - [x] 4.1 Run focused and full backend/frontend test suites and production builds.
 - [x] 4.2 Verify the model-package and booking flow in the local browser.
-- [ ] 4.3 Back up production, deploy the migration and image, and verify application, worker, database, and fulfillment health.
+- [x] 4.3 Back up production, deploy the migration and image, and verify application, worker, database, and fulfillment health.
