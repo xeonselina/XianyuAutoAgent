@@ -12,4 +12,4 @@
 ## 3. Verification and rollout
 - [x] 3.1 Add migration, API, frontend, rental-validation, and printing regression tests.
 - [x] 3.2 Run focused and full regression, production build, and browser QA.
-- [ ] 3.3 Back up production, deploy the migration and image, and verify application health.
+- [x] 3.3 Back up production, deploy the migration and image, and verify application health.
