@@ -4,6 +4,8 @@ services:
     restart: unless-stopped
     env_file:
       - "${APP_ENV_FILE:?APP_ENV_FILE is required}"
+    environment:
+      TRUSTED_PROXY_HOPS: "1"
     networks:
       frp:
         aliases:
