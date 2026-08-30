@@ -35,6 +35,21 @@ def test_named_auth_and_platform_pages_use_desktop_spa_fallback(tmp_path):
         assert response.get_data(as_text=True) == "desktop-spa"
 
 
+def test_named_tenant_workspace_pages_use_desktop_spa_fallback(tmp_path):
+    client = _spa_test_app(tmp_path).test_client()
+
+    for path in (
+        "/devices",
+        "/operations",
+        "/rental-stats",
+        "/batch-shipping",
+        "/inspection",
+    ):
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert response.get_data(as_text=True) == "desktop-spa"
+
+
 def test_spa_fallback_does_not_capture_api_paths(tmp_path):
     client = _spa_test_app(tmp_path).test_client()
 
