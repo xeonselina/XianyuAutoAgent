@@ -1,5 +1,6 @@
-import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import { ElMessage } from 'element-plus'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import PendingReturnsDrawer from '@/components/PendingReturnsDrawer.vue'
 import type { PendingReturn } from '@/types/pendingReturn'
@@ -25,6 +26,18 @@ const withOverdueDays = (id: number, overdueDays: number): PendingReturn => ({
   overdue_days: overdueDays,
   due_date: `2026-07-${String(29 - overdueDays).padStart(2, '0')}`,
 })
+
+const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+const execCommandDescriptor = Object.getOwnPropertyDescriptor(document, 'execCommand')
+
+const restoreProperty = (
+  target: object,
+  key: PropertyKey,
+  descriptor: PropertyDescriptor | undefined,
+) => {
+  if (descriptor) Object.defineProperty(target, key, descriptor)
+  else Reflect.deleteProperty(target, key)
+}
 
 const mountDrawer = (
   rentals: PendingReturn[],
@@ -64,6 +77,17 @@ const mountDrawer = (
 })
 
 describe('PendingReturnsDrawer', () => {
+  beforeEach(() => {
+    vi.spyOn(ElMessage, 'success').mockImplementation(() => undefined as never)
+    vi.spyOn(ElMessage, 'error').mockImplementation(() => undefined as never)
+  })
+
+  afterEach(() => {
+    restoreProperty(navigator, 'clipboard', clipboardDescriptor)
+    restoreProperty(document, 'execCommand', execCommandDescriptor)
+    vi.restoreAllMocks()
+  })
+
   it('groups every overdue boundary in the fixed display order', () => {
     const wrapper = mountDrawer([
       withOverdueDays(18, 8),
@@ -107,7 +131,7 @@ describe('PendingReturnsDrawer', () => {
   it('emits the selected row action', async () => {
     const wrapper = mountDrawer([pendingReturn])
 
-    await wrapper.get('button').trigger('click')
+    await wrapper.get('[data-test="mark-returned"]').trigger('click')
 
     expect(wrapper.emitted('mark-returned')).toEqual([[pendingReturn.id]])
   })
@@ -118,10 +142,74 @@ describe('PendingReturnsDrawer', () => {
       [pendingReturn, second],
       new Set([pendingReturn.id]),
     )
-    const buttons = wrapper.findAll('button')
+    const buttons = wrapper.findAll('[data-test="mark-returned"]')
 
     expect(buttons[0].attributes('disabled')).toBeDefined()
     expect(buttons[1].attributes('disabled')).toBeUndefined()
+  })
+
+  it('copies only the selected phone number with an icon action', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    const wrapper = mountDrawer([pendingReturn])
+    const copyButton = wrapper.get('[data-test="copy-phone"]')
+
+    expect(copyButton.attributes('aria-label')).toBe(
+      '复制电话号码 13900139000',
+    )
+    expect(copyButton.text()).toBe('')
+    await copyButton.trigger('click')
+    await flushPromises()
+
+    expect(writeText).toHaveBeenCalledWith('13900139000')
+    expect(ElMessage.success).toHaveBeenCalledWith('电话号码已复制')
+  })
+
+  it('falls back to compatible copying on HTTP', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: undefined,
+    })
+    const execCommand = vi.fn().mockReturnValue(true)
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: execCommand,
+    })
+    const wrapper = mountDrawer([pendingReturn])
+
+    await wrapper.get('[data-test="copy-phone"]').trigger('click')
+    await flushPromises()
+
+    expect(execCommand).toHaveBeenCalledWith('copy')
+    expect(ElMessage.success).toHaveBeenCalledWith('电话号码已复制')
+  })
+
+  it('shows a clear message when both copy methods fail', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: undefined,
+    })
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: vi.fn().mockReturnValue(false),
+    })
+    const wrapper = mountDrawer([pendingReturn])
+
+    await wrapper.get('[data-test="copy-phone"]').trigger('click')
+    await flushPromises()
+
+    expect(ElMessage.error).toHaveBeenCalledWith(
+      '复制失败，请手动复制电话号码',
+    )
+  })
+
+  it('does not show a copy icon when the phone number is missing', () => {
+    const wrapper = mountDrawer([{ ...pendingReturn, customer_phone: null }])
+
+    expect(wrapper.find('[data-test="copy-phone"]').exists()).toBe(false)
   })
 
   it('shows a clear empty state', () => {

@@ -51,12 +51,21 @@
                     <div class="customer-name">
                       {{ rental.customer_name || '-' }}
                     </div>
-                    <a
-                      v-if="rental.customer_phone"
-                      :href="`tel:${rental.customer_phone}`"
-                    >
-                      {{ rental.customer_phone }}
-                    </a>
+                    <div v-if="rental.customer_phone" class="phone-line">
+                      <a :href="`tel:${rental.customer_phone}`">
+                        {{ rental.customer_phone }}
+                      </a>
+                      <el-button
+                        link
+                        type="primary"
+                        :icon="CopyDocument"
+                        class="copy-phone-button"
+                        data-test="copy-phone"
+                        title="复制电话号码"
+                        :aria-label="`复制电话号码 ${rental.customer_phone}`"
+                        @click="copyPhone(rental.customer_phone)"
+                      />
+                    </div>
                     <span v-else>-</span>
                   </td>
                   <td class="action-cell">
@@ -65,6 +74,7 @@
                       size="small"
                       :loading="updatingIds.has(rental.id)"
                       :disabled="readOnly || updatingIds.has(rental.id)"
+                      data-test="mark-returned"
                       @click="emit('mark-returned', rental.id)"
                     >
                       标记为已寄回
@@ -82,6 +92,8 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { ElMessage } from 'element-plus'
+import { CopyDocument } from '@element-plus/icons-vue'
 
 import type { PendingReturn } from '@/types/pendingReturn'
 
@@ -97,6 +109,38 @@ const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   'mark-returned': [rentalId: number]
 }>()
+
+const fallbackCopy = (text: string): boolean => {
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  try {
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    textarea.remove()
+  }
+}
+
+const copyPhone = async (phone: string) => {
+  let copied = false
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(phone)
+      copied = true
+    }
+  } catch {
+    copied = false
+  }
+  if (!copied) copied = fallbackCopy(phone)
+  if (copied) ElMessage.success('电话号码已复制')
+  else ElMessage.error('复制失败，请手动复制电话号码')
+}
 
 const groups = computed(() => [
   {
@@ -234,11 +278,21 @@ const groups = computed(() => [
   font-weight: 600;
 }
 
-.phone-cell a {
-  display: inline-block;
+.phone-line {
+  display: flex;
+  align-items: center;
+  gap: 3px;
   margin-top: 4px;
+}
+
+.phone-cell a {
   color: var(--el-color-primary);
   text-decoration: none;
+}
+
+.copy-phone-button {
+  min-height: 20px;
+  padding: 2px;
 }
 
 .action-cell {
