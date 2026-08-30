@@ -6,4 +6,4 @@
 ## 2. Verification and rollout
 - [x] 2.1 Add component regression coverage for copied fields, fresh package IDs, and create payload.
 - [x] 2.2 Run focused frontend tests, type checking, and production build.
-- [ ] 2.3 Verify the copy flow locally, deploy the image, and validate production health.
+- [x] 2.3 Verify the copy flow locally, deploy the image, and validate production health.
