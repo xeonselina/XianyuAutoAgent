@@ -12,4 +12,4 @@
 ## 3. Verification and rollout
 - [x] 3.1 Add focused tests for action hierarchy and platform onboarding presentation.
 - [x] 3.2 Run full frontend regression and production build.
-- [ ] 3.3 Deploy the verified image and validate production assets and health.
+- [x] 3.3 Deploy the verified image and validate production assets and health.
