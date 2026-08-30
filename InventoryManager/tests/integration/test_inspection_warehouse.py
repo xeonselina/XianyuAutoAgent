@@ -236,6 +236,55 @@ def test_missing_receiving_warehouse_uses_main_rental_warehouse(
         assert db.session.get(Rental, case["rental"]).warehouse_id == (
             case["source"]
         )
+        assert db.session.get(Rental, case["rental"]).status == "completed"
+
+
+def test_inspection_marks_shipped_main_and_children_as_returned(
+    client, app
+):
+    with app.app_context():
+        case = _seed_case()
+        for rental_id in (
+            case["rental"],
+            case["received_child"],
+            case["not_received_child"],
+        ):
+            db.session.get(Rental, rental_id).status = "shipped"
+        db.session.commit()
+
+    response = client.post("/api/inspections", json=_payload(case))
+
+    assert response.status_code == 201
+    assert response.get_json()["data"]["rental"]["status"] == "returned"
+    with app.app_context():
+        assert {
+            rental_id: db.session.get(Rental, rental_id).status
+            for rental_id in (
+                case["rental"],
+                case["received_child"],
+                case["not_received_child"],
+            )
+        } == {
+            case["rental"]: "returned",
+            case["received_child"]: "returned",
+            case["not_received_child"]: "returned",
+        }
+        assert AuditLog.query.one().details[
+            "rental_status_changes"
+        ] == [
+            {
+                "rental_id": rental_id,
+                "from": "shipped",
+                "to": "returned",
+            }
+            for rental_id in sorted(
+                (
+                    case["rental"],
+                    case["received_child"],
+                    case["not_received_child"],
+                )
+            )
+        ]
 
 
 def test_selected_warehouse_moves_main_and_only_received_actual_children(
@@ -540,6 +589,13 @@ def test_database_failure_rolls_back_inspection_items_devices_and_audit(
 ):
     with app.app_context():
         case = _seed_case()
+        for rental_id in (
+            case["rental"],
+            case["received_child"],
+            case["not_received_child"],
+        ):
+            db.session.get(Rental, rental_id).status = "shipped"
+        db.session.commit()
 
     def fail_audit_insert(_mapper, _connection, _target):
         raise RuntimeError("database detail must not leak")
@@ -567,6 +623,14 @@ def test_database_failure_rolls_back_inspection_items_devices_and_audit(
         assert db.session.get(Device, case["received"]).warehouse_id == (
             case["source"]
         )
+        assert {
+            db.session.get(Rental, rental_id).status
+            for rental_id in (
+                case["rental"],
+                case["received_child"],
+                case["not_received_child"],
+            )
+        } == {"shipped"}
 
 
 def test_preview_failure_happens_before_any_write(client, app, monkeypatch):

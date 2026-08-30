@@ -215,6 +215,18 @@ class InspectionService:
                     item_order=item_data["order"],
                 ))
 
+            rental_status_changes = []
+            if locked_main.status in {"shipped", "returned"}:
+                for inspected_rental in locked_rentals:
+                    if inspected_rental.status != "shipped":
+                        continue
+                    inspected_rental.status = "returned"
+                    rental_status_changes.append({
+                        "rental_id": inspected_rental.id,
+                        "from": "shipped",
+                        "to": "returned",
+                    })
+
             moves = []
             for moving_device in moving_devices:
                 old_warehouse_id = moving_device.warehouse_id
@@ -248,6 +260,7 @@ class InspectionService:
                     "rental_id": locked_main.id,
                     "receiving_warehouse_id": target_warehouse_id,
                     "moves": moves,
+                    "rental_status_changes": rental_status_changes,
                 },
                 commit=False,
             )
@@ -316,8 +329,14 @@ class InspectionService:
             main.parent_rental_id,
             main.device_id,
             main.warehouse_id,
+            main.status,
             tuple(
-                (child.id, child.parent_rental_id, child.device_id)
+                (
+                    child.id,
+                    child.parent_rental_id,
+                    child.device_id,
+                    child.status,
+                )
                 for child in sorted(children, key=lambda row: row.id)
             ),
         )
