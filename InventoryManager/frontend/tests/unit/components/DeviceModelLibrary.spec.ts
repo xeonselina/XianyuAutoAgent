@@ -172,6 +172,69 @@ describe('DeviceModelLibrary', () => {
     }))
   })
 
+  it('copies editable model configuration with independent package IDs', async () => {
+    const wrapper = await mountLibrary()
+    const vm = wrapper.vm as any
+
+    vm.openCopy(vm.models[0])
+
+    expect(vm.editorMode).toBe('copy')
+    expect(vm.form.id).toBeUndefined()
+    expect(vm.form.name).toBe('x200u-copy')
+    expect(vm.form.display_name).toBe('富士 X200U（副本）')
+    expect(vm.form.device_value).toBe(12000)
+    expect(vm.form.default_accessories_text).toBe('电池')
+    expect(vm.form.rental_packages).toEqual([
+      {
+        client_id: expect.stringMatching(/^new_/),
+        name: '机身 + 24-70',
+        is_active: true,
+        items: [{ name: '24-70 镜头', qty: 1 }],
+      },
+    ])
+    const copiedPackageId = vm.form.rental_packages[0].client_id
+    expect(copiedPackageId).not.toBe('pkg_2470')
+    expect(vm.form.default_rental_package_id).toBe(copiedPackageId)
+
+    vm.form.rental_packages[0].items[0].name = '复制后的镜头'
+    expect(model.rental_packages[0].items[0].name).toBe('24-70 镜头')
+    await vm.saveModel()
+
+    expect(axiosPost).toHaveBeenCalledWith('/api/device-models', expect.objectContaining({
+      name: 'x200u-copy',
+      display_name: '富士 X200U（副本）',
+      rental_packages: [{
+        client_id: copiedPackageId,
+        name: '机身 + 24-70',
+        is_active: true,
+        items: [{ name: '复制后的镜头', qty: 1 }],
+      }],
+      default_rental_package_id: copiedPackageId,
+    }))
+  })
+
+  it('increments the suggested copy code when prior copies exist', async () => {
+    axiosGet.mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          models: [
+            model,
+            { ...model, id: 2, name: 'x200u-copy' },
+            { ...model, id: 3, name: 'x200u-copy-2' },
+          ],
+          legacy_groups: [],
+        },
+      },
+    })
+    const wrapper = await mountLibrary()
+    const vm = wrapper.vm as any
+
+    vm.openCopy(vm.models[0])
+
+    expect(vm.form.name).toBe('x200u-copy-3')
+  })
+
   it('assigns one legacy group to a canonical model after confirmation', async () => {
     vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')
     const wrapper = await mountLibrary()

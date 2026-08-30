@@ -1,7 +1,16 @@
 <script setup lang="ts">
 import axios from 'axios'
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ArrowDown, ArrowUp, Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue'
+import {
+  ArrowDown,
+  ArrowUp,
+  CopyDocument,
+  Delete,
+  Edit,
+  Plus,
+  Refresh,
+  Search,
+} from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import type { DeviceModel } from '@/stores/gantt'
@@ -47,7 +56,8 @@ const legacyGroups = ref<LegacyGroup[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const editorVisible = ref(false)
-const editorMode = ref<'create' | 'edit'>('create')
+const editorMode = ref<'create' | 'copy' | 'edit'>('create')
+const copySourceName = ref('')
 const keyword = ref('')
 const typeFilter = ref<'all' | 'device' | 'accessory'>('all')
 const statusFilter = ref<'all' | 'active' | 'inactive'>('all')
@@ -79,6 +89,12 @@ const blankForm = (): ModelForm => {
   }
 }
 const form = reactive<ModelForm>(blankForm())
+
+const editorTitle = computed(() => ({
+  create: '新增设备型号',
+  copy: '复制设备型号',
+  edit: '编辑设备型号',
+}[editorMode.value]))
 
 const mainModels = computed(() => models.value.filter((item) => !item.is_accessory))
 const activeModels = computed(() => models.value.filter((item) => item.is_active))
@@ -119,12 +135,14 @@ const loadLibrary = async () => {
 
 const openCreate = () => {
   editorMode.value = 'create'
+  copySourceName.value = ''
   Object.assign(form, blankForm())
   editorVisible.value = true
 }
 
 const openEdit = (model: LibraryModel) => {
   editorMode.value = 'edit'
+  copySourceName.value = ''
   Object.assign(form, {
     id: model.id,
     name: model.name,
@@ -140,6 +158,52 @@ const openEdit = (model: LibraryModel) => {
       items: item.items.map((entry) => ({ ...entry })),
     })),
     default_rental_package_id: getDefaultRentalPackageId(model),
+  })
+  editorVisible.value = true
+}
+
+const suggestedCopyCode = (sourceCode: string) => {
+  const existing = new Set(models.value.map((item) => item.name.trim().toLowerCase()))
+  for (let sequence = 1; sequence <= 9999; sequence += 1) {
+    const suffix = sequence === 1 ? '-copy' : `-copy-${sequence}`
+    const candidate = `${sourceCode.slice(0, 50 - suffix.length)}${suffix}`
+    if (!existing.has(candidate.toLowerCase())) return candidate
+  }
+  return ''
+}
+
+const openCopy = (model: LibraryModel) => {
+  const sourcePackages = model.is_accessory ? [] : getRentalPackages(model)
+  const sourceDefaultId = getDefaultRentalPackageId(model)
+  const copiedPackageIds = new Map<string, string>()
+  const copiedPackages = sourcePackages.map((item) => {
+    const clientId = newClientId()
+    copiedPackageIds.set(packageKey(item), clientId)
+    return {
+      client_id: clientId,
+      name: item.name,
+      is_active: item.is_active,
+      items: item.items.map((entry) => ({ ...entry })),
+    }
+  })
+  const copiedDefaultId = copiedPackageIds.get(sourceDefaultId)
+    || packageKey(copiedPackages.find((item) => item.is_active) || copiedPackages[0])
+  const displaySuffix = '（副本）'
+
+  editorMode.value = 'copy'
+  copySourceName.value = model.display_name
+  Object.assign(form, {
+    id: undefined,
+    name: suggestedCopyCode(model.name),
+    display_name: `${model.display_name.slice(0, 100 - displaySuffix.length)}${displaySuffix}`,
+    description: model.description || '',
+    device_value: model.device_value ?? undefined,
+    is_accessory: model.is_accessory,
+    parent_model_id: model.parent_model_id ?? undefined,
+    is_active: model.is_active,
+    default_accessories_text: (model.default_accessories || []).join('\n'),
+    rental_packages: copiedPackages,
+    default_rental_package_id: model.is_accessory ? undefined : copiedDefaultId,
   })
   editorVisible.value = true
 }
@@ -192,9 +256,9 @@ const saveModel = async () => {
       })),
       default_rental_package_id: form.is_accessory ? null : form.default_rental_package_id,
     }
-    if (editorMode.value === 'create') {
+    if (editorMode.value !== 'edit') {
       await axios.post('/api/device-models', payload)
-      ElMessage.success('型号创建成功')
+      ElMessage.success(editorMode.value === 'copy' ? '型号复制成功' : '型号创建成功')
     } else if (form.id) {
       await axios.put(`/api/device-models/${form.id}`, payload)
       ElMessage.success('型号更新成功')
@@ -328,7 +392,7 @@ const assignLegacy = async (group: LegacyGroup) => {
 }
 
 onMounted(loadLibrary)
-defineExpose({ loadLibrary, openCreate })
+defineExpose({ loadLibrary, openCreate, openCopy })
 </script>
 
 <template>
@@ -364,7 +428,7 @@ defineExpose({ loadLibrary, openCreate })
 
     <el-alert
       v-if="!canManage"
-      title="普通操作员可以查看型号库；新增、编辑、停用和删除仅限店铺管理员。"
+      title="普通操作员可以查看型号库；新增、复制、编辑、停用和删除仅限店铺管理员。"
       type="info"
       :closable="false"
       show-icon
@@ -445,9 +509,10 @@ defineExpose({ loadLibrary, openCreate })
         </template>
       </el-table-column>
       <el-table-column prop="description" label="说明" min-width="180" show-overflow-tooltip />
-      <el-table-column label="操作" width="205" fixed="right">
+      <el-table-column label="操作" width="255" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" :icon="Edit" :disabled="!canManage" @click="openEdit(row)">编辑</el-button>
+          <el-button link :icon="CopyDocument" :disabled="!canManage" @click="openCopy(row)">复制</el-button>
           <el-button link :disabled="!canManage" @click="toggleModel(row)">
             {{ row.is_active ? '停用' : '启用' }}
           </el-button>
@@ -465,10 +530,19 @@ defineExpose({ loadLibrary, openCreate })
 
     <el-dialog
       v-model="editorVisible"
-      :title="editorMode === 'create' ? '新增设备型号' : '编辑设备型号'"
+      :title="editorTitle"
       width="760px"
       destroy-on-close
     >
+      <el-alert
+        v-if="editorMode === 'copy'"
+        class="copy-alert"
+        :title="`正在复制“${copySourceName}”`"
+        description="请确认新的型号编码和显示名称；设备、订单和历史记录不会被复制。"
+        type="info"
+        :closable="false"
+        show-icon
+      />
       <el-form label-position="top" @submit.prevent="saveModel">
         <div class="form-grid">
           <el-form-item label="型号编码" required>
@@ -600,6 +674,7 @@ defineExpose({ loadLibrary, openCreate })
 .legacy-row small { color: #b54708; }
 .model-name { display: grid; gap: 3px; }
 .model-name code { width: fit-content; padding: 1px 5px; border-radius: 4px; color: #475467; background: #f2f4f7; font-size: 11px; }
+.copy-alert { margin-bottom: 14px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .default-combo-tag { margin-left: 6px; }
 .package-config-card { display: grid; gap: 10px; margin-bottom: 14px; padding: 12px 14px; border: 1px solid #d0d5dd; border-radius: 8px; background: #f9fafb; }
