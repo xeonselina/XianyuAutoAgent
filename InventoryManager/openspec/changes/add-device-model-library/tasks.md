@@ -11,5 +11,5 @@
 
 ## 3. Verification and rollout
 - [x] 3.1 Add backend and frontend regression tests.
-- [ ] 3.2 Run builds, focused regression, and browser QA.
-- [ ] 3.3 Deploy the verified image and validate production health.
+- [x] 3.2 Run builds, focused regression, and browser QA.
+- [x] 3.3 Deploy the verified image and validate production health.
