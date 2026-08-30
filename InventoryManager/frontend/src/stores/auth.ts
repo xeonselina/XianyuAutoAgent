@@ -79,6 +79,10 @@ export const useAuthStore = defineStore('auth', () => {
     return authenticated.value
   }
 
+  const refreshTenantSession = async (): Promise<boolean> => {
+    return applyTenantSession(await fetchTenantSession())
+  }
+
   const requestCode = async (phone: string) => requestTenantCode(phone)
 
   const setAuthMethod = (method: TenantAuthConfig['method']) => {
@@ -183,6 +187,7 @@ export const useAuthStore = defineStore('auth', () => {
     platformAuthenticated,
     platformCsrfToken,
     requestCode,
+    refreshTenantSession,
     setAuthMethod,
     tenant,
     updatePassword,

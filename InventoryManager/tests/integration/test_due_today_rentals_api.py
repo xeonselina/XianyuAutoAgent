@@ -130,6 +130,7 @@ def test_pending_returns_includes_due_today_and_overdue_main_rentals(
     assert all(
         row["device_model"] == "iPhone 15 Pro"
         and row["device_name"] == "手机-01"
+        and row["customer_name"] == "提醒测试客户"
         and row["warehouse_id"] == main_device.warehouse_id
         and row["destination"] == "上海市浦东新区测试路 1 号"
         and row["customer_phone"] == "13800138000"

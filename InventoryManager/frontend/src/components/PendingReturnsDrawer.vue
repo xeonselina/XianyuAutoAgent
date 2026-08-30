@@ -30,7 +30,7 @@
                   <th>设备</th>
                   <th>租赁时间</th>
                   <th>地址</th>
-                  <th>电话</th>
+                  <th>租赁人 / 电话</th>
                   <th>操作</th>
                 </tr>
               </thead>
@@ -48,6 +48,9 @@
                   </td>
                   <td class="address-cell">{{ rental.destination || '-' }}</td>
                   <td class="phone-cell">
+                    <div class="customer-name">
+                      {{ rental.customer_name || '-' }}
+                    </div>
                     <a
                       v-if="rental.customer_phone"
                       :href="`tel:${rental.customer_phone}`"
@@ -227,7 +230,13 @@ const groups = computed(() => [
   white-space: nowrap;
 }
 
+.customer-name {
+  font-weight: 600;
+}
+
 .phone-cell a {
+  display: inline-block;
+  margin-top: 4px;
   color: var(--el-color-primary);
   text-decoration: none;
 }

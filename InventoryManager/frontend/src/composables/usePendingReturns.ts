@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import axios from 'axios'
 
 import type { PendingReturn } from '@/types/pendingReturn'
+import { useAuthStore } from '@/stores/auth'
 import { useTenantStore } from '@/stores/tenant'
 
 const errorMessage = (error: any, fallback: string) => (
@@ -11,7 +12,13 @@ const errorMessage = (error: any, fallback: string) => (
   || fallback
 )
 
+const isInvalidCsrf = (error: any) => (
+  error.response?.status === 403
+  && error.response?.data?.code === 'CSRF_INVALID'
+)
+
 export const usePendingReturns = () => {
+  const authStore = useAuthStore()
   const tenantStore = useTenantStore()
   const rentals = ref<PendingReturn[]>([])
   const loading = ref(false)
@@ -84,13 +91,25 @@ export const usePendingReturns = () => {
 
     updatingIds.value = new Set(updatingIds.value).add(rentalId)
     try {
+      const updateStatus = () => axios.put(`/api/rentals/${rentalId}/status`, {
+        status: 'returned',
+      })
       let response
       try {
-        response = await axios.put(`/api/rentals/${rentalId}/status`, {
-          status: 'returned',
-        })
+        response = await updateStatus()
       } catch (error: any) {
-        throw new Error(errorMessage(error, '更新租赁状态失败'))
+        if (!isInvalidCsrf(error)) {
+          throw new Error(errorMessage(error, '更新租赁状态失败'))
+        }
+        try {
+          const refreshed = await authStore.refreshTenantSession()
+          if (!refreshed) {
+            throw new Error('租户会话已变更，请刷新页面后重试')
+          }
+          response = await updateStatus()
+        } catch (retryError: any) {
+          throw new Error(errorMessage(retryError, '更新租赁状态失败'))
+        }
       }
 
       if (!response.data.success) {

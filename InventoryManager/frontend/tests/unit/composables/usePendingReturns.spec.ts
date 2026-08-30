@@ -12,6 +12,7 @@ const { axiosGet, axiosPut } = vi.hoisted(() => ({
 
 vi.mock('axios', () => ({
   default: {
+    defaults: { headers: { common: {} } },
     get: axiosGet,
     put: axiosPut,
   },
@@ -21,6 +22,8 @@ const pendingReturn: PendingReturn = {
   id: 7,
   warehouse_id: 1,
   device_model: 'iPhone 15 Pro',
+  device_name: '手机-07',
+  customer_name: '提醒测试客户',
   start_date: '2026-07-25',
   end_date: '2026-07-28',
   due_date: '2026-07-29',
@@ -186,6 +189,104 @@ describe('usePendingReturns', () => {
       '状态已变化',
     )
 
+    expect(state.rentals.value).toEqual([pendingReturn])
+    expect(state.updatingIds.value.has(pendingReturn.id)).toBe(false)
+    expect(axiosPut).toHaveBeenCalledOnce()
+    expect(axiosGet).toHaveBeenCalledOnce()
+  })
+
+  it('refreshes the session and retries once when CSRF has rotated', async () => {
+    axiosGet
+      .mockResolvedValueOnce(pendingReturnsResponse([pendingReturn]))
+      .mockResolvedValueOnce({
+        data: {
+          success: true,
+          data: {
+            csrf_token: 'csrf-refreshed',
+            member: {
+              id: 1,
+              phone: '+8613800138000',
+              role: 'admin',
+              status: 'active',
+            },
+            tenant: {
+              id: 1,
+              name: '测试店铺',
+              status: 'active',
+              provisioning_status: 'active',
+              expires_at: '2099-12-31T00:00:00Z',
+              access_status: 'active',
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce(pendingReturnsResponse([]))
+    axiosPut
+      .mockRejectedValueOnce({
+        response: {
+          status: 403,
+          data: { code: 'CSRF_INVALID', message: 'CSRF token 无效' },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          success: true,
+          data: { id: pendingReturn.id, status: 'returned' },
+        },
+      })
+    const state = usePendingReturns()
+    await state.load()
+
+    await expect(state.markReturned(pendingReturn.id)).resolves.toBeUndefined()
+
+    expect(axiosPut).toHaveBeenCalledTimes(2)
+    expect(axiosGet).toHaveBeenCalledWith('/auth/me')
+    expect(state.rentals.value).toEqual([])
+  })
+
+  it('does not loop when the retried status request also fails', async () => {
+    axiosGet
+      .mockResolvedValueOnce(pendingReturnsResponse([pendingReturn]))
+      .mockResolvedValueOnce({
+        data: {
+          success: true,
+          data: {
+            csrf_token: 'csrf-refreshed',
+            member: {
+              id: 1,
+              phone: '+8613800138000',
+              role: 'admin',
+              status: 'active',
+            },
+            tenant: {
+              id: 1,
+              name: '测试店铺',
+              status: 'active',
+              provisioning_status: 'active',
+              expires_at: '2099-12-31T00:00:00Z',
+              access_status: 'active',
+            },
+          },
+        },
+      })
+    axiosPut
+      .mockRejectedValueOnce({
+        response: {
+          status: 403,
+          data: { code: 'CSRF_INVALID', message: 'CSRF token 无效' },
+        },
+      })
+      .mockRejectedValueOnce({
+        response: { status: 409, data: { message: '状态已变化' } },
+      })
+    const state = usePendingReturns()
+    await state.load()
+
+    await expect(state.markReturned(pendingReturn.id)).rejects.toThrow(
+      '状态已变化',
+    )
+
+    expect(axiosPut).toHaveBeenCalledTimes(2)
     expect(state.rentals.value).toEqual([pendingReturn])
     expect(state.updatingIds.value.has(pendingReturn.id)).toBe(false)
   })

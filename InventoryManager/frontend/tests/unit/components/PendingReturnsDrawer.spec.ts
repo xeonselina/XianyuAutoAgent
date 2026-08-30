@@ -9,6 +9,7 @@ const pendingReturn: PendingReturn = {
   warehouse_id: 1,
   device_model: 'iPhone 15 Pro Max',
   device_name: '手机-12',
+  customer_name: '张三',
   start_date: '2026-07-20',
   end_date: '2026-07-28',
   due_date: '2026-07-29',
@@ -90,6 +91,7 @@ describe('PendingReturnsDrawer', () => {
     expect(wrapper.text()).toContain('2026-07-20 至 2026-07-28')
     expect(wrapper.text()).toContain('应归还：2026-07-29')
     expect(wrapper.text()).toContain('浙江省杭州市西湖区测试路 88 号')
+    expect(wrapper.text()).toContain('张三')
     expect(wrapper.text()).toContain('13900139000')
     expect(wrapper.text()).toContain('标记为已寄回')
   })

@@ -66,6 +66,7 @@ class RentalService:
                 'warehouse_id': rental.warehouse_id,
                 'device_model': device_model or '-',
                 'device_name': device.name if device and device.name else '-',
+                'customer_name': rental.customer_name,
                 'start_date': rental.start_date.isoformat(),
                 'end_date': rental.end_date.isoformat(),
                 'due_date': due_date.isoformat(),
