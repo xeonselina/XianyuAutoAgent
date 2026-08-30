@@ -17,4 +17,4 @@
 ## 4. Verification and rollout
 - [x] 4.1 Add focused frontend and backend tests.
 - [x] 4.2 Run full regression, build, and visual browser QA.
-- [ ] 4.3 Deploy the verified image and validate production health.
+- [x] 4.3 Deploy the verified image and validate production health.
