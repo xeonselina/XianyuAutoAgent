@@ -6,7 +6,9 @@ import type { PendingReturn } from '@/types/pendingReturn'
 
 const pendingReturn: PendingReturn = {
   id: 12,
+  warehouse_id: 1,
   device_model: 'iPhone 15 Pro Max',
+  device_name: '手机-12',
   start_date: '2026-07-20',
   end_date: '2026-07-28',
   due_date: '2026-07-29',
@@ -84,6 +86,7 @@ describe('PendingReturnsDrawer', () => {
     const wrapper = mountDrawer([pendingReturn])
 
     expect(wrapper.text()).toContain('iPhone 15 Pro Max')
+    expect(wrapper.text()).toContain('机器编号：手机-12')
     expect(wrapper.text()).toContain('2026-07-20 至 2026-07-28')
     expect(wrapper.text()).toContain('应归还：2026-07-29')
     expect(wrapper.text()).toContain('浙江省杭州市西湖区测试路 88 号')

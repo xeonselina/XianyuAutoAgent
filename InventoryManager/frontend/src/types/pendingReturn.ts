@@ -2,6 +2,7 @@ export interface PendingReturn {
   id: number
   warehouse_id: number
   device_model: string
+  device_name: string
   start_date: string
   end_date: string
   due_date: string

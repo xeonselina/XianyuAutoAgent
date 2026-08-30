@@ -27,7 +27,7 @@
             <table class="returns-table">
               <thead>
                 <tr>
-                  <th>手机型号</th>
+                  <th>设备</th>
                   <th>租赁时间</th>
                   <th>地址</th>
                   <th>电话</th>
@@ -36,7 +36,12 @@
               </thead>
               <tbody>
                 <tr v-for="rental in group.rentals" :key="rental.id">
-                  <td class="model-cell">{{ rental.device_model }}</td>
+                  <td class="model-cell">
+                    <div>{{ rental.device_model }}</div>
+                    <div class="device-name">
+                      机器编号：{{ rental.device_name || '-' }}
+                    </div>
+                  </td>
                   <td class="date-cell">
                     <div>{{ rental.start_date }} 至 {{ rental.end_date }}</div>
                     <div class="due-date">应归还：{{ rental.due_date }}</div>
@@ -191,6 +196,13 @@ const groups = computed(() => [
 .model-cell {
   min-width: 140px;
   font-weight: 600;
+}
+
+.device-name {
+  margin-top: 4px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
 }
 
 .date-cell {
