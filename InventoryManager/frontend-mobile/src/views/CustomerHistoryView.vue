@@ -96,6 +96,8 @@ interface CustomerRentalSummary {
   device_model_display_name: string
   lens_combo: string | null
   lens_combo_display: string
+  rental_package_id: string | null
+  rental_package_name: string
   order_amount: number | null
   start_date: string | null
   end_date: string | null

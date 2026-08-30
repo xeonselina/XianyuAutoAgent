@@ -206,7 +206,7 @@ test.describe('mobile relay management', () => {
     await expect(page.getByText('X300U', { exact: true })).toBeVisible()
     await expect(page.getByText(/400MM 镜头/)).toBeVisible()
     await expect(page.getByText(/手柄/)).toBeVisible()
-    await expect(page.getByTestId('equipment-warning')).toContainText('镜头组合不一致')
+    await expect(page.getByTestId('equipment-warning')).toContainText('租赁组合不一致')
     await expect(page.getByTestId('equipment-warning')).toContainText('后单附件更多（2 > 1）')
     await expect(page.getByText(/2026-08-06/)).toBeVisible()
     await expect(page.getByText(/2026-08-09/)).toBeVisible()

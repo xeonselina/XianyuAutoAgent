@@ -30,10 +30,12 @@
       <div class="form-tip">选择不同设备会检查时间冲突</div>
     </el-form-item>
 
-    <!-- 镜头组合 -->
+    <!-- 型号租赁组合 -->
     <LensComboSelector
-      v-model="form.lensCombo"
+      v-model="form.rentalPackageId"
       :model="selectedModel"
+      preserve-unknown
+      :model-value-name="rental.rental_package_name"
     />
 
     <!-- 客户信息（只读） -->

@@ -554,7 +554,7 @@ def test_rental_uses_canonical_model_lens_combo_configuration(
         json=_rental_payload(warehouse_case, lens_combo="lens_200mm"),
     )
     assert rejected.status_code == 400
-    assert "不允许镜头组合" in rejected.get_json()["message"]
+    assert "不允许租赁组合" in rejected.get_json()["message"]
 
     created = client.post(
         "/api/rentals",
@@ -573,6 +573,117 @@ def test_rental_uses_canonical_model_lens_combo_configuration(
     historical = client.get(f"/api/rentals/{rental_id}")
     assert historical.status_code == 200
     assert historical.get_json()["data"]["lens_combo"] == "bare"
+
+
+def test_model_rental_packages_are_arbitrary_and_rentals_keep_snapshots(
+    client, app, warehouse_case
+):
+    configured = client.put(
+        f"/api/device-models/{warehouse_case['model']}",
+        json={
+            "rental_packages": [
+                {
+                    "client_id": "camera_standard",
+                    "name": "机身 + 24-70",
+                    "is_active": True,
+                    "items": [
+                        {"name": "24-70 镜头", "qty": 1},
+                        {"name": "相机电池", "qty": 2},
+                    ],
+                },
+                {
+                    "client_id": "camera_telephoto",
+                    "name": "机身 + 70-200 + 增距镜",
+                    "is_active": True,
+                    "items": [
+                        {"name": "70-200 镜头", "qty": 1},
+                        {"name": "2X 增距镜", "qty": 1},
+                    ],
+                },
+            ],
+            "default_rental_package_id": "camera_standard",
+        },
+    )
+    assert configured.status_code == 200
+    saved_model = configured.get_json()["data"]
+    assert [item["name"] for item in saved_model["rental_packages"]] == [
+        "机身 + 24-70",
+        "机身 + 70-200 + 增距镜",
+    ]
+    package_id = saved_model["rental_packages"][1]["id"]
+    assert package_id.startswith("pkg_")
+    assert saved_model["default_rental_package_id"] == saved_model["rental_packages"][0]["id"]
+
+    created = client.post(
+        "/api/rentals",
+        json=_rental_payload(
+            warehouse_case,
+            rental_package_id=package_id,
+        ),
+    )
+    assert created.status_code == 201
+    rental = created.get_json()["data"]["main_rental"]
+    rental_id = rental["id"]
+    assert rental["rental_package_name"] == "机身 + 70-200 + 增距镜"
+    assert rental["rental_package_items"] == [
+        {"name": "70-200 镜头", "qty": 1},
+        {"name": "2X 增距镜", "qty": 1},
+    ]
+
+    remaining = saved_model["rental_packages"][0]
+    renamed = client.put(
+        f"/api/device-models/{warehouse_case['model']}",
+        json={
+            "rental_packages": [{
+                **remaining,
+                "name": "新标准组合",
+            }],
+            "default_rental_package_id": remaining["id"],
+        },
+    )
+    assert renamed.status_code == 200
+
+    historical = client.get(f"/api/rentals/{rental_id}").get_json()["data"]
+    assert historical["rental_package_id"] == package_id
+    assert historical["rental_package_name"] == "机身 + 70-200 + 增距镜"
+    assert historical["rental_package_items"][1]["name"] == "2X 增距镜"
+
+    metadata_edit = client.put(
+        f"/api/rentals/{rental_id}",
+        json={
+            "customer_phone": "13800138000",
+            "warehouse_id": warehouse_case["warehouse_a"],
+            "device_id": warehouse_case["main_a"],
+            "rental_package_id": package_id,
+        },
+    )
+    assert metadata_edit.status_code == 200
+    edited = metadata_edit.get_json()["data"]
+    assert edited["customer_phone"] == "13800138000"
+    assert edited["rental_package_id"] == package_id
+    assert edited["rental_package_name"] == "机身 + 70-200 + 增距镜"
+    assert edited["rental_package_items"][1]["name"] == "2X 增距镜"
+
+
+def test_model_rental_package_validation_rejects_invalid_configuration(
+    client, warehouse_case
+):
+    rejected = client.put(
+        f"/api/device-models/{warehouse_case['model']}",
+        json={
+            "rental_packages": [
+                {
+                    "client_id": "one",
+                    "name": "重复名称",
+                    "is_active": True,
+                    "items": [{"name": "镜头", "qty": 0}],
+                },
+            ],
+            "default_rental_package_id": "one",
+        },
+    )
+    assert rejected.status_code == 400
+    assert "数量必须介于 1 和 999" in rejected.get_json()["message"]
 
 
 def test_device_model_mutations_require_tenant_admin(app):

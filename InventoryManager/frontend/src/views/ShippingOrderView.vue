@@ -59,7 +59,7 @@
             </tr>
           </thead>
           <tbody>
-            <!-- 按镜头组合动态渲染品名 -->
+            <!-- 按订单保存的租赁组合快照动态渲染品名 -->
             <tr
               v-for="(line, idx) in productLines"
               :key="`line-${idx}`"
@@ -177,7 +177,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useGanttStore, type Rental } from '../stores/gantt'
 import { resolveWarehouseReturnContact, useTenantStore } from '@/stores/tenant'
-import { getProductLines, lensComboDisplay, type LensCombo } from '../config/lensCombo'
+import { rentalPackageDisplay, rentalProductLines } from '../config/rentalPackage'
 import dayjs from 'dayjs'
 
 const router = useRouter()
@@ -200,26 +200,20 @@ const rentalDays = computed(() => {
   return end.diff(start, 'day') + 1
 })
 
-// 当前订单的镜头组合（默认 lens_400mm 兜底）
-const lensCombo = computed<LensCombo>(() =>
-  (rental.value?.lens_combo as LensCombo) || 'lens_400mm'
-)
-
 // 主机型号 short name
 const modelName = computed<string | undefined>(() => {
   const dm = rental.value?.device?.device_model
   return dm?.name || rental.value?.device?.model
 })
 
-// 按机型 + 镜头组合渲染的品名清单
-const productLines = computed(() => getProductLines(
+// 优先按订单组合快照渲染品名；旧订单回退到历史镜头规则。
+const productLines = computed(() => rentalProductLines(
+  rental.value,
   modelName.value,
-  lensCombo.value,
   rental.value?.device?.device_model?.display_name,
 ))
 
-// 镜头组合中文化（主机行的备注栏）
-const lensComboLabel = computed(() => lensComboDisplay(lensCombo.value))
+const lensComboLabel = computed(() => rentalPackageDisplay(rental.value))
 
 const customerMessage = computed(() => {
   // 这里可以从rental数据中获取买家留言，如果没有对应字段，可以扩展数据结构

@@ -80,9 +80,10 @@ const trackingRoutes = computed(() => [
   ...(activeTracking.value?.routes || []),
 ].reverse())
 
-function lensText(value: string | null) {
-  if (!value) return '未填写镜头'
-  return lensLabels[value] || value
+function packageText(name: string | null | undefined, legacyValue: string | null) {
+  if (name) return name
+  if (!legacyValue) return '未填写组合'
+  return lensLabels[legacyValue] || legacyValue
 }
 
 function accessoryText(accessories: RelayAccessory[]) {
@@ -348,9 +349,9 @@ onMounted(loadCases)
               {{ row.device.model_display_name || row.device.model || '-' }}
               <span>{{ row.device.name || '' }}</span>
             </div>
-            <div><b>前：</b>{{ lensText(row.lens_combo) }}</div>
+            <div><b>前：</b>{{ packageText(row.rental_package_name, row.lens_combo) }}</div>
             <div class="secondary accessories">{{ accessoryText(row.accessories) }}</div>
-            <div><b>后：</b>{{ lensText(row.successor_lens_combo) }}</div>
+            <div><b>后：</b>{{ packageText(row.successor_rental_package_name, row.successor_lens_combo) }}</div>
             <div class="secondary accessories">{{ accessoryText(row.successor_accessories) }}</div>
             <div
               v-if="relayEquipmentWarningText(row)"

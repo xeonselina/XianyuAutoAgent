@@ -10,6 +10,7 @@ import {
 } from '@/utils/dateUtils'
 import dayjs from 'dayjs'
 import type { LensCombo } from '@/config/lensCombo'
+import type { RentalPackage, RentalPackageItem } from '@/config/rentalPackage'
 
 export interface DeviceModel {
   id: number
@@ -22,6 +23,8 @@ export interface DeviceModel {
   device_value?: number
   allowed_lens_combos?: LensCombo[]
   default_lens_combo?: LensCombo | null
+  rental_packages?: RentalPackage[]
+  default_rental_package_id?: string | null
   created_at: string
   updated_at: string
   accessories: ModelAccessory[]
@@ -93,8 +96,11 @@ export interface Rental {
   includes_lens_mount: boolean
   // 代传照片标记
   photo_transfer: boolean
-  // 镜头组合
+  // 旧镜头组合（兼容字段）
   lens_combo?: LensCombo
+  rental_package_id?: string | null
+  rental_package_name?: string | null
+  rental_package_items?: RentalPackageItem[]
   xianyu_order_no?: string
   order_amount?: number
   buyer_id?: string

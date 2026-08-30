@@ -14,10 +14,10 @@ function relayCase(overrides: Partial<RelayCase> = {}): RelayCase {
 }
 
 describe('relayEquipmentWarnings', () => {
-  it('warns when lens combinations differ', () => {
+  it('warns when rental packages differ', () => {
     expect(relayEquipmentWarnings(relayCase({
       successor_lens_combo: 'lens_200mm',
-    }))).toEqual(['镜头组合不一致'])
+    }))).toEqual(['租赁组合不一致'])
   })
 
   it('warns when the successor has more accessories', () => {
@@ -26,11 +26,18 @@ describe('relayEquipmentWarnings', () => {
     }))).toEqual(['后单附件更多（2 > 1）'])
   })
 
+  it('compares stable package ids even when legacy lens values match', () => {
+    expect(relayEquipmentWarnings(relayCase({
+      rental_package_id: 'pkg_2470',
+      successor_rental_package_id: 'pkg_70200',
+    }))).toEqual(['租赁组合不一致'])
+  })
+
   it('combines both reasons and stays empty for matching equipment', () => {
     expect(relayEquipmentWarnings(relayCase({
       successor_lens_combo: 'lens_200mm',
       successor_accessories: [{ name: '手柄' }, { name: '备用电池' }],
-    }))).toEqual(['镜头组合不一致', '后单附件更多（2 > 1）'])
+    }))).toEqual(['租赁组合不一致', '后单附件更多（2 > 1）'])
     expect(relayEquipmentWarnings(relayCase())).toEqual([])
   })
 })

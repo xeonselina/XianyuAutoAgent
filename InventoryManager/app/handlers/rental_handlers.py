@@ -12,6 +12,11 @@ from app.services.rental.rental_service import (
 )
 from app.models.warehouse import resolve_read_warehouse_id
 from app.lens_combos import compatibility_lens_combo_config
+from app.rental_packages import (
+    compatibility_rental_package_config,
+    legacy_package_id,
+    serialize_json,
+)
 from app.utils.logistics_estimator import estimate_sf_logistics
 from app.utils.response import (
     ApiResponse,
@@ -54,6 +59,52 @@ def _normalize_and_validate_lens_combo(data, device_id):
         return None
     # 未传 → 用机型默认
     data['lens_combo'] = default
+    return None
+
+
+def _resolve_rental_package_config_for_device(device_id):
+    """读取设备所属型号的自由租赁组合；旧设备使用兼容组合。"""
+    if not device_id:
+        return None, [], None
+    from app.models.device import Device
+    device = Device.query.get(device_id)
+    if not device:
+        return None, [], None
+    if device.device_model:
+        packages, default_id = device.device_model.get_effective_rental_package_config()
+        return device.device_model.name, packages, default_id
+    model_name = getattr(device, 'model', None)
+    packages, default_id = compatibility_rental_package_config(model_name)
+    return model_name, packages, default_id
+
+
+def _normalize_and_validate_rental_package(data, device_id):
+    """校验型号组合并写入不可变的订单快照。"""
+    model_name, packages, default_id = _resolve_rental_package_config_for_device(device_id)
+    if not model_name or not packages:
+        return '所选设备没有可用的租赁组合，请先在型号库中配置'
+
+    requested_id = data.get('rental_package_id')
+    if not requested_id and data.get('lens_combo'):
+        requested_id = legacy_package_id(data['lens_combo'])
+    package_id = requested_id or default_id
+    package = next(
+        (
+            item for item in packages
+            if item.get('id') == package_id and item.get('is_active', True)
+        ),
+        None,
+    )
+    if package is None:
+        return f'机型 {model_name} 不允许租赁组合 {package_id}'
+
+    data['rental_package_id'] = package['id']
+    data['rental_package_name'] = package['name']
+    data['rental_package_items'] = serialize_json(package.get('items', []))
+    if package['id'].startswith('legacy_'):
+        legacy_combo = package['id'][len('legacy_'):]
+        if legacy_combo in {'lens_400mm', 'lens_200mm', 'bare', 'lens_dual'}:
+            data['lens_combo'] = legacy_combo
     return None
 
 
@@ -216,7 +267,12 @@ class RentalHandlers:
             # 提取代传照片标记
             data['photo_transfer'] = data.get('photo_transfer', False)
 
-            # 校验/补全镜头组合
+            # 校验自由租赁组合并保存快照，同时补全旧镜头字段供回滚使用。
+            package_error = _normalize_and_validate_rental_package(
+                data, data.get('device_id')
+            )
+            if package_error:
+                return bad_request(package_error)
             lens_error = _normalize_and_validate_lens_combo(data, data.get('device_id'))
             if lens_error:
                 return bad_request(lens_error)
@@ -364,15 +420,40 @@ class RentalHandlers:
                     return bad_request('损坏备注不能超过 1000 个字符')
                 data['damage_note'] = normalized_damage_note
 
-            if 'lens_combo' in data:
+            device_changed = (
+                'device_id' in data
+                and data.get('device_id') != rental.device_id
+            )
+            package_changed = (
+                'rental_package_id' in data
+                and data.get('rental_package_id') != rental.rental_package_id
+            )
+            legacy_combo_changed = (
+                'lens_combo' in data
+                and data.get('lens_combo') != rental.lens_combo
+            )
+            if device_changed or package_changed or legacy_combo_changed:
                 device_id_for_check = data.get('device_id', rental.device_id)
-                lens_payload = {'lens_combo': data['lens_combo']}
+                package_payload = {
+                    'rental_package_id': data.get('rental_package_id'),
+                    'lens_combo': data.get('lens_combo'),
+                }
+                package_error = _normalize_and_validate_rental_package(
+                    package_payload, device_id_for_check
+                )
+                if package_error:
+                    return bad_request(package_error)
                 lens_error = _normalize_and_validate_lens_combo(
-                    lens_payload, device_id_for_check
+                    package_payload, device_id_for_check
                 )
                 if lens_error:
                     return bad_request(lens_error)
-                data['lens_combo'] = lens_payload['lens_combo']
+                data.update({
+                    'lens_combo': package_payload['lens_combo'],
+                    'rental_package_id': package_payload['rental_package_id'],
+                    'rental_package_name': package_payload['rental_package_name'],
+                    'rental_package_items': package_payload['rental_package_items'],
+                })
 
             rental = RentalService.update_rental_with_accessories(
                 rental_id, data

@@ -7,6 +7,11 @@ from app.lens_combos import (
     compatibility_lens_combo_config,
     parse_allowed_lens_combos,
 )
+from app.rental_packages import (
+    compatibility_rental_package_config,
+    parse_rental_packages,
+    serialize_json,
+)
 from datetime import datetime
 import json
 
@@ -33,6 +38,8 @@ class DeviceModel(db.Model):
     device_value = db.Column(db.Numeric(precision=10, scale=2), nullable=True, comment='设备/附件价值')
     allowed_lens_combos = db.Column(db.Text, nullable=True, comment='允许的镜头组合，JSON格式')
     default_lens_combo = db.Column(db.String(30), nullable=True, comment='默认镜头组合')
+    rental_packages = db.Column(db.Text, nullable=True, comment='型号租赁组合，JSON格式')
+    default_rental_package_id = db.Column(db.String(64), nullable=True, comment='默认租赁组合ID')
 
     # 时间戳
     created_at = db.Column(db.DateTime, default=datetime.utcnow, comment='创建时间')
@@ -49,6 +56,7 @@ class DeviceModel(db.Model):
 
     def to_dict(self, include_accessories=True):
         """转换为字典"""
+        packages, default_package_id = self.get_effective_rental_package_config()
         result = {
             'id': self.id,
             'name': self.name,
@@ -61,6 +69,8 @@ class DeviceModel(db.Model):
             'device_value': float(self.device_value) if self.device_value else None,
             'allowed_lens_combos': self.get_effective_lens_combo_config()[0],
             'default_lens_combo': self.get_effective_lens_combo_config()[1],
+            'rental_packages': packages,
+            'default_rental_package_id': default_package_id,
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat()
         }
@@ -116,6 +126,38 @@ class DeviceModel(db.Model):
         if allowed and self.default_lens_combo in allowed:
             return allowed, self.default_lens_combo
         return compatibility_lens_combo_config(self.name)
+
+    def get_rental_packages_list(self):
+        """读取型号自身保存的自由租赁组合。"""
+        return parse_rental_packages(self.rental_packages)
+
+    def set_rental_packages_list(self, packages):
+        """保存型号自由租赁组合。"""
+        self.rental_packages = serialize_json(packages) if packages else None
+
+    def get_effective_rental_package_config(self):
+        """返回预定使用的组合配置，并兼容尚未迁移的型号。"""
+        if self.is_accessory:
+            return [], None
+        packages = self.get_rental_packages_list()
+        enabled_ids = {
+            item.get('id') for item in packages if item.get('is_active', True)
+        }
+        if packages and self.default_rental_package_id in enabled_ids:
+            return packages, self.default_rental_package_id
+        allowed, default = self.get_effective_lens_combo_config()
+        return compatibility_rental_package_config(self.name, allowed, default)
+
+    def get_rental_package(self, package_id, *, enabled_only=False):
+        """按稳定 ID 查找型号组合。"""
+        packages, _default = self.get_effective_rental_package_config()
+        for package in packages:
+            if package.get('id') != package_id:
+                continue
+            if enabled_only and not package.get('is_active', True):
+                return None
+            return package
+        return None
 
     def get_active_accessories(self):
         """获取该型号的所有激活附件"""

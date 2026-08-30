@@ -2,6 +2,7 @@
 
 from decimal import Decimal, InvalidOperation
 import re
+import uuid
 
 from flask import current_app
 from sqlalchemy import func
@@ -14,6 +15,7 @@ from app.lens_combos import (
 )
 from app.models.device import Device
 from app.models.device_model import DeviceModel
+from app.rental_packages import compatibility_rental_package_config
 
 
 class DeviceModelConflict(ValueError):
@@ -209,6 +211,131 @@ class DeviceModelService:
         model.default_lens_combo = default
 
     @staticmethod
+    def _normalize_rental_packages(raw_packages, existing_packages, raw_default):
+        if not isinstance(raw_packages, list) or not raw_packages:
+            raise ValueError("主设备至少要配置一个租赁组合")
+        if len(raw_packages) > 50:
+            raise ValueError("每个型号最多配置 50 个租赁组合")
+
+        existing_ids = {
+            package.get("id")
+            for package in existing_packages
+            if isinstance(package.get("id"), str)
+        }
+        aliases = {}
+        normalized = []
+        names = set()
+        used_ids = set()
+
+        for index, raw_package in enumerate(raw_packages):
+            if not isinstance(raw_package, dict):
+                raise ValueError("租赁组合必须是对象列表")
+            name = raw_package.get("name")
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("租赁组合名称不能为空")
+            name = name.strip()
+            if len(name) > 100:
+                raise ValueError("租赁组合名称不能超过 100 个字符")
+            normalized_name = name.casefold()
+            if normalized_name in names:
+                raise ValueError(f"租赁组合名称不能重复: {name}")
+            names.add(normalized_name)
+
+            package_id = raw_package.get("id")
+            client_id = raw_package.get("client_id")
+            if package_id is not None:
+                if not isinstance(package_id, str) or package_id not in existing_ids:
+                    raise ValueError("租赁组合 ID 无效，请刷新型号后重试")
+            else:
+                package_id = f"pkg_{uuid.uuid4().hex}"
+            if package_id in used_ids:
+                raise ValueError("租赁组合 ID 不能重复")
+            used_ids.add(package_id)
+            if isinstance(client_id, str) and client_id:
+                if client_id in aliases:
+                    raise ValueError("租赁组合临时 ID 不能重复")
+                aliases[client_id] = package_id
+
+            is_active = raw_package.get("is_active", True)
+            if not isinstance(is_active, bool):
+                raise ValueError(f"租赁组合“{name}”的启用状态无效")
+
+            raw_items = raw_package.get("items", [])
+            if not isinstance(raw_items, list):
+                raise ValueError(f"租赁组合“{name}”的发货物品必须是列表")
+            if len(raw_items) > 50:
+                raise ValueError(f"租赁组合“{name}”最多配置 50 项发货物品")
+            items = []
+            for raw_item in raw_items:
+                if not isinstance(raw_item, dict):
+                    raise ValueError(f"租赁组合“{name}”的发货物品格式无效")
+                item_name = raw_item.get("name")
+                if not isinstance(item_name, str) or not item_name.strip():
+                    raise ValueError(f"租赁组合“{name}”存在空的发货物品名称")
+                item_name = item_name.strip()
+                if len(item_name) > 150:
+                    raise ValueError("发货物品名称不能超过 150 个字符")
+                qty = raw_item.get("qty")
+                if isinstance(qty, bool) or not isinstance(qty, int) or not 1 <= qty <= 999:
+                    raise ValueError(f"发货物品“{item_name}”的数量必须介于 1 和 999 之间")
+                items.append({"name": item_name, "qty": qty})
+
+            normalized.append({
+                "id": package_id,
+                "name": name,
+                "is_active": is_active,
+                "items": items,
+            })
+
+        default_id = aliases.get(raw_default, raw_default)
+        enabled_ids = {
+            package["id"] for package in normalized if package["is_active"]
+        }
+        if not enabled_ids:
+            raise ValueError("主设备至少要启用一个租赁组合")
+        if default_id not in enabled_ids:
+            raise ValueError("默认租赁组合必须是已启用的组合")
+        return normalized, default_id
+
+    @staticmethod
+    def _apply_rental_package_fields(model, data, *, creating=False, type_changed=False):
+        if model.is_accessory:
+            model.set_rental_packages_list([])
+            model.default_rental_package_id = None
+            return
+
+        has_package_payload = (
+            "rental_packages" in data
+            or "default_rental_package_id" in data
+        )
+        legacy_changed = (
+            "allowed_lens_combos" in data
+            or "default_lens_combo" in data
+        )
+        if not (creating or type_changed or has_package_payload or legacy_changed):
+            return
+
+        if has_package_payload:
+            raw_packages = data.get(
+                "rental_packages", model.get_rental_packages_list()
+            )
+            raw_default = data.get(
+                "default_rental_package_id", model.default_rental_package_id
+            )
+            packages, default_id = DeviceModelService._normalize_rental_packages(
+                raw_packages,
+                model.get_rental_packages_list(),
+                raw_default,
+            )
+        else:
+            allowed, default_combo = model.get_effective_lens_combo_config()
+            packages, default_id = compatibility_rental_package_config(
+                model.name, allowed, default_combo
+            )
+        model.set_rental_packages_list(packages)
+        model.default_rental_package_id = default_id
+
+    @staticmethod
     def _apply_editable_fields(model, data, *, creating=False):
         if creating:
             name = DeviceModelService._required_text(data, "name", 50)
@@ -275,6 +402,12 @@ class DeviceModelService:
             model.parent_model_id = None
 
         DeviceModelService._apply_lens_combo_fields(
+            model,
+            data,
+            creating=creating,
+            type_changed=type_changed,
+        )
+        DeviceModelService._apply_rental_package_fields(
             model,
             data,
             creating=creating,

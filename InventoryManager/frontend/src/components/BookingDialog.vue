@@ -224,9 +224,9 @@
         <div class="form-tip">手柄和镜头支架已与设备配齐，无需选择具体编号</div>
       </el-form-item>
 
-      <!-- 镜头组合 -->
+      <!-- 型号租赁组合 -->
       <LensComboSelector
-        v-model="form.lensCombo"
+        v-model="form.rentalPackageId"
         :model="selectedModel"
       />
 
@@ -422,7 +422,7 @@ const form = ref({
   orderAmount: '',
   buyerId: '',
   photoTransfer: false,  // 代传照片标记
-  lensCombo: undefined as ('lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual' | undefined)
+  rentalPackageId: undefined as string | undefined,
 })
 
 const availableDeviceModels = computed(() =>
@@ -940,7 +940,7 @@ const handleSubmit = async () => {
       order_amount: form.value.orderAmount ? parseFloat(form.value.orderAmount) : undefined,
       buyer_id: form.value.buyerId,
       photo_transfer: form.value.photoTransfer,  // 代传照片标记
-      lens_combo: form.value.lensCombo
+      rental_package_id: form.value.rentalPackageId,
     }
 
     const result = await ganttStore.createRental(rentalData)
@@ -981,7 +981,7 @@ const handleClose = () => {
     orderAmount: '',
     buyerId: '',
     photoTransfer: false,
-    lensCombo: undefined
+    rentalPackageId: undefined
   }
   availableSlot.value = null
   availableAccessorySlot.value = null

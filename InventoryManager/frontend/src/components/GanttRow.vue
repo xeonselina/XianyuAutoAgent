@@ -77,8 +77,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, defineAsyncComponent, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import type { Device, Rental } from '../stores/gantt'
+import RentalTooltip from './RentalTooltip.vue'
 import {
   toDateString,
   parseDate,
@@ -92,8 +93,6 @@ const isWeekend = (date: Date) => {
   const day = date.getDay()
   return day === 0 || day === 6
 }
-
-const RentalTooltip = defineAsyncComponent(() => import('./RentalTooltip.vue'))
 
 interface Props {
   device: Device

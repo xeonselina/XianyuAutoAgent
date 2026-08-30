@@ -216,7 +216,7 @@ describe('RelayManagementView', () => {
     expect(wrapper.text()).toContain('SF1234567890')
     expect(wrapper.text()).toContain('运送中')
     expect(wrapper.get('[data-testid="relay-notice-text"]').text()).toBe(expectedNotice)
-    expect(wrapper.get('[data-testid="equipment-warning"]').text()).toContain('镜头组合不一致')
+    expect(wrapper.get('[data-testid="equipment-warning"]').text()).toContain('租赁组合不一致')
   })
 
   it('queries and renders the complete SF tracking timeline', async () => {

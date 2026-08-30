@@ -191,7 +191,7 @@ const form = ref({
   buyerId: '',
   damageNote: '',
   photoTransfer: false,  // 代传照片标记
-  lensCombo: undefined as ('lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual' | undefined)
+  rentalPackageId: undefined as string | undefined,
 })
 
 // UI State
@@ -358,7 +358,7 @@ const handleSubmit = async () => {
       buyer_id: form.value.buyerId,
       damage_note: form.value.damageNote,
       photo_transfer: form.value.photoTransfer,  // 代传照片标记
-      lens_combo: form.value.lensCombo
+      rental_package_id: form.value.rentalPackageId,
     }
 
     await ganttStore.updateRental(props.rental!.id, updateData)
@@ -630,7 +630,7 @@ const initForm = async () => {
       buyerId: rentalData.buyer_id || '',
       damageNote: rentalData.damage_note || '',
       photoTransfer: rentalData.photo_transfer || false,  // 代传照片标记
-      lensCombo: rentalData.lens_combo || undefined
+      rentalPackageId: rentalData.rental_package_id || undefined,
     }
 
     initialScheduleSnapshot.value = getScheduleSnapshot()

@@ -1,4 +1,4 @@
-import { lensComboDisplay } from '@/config/lensCombo'
+import { rentalPackageDisplay } from '@/config/rentalPackage'
 import type { Rental } from '@/stores/gantt'
 
 export interface RentalConfirmationContent {
@@ -49,7 +49,7 @@ export const buildRentalConfirmation = (rental: Rental): RentalConfirmationConte
     || rental.device?.device_model?.name
     || rental.device?.model
     || '未识别型号'
-  const lens = rental.lens_combo ? lensComboDisplay(rental.lens_combo) : '未填写镜头组合'
+  const rentalPackage = rentalPackageDisplay(rental) || '未填写租赁组合'
   const accessories = new Set<string>()
   if (rental.includes_lens_mount) accessories.add('镜头支架')
   if (rental.includes_handle) accessories.add('手柄')
@@ -63,7 +63,7 @@ export const buildRentalConfirmation = (rental: Rental): RentalConfirmationConte
     `寄出时间：${dateOnly(rental.ship_out_time)}`,
     `预计收货：${dateOnly(rental.start_date, -1)}`,
     `客户归还：${dateOnly(rental.end_date, 1)}`,
-    `寄出型号：${[model, lens, ...accessoryParts].join(' + ')}`,
+    `寄出型号：${[model, rentalPackage, ...accessoryParts].join(' + ')}`,
   ]
   return { lines, text: lines.join('\n') }
 }

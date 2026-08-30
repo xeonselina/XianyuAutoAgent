@@ -56,7 +56,7 @@
       </div>
 
       <el-table v-loading="loadingDetail" :data="rentals" stripe :empty-text="loadingDetail ? '加载中...' : '该客户暂无历史订单'">
-        <el-table-column label="机型 · 镜头组合" min-width="180">
+        <el-table-column label="机型 · 租赁组合" min-width="180">
           <template #default="{ row }">
             <span class="model-cell">{{ row.device_model_display_name || '-' }}</span>
             <el-tag v-if="row.lens_combo_display" size="small" type="info" class="combo-tag">

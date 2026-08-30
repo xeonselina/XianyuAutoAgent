@@ -3,15 +3,19 @@ import type { RelayCase } from '@/types/relayCase'
 type RelayEquipmentSnapshot = Pick<
   RelayCase,
   | 'lens_combo'
+  | 'rental_package_id'
   | 'successor_lens_combo'
+  | 'successor_rental_package_id'
   | 'accessories'
   | 'successor_accessories'
 >
 
 export function relayEquipmentWarnings(relayCase: RelayEquipmentSnapshot): string[] {
   const warnings: string[] = []
-  if (relayCase.lens_combo !== relayCase.successor_lens_combo) {
-    warnings.push('镜头组合不一致')
+  const predecessorPackage = relayCase.rental_package_id || `legacy:${relayCase.lens_combo || ''}`
+  const successorPackage = relayCase.successor_rental_package_id || `legacy:${relayCase.successor_lens_combo || ''}`
+  if (predecessorPackage !== successorPackage) {
+    warnings.push('租赁组合不一致')
   }
   if (relayCase.successor_accessories.length > relayCase.accessories.length) {
     warnings.push(

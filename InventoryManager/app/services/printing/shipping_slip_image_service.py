@@ -12,7 +12,7 @@ from datetime import timedelta
 from PIL import Image, ImageDraw, ImageFont
 
 from app.models import Rental
-from app.services.printing.rental_product_lines import lens_combo_display, get_default_combo, _resolve_model_name
+from app.services.printing.rental_product_lines import rental_package_display
 from app import db
 
 logger = logging.getLogger(__name__)
@@ -312,9 +312,8 @@ class ShippingSlipImageService:
             device_name = rental.device.name if rental.device else '未知设备'
             y = self._draw_info_row(draw, y, "设备:", device_name)
 
-            # 镜头组合中文化（便于发货员核对；裸机也显示）
-            combo = getattr(rental, 'lens_combo', None) or get_default_combo(_resolve_model_name(rental))
-            y = self._draw_info_row(draw, y, "组合:", lens_combo_display(combo))
+            # 使用下单时保存的组合名称；旧订单自动回退到镜头枚举中文名。
+            y = self._draw_info_row(draw, y, "组合:", rental_package_display(rental))
 
             # 附件信息（库存附件如手机支架/三脚架；配套附件 handle/lens_mount 不单列）
             all_accessories = rental.get_all_accessories_for_display()

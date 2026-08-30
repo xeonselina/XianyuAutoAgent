@@ -1,17 +1,17 @@
 <template>
-  <el-form-item label="镜头组合">
+  <el-form-item label="租赁组合">
     <div class="combo-wrap">
       <el-radio-group v-model="combo">
         <el-radio-button
           v-for="opt in allowed"
-          :key="opt"
-          :label="opt"
+          :key="opt.id"
+          :label="opt.id"
         >
-          {{ display(opt) }}
+          {{ opt.name }}
         </el-radio-button>
       </el-radio-group>
-      <div class="form-tip" v-if="!model">未选择型号，使用默认组合</div>
-      <div class="form-tip" v-else>选项由型号库维护，并会影响发货单/面单的品名清单</div>
+      <div class="form-tip" v-if="!model">请先选择设备型号</div>
+      <div class="form-tip" v-else>组合及发货物品由型号库维护，历史订单保存下单时的配置</div>
     </div>
   </el-form-item>
 </template>
@@ -19,35 +19,54 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import {
-  getAllowedCombos,
-  getDefaultCombo,
-  isComboAllowed,
-  lensComboDisplay,
-  type LensCombo,
-} from '@/config/lensCombo'
+  getDefaultRentalPackageId,
+  getEnabledRentalPackages,
+  isRentalPackageAllowed,
+} from '@/config/rentalPackage'
 import type { DeviceModel } from '@/stores/gantt'
 
 const props = defineProps<{
-  modelValue: LensCombo | undefined
+  modelValue: string | undefined
   model: DeviceModel | null | undefined
+  preserveUnknown?: boolean
+  modelValueName?: string | null
 }>()
-const emit = defineEmits<{ (e: 'update:modelValue', v: LensCombo): void }>()
+const emit = defineEmits<{ (e: 'update:modelValue', v: string): void }>()
 
-const allowed = computed(() => getAllowedCombos(props.model))
+const allowed = computed(() => {
+  const configured = getEnabledRentalPackages(props.model)
+  if (
+    props.preserveUnknown
+    && props.modelValue
+    && !configured.some((item) => item.id === props.modelValue)
+  ) {
+    return [{
+      id: props.modelValue,
+      name: `${props.modelValueName || '已停用组合'}（历史订单）`,
+      is_active: false,
+      items: [],
+    }, ...configured]
+  }
+  return configured
+})
 
-const combo = computed<LensCombo>({
-  get: () => (props.modelValue && isComboAllowed(props.model, props.modelValue))
+const combo = computed<string>({
+  get: () => (props.modelValue && (
+    props.preserveUnknown || isRentalPackageAllowed(props.model, props.modelValue)
+  ))
     ? props.modelValue
-    : getDefaultCombo(props.model),
+    : getDefaultRentalPackageId(props.model),
   set: (v) => emit('update:modelValue', v)
 })
 
-const display = (v: LensCombo) => lensComboDisplay(v)
-
-// 机型切换：当前 combo 不在新机型允许范围内 → 回退默认
+// 机型切换：当前组合不在新机型允许范围内 → 回退默认。
 watch(() => props.model, (newModel) => {
-  if (props.modelValue && !isComboAllowed(newModel, props.modelValue)) {
-    emit('update:modelValue', getDefaultCombo(newModel))
+  if (
+    !props.preserveUnknown
+    && props.modelValue
+    && !isRentalPackageAllowed(newModel, props.modelValue)
+  ) {
+    emit('update:modelValue', getDefaultRentalPackageId(newModel))
   }
 })
 </script>

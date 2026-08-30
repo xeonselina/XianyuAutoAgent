@@ -37,6 +37,15 @@ const model = {
   accessory_count: 0,
   allowed_lens_combos: ['lens_200mm', 'bare'],
   default_lens_combo: 'lens_200mm',
+  rental_packages: [
+    {
+      id: 'pkg_2470',
+      name: '机身 + 24-70',
+      is_active: true,
+      items: [{ name: '24-70 镜头', qty: 1 }],
+    },
+  ],
+  default_rental_package_id: 'pkg_2470',
   accessories: [],
   created_at: '2026-08-01T00:00:00',
   updated_at: '2026-08-01T00:00:00',
@@ -69,6 +78,7 @@ const mountLibrary = async () => {
         ElInput: true,
         ElInputNumber: true,
         ElOption: true,
+        ElRadio: true,
         ElRadioButton: true,
         ElRadioGroup: true,
         ElSelect: true,
@@ -129,8 +139,18 @@ describe('DeviceModelLibrary', () => {
       is_accessory: false,
       is_active: true,
       default_accessories_text: '电池\n充电器',
-      allowed_lens_combos: ['lens_400mm', 'lens_200mm', 'bare'],
-      default_lens_combo: 'lens_400mm',
+      rental_packages: [
+        {
+          client_id: 'camera_2470',
+          name: '机身 + 24-70',
+          is_active: true,
+          items: [
+            { name: '24-70 镜头', qty: 1 },
+            { name: '相机电池', qty: 2 },
+          ],
+        },
+      ],
+      default_rental_package_id: 'camera_2470',
     })
 
     await vm.saveModel()
@@ -139,8 +159,16 @@ describe('DeviceModelLibrary', () => {
       name: 'x300pro',
       display_name: '富士 X300 Pro',
       default_accessories: ['电池', '充电器'],
-      allowed_lens_combos: ['lens_400mm', 'lens_200mm', 'bare'],
-      default_lens_combo: 'lens_400mm',
+      rental_packages: [{
+        client_id: 'camera_2470',
+        name: '机身 + 24-70',
+        is_active: true,
+        items: [
+          { name: '24-70 镜头', qty: 1 },
+          { name: '相机电池', qty: 2 },
+        ],
+      }],
+      default_rental_package_id: 'camera_2470',
     }))
   })
 

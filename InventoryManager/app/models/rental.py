@@ -5,6 +5,7 @@
 from app import db
 from datetime import datetime, date
 import uuid
+from app.rental_packages import parse_package_items
 
 
 class Rental(db.Model):
@@ -86,6 +87,9 @@ class Rental(db.Model):
         server_default='lens_400mm',
         comment='镜头组合: lens_400mm=400MM镜头(增距镜) / lens_200mm=200MM镜头 / bare=裸机 / lens_dual=双镜头(仅x300u)'
     )
+    rental_package_id = db.Column(db.String(64), nullable=True, comment='型号租赁组合ID')
+    rental_package_name = db.Column(db.String(100), nullable=True, comment='下单时租赁组合名称快照')
+    rental_package_items = db.Column(db.Text, nullable=True, comment='下单时组合发货物品快照，JSON格式')
     
     # 关系
     audit_logs = db.relationship('AuditLog', backref='rental', lazy='dynamic')
@@ -174,8 +178,22 @@ class Rental(db.Model):
             'includes_lens_mount': self.includes_lens_mount,
             # 代传照片标记
             'photo_transfer': self.photo_transfer,
-            # 镜头组合
-            'lens_combo': self.lens_combo
+            # 镜头组合（兼容旧客户端）
+            'lens_combo': self.lens_combo,
+            # 自由租赁组合快照（历史订单不随型号配置变化）
+            'rental_package_id': self.rental_package_id,
+            'rental_package_name': self.rental_package_name,
+            'rental_package_items': parse_package_items(self.rental_package_items),
+            'rental_package': self.get_rental_package_snapshot(),
+        }
+
+    def get_rental_package_snapshot(self):
+        if not self.rental_package_id and not self.rental_package_name:
+            return None
+        return {
+            'id': self.rental_package_id,
+            'name': self.rental_package_name or '',
+            'items': parse_package_items(self.rental_package_items),
         }
     
     def get_duration_days(self):

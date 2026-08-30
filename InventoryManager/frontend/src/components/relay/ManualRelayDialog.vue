@@ -54,9 +54,10 @@ function formatDateTime(value: string | null) {
   return value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '-'
 }
 
-function lensText(value: string | null) {
-  if (!value) return '未填写镜头'
-  return lensLabels[value] || value
+function packageText(name: string | null | undefined, legacyValue: string | null) {
+  if (name) return name
+  if (!legacyValue) return '未填写组合'
+  return lensLabels[legacyValue] || legacyValue
 }
 
 function optionLabel(option: ManualRelayOption) {
@@ -166,7 +167,7 @@ watch(
           <p>{{ rentalPeriod(selectedOption.predecessor) }}</p>
           <p>寄出：{{ formatDateTime(selectedOption.predecessor.ship_out_time) }}</p>
           <p>{{ selectedOption.predecessor.destination || '未填写地址' }}</p>
-          <p>{{ lensText(selectedOption.lens_combo) }}</p>
+          <p>{{ packageText(selectedOption.rental_package_name, selectedOption.lens_combo) }}</p>
         </section>
 
         <div class="flow-arrow" aria-hidden="true">→</div>
@@ -180,7 +181,7 @@ watch(
           <p>{{ rentalPeriod(selectedOption.successor) }}</p>
           <p>寄出：{{ formatDateTime(selectedOption.successor.ship_out_time) }}</p>
           <p>{{ selectedOption.successor.destination || '未填写地址' }}</p>
-          <p>{{ lensText(selectedOption.successor_lens_combo) }}</p>
+          <p>{{ packageText(selectedOption.successor_rental_package_name, selectedOption.successor_lens_combo) }}</p>
         </section>
       </div>
 

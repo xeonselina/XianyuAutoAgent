@@ -39,8 +39,9 @@ const lensLabels: Record<string, string> = {
   bare: '裸机',
 }
 
-function lensText(value: string | null) {
-  return value ? (lensLabels[value] || value) : '未填写镜头'
+function packageText(name: string | null | undefined, legacyValue: string | null) {
+  if (name) return name
+  return legacyValue ? (lensLabels[legacyValue] || legacyValue) : '未填写组合'
 }
 
 function accessoryText(accessories: RelayAccessory[]) {
@@ -119,12 +120,12 @@ function accessoryText(accessories: RelayAccessory[]) {
       <div class="compare-columns">
         <div>
           <span class="role-label">前单携带</span>
-          <strong>{{ lensText(relayCase.lens_combo) }}</strong>
+          <strong>{{ packageText(relayCase.rental_package_name, relayCase.lens_combo) }}</strong>
           <p>{{ accessoryText(relayCase.accessories) }}</p>
         </div>
         <div>
           <span class="role-label">后单需要</span>
-          <strong>{{ lensText(relayCase.successor_lens_combo) }}</strong>
+          <strong>{{ packageText(relayCase.successor_rental_package_name, relayCase.successor_lens_combo) }}</strong>
           <p>{{ accessoryText(relayCase.successor_accessories) }}</p>
         </div>
       </div>

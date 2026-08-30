@@ -72,8 +72,12 @@ export interface RelayCase {
   successor: RelayCustomer
   device: RelayDevice
   lens_combo: string | null
+  rental_package_id?: string | null
+  rental_package_name?: string | null
   accessories: RelayAccessory[]
   successor_lens_combo: string | null
+  successor_rental_package_id?: string | null
+  successor_rental_package_name?: string | null
   successor_accessories: RelayAccessory[]
   tracking: RelayTracking
   created_at: string | null
@@ -91,8 +95,12 @@ export interface ManualRelayOption {
   predecessor: ManualRelayRental
   successor: ManualRelayRental
   lens_combo: string | null
+  rental_package_id?: string | null
+  rental_package_name?: string | null
   accessories: RelayAccessory[]
   successor_lens_combo: string | null
+  successor_rental_package_id?: string | null
+  successor_rental_package_name?: string | null
   successor_accessories: RelayAccessory[]
   can_create: boolean
   blocked_reason: string | null

@@ -1,8 +1,8 @@
 """
 租赁品名清单渲染服务
 
-根据租赁记录的机型 + lens_combo，生成发货单/面单的品名行。
-同时提供镜头组合的中文化展示和旧数据兼容函数。
+优先根据订单保存的自由租赁组合快照生成发货清单；旧订单继续使用
+机型 + lens_combo 的兼容规则。
 """
 
 from app.lens_combos import (
@@ -47,6 +47,15 @@ def lens_combo_display(lens_combo):
     return LENS_COMBO_DISPLAY.get(lens_combo, lens_combo or '')
 
 
+def rental_package_display(rental):
+    """返回订单组合名称；没有新快照时回退到旧枚举显示。"""
+    package_name = getattr(rental, 'rental_package_name', None)
+    if package_name:
+        return package_name
+    combo = getattr(rental, 'lens_combo', None)
+    return lens_combo_display(combo)
+
+
 def _resolve_model_name(rental):
     """从 rental 解析出机型 short name (e.g. 'x300u')。"""
     device = getattr(rental, 'device', None)
@@ -80,8 +89,17 @@ def get_product_lines(rental):
 
     lines = [
         {'name': _resolve_model_display(rental, model_name), 'qty': 1, 'is_main': True},
-        {'name': '90w 充电头+充电线', 'qty': 1, 'is_main': False},
     ]
+
+    snapshot = getattr(rental, 'get_rental_package_snapshot', lambda: None)()
+    if snapshot:
+        lines.extend(
+            {'name': item['name'], 'qty': item['qty'], 'is_main': False}
+            for item in snapshot.get('items', [])
+        )
+        return lines
+
+    lines.append({'name': '90w 充电头+充电线', 'qty': 1, 'is_main': False})
 
     if combo == 'lens_400mm':
         lines.append({'name': '400MM 增距镜+增距镜脚架+手机壳', 'qty': 1, 'is_main': False})

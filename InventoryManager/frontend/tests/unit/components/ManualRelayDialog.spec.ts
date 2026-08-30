@@ -115,7 +115,7 @@ describe('ManualRelayDialog', () => {
     expect(wrapper.text()).toContain('已寄回')
     expect(wrapper.text()).toContain('下一笔 rental')
     expect(wrapper.text()).toContain('#102 · 李女士')
-    expect(wrapper.get('[data-testid="manual-relay-warning"]').text()).toContain('镜头组合不一致')
+    expect(wrapper.get('[data-testid="manual-relay-warning"]').text()).toContain('租赁组合不一致')
   })
 
   it('creates the relay using only the selected device', async () => {

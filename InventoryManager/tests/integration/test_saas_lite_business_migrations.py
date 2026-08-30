@@ -1,5 +1,6 @@
 """MariaDB coverage for the lightweight warehouse/shop schema migrations."""
 
+import json
 import os
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +24,7 @@ CURRENT_PHASE_1_HEAD = "20260825_audit_schema"
 EXPAND_REVISION = "20260824_saas_lite_expand"
 CONTRACT_REVISION = "20260824_saas_lite_contract"
 MODEL_LENS_COMBO_REVISION = "20260830_model_lens_combos"
+RENTAL_PACKAGES_REVISION = "20260830_rental_packages"
 APPROVED_NEW_TABLES = {
     "warehouses",
     "warehouse_sf_configs",
@@ -293,7 +295,8 @@ def test_phase_2_and_model_configuration_use_a_linear_chain():
     assert revisions[EXPAND_REVISION].down_revision == CURRENT_PHASE_1_HEAD
     assert revisions[CONTRACT_REVISION].down_revision == EXPAND_REVISION
     assert revisions[MODEL_LENS_COMBO_REVISION].down_revision == CONTRACT_REVISION
-    assert script.get_heads() == [MODEL_LENS_COMBO_REVISION]
+    assert revisions[RENTAL_PACKAGES_REVISION].down_revision == MODEL_LENS_COMBO_REVISION
+    assert script.get_heads() == [RENTAL_PACKAGES_REVISION]
     phase_2_revisions = {
         revision.revision
         for revision in script.walk_revisions(
@@ -330,7 +333,8 @@ def test_model_lens_combo_migration_seeds_main_models_only(
         rows = {
             row["name"]: row
             for row in connection.execute(text(
-                "SELECT name, allowed_lens_combos, default_lens_combo "
+                "SELECT name, allowed_lens_combos, default_lens_combo, "
+                "rental_packages, default_rental_package_id "
                 "FROM device_models WHERE name IN "
                 "('x200u', 'x300u', 'camera-pro', 'tripod')"
             )).mappings()
@@ -343,8 +347,12 @@ def test_model_lens_combo_migration_seeds_main_models_only(
             '["lens_200mm", "bare"]'
         )
         assert rows["camera-pro"]["default_lens_combo"] == "lens_200mm"
+        camera_packages = json.loads(rows["camera-pro"]["rental_packages"])
+        assert [item["name"] for item in camera_packages] == ["200MM 镜头", "裸机"]
+        assert rows["camera-pro"]["default_rental_package_id"] == "legacy_lens_200mm"
         assert rows["tripod"]["allowed_lens_combos"] is None
         assert rows["tripod"]["default_lens_combo"] is None
+        assert rows["tripod"]["rental_packages"] is None
 
 
 def test_fresh_chain_has_only_the_approved_tables_and_columns(
@@ -376,10 +384,17 @@ def test_fresh_chain_has_only_the_approved_tables_and_columns(
         assert {
             "allowed_lens_combos",
             "default_lens_combo",
+            "rental_packages",
+            "default_rental_package_id",
         } <= _column_names(inspector, "device_models")
+        assert {
+            "rental_package_id",
+            "rental_package_name",
+            "rental_package_items",
+        } <= _column_names(inspector, "rentals")
         assert connection.execute(
             text("SELECT version_num FROM alembic_version")
-        ).scalar_one() == MODEL_LENS_COMBO_REVISION
+        ).scalar_one() == RENTAL_PACKAGES_REVISION
 
 
 def test_contract_backfills_old_business_rows_and_removes_sync_state(
@@ -450,6 +465,18 @@ def test_contract_backfills_old_business_rows_and_removes_sync_state(
             202: None,
             203: None,
         }
+        snapshots = {
+            row["id"]: row
+            for row in connection.execute(text(
+                "SELECT id, rental_package_id, rental_package_name, "
+                "rental_package_items FROM rentals ORDER BY id"
+            )).mappings()
+        }
+        assert snapshots[201]["rental_package_id"] == "legacy_lens_400mm"
+        assert snapshots[201]["rental_package_name"] == "400MM 镜头"
+        assert json.loads(snapshots[201]["rental_package_items"])[1]["name"].startswith("400MM")
+        assert snapshots[202]["rental_package_id"] is None
+        assert snapshots[203]["rental_package_id"] == "legacy_lens_400mm"
 
 
 def test_contract_enforces_foreign_keys_not_null_and_shop_uniqueness(

@@ -411,7 +411,10 @@ class RentalService:
                 includes_lens_mount=data.get('includes_lens_mount', False),
                 photo_transfer=data.get('photo_transfer', False),
                 # 镜头组合（由 handler 层校验/补全后传入，handler 不传则使用 server_default）
-                lens_combo=data.get('lens_combo', 'lens_400mm')
+                lens_combo=data.get('lens_combo', 'lens_400mm'),
+                rental_package_id=data.get('rental_package_id'),
+                rental_package_name=data.get('rental_package_name'),
+                rental_package_items=data.get('rental_package_items'),
             )
 
             db.session.add(main_rental)
@@ -834,6 +837,8 @@ class RentalService:
                 'ship_in_tracking_no', 'order_amount', 'buyer_id',
                 'includes_handle', 'includes_lens_mount',
                 'photo_transfer', 'lens_combo', 'express_type_id',
+                'rental_package_id', 'rental_package_name',
+                'rental_package_items',
             ):
                 if field in data:
                     setattr(rental, field, data[field])

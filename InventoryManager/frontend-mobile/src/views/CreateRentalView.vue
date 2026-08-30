@@ -133,21 +133,21 @@
           </van-field>
         </van-cell-group>
 
-        <!-- 镜头组合 -->
-        <van-cell-group inset title="镜头组合" style="margin-top:12px">
+        <!-- 型号租赁组合 -->
+        <van-cell-group inset title="租赁组合" style="margin-top:12px">
           <van-field label="组合">
             <template #input>
-              <van-radio-group v-model="lensComboModel" direction="horizontal" class="combo-radio-group">
+              <van-radio-group v-model="rentalPackageModel" direction="horizontal" class="combo-radio-group">
                 <van-tag
-                  v-for="opt in allowedCombos"
-                  :key="opt"
-                  :type="lensComboModel === opt ? 'primary' : 'default'"
-                  :plain="lensComboModel !== opt"
+                  v-for="opt in allowedPackages"
+                  :key="opt.id"
+                  :type="rentalPackageModel === opt.id ? 'primary' : 'default'"
+                  :plain="rentalPackageModel !== opt.id"
                   size="medium"
                   class="combo-chip"
-                  @click="lensComboModel = opt"
+                  @click="rentalPackageModel = opt.id || ''"
                 >
-                  {{ comboLabel(opt) }}
+                  {{ opt.name }}
                 </van-tag>
               </van-radio-group>
             </template>
@@ -294,12 +294,10 @@ import {
   getLogisticsMismatch
 } from '@/utils/logisticsWarning'
 import {
-  getAllowedCombos,
-  getDefaultCombo,
-  isComboAllowed,
-  lensComboDisplay,
-  type LensCombo,
-} from '@/config/lensCombo'
+  getDefaultRentalPackageId,
+  getEnabledRentalPackages,
+  isRentalPackageAllowed,
+} from '@/config/rentalPackage'
 
 const router = useRouter()
 const route = useRoute()
@@ -324,7 +322,7 @@ const form = ref({
   phoneHolderId: null as number | null,
   tripodId: null as number | null,
   photoTransfer: false,
-  lensCombo: undefined as ('lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual' | undefined)
+  rentalPackageId: undefined as string | undefined,
 })
 
 const formRef = ref()
@@ -360,26 +358,25 @@ const endDateMin = computed(() => {
   return form.value.startDate ? new Date(form.value.startDate) : undefined
 })
 
-// 镜头组合：直接读取当前型号在型号库中的配置
+// 租赁组合：直接读取当前型号在型号库中的自由配置。
 const selectedModelConfig = computed<DeviceModel | null>(() => {
   if (!form.value.modelId) return null
   return deviceModels.value.find(dm => dm.id === form.value.modelId) || null
 })
-const allowedCombos = computed<LensCombo[]>(() => getAllowedCombos(selectedModelConfig.value))
-const lensComboModel = computed<LensCombo>({
+const allowedPackages = computed(() => getEnabledRentalPackages(selectedModelConfig.value))
+const rentalPackageModel = computed<string>({
   get: () => {
-    const v = form.value.lensCombo
-    if (v && isComboAllowed(selectedModelConfig.value, v)) return v as LensCombo
-    return getDefaultCombo(selectedModelConfig.value)
+    const value = form.value.rentalPackageId
+    if (value && isRentalPackageAllowed(selectedModelConfig.value, value)) return value
+    return getDefaultRentalPackageId(selectedModelConfig.value)
   },
-  set: (v: LensCombo) => { form.value.lensCombo = v }
+  set: (value: string) => { form.value.rentalPackageId = value }
 })
-const comboLabel = (v: LensCombo) => lensComboDisplay(v)
 
-// 机型切换 → 重置不合法的镜头组合
+// 机型切换 → 重置不属于新型号的组合。
 watch(selectedModelConfig, (newModel) => {
-  if (form.value.lensCombo && !isComboAllowed(newModel, form.value.lensCombo)) {
-    form.value.lensCombo = getDefaultCombo(newModel)
+  if (form.value.rentalPackageId && !isRentalPackageAllowed(newModel, form.value.rentalPackageId)) {
+    form.value.rentalPackageId = getDefaultRentalPackageId(newModel)
   }
 })
 
@@ -619,7 +616,7 @@ const onSubmit = async () => {
       includes_handle: form.value.bundledAccessories.includes('handle'),
       includes_lens_mount: form.value.bundledAccessories.includes('lens_mount'),
       photo_transfer: form.value.photoTransfer,
-      lens_combo: form.value.lensCombo,
+      rental_package_id: form.value.rentalPackageId,
       accessories: accessoriesArr
     }
 
