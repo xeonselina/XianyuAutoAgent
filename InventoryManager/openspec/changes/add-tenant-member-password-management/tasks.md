@@ -14,4 +14,4 @@
 ## 4. Verification and rollout
 - [x] 4.1 Add backend and frontend regression coverage for password creation, reset, policy, authorization, and secret-safe responses.
 - [x] 4.2 Run strict OpenSpec validation, focused/full tests, typecheck, build, and static checks.
-- [ ] 4.3 Commit and deploy the verified image, confirm production health, and update the local maintenance context without secrets.
+- [x] 4.3 Commit and deploy the verified image, confirm production health, and update the local maintenance context without secrets.
