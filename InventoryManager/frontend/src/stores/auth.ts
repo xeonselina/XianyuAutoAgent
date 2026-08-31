@@ -37,6 +37,7 @@ export const useAuthStore = defineStore('auth', () => {
   const authenticated = computed(() => member.value !== null && tenant.value !== null)
   const platformAuthenticated = computed(() => platformAdmin.value !== null)
   const accessStatus = computed(() => tenant.value?.access_status || null)
+  let tenantBootstrapPromise: Promise<boolean> | null = null
 
   const applyTenantSession = (
     data: TenantSessionData,
@@ -66,17 +67,26 @@ export const useAuthStore = defineStore('auth', () => {
 
   const bootstrap = async (): Promise<boolean> => {
     if (tenantBootstrapped.value) return authenticated.value
-    try {
-      const [session] = await Promise.all([
-        fetchTenantSession(),
-        loadAuthConfig(),
-      ])
-      if (!applyTenantSession(session)) return false
-    } catch (error) {
-      if (!isAxiosError(error) || error.response?.status !== 401) throw error
-      clearTenantSession()
+    if (!tenantBootstrapPromise) {
+      tenantBootstrapPromise = (async () => {
+        try {
+          const [session] = await Promise.all([
+            fetchTenantSession(),
+            loadAuthConfig(),
+          ])
+          if (!applyTenantSession(session)) return false
+        } catch (error) {
+          if (!isAxiosError(error) || error.response?.status !== 401) throw error
+          clearTenantSession()
+        }
+        return authenticated.value
+      })()
     }
-    return authenticated.value
+    try {
+      return await tenantBootstrapPromise
+    } finally {
+      tenantBootstrapPromise = null
+    }
   }
 
   const refreshTenantSession = async (): Promise<boolean> => {

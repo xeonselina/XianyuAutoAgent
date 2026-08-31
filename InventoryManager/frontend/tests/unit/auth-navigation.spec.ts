@@ -380,6 +380,22 @@ describe('tenant auth store and login form', () => {
     expect(sessionStorage.length).toBe(0)
   })
 
+  it('shares one tenant bootstrap request across concurrent route guards', async () => {
+    const pendingSession = deferred<ReturnType<typeof tenantData>>()
+    apiMocks.fetchTenantSession.mockReturnValue(pendingSession.promise)
+    const auth = useAuthStore()
+
+    const first = auth.bootstrap()
+    const second = auth.bootstrap()
+
+    expect(apiMocks.fetchTenantSession).toHaveBeenCalledOnce()
+    expect(apiMocks.fetchTenantAuthConfig).toHaveBeenCalledOnce()
+    pendingSession.resolve(tenantData())
+
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true])
+    expect(auth.csrfToken).toBe('tenant-csrf')
+  })
+
   it('fails closed and resets only tenant state when a different tenant session arrives', () => {
     const auth = useAuthStore()
     const tenant = useTenantStore()

@@ -132,6 +132,10 @@ import {
   formatLogisticsWarning,
   getLogisticsMismatch
 } from '@/utils/logisticsWarning'
+import {
+  getDefaultRentalPackageId,
+  isRentalPackageAllowed,
+} from '@/config/rentalPackage'
 
 // Components
 import RentalActionButtons from './RentalActionButtons.vue'
@@ -365,7 +369,10 @@ const handleSubmit = async () => {
     ElMessage.success('租赁记录更新成功')
     queuePendingSuccess({ rentalId: props.rental!.id })
   } catch (error: any) {
-    ElMessage.error('更新失败：' + (error.message || '未知错误'))
+    ElMessage.error(
+      '更新失败：'
+      + (error.response?.data?.message || error.message || '未知错误'),
+    )
   } finally {
     submitting.value = false
   }
@@ -387,6 +394,12 @@ const handleDeviceChange = async (deviceId: number) => {
 
   const selectedDevice = deviceManagement.devices.value.find(d => d.id === deviceId)
   if (!selectedDevice) return
+
+  const selectedModel = selectedDevice.device_model
+    || { name: selectedDevice.model }
+  if (!isRentalPackageAllowed(selectedModel, form.value.rentalPackageId)) {
+    form.value.rentalPackageId = getDefaultRentalPackageId(selectedModel)
+  }
 
   try {
     const shipOutTime = props.rental.ship_out_time || props.rental.start_date
@@ -411,6 +424,8 @@ const handleDeviceChange = async (deviceId: number) => {
       ).catch(() => {
         if (props.rental) {
           form.value.deviceId = props.rental.device_id
+          form.value.rentalPackageId = props.rental.rental_package_id
+            || undefined
         }
       })
     }

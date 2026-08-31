@@ -405,6 +405,7 @@ import {
 import {
   getDefaultRentalPackageId,
   getEnabledRentalPackages,
+  isRentalPackageAllowed,
 } from '@/config/rentalPackage'
 
 const router = useRouter()
@@ -671,6 +672,15 @@ const onDeviceConfirm = ({ selectedValues, selectedOptions }: any) => {
   if (newDeviceId !== form.value.deviceId) {
     form.value.deviceId = newDeviceId
     selectedDeviceName.value = selectedOptions[0]?.text ?? ''
+    const selectedDevice = allDevices.value.find(
+      device => device.id === newDeviceId
+    )
+    const selectedModel = selectedDevice?.device_model
+      || selectedDevice?.model
+      || null
+    if (!isRentalPackageAllowed(selectedModel, form.value.rentalPackageId)) {
+      form.value.rentalPackageId = getDefaultRentalPackageId(selectedModel)
+    }
     checkDeviceConflict()
   }
   showDevicePicker.value = false
@@ -834,7 +844,10 @@ const onSubmit = async () => {
     }
     savedRental.value = latestRental
   } catch (e: any) {
-    const errMsg = e.response?.data?.error || e.message || '保存失败'
+    const errMsg = e.response?.data?.message
+      || e.response?.data?.error
+      || e.message
+      || '保存失败'
     showToast({ message: errMsg, type: 'fail' })
   } finally {
     submitting.value = false

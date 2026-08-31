@@ -665,6 +665,83 @@ def test_model_rental_packages_are_arbitrary_and_rentals_keep_snapshots(
     assert edited["rental_package_items"][1]["name"] == "2X 增距镜"
 
 
+def test_switching_device_replaces_incompatible_carried_package_with_default(
+    client, app, warehouse_case
+):
+    with app.app_context():
+        source_model = db.session.get(
+            DeviceModel, warehouse_case["model"]
+        )
+        source_model.set_allowed_lens_combos_list(["lens_400mm"])
+        source_model.default_lens_combo = "lens_400mm"
+        source_model.set_rental_packages_list([{
+            "id": "legacy_lens_400mm",
+            "name": "400MM 镜头",
+            "is_active": True,
+            "items": [{"name": "400MM 镜头", "qty": 1}],
+        }])
+        source_model.default_rental_package_id = "legacy_lens_400mm"
+
+        target_model = DeviceModel(
+            name="outsourcing-device",
+            display_name="代发设备",
+            is_accessory=False,
+            is_active=True,
+        )
+        target_model.set_allowed_lens_combos_list(["bare"])
+        target_model.default_lens_combo = "bare"
+        target_model.set_rental_packages_list([{
+            "id": "outsourcing_default",
+            "name": "代发默认组合",
+            "is_active": True,
+            "items": [{"name": "代发主机", "qty": 1}],
+        }])
+        target_model.default_rental_package_id = "outsourcing_default"
+        db.session.add(target_model)
+        db.session.flush()
+        target_device = Device(
+            name="代发 01",
+            serial_number="OUTSOURCE-01",
+            model=target_model.name,
+            model_id=target_model.id,
+            is_accessory=False,
+            warehouse_id=warehouse_case["warehouse_a"],
+            lifecycle_status="active",
+        )
+        db.session.add(target_device)
+        db.session.commit()
+        target_device_id = target_device.id
+
+    created = client.post(
+        "/api/rentals",
+        json=_rental_payload(
+            warehouse_case,
+            rental_package_id="legacy_lens_400mm",
+        ),
+    )
+    assert created.status_code == 201
+    rental_id = created.get_json()["data"]["main_rental"]["id"]
+
+    switched = client.put(
+        f"/api/rentals/{rental_id}",
+        json={
+            "warehouse_id": warehouse_case["warehouse_a"],
+            "device_id": target_device_id,
+            # This is the unchanged package carried by the old editor.
+            "rental_package_id": "legacy_lens_400mm",
+        },
+    )
+
+    assert switched.status_code == 200, switched.get_json()
+    updated = switched.get_json()["data"]
+    assert updated["device_id"] == target_device_id
+    assert updated["rental_package_id"] == "outsourcing_default"
+    assert updated["rental_package_name"] == "代发默认组合"
+    assert updated["rental_package_items"] == [
+        {"name": "代发主机", "qty": 1}
+    ]
+
+
 def test_model_rental_package_validation_rejects_invalid_configuration(
     client, warehouse_case
 ):

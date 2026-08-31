@@ -441,6 +441,26 @@ class RentalHandlers:
                 package_error = _normalize_and_validate_rental_package(
                     package_payload, device_id_for_check
                 )
+                carried_existing_package = (
+                    data.get('rental_package_id')
+                    == rental.rental_package_id
+                    and data.get('lens_combo') in (None, rental.lens_combo)
+                )
+                if (
+                    package_error
+                    and device_changed
+                    and carried_existing_package
+                ):
+                    # The editor used to carry the old device's package into
+                    # the new model. Treat that unchanged value as implicit
+                    # and select the target model's default package.
+                    package_payload = {
+                        'rental_package_id': None,
+                        'lens_combo': None,
+                    }
+                    package_error = _normalize_and_validate_rental_package(
+                        package_payload, device_id_for_check
+                    )
                 if package_error:
                     return bad_request(package_error)
                 lens_error = _normalize_and_validate_lens_combo(
