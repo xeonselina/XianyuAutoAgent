@@ -342,6 +342,12 @@ def test_password_never_appears_in_xtrace_or_process_arguments(tmp_path):
     assert calls["sshpass"]
     assert all(call["argv"][0] == "-e" for call in calls["sshpass"])
     assert all(call["has_sshpass_environment"] for call in calls["sshpass"])
+    assert all(
+        "PubkeyAuthentication=no" in call["argv"]
+        and "PreferredAuthentications=keyboard-interactive,password" in call["argv"]
+        and "NumberOfPasswordPrompts=1" in call["argv"]
+        for call in calls["ssh"]
+    )
     assert not any(call["has_nas_pass_environment"] for call in calls["ssh"])
     assert not any(call["has_sudo_pass_environment"] for call in calls["ssh"])
     assert not any(call["has_nas_password_environment"] for call in calls["ssh"])

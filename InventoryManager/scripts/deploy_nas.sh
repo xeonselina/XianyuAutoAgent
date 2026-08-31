@@ -351,6 +351,13 @@ if [ -n "$SSH_KEY" ]; then
 fi
 if [ -n "$NAS_PASSWORD" ]; then
     command -v sshpass >/dev/null 2>&1 || die "NAS_PASS requires sshpass"
+    # Synology commonly exposes password login through keyboard-interactive.
+    # Disable public-key attempts so sshpass owns the first and only prompt.
+    SSH_ARGS+=(
+        -o PubkeyAuthentication=no
+        -o PreferredAuthentications=keyboard-interactive,password
+        -o NumberOfPasswordPrompts=1
+    )
     SSH_PREFIX=(sshpass -e)
 else
     SSH_PREFIX=()
