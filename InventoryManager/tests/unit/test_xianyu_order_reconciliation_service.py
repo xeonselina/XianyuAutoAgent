@@ -231,11 +231,11 @@ def test_reconcile_filters_amount_and_existing_rentals(
     db_session.add(make_rental(device.id, " RECORDED "))
     db_session.commit()
     service = XianyuOrderReconciliationService(service=Mock(
-        list_orders=lambda: [
+        list_orders=lambda order_status=12: [
             make_order("LOW", 5000),
             make_order("MISSING", 5001),
             make_order("RECORDED", 9000),
-        ],
+        ] if order_status == 12 else [],
     ))
 
     result = service.reconcile()
@@ -244,6 +244,29 @@ def test_reconcile_filters_amount_and_existing_rentals(
         row["order_no"] for row in result["alerts"]
     ] == ["MISSING"]
     assert result["count"] == 1
+
+
+def test_reconcile_combines_status_12_and_21(db_session):
+    from app.services.xianyu_order_reconciliation_service import (
+        XianyuOrderReconciliationService,
+    )
+
+    calls = []
+
+    def list_orders(order_status=12):
+        calls.append(order_status)
+        order = make_order(f"MISSING-{order_status}", 8000)
+        order["order_status"] = order_status
+        return [order]
+
+    result = XianyuOrderReconciliationService(
+        service=Mock(list_orders=list_orders),
+    ).reconcile()
+
+    assert calls == [12, 21]
+    assert {
+        row["order_no"] for row in result["alerts"]
+    } == {"MISSING-12", "MISSING-21"}
 
 
 def test_reconcile_does_not_filter_refund_status(
@@ -256,7 +279,9 @@ def test_reconcile_does_not_filter_refund_status(
     )
 
     service = XianyuOrderReconciliationService(service=Mock(
-        list_orders=lambda: [make_order("REFUNDING", 8000, refund_status=5)]))
+        list_orders=lambda order_status=12: [
+            make_order("REFUNDING", 8000, refund_status=5)
+        ] if order_status == 12 else []))
 
     result = service.reconcile()
 
@@ -277,7 +302,9 @@ def test_ignore_is_permanent_across_reconciliation(
     )
 
     service = XianyuOrderReconciliationService(service=Mock(
-        list_orders=lambda: [make_order("IGNORE-ME", 8000)]))
+        list_orders=lambda order_status=12: [
+            make_order("IGNORE-ME", 8000)
+        ] if order_status == 12 else []))
     shop_id = db_session.query(XianyuShop.id).scalar()
 
     assert service.reconcile()["count"] == 1
@@ -328,11 +355,35 @@ def test_failed_reconcile_keeps_existing_cache(
         )
     )
     db_session.commit()
-    def fail():
+    def fail(order_status=12):
         raise XianyuOrderServiceError("timeout")
     service = XianyuOrderReconciliationService(service=Mock(list_orders=fail))
 
     result = service.reconcile()
+
+    assert [row["order_no"] for row in result["alerts"]] == ["OLD"]
+    assert result["sync"]["last_error"] == "闲鱼订单查询失败"
+
+
+def test_second_status_failure_keeps_existing_cache(db_session):
+    from app.services.xianyu_order_reconciliation_service import (
+        XianyuOrderReconciliationService,
+    )
+    from app.services.xianyu_order_service import XianyuOrderServiceError
+
+    db_session.add(
+        make_alert(order_no="OLD", state="pending", pay_amount=6000)
+    )
+    db_session.commit()
+
+    def list_orders(order_status=12):
+        if order_status == 21:
+            raise XianyuOrderServiceError("status 21 timeout")
+        return [make_order("NEW", 8000)]
+
+    result = XianyuOrderReconciliationService(
+        service=Mock(list_orders=list_orders),
+    ).reconcile()
 
     assert [row["order_no"] for row in result["alerts"]] == ["OLD"]
     assert result["sync"]["last_error"] == "闲鱼订单查询失败"
@@ -358,7 +409,7 @@ def test_unexpected_reconcile_error_does_not_persist_or_log_pii(
     db_session.commit()
     sensitive_value = "13800138000"
 
-    def fail():
+    def fail(order_status=12):
         raise RuntimeError(f"SQL bind receiver_mobile={sensitive_value}")
 
     service = XianyuOrderReconciliationService(service=Mock(list_orders=fail))
@@ -413,7 +464,26 @@ def test_snapshot_uses_first_shop_state_and_never_legacy_sync_table(
         "last_attempt_at": None,
         "last_success_at": "2026-08-25T08:00:00Z",
         "last_error": "shop error",
+        "is_stale": True,
+        "stale_after_seconds": 600,
     }
+
+
+def test_snapshot_marks_recent_success_as_fresh(db_session):
+    from app.models.xianyu_shop import XianyuShop
+    from app.services.xianyu_order_reconciliation_service import (
+        XianyuOrderReconciliationService,
+    )
+
+    shop = XianyuShop.query.first()
+    shop.last_success_at = datetime.utcnow()
+    shop.last_error = None
+    db_session.commit()
+
+    sync = XianyuOrderReconciliationService().get_snapshot()["sync"]
+
+    assert sync["is_stale"] is False
+    assert sync["stale_after_seconds"] == 600
 
 
 def test_snapshot_and_ignore_use_compound_shop_order_identity(
@@ -472,7 +542,7 @@ def test_failed_explicit_shop_reconcile_preserves_cache_and_success(
     db_session.commit()
 
     class FailedClient:
-        def list_orders(self):
+        def list_orders(self, order_status=12):
             raise XianyuOrderServiceError("secret upstream body")
 
     result = XianyuOrderReconciliationService(

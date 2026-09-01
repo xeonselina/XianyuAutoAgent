@@ -13,6 +13,7 @@ const emptySnapshot = (): XianyuOrderAlertSnapshot => ({
     last_attempt_at: null,
     last_success_at: null,
     last_error: null,
+    is_stale: false,
   },
 })
 
@@ -93,6 +94,18 @@ export function useXianyuOrderAlerts() {
     }
   }
 
+  const refresh = async () => {
+    try {
+      await enqueueMutation(async () => {
+        applyResponse(await axios.post('/api/xianyu-order-alerts/refresh'))
+      })
+    } catch (error: any) {
+      ElMessage.error(
+        error.response?.data?.message || '刷新漏录订单失败',
+      )
+    }
+  }
+
   const startPolling = (intervalMs = 60_000) => {
     if (pollingTimer) return
     pollingTimer = setInterval(() => {
@@ -112,6 +125,7 @@ export function useXianyuOrderAlerts() {
     snapshot,
     loading,
     load,
+    refresh,
     ignore,
     startPolling,
     stopPolling,

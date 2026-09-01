@@ -12,6 +12,13 @@
 
       <div class="alert-actions">
         <el-button
+          data-testid="refresh-alerts"
+          :loading="loading"
+          @click="$emit('refresh')"
+        >
+          立即检查
+        </el-button>
+        <el-button
           v-if="snapshot.count > 0"
           data-testid="toggle-alerts"
           @click="expanded = !expanded"
@@ -76,14 +83,27 @@ const props = defineProps<{
 const emit = defineEmits<{
   book: [payload: { orderNo: string; shopId: number; shopName: string }]
   ignore: [payload: { shopId: number; orderNo: string; reason: string }]
+  refresh: []
 }>()
 
 const expanded = ref(false)
 
-const visible = computed(() => props.snapshot.count > 0)
+const syncNeedsAttention = computed(() => (
+  Boolean(props.snapshot.sync.last_error)
+  || props.snapshot.sync.is_stale === true
+))
+
+const visible = computed(() => (
+  props.snapshot.count > 0 || syncNeedsAttention.value
+))
 
 const headline = computed(() => {
-  return `发现 ${props.snapshot.count} 笔待发货订单尚未录入库存管理`
+  if (props.snapshot.count === 0) {
+    return props.snapshot.sync.last_error
+      ? '未录单检查失败'
+      : '未录单检查长时间未更新'
+  }
+  return `发现 ${props.snapshot.count} 笔闲鱼订单尚未录入库存管理`
 })
 
 const statusText = computed(() => {
@@ -96,6 +116,11 @@ const statusText = computed(() => {
   }
   if (props.loading || props.snapshot.refreshing) {
     return '正在刷新'
+  }
+  if (sync.is_stale) {
+    return sync.last_success_at
+      ? `最近成功：${formatTime(sync.last_success_at)}；请立即检查`
+      : '尚无成功检查记录；请立即检查'
   }
   return ''
 })

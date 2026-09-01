@@ -18,6 +18,8 @@ export interface XianyuOrderAlertSync {
   last_attempt_at?: string | null
   last_success_at?: string | null
   last_error?: string | null
+  is_stale?: boolean
+  stale_after_seconds?: number
 }
 
 export interface XianyuOrderAlertSnapshot {

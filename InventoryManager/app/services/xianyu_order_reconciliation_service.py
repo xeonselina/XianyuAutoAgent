@@ -27,6 +27,9 @@ class XianyuOrderReconciliationService:
     """维护可信的漏录订单缓存。"""
 
     MIN_PAY_AMOUNT = 5000
+    RECONCILE_ORDER_STATUSES = (12, 21)
+    SYNC_STALE_AFTER_SECONDS = 10 * 60
+
     def __init__(self, service_factory=None, service=None, lock_path=None):
         self.service_factory = service_factory
         self.service = service
@@ -48,6 +51,16 @@ class XianyuOrderReconciliationService:
             if pay_amount > self.MIN_PAY_AMOUNT:
                 eligible[order_no] = order
         return eligible
+
+    def _list_reconcilable_orders(self, client):
+        """Fetch every actionable Xianyu status and de-duplicate transitions."""
+        orders_by_number = {}
+        for order_status in self.RECONCILE_ORDER_STATUSES:
+            for order in client.list_orders(order_status=order_status):
+                order_no = self._normalize_order_no(order.get("order_no"))
+                if order_no:
+                    orders_by_number[order_no] = order
+        return list(orders_by_number.values())
 
     @staticmethod
     def _lock_name(database, shop_id):
@@ -193,6 +206,12 @@ class XianyuOrderReconciliationService:
         sync_shop = selected[0] if shop_id is not None else None
         aggregate_success = min((shop.last_success_at for shop in active), default=None) \
             if active and all(shop.last_success_at for shop in active) else None
+        sync_success = sync_shop.last_success_at if sync_shop else aggregate_success
+        sync_is_stale = (
+            sync_success is None
+            or (datetime.utcnow() - sync_success).total_seconds()
+            > self.SYNC_STALE_AFTER_SECONDS
+        )
         sync = {
             "last_attempt_at": None,
             "last_success_at": sync_shop.to_dict()["last_success_at"] if sync_shop else next(
@@ -201,6 +220,8 @@ class XianyuOrderReconciliationService:
             "last_error": sync_shop.last_error if sync_shop else next(
                 (shop.last_error for shop in active if shop.last_error), None
             ),
+            "is_stale": sync_is_stale,
+            "stale_after_seconds": self.SYNC_STALE_AFTER_SECONDS,
         }
         return {
             "alerts": alerts,
@@ -226,7 +247,8 @@ class XianyuOrderReconciliationService:
             client = self.service_factory(shop) if self.service_factory else (
                 self.service or IntegrationResolver(session=session).xianyu_for_shop(shop)
             )
-            eligible = self._eligible_orders(client.list_orders())
+            orders = self._list_reconcilable_orders(client)
+            eligible = self._eligible_orders(orders)
             existing = self._existing_rental_order_numbers(shop.id, session)
             ignored = {
                 order_no
@@ -248,6 +270,14 @@ class XianyuOrderReconciliationService:
             shop.last_success_at = now
             shop.last_error = None
             session.commit()
+            logger.info(
+                "闲鱼漏录订单对账成功，店铺ID: %s，接口订单: %s，"
+                "符合条件: %s，待补录: %s",
+                shop.id,
+                len(orders),
+                len(eligible),
+                len(pending),
+            )
         except XianyuOrderServiceError:
             session.rollback()
             logger.error("闲鱼漏录订单对账失败，类型: XianyuOrderServiceError")

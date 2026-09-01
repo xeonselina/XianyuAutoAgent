@@ -36,6 +36,7 @@ const makeSnapshot = (
     last_attempt_at: '2026-07-24T02:00:00Z',
     last_success_at: '2026-07-24T02:00:00Z',
     last_error: null,
+    is_stale: false,
   },
 })
 
@@ -84,6 +85,20 @@ describe('useXianyuOrderAlerts', () => {
     expect(axios.get).not.toHaveBeenCalled()
     pendingPost.resolve(response(makeSnapshot()))
     await mutation
+  })
+
+  it('runs an immediate reconciliation and applies its snapshot', async () => {
+    vi.mocked(axios.post).mockResolvedValueOnce(
+      response(makeSnapshot('XY-REFRESH')),
+    )
+    const alerts = useXianyuOrderAlerts()
+
+    await alerts.refresh()
+
+    expect(axios.post).toHaveBeenCalledWith(
+      '/api/xianyu-order-alerts/refresh',
+    )
+    expect(alerts.snapshot.value.alerts[0]?.order_no).toBe('XY-REFRESH')
   })
 
 })

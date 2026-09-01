@@ -95,6 +95,7 @@
       :loading="xianyuAlertsLoading"
       @book="startMissingOrderBooking"
       @ignore="handleIgnoreXianyuAlert"
+      @refresh="refreshXianyuAlerts"
     />
 
     <PendingReturnsDrawer
@@ -355,6 +356,7 @@ const {
   snapshot: xianyuAlertSnapshot,
   loading: xianyuAlertsLoading,
   load: loadXianyuAlerts,
+  refresh: refreshXianyuAlerts,
   ignore: ignoreXianyuAlert,
   startPolling: startXianyuAlertPolling,
   stopPolling: stopXianyuAlertPolling

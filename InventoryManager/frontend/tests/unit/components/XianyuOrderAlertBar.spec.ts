@@ -28,6 +28,8 @@ const makeSnapshot = (
     last_attempt_at: '2026-07-24T10:01:00',
     last_success_at: '2026-07-24T10:01:00',
     last_error: null,
+    is_stale: false,
+    stale_after_seconds: 600,
   },
 })
 
@@ -54,7 +56,7 @@ describe('XianyuOrderAlertBar', () => {
     const wrapper = mountBar(makeSnapshot())
 
     expect(wrapper.text()).toContain(
-      '发现 1 笔待发货订单尚未录入库存管理',
+      '发现 1 笔闲鱼订单尚未录入库存管理',
     )
     await wrapper.get('[data-testid="toggle-alerts"]').trigger('click')
 
@@ -78,16 +80,31 @@ describe('XianyuOrderAlertBar', () => {
     ).toBe(false)
   })
 
-  it('hides sync failures when there are no orders that need attention', () => {
+  it('shows sync failures even when no orders are cached', () => {
     const failed = makeSnapshot()
     failed.alerts = []
     failed.count = 0
     failed.sync.last_success_at = null
     failed.sync.last_error = '请求超时'
 
-    expect(
-      mountBar(failed).find('[data-testid="xianyu-order-alert-bar"]').exists(),
-    ).toBe(false)
+    const wrapper = mountBar(failed)
+
+    expect(wrapper.find('[data-testid="xianyu-order-alert-bar"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('未录单检查失败')
+    expect(wrapper.text()).toContain('请求超时')
+  })
+
+  it('shows a stale worker warning and allows an immediate check', async () => {
+    const stale = makeSnapshot()
+    stale.alerts = []
+    stale.count = 0
+    stale.sync.is_stale = true
+
+    const wrapper = mountBar(stale)
+
+    expect(wrapper.text()).toContain('未录单检查长时间未更新')
+    await wrapper.get('[data-testid="refresh-alerts"]').trigger('click')
+    expect(wrapper.emitted('refresh')).toEqual([[]])
   })
 
   it('requires a reason and confirmation before emitting permanent ignore', async () => {
