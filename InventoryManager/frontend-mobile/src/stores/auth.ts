@@ -68,6 +68,13 @@ export const useMobileAuthStore = defineStore('mobile-auth', () => {
     }
   }
 
+  const refreshSession = async (): Promise<string | null> => {
+    const response = await axios.get<SessionEnvelope>('/auth/me')
+    const data = response.data.data
+    if (!data || !applySession(data)) return null
+    return data.csrf_token
+  }
+
   const logoutToDesktopLogin = async (
     mobileNext: string,
     replaceDocument: (url: string) => void = (url) => window.location.replace(url),
@@ -94,6 +101,7 @@ export const useMobileAuthStore = defineStore('mobile-auth', () => {
     bootstrap,
     clearSession,
     logoutToDesktopLogin,
+    refreshSession,
     session,
   }
 })

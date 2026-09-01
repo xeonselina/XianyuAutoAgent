@@ -230,8 +230,7 @@ def test_scheduled_shipping_isolates_each_main_rental_and_children(
             return {"success": mode == "success"}
 
         monkeypatch.setattr(xianyu_module, "get_xianyu_service", lambda **_kwargs: SimpleNamespace(ship_order=ship_order))
-        monkeypatch.setattr("app.utils.scheduler_tasks.datetime", SimpleNamespace(utcnow=lambda: NOW))
-        process_scheduled_shipments_for_current_tenant()
+        process_scheduled_shipments_for_current_tenant(now=NOW)
         db.session.expire_all()
 
         rows = [db.session.get(Rental, row.id) for row in (main, child, offline)]
@@ -239,6 +238,42 @@ def test_scheduled_shipping_isolates_each_main_rental_and_children(
         expected_times = [NOW, NOW] if expected == "shipped" else [None, None]
         assert [row.ship_out_time for row in rows[:2]] == expected_times
         assert calls == ([] if mode == "no-shop" else [main.id])
+
+
+def test_scheduled_shipping_compares_china_local_wall_time(business_app):
+    from app.utils.scheduler_tasks import (
+        process_scheduled_shipments_for_current_tenant,
+    )
+
+    with business_app.app_context():
+        warehouse = Warehouse(province="浙", city="杭", name="仓")
+        device = Device(name="代发01", model="x300u", warehouse=warehouse)
+        rental = Rental(
+            device=device,
+            warehouse=warehouse,
+            start_date=date(2026, 9, 3),
+            end_date=date(2026, 9, 5),
+            customer_name="A",
+            status="scheduled_for_shipping",
+            scheduled_ship_time=datetime(2026, 9, 2, 10, 30),
+            ship_out_tracking_no="SF1",
+        )
+        db.session.add(rental)
+        db.session.commit()
+
+        process_scheduled_shipments_for_current_tenant(
+            now=datetime(2026, 9, 2, 10, 29, 59),
+        )
+        assert db.session.get(Rental, rental.id).status == (
+            "scheduled_for_shipping"
+        )
+
+        process_scheduled_shipments_for_current_tenant(
+            now=datetime(2026, 9, 2, 10, 30),
+        )
+        saved = db.session.get(Rental, rental.id)
+        assert saved.status == "shipped"
+        assert saved.ship_out_time == datetime(2026, 9, 2, 10, 30)
 
 
 def test_shop_reconciliation_orders_active_shops_and_continues(business_app, monkeypatch):

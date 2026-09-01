@@ -198,6 +198,7 @@ export const useAuthStore = defineStore('auth', () => {
     platformCsrfToken,
     requestCode,
     refreshTenantSession,
+    clearTenantSession,
     setAuthMethod,
     tenant,
     updatePassword,

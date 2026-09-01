@@ -26,6 +26,7 @@ from app.services.shipping.waybill_print_service import (
     sf_client_order_id_for,
     validate_shipping_preflight,
 )
+from app.utils.business_time import parse_business_datetime
 
 
 class ShippingBatchHandlers:
@@ -45,8 +46,8 @@ class ShippingBatchHandlers:
 
             # 解析预约时间
             try:
-                scheduled_time = datetime.fromisoformat(scheduled_time_str.replace('Z', '+00:00'))
-            except ValueError:
+                scheduled_time = parse_business_datetime(scheduled_time_str)
+            except (AttributeError, TypeError, ValueError):
                 return bad_request('时间格式无效，请使用ISO格式')
 
             # 查询租赁记录
