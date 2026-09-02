@@ -238,6 +238,8 @@ def test_gantt_data_statistics_and_slot_are_warehouse_scoped(
         _create_existing_rental(warehouse_case, "warehouse_b")
         start_date = rental_a.start_date.isoformat()
         end_date = rental_a.end_date.isoformat()
+        ship_out_date = rental_a.ship_out_time.date()
+        ship_in_date = rental_a.ship_in_time.date()
         rental_a_id = rental_a.id
 
     gantt = client.get(
@@ -273,6 +275,36 @@ def test_gantt_data_statistics_and_slot_are_warehouse_scoped(
         },
     )
     assert stats.get_json()["data"]["available_count"] == 1
+
+    range_start = ship_out_date - timedelta(days=1)
+    range_end = ship_in_date + timedelta(days=1)
+    range_stats = client.get(
+        "/api/gantt/daily-stats",
+        query_string={
+            "start_date": range_start.isoformat(),
+            "end_date": range_end.isoformat(),
+            "warehouse_id": warehouse_case["warehouse_a"],
+        },
+    )
+    range_data = range_stats.get_json()["data"]
+    assert range_stats.status_code == 200
+    assert range_data["start_date"] == range_start.isoformat()
+    assert range_data["end_date"] == range_end.isoformat()
+    assert range_data["stats"][range_start.isoformat()][
+        "available_count"
+    ] == 1
+    assert range_data["stats"][ship_out_date.isoformat()] == {
+        "date": ship_out_date.isoformat(),
+        "available_count": 0,
+        "ship_out_count": 1,
+        "accessory_ship_out_count": 0,
+    }
+    assert range_data["stats"][ship_in_date.isoformat()][
+        "available_count"
+    ] == 0
+    assert range_data["stats"][range_end.isoformat()][
+        "available_count"
+    ] == 1
 
     slot = client.post(
         "/api/rentals/find-slot",

@@ -106,7 +106,11 @@ describe('GanttChart rental confirmation flow', () => {
     axiosGet.mockImplementation((url: string) => Promise.resolve({
       data: {
         success: true,
-        data: url === '/api/xianyu-order-alerts' ? alertSnapshot : [],
+        data: url === '/api/xianyu-order-alerts'
+          ? alertSnapshot
+          : url === '/api/gantt/daily-stats'
+            ? { stats: {} }
+            : [],
       },
     }))
     axiosPost.mockResolvedValue({
@@ -119,9 +123,30 @@ describe('GanttChart rental confirmation flow', () => {
   afterEach(() => {
     wrapper?.unmount()
     wrapper = undefined
+    vi.useRealTimers()
     vi.restoreAllMocks()
     axiosGet.mockReset()
     axiosPost.mockReset()
+  })
+
+  it('每次统计加载只请求一次可见日期范围', async () => {
+    vi.useFakeTimers()
+    await mountGantt()
+
+    await vi.advanceTimersByTimeAsync(301)
+    await flushPromises()
+
+    const statsCalls = axiosGet.mock.calls.filter(
+      ([url]) => url === '/api/gantt/daily-stats',
+    )
+    expect(statsCalls).toHaveLength(1)
+    expect(statsCalls[0][1]).toEqual({
+      params: expect.objectContaining({
+        start_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+        end_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      }),
+    })
+    expect(statsCalls[0][1].params).not.toHaveProperty('date')
   })
 
   it('漏录告警打开同一个预定弹框并传入订单号', async () => {

@@ -117,17 +117,16 @@ const fetchDailyStats = async () => {
     const warehouseId = tenantStore.currentWarehouseId
     const start = dayjs(windowStart.value)
     const dates = Array.from({ length: DAYS }, (_, i) => start.add(i, 'day').format('YYYY-MM-DD'))
-    const results = await Promise.allSettled(
-      dates.map(date => axios.get('/api/gantt/daily-stats', {
-        params: { date, warehouse_id: warehouseId },
-      }))
-    )
-    const stats: typeof dailyStats.value = {}
-    results.forEach((result, i) => {
-      if (result.status === 'fulfilled' && result.value.data?.success) {
-        stats[dates[i]] = result.value.data.data
-      }
+    const response = await axios.get('/api/gantt/daily-stats', {
+      params: {
+        start_date: dates[0],
+        end_date: dates[dates.length - 1],
+        warehouse_id: warehouseId,
+      },
     })
+    const stats: typeof dailyStats.value = response.data?.success
+      ? response.data.data?.stats || {}
+      : {}
     if (
       requestGeneration === statsGeneration
       && warehouseId === tenantStore.currentWarehouseId

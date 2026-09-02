@@ -62,15 +62,26 @@ class GanttHandlers:
         try:
             # 获取查询参数
             date_str = request.args.get('date')
+            start_date_str = request.args.get('start_date')
+            end_date_str = request.args.get('end_date')
             device_model = request.args.get('device_model')
             warehouse_id = resolve_read_warehouse_id(
                 request.args.get('warehouse_id')
             )
 
-            # 调用服务层获取每日统计
-            daily_stats = GanttService.get_daily_statistics(
-                date_str, device_model, warehouse_id
-            )
+            if start_date_str is not None or end_date_str is not None:
+                if not start_date_str or not end_date_str:
+                    raise ValueError('必须同时提供start_date和end_date')
+                daily_stats = GanttService.get_daily_statistics_range(
+                    start_date_str,
+                    end_date_str,
+                    device_model,
+                    warehouse_id,
+                )
+            else:
+                daily_stats = GanttService.get_daily_statistics(
+                    date_str, device_model, warehouse_id
+                )
             return success(data=daily_stats)
 
         except ValueError as e:

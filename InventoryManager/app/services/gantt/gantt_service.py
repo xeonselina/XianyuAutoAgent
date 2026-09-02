@@ -4,6 +4,7 @@
 
 from datetime import datetime, date, timedelta
 from flask import current_app
+from sqlalchemy.orm import aliased
 from app import db
 from app.models.rental import Rental
 from app.models.device import Device
@@ -14,6 +15,9 @@ from app.utils.date_utils import (
     convert_dates_to_datetime,
 )
 from app.models.device_model import DeviceModel
+
+
+MAX_DAILY_STATS_RANGE_DAYS = 366
 
 
 class GanttService:
@@ -170,87 +174,177 @@ class GanttService:
         Returns:
             dict: 包含空闲设备数、待寄出数等统计信息
         """
+        target_date = date_str or date.today().isoformat()
+        result = GanttService.get_daily_statistics_range(
+            target_date,
+            target_date,
+            device_model,
+            warehouse_id,
+        )
+        return result['stats'][result['start_date']]
+
+    @staticmethod
+    def get_daily_statistics_range(
+        start_date_str, end_date_str, device_model=None, warehouse_id=None
+    ) -> dict:
+        """批量获取日期范围内的每日统计。
+
+        一次加载设备、占用记录和寄出记录，避免甘特图按天
+        请求时产生大量 HTTP 请求和重复数据库查询。
+        """
         try:
-            # 解析目标日期
-            if date_str:
-                try:
-                    target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-                except ValueError:
-                    raise ValueError('日期格式错误，请使用YYYY-MM-DD格式')
-            else:
-                target_date = date.today()
-
-            # 计算指定日期空闲设备数量
-            target_start = datetime.combine(target_date, datetime.min.time())
-            target_end = datetime.combine(target_date, datetime.max.time())
-
-            # 查询在目标日期这一天不被任何租赁物流时间占用的设备
-            available_devices = InventoryService.get_available_devices(
-                target_start, target_end, warehouse_id
+            start_date, end_date = parse_date_strings(
+                start_date_str, end_date_str
             )
-
-            # 如果指定了设备型号，筛选对应型号的设备
-            if device_model:
-                model_obj = DeviceModel.query.filter_by(display_name=device_model).first()
-                if model_obj:
-                    available_devices = [dev for dev in available_devices if dev.model_id == model_obj.id]
-                    current_app.logger.debug(f"筛选型号{device_model}(id={model_obj.id})后的可用设备数量: {len(available_devices)}")
-                else:
-                    available_devices = []
-                    current_app.logger.debug(f"未找到设备型号{device_model}")
-
-            available_count = len(available_devices)
-
-            # 计算待寄出设备数量
-            rentals_query = Rental.query.filter(
-                db.and_(
-                    Rental.ship_out_time.isnot(None),
-                    Rental.status.in_(['not_shipped', 'scheduled_for_shipping'])
+            if start_date > end_date:
+                raise ValueError('开始日期必须早于结束日期')
+            if (end_date - start_date).days + 1 > MAX_DAILY_STATS_RANGE_DAYS:
+                raise ValueError(
+                    f'日期范围不能超过{MAX_DAILY_STATS_RANGE_DAYS}天'
                 )
-            )
-            if isinstance(warehouse_id, int):
-                rentals_query = rentals_query.filter(
-                    Rental.warehouse_id == warehouse_id
-                )
-            rentals_with_ship_out = rentals_query.all()
 
-            main_device_ship_out_count = 0
-            accessory_ship_out_count = 0
-
-            for rental in rentals_with_ship_out:
-                if rental.ship_out_time:
-                    rental_ship_date = rental.ship_out_time.date()
-                    if rental_ship_date == target_date:
-                        # 根据设备类型分别统计
-                        if rental.device and rental.device.is_accessory:
-                            if device_model and rental.parent_rental_id:
-                                parent_rental = Rental.query.get(rental.parent_rental_id)
-                                if parent_rental and parent_rental.device:
-                                    if parent_rental.device.device_model and \
-                                       parent_rental.device.device_model.display_name != device_model:
-                                        continue
-                            accessory_ship_out_count += 1
-                            current_app.logger.debug(f"附件租赁{rental.id}在{target_date}寄出")
-                        else:
-                            if device_model and rental.device:
-                                if rental.device.device_model and \
-                                   rental.device.device_model.display_name != device_model:
-                                    continue
-                            main_device_ship_out_count += 1
-                            current_app.logger.debug(f"主设备租赁{rental.id}在{target_date}寄出")
-
-            current_app.logger.debug(
-                f"日期{target_date}统计结果(型号筛选:{device_model}): "
-                f"空闲={available_count}, 主设备寄出={main_device_ship_out_count}, 附件寄出={accessory_ship_out_count}"
-            )
-
-            return {
-                'date': target_date.isoformat(),
-                'available_count': available_count,
-                'ship_out_count': main_device_ship_out_count,
-                'accessory_ship_out_count': accessory_ship_out_count
+            dates = [
+                start_date + timedelta(days=offset)
+                for offset in range((end_date - start_date).days + 1)
+            ]
+            stats = {
+                target_date.isoformat(): {
+                    'date': target_date.isoformat(),
+                    'available_count': 0,
+                    'ship_out_count': 0,
+                    'accessory_ship_out_count': 0,
+                }
+                for target_date in dates
             }
 
+            model_obj = None
+            if device_model:
+                model_obj = DeviceModel.query.filter_by(
+                    display_name=device_model
+                ).first()
+
+            eligible_device_ids = set()
+            if not device_model or model_obj is not None:
+                devices_query = Device.in_service_query(is_accessory=False)
+                if isinstance(warehouse_id, int):
+                    devices_query = devices_query.filter(
+                        Device.warehouse_id == warehouse_id
+                    )
+                if model_obj is not None:
+                    devices_query = devices_query.filter(
+                        Device.model_id == model_obj.id
+                    )
+                eligible_device_ids = {
+                    device_id
+                    for (device_id,) in devices_query.with_entities(
+                        Device.id
+                    ).all()
+                }
+            for day_stats in stats.values():
+                day_stats['available_count'] = len(eligible_device_ids)
+
+            range_start = datetime.combine(
+                start_date, datetime.min.time()
+            )
+            range_end = datetime.combine(end_date, datetime.max.time())
+
+            occupancy_rows = []
+            if eligible_device_ids:
+                occupancy_rows = Rental.query.with_entities(
+                    Rental.device_id,
+                    Rental.ship_out_time,
+                    Rental.ship_in_time,
+                ).filter(
+                    Rental.device_id.in_(eligible_device_ids),
+                    Rental.status.in_([
+                        'not_shipped',
+                        'scheduled_for_shipping',
+                        'shipped',
+                        'returned',
+                    ]),
+                    Rental.ship_out_time.isnot(None),
+                    Rental.ship_in_time.isnot(None),
+                    Rental.ship_out_time < range_end,
+                    Rental.ship_in_time > range_start,
+                ).all()
+
+            for target_date in dates:
+                target_start = datetime.combine(
+                    target_date, datetime.min.time()
+                )
+                target_end = datetime.combine(
+                    target_date, datetime.max.time()
+                )
+                occupied_device_ids = {
+                    row.device_id
+                    for row in occupancy_rows
+                    if row.ship_out_time < target_end
+                    and row.ship_in_time > target_start
+                }
+                stats[target_date.isoformat()]['available_count'] -= len(
+                    occupied_device_ids
+                )
+
+            parent_rental = aliased(Rental)
+            parent_device = aliased(Device)
+            current_model = aliased(DeviceModel)
+            parent_model = aliased(DeviceModel)
+            shipment_rows = db.session.query(
+                Rental.ship_out_time.label('ship_out_time'),
+                Device.is_accessory.label('is_accessory'),
+                current_model.display_name.label('device_model_name'),
+                Rental.parent_rental_id.label('parent_rental_id'),
+                parent_model.display_name.label('parent_model_name'),
+            ).join(
+                Device, Rental.device_id == Device.id
+            ).outerjoin(
+                current_model, Device.model_id == current_model.id
+            ).outerjoin(
+                parent_rental, Rental.parent_rental_id == parent_rental.id
+            ).outerjoin(
+                parent_device,
+                parent_rental.device_id == parent_device.id,
+            ).outerjoin(
+                parent_model,
+                parent_device.model_id == parent_model.id,
+            ).filter(
+                Rental.ship_out_time.isnot(None),
+                Rental.status.in_([
+                    'not_shipped', 'scheduled_for_shipping'
+                ]),
+                Rental.ship_out_time >= range_start,
+                Rental.ship_out_time <= range_end,
+            )
+            if isinstance(warehouse_id, int):
+                shipment_rows = shipment_rows.filter(
+                    Rental.warehouse_id == warehouse_id
+                )
+
+            for row in shipment_rows.all():
+                if row.is_accessory:
+                    if (
+                        device_model
+                        and row.parent_rental_id
+                        and row.parent_model_name
+                        and row.parent_model_name != device_model
+                    ):
+                        continue
+                    key = 'accessory_ship_out_count'
+                else:
+                    if (
+                        device_model
+                        and row.device_model_name
+                        and row.device_model_name != device_model
+                    ):
+                        continue
+                    key = 'ship_out_count'
+                stats[row.ship_out_time.date().isoformat()][key] += 1
+
+            return {
+                'start_date': start_date.isoformat(),
+                'end_date': end_date.isoformat(),
+                'stats': stats,
+            }
         except Exception as e:
             current_app.logger.error(f"获取每日统计失败: {e}")
             raise

@@ -847,43 +847,22 @@ const loadDailyStats = async () => {
         return
       }
 
-      const stats = await Promise.all(
-        dateArray.value.map(async (date) => {
-          const dateStr = toSystemDateString(date)
-          const params: any = { date: dateStr }
-          params.warehouse_id = warehouseId
+      const params: Record<string, string | number> = {
+        start_date: toSystemDateString(dateArray.value[0]),
+        end_date: toSystemDateString(dateArray.value[dateArray.value.length - 1]),
+        warehouse_id: warehouseId,
+      }
+      if (selectedDeviceModel.value) {
+        params.device_model = selectedDeviceModel.value
+      }
 
-          // 如果选择了设备型号，添加到参数中
-          if (selectedDeviceModel.value) {
-            params.device_model = selectedDeviceModel.value
-          }
-
-          const response = await axios.get('/api/gantt/daily-stats', { params })
-
-          if (response.data.success) {
-            return {
-              date: dateStr,
-              ...response.data.data
-            }
-          }
-          return {
-            date: dateStr,
-            available_count: 0,
-            ship_out_count: 0,
-            accessory_ship_out_count: 0
-          }
-        })
-      )
-
-      // 将统计数据存储到响应式对象中
-      const statsMap: Record<string, {available_count: number, ship_out_count: number, accessory_ship_out_count: number}> = {}
-      stats.forEach(stat => {
-        statsMap[stat.date] = {
-          available_count: stat.available_count,
-          ship_out_count: stat.ship_out_count,
-          accessory_ship_out_count: stat.accessory_ship_out_count || 0
-        }
-      })
+      const response = await axios.get('/api/gantt/daily-stats', { params })
+      if (!response.data.success) return
+      const statsMap = (response.data.data?.stats || {}) as Record<string, {
+        available_count: number
+        ship_out_count: number
+        accessory_ship_out_count: number
+      }>
 
       // 缓存结果
       statsCache.set(cacheKey, statsMap)
