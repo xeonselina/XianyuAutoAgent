@@ -5,8 +5,9 @@
 1. **禁止新建过程性文档。** 不得创建 `*_SUMMARY.md` / `*_COMPLETE.md` / `*_REPORT.md` /
    `*_FIX*.md` / `*_ANALYSIS.md` / `*_INDEX.md` / `QUICK_*.md` / `PHASE_*.md` /
    `ALL_DONE.*` / `READY_TO_*.md` / `*交付*.md` / `*总结.md`。
-2. **本目录根级只允许 3 个 md**：`README.md`、`AGENTS.md`、`CLAUDE.md`。
-   要新增第 4 个根级 md，先停下来问用户，得到明确同意才创建。
+2. **本目录根级只允许 4 个 md**：`README.md`、`AGENTS.md`、`CLAUDE.md`、`DEPLOY.md`。
+   要新增第 5 个根级 md，先停下来问用户，得到明确同意才创建。
+   其余一切文档放 `docs/`（长期参考）或 `docs/archive/`（历史归档）。
 3. **工作总结写在对话回复里，不落盘。** 需要留痕时写进 `openspec/changes/<change-id>/`
    或 commit message，不要新建根级文件。
 4. **`docs/archive/**` 是历史垃圾场**：禁止 grep、禁止 Read、禁止引用。
