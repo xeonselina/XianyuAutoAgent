@@ -47,7 +47,8 @@
 
 **顺序铁律**：控制库先，租户库后；worker 停机期间执行。详见 `DEPLOY.md` 第 5 章。
 
-`migrations_backup/` 是废弃目录，勿用。
+只有这两套。历史上曾存在 `migrations_backup/`（3 个废弃迁移文件），已于 2026-09 删除；
+若在某处看到对它的引用，那引用本身也是过时的。
 
 ## 4. gevent monkey patch 铁律
 

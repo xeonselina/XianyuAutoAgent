@@ -48,13 +48,13 @@ worker 模式（`create_app(worker_mode=True)`）不注册任何蓝图、不加�
 
 | 路径 | 说明 |
 |---|---|
-| `templates/gantt.html`, `templates/index.html` | 已无任何 Python 引用，`/` 路由已注释 |
-| `routes/web_pages.py` 的 `/devices` `/rentals` | `render_template('devices.html'/'rentals.html')` 但模板不存在 → 访问必 500 |
-| `static/mobile-dist/` | 旧移动端构建产物；现役是 `static/vue-mobile-dist/` |
-| `migrations_backup/` | 废弃的 3 个迁移文件 |
-| `frontend/app/utils/scheduler.py` | Python 文件误放前端目录，且为 0 字节空文件 |
+| `routes/web_pages.py` 的 `/devices` `/rentals` | `render_template('devices.html'/'rentals.html')` 但模板不存在 → 访问必 500。**路由刻意保留未删**：删掉会把 500 变成 404，属行为变更，需单独决策 |
 | `makefile.example` | 旧工具链遗留，52 个 target **全部不可用**；现役 Makefile 只有 6 个 target |
-| `templates/device_lifecycle_modal.html` | 唯一仍在用的模板片段，勿删 |
+| `templates/error.html` | 服务端渲染现役只剩这一个模板；其余页面一律走 Vue 构建产物 |
+
+已删除的死代码（2026-09）：`templates/gantt.html`、`templates/index.html`、
+`static/mobile-dist/`（旧移动端产物，现役是 `static/vue-mobile-dist/`）、
+`migrations_backup/`（3 个废弃迁移）、`frontend/app/utils/scheduler.py`（0 字节空文件）。
 
 ## 4. 三个进程入口
 
