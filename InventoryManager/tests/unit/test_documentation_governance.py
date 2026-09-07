@@ -109,10 +109,14 @@ def test_index_covers_backend_modules():
                 continue
             if path.name not in index:
                 missing.append(f"{layer}/{path.name}")
-    # services 子包：只校验目录名，不逐文件
+    # services 子包：只校验目录名，不逐文件。
+    # 必须要求目录里确有 .py —— 旧分支残留的目录可能只剩 __pycache__
+    # （被 git 忽略，git status 看不出来），按磁盘遍历会把它们误判成新模块。
     services = ROOT / "app" / "services"
     for pkg in sorted(p for p in services.iterdir() if p.is_dir()):
         if pkg.name.startswith(("__", ".")):
+            continue
+        if not any(pkg.rglob("*.py")):
             continue
         if pkg.name not in index:
             missing.append(f"app/services/{pkg.name}/")
