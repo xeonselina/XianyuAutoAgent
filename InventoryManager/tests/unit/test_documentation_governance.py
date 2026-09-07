@@ -75,6 +75,23 @@ def test_docs_only_reference_real_make_targets():
         assert not missing, f"{name} 引用了不存在的 make target：{sorted(missing)}"
 
 
+def test_no_broken_markdown_links_in_live_docs():
+    """活文档里的 markdown 链接必须能解析到真实文件。
+
+    归档移动很容易留下断链（2026-09 那次搬完有 9 处指向已不存在的旧文件名）。
+    只校验 `[text](target.md)` 链接语法，不校验反引号里的文件名——
+    DEPLOY.md 会刻意列举已废弃的文档名作警示，那不是链接。
+    """
+    broken = []
+    for path in _live_doc_paths():
+        for target in re.findall(r"\[[^\]]*\]\(([^)\s]+\.md)\)", path.read_text(errors="ignore")):
+            if target.startswith(("http://", "https://", "#")):
+                continue
+            if not (path.parent / target).resolve().exists():
+                broken.append(f"{path.relative_to(ROOT)} -> {target}")
+    assert broken == [], f"活文档存在断链：{broken}"
+
+
 def test_docs_only_reference_existing_env_files():
     """同理：文档提到的 env 文件必须真实存在（.env 由部署时生成，豁免）。"""
     for name in sorted(ALLOWED_ROOT_MD):
