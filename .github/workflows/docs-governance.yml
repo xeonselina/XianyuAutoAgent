@@ -1,0 +1,36 @@
+name: Docs Governance
+
+# 文档治理守卫。此前这些断言只在本地跑 pytest 时才会响，CI 完全不管，
+# 等于没有闭环——本 workflow 补上这一环。
+on:
+  push:
+    branches: ["main", "master", "saas-main-lite"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  docs-governance:
+    name: 文档治理守卫（InventoryManager）
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 治理守卫只依赖标准库（re / pathlib），不 import app，
+      # 因此不需要装 Flask、SQLAlchemy、数据库等任何东西 —— 整个 job 约 2 秒。
+      - name: Install pytest
+        run: pip install pytest
+
+      - name: Run documentation governance guards
+        working-directory: InventoryManager
+        run: python -m pytest tests/unit/test_documentation_governance.py -q
+
+# 说明：另一道护栏 tests/unit/test_production_config.py 需要完整依赖
+# （Flask / SQLAlchemy / Pillow / ortools）才能 import app，未纳入本 workflow，
+# 仍在本地执行。若希望它也进 CI，需先在 CI 上验证 requirements.txt 可安装。
