@@ -12,10 +12,12 @@ PC 端与移动端双前端、甘特图排期、发货面单与闲鱼订单对�
 | 构建、部署、环境变量、数据库迁移、回滚 | **`DEPLOY.md`** |
 | 本仓库的 AI 协作硬约束 | `AGENTS.md` |
 
-> **本文件不含部署信息。** 历史版本里写的 `make dev`、`make docker-dev`、
-> `env.production` / `env.local` / `env.docker` 均不存在，早已失效。
-> `makefile.example` 里的 52 个 target 也全部不可用，真实 `Makefile` 只有 6 个 target。
+> **本文件不含部署信息。** 旧版 README 描述的那套构建命令与环境配置文件**均不存在**，
+> 早已失效；`makefile.example` 里的 52 个 target 同样全部不可用，真实 `Makefile` 只有 6 个。
 > 一切以 `DEPLOY.md` 为准。
+>
+> 守卫测试 `tests/unit/test_documentation_governance.py` 会校验本文件引用的每个
+> `make <target>` 都真实存在，防止再次出现「文档里的命令跑不通」。
 
 ## 功能
 

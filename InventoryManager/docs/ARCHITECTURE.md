@@ -123,3 +123,8 @@ tests/support/       3 个辅助文件
 **`tests/unit/test_production_config.py` 是发布安全护栏**，不是普通单测：
 它断言 Makefile 只有 6 个 target 且不含主机特定配置、Dockerfile 不含 `COPY . .`、
 以及文档中不含旧手机号/地址等敏感残留。改构建配置或删文档前先看它。
+
+**`tests/unit/test_documentation_governance.py` 是文档治理守卫**：
+断言根级只有 `README/AGENTS/CLAUDE/DEPLOY` 四个 md、archive 之外无过程性文档命名、
+以及文档里引用的每个 `make <target>` 与 env 文件都真实存在。
+它不是形式主义——README 曾描述一套完全不存在的 make target，照做必失败。
