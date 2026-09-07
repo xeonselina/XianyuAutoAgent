@@ -17,6 +17,24 @@
 用户说「push 一下」或「提交推送」时，直接执行 `git add` → `git commit` → `git push`，无需确认。
 **默认不推送远程**——除非用户明确要求，只提交到本地。不自动切换分支。
 
+### ⚠️ 分支拓扑：不要把 main 和其他分支互相合并
+
+本机 `saas-main-lite` 是主线工作分支（本仓库的日常开发都在它上面）。
+但 **`main`、`saas-main`、`saas-main-lite` 三条分支两两之间没有共同祖先**
+（`git merge-base` 返回空），是三条独立历史：
+
+| 分支 | 与 saas-main-lite 的关系 |
+|---|---|
+| `main` | 无共同祖先；main 独有 353 个 commit。其 InventoryManager 是 **SaaS 化之前的旧版本**（无 `app/control/`、仍有 `.env.docker`、根目录仍是 60 多份 md） |
+| `saas-main` | 无共同祖先，另一条独立历史 |
+
+**因此：禁止执行 `git merge main`、`git merge saas-main` 或反向合并，
+也不要用 `--allow-unrelated-histories`。** 那等于合并两套几乎不同的代码库，必然大规模冲突。
+用户已确认（2026-09-07）：工作保留在 `saas-main-lite`，`main` 那条旧历史维持原状，不做合并。
+
+推送前先确认上游（`git branch -vv`）。本项目远程为 `my_xianyuagent`；
+若发现 upstream 指向 `main` 而非 `saas-main-lite`，先停下来问用户。
+
 ## 检索警告
 
 `docs/archive/`（仓库根与 `InventoryManager/` 下各一个）是**历史归档**，
