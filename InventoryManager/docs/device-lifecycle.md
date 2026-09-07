@@ -90,11 +90,11 @@ curl -X GET "http://localhost:5000/api/devices/lifecycle/list?status=sold"
 
 | File | Purpose | Audience |
 |------|---------|----------|
-| `LIFECYCLE_README.md` | Overview (this file) | Everyone |
-| `LIFECYCLE_QUICK_REFERENCE.md` | Quick command reference | Developers/Admins |
-| `DEVICE_LIFECYCLE_IMPLEMENTATION_GUIDE.md` | Technical implementation details | Developers |
-| `LIFECYCLE_DEPLOYMENT_GUIDE.md` | Deployment & testing procedures | DevOps/Deployment |
-| `IMPLEMENTATION_COMPLETE.md` | Implementation status & checklist | Project Managers |
+| `device-lifecycle.md` | Overview (this file) | Everyone |
+| `device-lifecycle-api.md` | Quick command reference | Developers/Admins |
+| `device-data-model.md` | Device data model | Developers |
+| `device-relationship-diagram.md` | Relationship diagrams | Developers |
+| `docs/archive/lifecycle/` | 已归档：实施指南、部署指南、实施状态清单（历史过程产物，勿用于决策） | — |
 
 ---
 
@@ -240,7 +240,7 @@ curl http://localhost:5000/api/devices/lifecycle/summary
 ```
 
 ### Full Deployment Guide
-See `LIFECYCLE_DEPLOYMENT_GUIDE.md` for detailed procedures including:
+See `docs/archive/lifecycle/LIFECYCLE_DEPLOYMENT_GUIDE.md`（已归档）for detailed procedures including:
 - Pre-deployment checklist
 - Testing procedures
 - Rollback procedures
@@ -298,10 +298,10 @@ flask db current
 
 ## 📖 Additional Resources
 
-- [Quick Reference Guide](LIFECYCLE_QUICK_REFERENCE.md)
-- [Implementation Guide](DEVICE_LIFECYCLE_IMPLEMENTATION_GUIDE.md)
-- [Deployment Guide](LIFECYCLE_DEPLOYMENT_GUIDE.md)
-- [Device Data Model Analysis](DEVICE_DATA_MODEL_ANALYSIS.md)
+- [Quick Reference Guide](device-lifecycle-api.md)
+- [Device Data Model](device-data-model.md)
+- [Relationship Diagrams](device-relationship-diagram.md)
+- 已归档（历史产物）：`docs/archive/lifecycle/` 下的实施指南与部署指南
 
 ---
 
@@ -309,10 +309,10 @@ flask db current
 
 For questions or issues:
 
-1. **Quick Questions** → See LIFECYCLE_QUICK_REFERENCE.md
-2. **Implementation Details** → See DEVICE_LIFECYCLE_IMPLEMENTATION_GUIDE.md
-3. **Deployment Help** → See LIFECYCLE_DEPLOYMENT_GUIDE.md
-4. **Troubleshooting** → See LIFECYCLE_QUICK_REFERENCE.md → Troubleshooting section
+1. **Quick Questions** → See `device-lifecycle-api.md`
+2. **Data Model** → See `device-data-model.md`
+3. **Deployment Help** → See `DEPLOY.md`
+4. **Troubleshooting** → See `device-lifecycle-api.md` → Troubleshooting section
 
 ---
 
@@ -326,7 +326,7 @@ For questions or issues:
 
 ## 🎉 Ready to Deploy!
 
-This implementation is complete, tested, and ready for production deployment. Follow the procedures in LIFECYCLE_DEPLOYMENT_GUIDE.md to deploy safely.
+This implementation is complete, tested, and ready for production deployment. Follow the procedures in `DEPLOY.md` to deploy safely.
 
 **Estimated deployment time:** 5-10 minutes  
 **Estimated testing time:** 15-20 minutes  

@@ -2,7 +2,8 @@
 
 Rental 是编辑、API 返回和验货查询共同使用的数据源。验货清单由 rental 当前内容动态生成，提交后再以独立检查项保存。
 
-完整设计见 `docs/superpowers/specs/2026-08-07-rental-damage-notes-design.md`。
+早期完整设计已归档在 `docs/archive/superpowers/specs/2026-08-07-rental-damage-notes-design.md`
+（本文件为当前生效的设计）。
 
 ## Goals / Non-Goals
 

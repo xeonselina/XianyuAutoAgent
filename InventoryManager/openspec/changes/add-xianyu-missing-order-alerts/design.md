@@ -2,7 +2,8 @@
 
 系统已有闲鱼订单详情集成和 `Rental.xianyu_order_no`，但没有主动发现闲鱼待发货订单与库存预定之间的差异。订单列表接口最多返回一万条，支持按订单状态分页查询；当前业务仅有一个绑定店铺。
 
-完整设计见 `docs/superpowers/specs/2026-07-24-xianyu-missing-order-alerts-design.md`。
+早期完整设计已归档在 `docs/archive/superpowers/specs/2026-07-24-xianyu-missing-order-alerts-design.md`
+（本文件为当前生效的设计）。
 
 ## Goals / Non-Goals
 

@@ -47,6 +47,13 @@ specs/[###-feature]/
 └── tasks.md             # Phase 2 output (/speckit.tasks command - NOT created by /speckit.plan)
 ```
 
+> **本项目约定（constitution 原则 I：文档最小化）**
+> `research.md` / `data-model.md` / `quickstart.md` / `contracts/` **默认不生成**，
+> 仅在用户明确要求，或该变更确实需要跨阶段交接时才创建。
+> 必要性结论直接写进 `plan.md` 对应章节即可。
+> 理由：这些中间产物边际信息量低，会抬高后续 AI 协作的检索成本并在代码漂移后误导。
+> 另注意：本项目的规格与计划走 `openspec/changes/<change-id>/`，不在仓库根留痕。
+
 ### Source Code (repository root)
 <!--
   ACTION REQUIRED: Replace the placeholder tree below with the concrete layout

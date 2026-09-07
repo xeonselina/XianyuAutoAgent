@@ -4,7 +4,8 @@
 
 甘特图中的订单由一个主设备 rental 和可选的附件子 rental 组成，物流占用范围由 `ship_out_time` 到 `ship_in_time` 表示。现有重叠档期可能是人工安排的客户间直接转寄（接力）。因此，重排只能优化主设备分配，不能改变日期或破坏订单组合。
 
-已确认的详细设计记录在 `docs/superpowers/specs/2026-07-11-gantt-schedule-reordering-design.md`。
+早期详细设计已归档在 `docs/archive/superpowers/specs/2026-07-11-gantt-schedule-reordering-design.md`
+（本文件为当前生效的设计）。
 
 ## 目标与非目标
 

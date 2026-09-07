@@ -303,11 +303,11 @@ curl -X PUT http://localhost:5000/api/devices/ID/lifecycle \
 
 ## Related Documentation
 
-- **Full Implementation Guide** → `DEVICE_LIFECYCLE_IMPLEMENTATION_GUIDE.md`
-- **Deployment Guide** → `LIFECYCLE_DEPLOYMENT_GUIDE.md`
-- **Implementation Status** → `IMPLEMENTATION_COMPLETE.md`
-- **Data Model Analysis** → `DEVICE_DATA_MODEL_ANALYSIS.md`
-- **Relationship Diagrams** → `DEVICE_RELATIONSHIP_DIAGRAM.md`
+- **Device Data Model** → `device-data-model.md`
+- **Relationship Diagrams** → `device-relationship-diagram.md`
+- **Lifecycle Overview** → `device-lifecycle.md`
+- **Deployment** → `DEPLOY.md`
+- 已归档（历史产物）：`docs/archive/lifecycle/` 下的实施指南、部署指南、实施状态清单
 
 ---
 
