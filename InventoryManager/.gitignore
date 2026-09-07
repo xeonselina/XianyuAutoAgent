@@ -105,3 +105,6 @@ static/uploads/
 
 # Docker
 .dockerignore
+
+# pytest 本地临时目录（沙箱环境下默认 tmp 不可写，需 --basetemp=.pytest_tmp）
+.pytest_tmp/
