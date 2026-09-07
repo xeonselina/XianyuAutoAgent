@@ -19,10 +19,10 @@
 
 ## 检索警告
 
-仓库根下散落的 `*.md` / `*.txt`（`AI_EVALUATION_*`、`EXPLORATION_*`、`PROJECT_*`、
-`FILES_DISCOVERED.txt` 等）**全部属于 `ai_kefu`**，与 InventoryManager 无关。
-其中写的文件路径是过时的 `/Users/jimmypan/git_repo/XianyuAutoAgent/...`，
-**按那些路径去读文件一定失败**。不要读它们，也不要据此推断仓库结构。
+`docs/archive/`（仓库根与 `InventoryManager/` 下各一个）是**历史归档**，
+AI 禁止 grep / Read / 引用。其中的文件路径、命令、环境变量名均已过期，照做会失败。
+仓库根 `docs/archive/ai_kefu-exploration/` 里那 20 份报告原属 `ai_kefu`，
+且写的是过时路径 `/Users/jimmypan/git_repo/XianyuAutoAgent/...`，**按那些路径读文件一定失败**。
 
 `docs/` 在仓库根也有一个（含 `deployment/saas-main-lite.md` 等），
 **不要与 `InventoryManager/docs/` 混淆**。
