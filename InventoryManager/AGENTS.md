@@ -15,6 +15,10 @@
 5. **部署只看 `DEPLOY.md`**。`README.md` 不含部署信息；`makefile.example` 已废弃，
    它里面 52 个 target **全部不存在**（真实 `Makefile` 只有 6 个）。
 6. **改代码前先读 `docs/INDEX.md` 定位文件**，禁止上来就全仓 glob/grep。
+   **改完后必须同步更新它**：新增或删除 `app/routes/`、`app/handlers/`、`app/models/`、
+   `app/services/` 下的模块，或改名/删除任何索引里列出的文件时，都要改 `docs/INDEX.md`。
+   有两个守卫测试会查——「模块未进索引」和「索引指向了不存在的文件」，
+   失败信息会直接列出缺什么，照着补即可。
 7. **`Makefile` 只允许 6 个 target**，禁止加入 `NAS_` / `sshpass` / `docker-compose`
    （`tests/unit/test_production_config.py` 会失败）。主机特定脚本写到 `scripts/` 下。
 8. **前端改动必须同时考虑 PC 端（`frontend/`）与移动端（`frontend-mobile/`）两侧。**

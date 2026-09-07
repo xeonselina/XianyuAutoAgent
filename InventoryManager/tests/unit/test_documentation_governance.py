@@ -75,6 +75,86 @@ def test_docs_only_reference_real_make_targets():
         assert not missing, f"{name} 引用了不存在的 make target：{sorted(missing)}"
 
 
+# 索引漂移守卫：只「读」不「写」的索引必然腐烂。
+# 下面两条是双向校验——新模块必须进索引，索引里的路径必须还存在。
+INDEX_RELATIVE = "docs/INDEX.md"
+
+# 需要被索引覆盖的后端层。routes/handlers 是入口，models 是领域概念，
+# services 顶层是业务逻辑；子包只校验目录名，避免过细导致噪音。
+INDEXED_LAYERS = (
+    ("app/routes", "*.py"),
+    ("app/handlers", "*.py"),
+    ("app/models", "*.py"),
+    ("app/services", "*.py"),
+)
+
+
+def _index_text():
+    return (ROOT / INDEX_RELATIVE).read_text(errors="ignore")
+
+
+def test_index_covers_backend_modules():
+    """新增路由/handler/模型/service 后必须同步更新 docs/INDEX.md。
+
+    这是「索引腐烂」的主方向：功能加进去了，索引没写，下次 AI 就定位不到。
+    """
+    index = _index_text()
+    missing = []
+    for layer, pattern in INDEXED_LAYERS:
+        base = ROOT / layer
+        if not base.exists():
+            continue
+        for path in sorted(base.glob(pattern)):
+            if path.name == "__init__.py":
+                continue
+            if path.name not in index:
+                missing.append(f"{layer}/{path.name}")
+    # services 子包：只校验目录名，不逐文件
+    services = ROOT / "app" / "services"
+    for pkg in sorted(p for p in services.iterdir() if p.is_dir()):
+        if pkg.name.startswith(("__", ".")):
+            continue
+        if pkg.name not in index:
+            missing.append(f"app/services/{pkg.name}/")
+    assert missing == [], (
+        f"这些模块未出现在 {INDEX_RELATIVE}，请补进对应功能域：{missing}"
+    )
+
+
+def test_index_listed_paths_still_exist():
+    """反向：索引里列出的路径必须真实存在。
+
+    这是「索引腐烂」的另一方向：文件被删或改名了，索引还指着旧位置，
+    AI 照着读会失败——和当初 README 撒谎是同一类问题。
+    """
+    index = _index_text()
+    # 只校验「完整限定」路径。INDEX 里另有简写形式（前端列的 views/X.vue 实为
+    # frontend/src/views/X.vue）与示意性路径，那些不参与校验，否则全是误报。
+    qualified = ("app/", "frontend/", "frontend-mobile/", "templates/", "static/",
+                 "scripts/", "tests/", "docs/", "migrations/", "control_migrations/")
+    # 前端列写成 `views/X.vue` 这样的简写，基准目录由 PC / 移动 列头决定，
+    # 逐个在两个前端 src 下都试一次即可判定。
+    shorthand = re.compile(
+        r"^(components|views|stores|composables|utils|api|types|router|config)/"
+        r"[\w\-/]+\.(vue|ts|js)$"
+    )
+    broken = []
+    for raw in set(re.findall(r"`([^`\s]+)`", index)):
+        if "*" in raw or "{" in raw or "}" in raw:  # 通配/花括号展开，跳过
+            continue
+        if raw.startswith(qualified):
+            if (ROOT / raw).exists() or (ROOT / "app" / raw).exists():
+                continue
+            broken.append(raw)
+        elif shorthand.match(raw):
+            if (ROOT / "frontend" / "src" / raw).exists():
+                continue
+            if (ROOT / "frontend-mobile" / "src" / raw).exists():
+                continue
+            broken.append(f"{raw}（frontend/src/ 与 frontend-mobile/src/ 下均不存在）")
+    assert broken == [], f"{INDEX_RELATIVE} 指向了不存在的文件：{sorted(broken)}"
+
+
 def test_no_broken_markdown_links_in_live_docs():
     """活文档里的 markdown 链接必须能解析到真实文件。
 

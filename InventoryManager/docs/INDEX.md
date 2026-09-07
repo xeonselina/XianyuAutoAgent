@@ -1,7 +1,8 @@
 # INDEX — 功能域到文件的导航表
 
 **用法**：改代码前先读本文件定位，禁止上来就全仓 glob/grep。
-路径相对 `InventoryManager/`；`app/` 前缀已省略（写 `routes/x.py` 即 `app/routes/x.py`）。
+路径相对 `InventoryManager/`；`app/` 前缀已省略，例如本表中的 `routes/gantt_api.py`
+实为 `app/routes/gantt_api.py`。前端列中 `PC` 指 `frontend/src/`、`移动` 指 `frontend-mobile/src/`。
 **本表不含行号**（行号必腐坏）。定位请 grep 表格中给出的函数/类名。
 
 ## 1. 功能域 → 文件
@@ -14,8 +15,8 @@
 | 设备·型号·生命周期 | device 设备 型号 lifecycle 生命周期 状态 | `routes/device_api.py`, `routes/device_model_api.py` | `handlers/device_handlers.py`, `handlers/device_model_handlers.py`; `services/device/*` | `models/device.py`, `models/device_model.py` | PC `composables/useDeviceManagement.ts` / 移动 `views/DeviceStatusView.vue` |
 | 租赁单（核心） | rental 租赁 订单 booking 预约 damage 损伤 附件 | `routes/rental_api.py` | `handlers/rental_handlers.py`; `services/rental/rental_service.py`, `services/rental_service.py`; `utils/rental_validator.py` | `models/rental.py`, `models/rental_accessory.py` | PC `components/BookingDialog.vue`, `components/rental/*` / 移动 `views/CreateRentalView.vue` `views/EditRentalView.vue` |
 | 库存·仓库·调拨 | warehouse 仓库 库存 inventory 调拨 移库 | `routes/inventory_api.py`, `routes/settings_api.py` | `handlers/inventory_handlers.py`; `services/inventory_service.py`, `services/warehouse_movement_service.py`, `services/settings_service.py` | `models/warehouse.py` | PC `views/SettingsView.vue`, `components/WarehouseMovementDialog.vue` |
-| 验货·检查清单 | inspection 验货 检查 checklist 清单 | `routes/inspection.py` | `services/inspection_service.py` | `models/inspection_record.py`, `models/inspection_check_item.py` | PC `views/InspectionView.vue`, `components/inspection/*` |
-| 发货·面单·物流 | shipping 发货 面单 waybill 顺丰 sf 快递 打印 追踪 | `routes/shipping_batch_api.py`, `routes/sf_tracking_api.py`, `routes/sf_test_api.py`, `routes/tracking_api.py` | `handlers/shipping_batch_handlers.py`; `services/shipping/*`, `services/printing/*`; `utils/sf/sf_sdk_wrapper.py` | — | PC `views/BatchShippingView.vue` `views/ShippingOrderView.vue` `views/SFTrackingView.vue` / 移动 `views/BatchShippingView.vue` |
+| 验货·检查清单 | inspection 验货 检查 checklist 清单 | `routes/inspection.py` | `services/inspection_service.py`, `services/checklist_generator.py` | `models/inspection_record.py`, `models/inspection_check_item.py` | PC `views/InspectionView.vue`, `components/inspection/*` |
+| 发货·面单·物流 | shipping 发货 面单 waybill 顺丰 sf 快递 打印 追踪 | `routes/shipping_batch_api.py`, `routes/sf_tracking_api.py`, `routes/sf_test_api.py`, `routes/tracking_api.py` | `handlers/shipping_batch_handlers.py`; `services/shipping/*`, `services/printing/*`, `services/integration_resolver.py`; `utils/sf/sf_sdk_wrapper.py` | — | PC `views/BatchShippingView.vue` `views/ShippingOrderView.vue` `views/SFTrackingView.vue` / 移动 `views/BatchShippingView.vue` |
 | 接力·续租 | relay 接力 续租 中转 case | `routes/relay_case_api.py` | `handlers/relay_case_handlers.py`; `services/relay/relay_case_service.py` | `models/rental_relay_case.py`, `models/rental_relay_binding.py` | PC `views/RelayManagementView.vue`, `components/relay/*` / 移动 `views/RelayManagementView.vue` |
 | 统计·报表 | statistics 统计 报表 stats 数据 | `routes/statistics_api.py`, `routes/rental_stats_api.py` | `services/rental_statistics_service.py`; `scripts/rental_statistics.py` | `models/rental_statistics.py` | PC `views/RentalStatsView.vue`, `views/StatisticsView.vue` |
 | 闲鱼对接·缺单告警 | xianyu 闲鱼 缺单 alert 告警 对账 shop 店铺 | `routes/xianyu_order_alert_api.py` | `handlers/xianyu_order_alert_handlers.py`; `services/xianyu_order_service.py`, `services/xianyu_order_reconciliation_service.py` | `models/xianyu_order_alert.py`, `models/xianyu_shop.py` | PC `components/XianyuOrderAlertBar.vue`, `components/settings/XianyuShopSettings.vue` |
@@ -52,9 +53,9 @@ worker 模式（`create_app(worker_mode=True)`）不注册任何蓝图、不加�
 | `makefile.example` | 旧工具链遗留，52 个 target **全部不可用**；现役 Makefile 只有 6 个 target |
 | `templates/error.html` | 服务端渲染现役只剩这一个模板；其余页面一律走 Vue 构建产物 |
 
-已删除的死代码（2026-09）：`templates/gantt.html`、`templates/index.html`、
-`static/mobile-dist/`（旧移动端产物，现役是 `static/vue-mobile-dist/`）、
-`migrations_backup/`（3 个废弃迁移）、`frontend/app/utils/scheduler.py`（0 字节空文件）。
+已删除的死代码（2026-09，勿再寻找）：templates 下的 gantt.html 与 index.html、
+static 下的旧移动端产物 mobile-dist（现役是 static/vue-mobile-dist）、
+migrations_backup 目录、以及 frontend 目录下误放的 scheduler.py（0 字节空文件）。
 
 ## 4. 三个进程入口
 
