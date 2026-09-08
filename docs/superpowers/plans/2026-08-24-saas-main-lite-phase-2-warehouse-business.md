@@ -46,7 +46,7 @@
 
 - [ ] **Step 1: 写迁移 RED 测试**
 
-从当前 head `20260807_damage_notes` 建两类库：空库迁移链、带现有 Device/主子 Rental/Xianyu alert/sync state 的旧库。断言最终恰好新增 4 表，所有设备/租赁指向默认仓，所有旧告警指向默认店，sync state 的成功/错误字段复制后旧表删除，组合唯一约束存在。
+从当前 head `20260807_damage_notes` 建两类库：空库迁移链、带现有 Device/主子 Rental/Xianyu alert/sync state 的旧库。断言最终恰好新增 4 表，所有设备/租赁指向默认仓，所有旧告警指向默认店，sync state 的成功/错误字段复制后旧表删除。只要求告警表的店铺与订单号组合唯一；租赁表允许同一店铺订单号关联多条主租赁。
 
 ```python
 def test_contract_backfills_existing_rows(connection):
@@ -79,8 +79,9 @@ python -m pytest tests/integration/test_saas_lite_business_migrations.py -q
 
 ```python
 sa.UniqueConstraint("xianyu_shop_id", "order_no", name="uq_xianyu_alert_shop_order")
-sa.UniqueConstraint("xianyu_shop_id", "xianyu_order_no", name="uq_rental_shop_order")
 ```
+
+`rentals(xianyu_shop_id, xianyu_order_no)` 不建立唯一约束；迁移测试必须证明合法重复组合可以保留。
 
 contract downgrade 只恢复列/旧 sync state 的结构，不承诺还原已合并的多店数据；正式回滚遵循完整备份恢复。
 

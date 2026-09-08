@@ -2,10 +2,12 @@ import { expect, test, type Page } from '@playwright/test'
 
 import type { Rental } from '../src/stores/gantt'
 import { buildRentalConfirmation } from '../src/utils/rentalConfirmation'
+import { mockAuthenticatedMobileSession } from './helpers/mock-auth'
 
 const rental = (overrides: Partial<Rental> = {}): Rental => ({
   id: 42,
   device_id: 8,
+  warehouse_id: 1,
   device: {
     id: 8,
     name: '3618',
@@ -160,7 +162,7 @@ const mockEditSave = async (
               created_at: '2026-01-01',
               updated_at: '2026-01-01',
             }],
-            rentals: [],
+            rentals: [rental()],
           },
         },
       })
@@ -191,6 +193,7 @@ const mockEditSave = async (
     await route.fulfill({ status: 500, json: { success: false, error: 'unexpected mocked web API' } })
   })
 
+  await mockAuthenticatedMobileSession(page)
   await page.goto('/mobile/gantt')
   await page.goto('/mobile/edit-rental/42')
   await expect(page.getByTestId('save-rental')).toBeVisible()
@@ -361,6 +364,19 @@ const mockCreateSave = async (
       })
       return
     }
+    if (url.pathname === '/api/rentals/estimate-logistics') {
+      await route.fulfill({
+        json: {
+          success: true,
+          data: {
+            logistics_days: 1,
+            matched_location: '广东',
+            message: '预计 1 天送达',
+          },
+        },
+      })
+      return
+    }
     if (url.pathname === '/api/rentals' && request.method() === 'POST') {
       await route.fulfill({
         json: options.createResponse ?? { success: true, data: { main_rental: { id: 77 } } },
@@ -387,6 +403,7 @@ const mockCreateSave = async (
     await route.fulfill({ status: 500, json: { success: false, error: 'unexpected mocked API' } })
   })
 
+  await mockAuthenticatedMobileSession(page)
   await page.goto('/mobile/gantt')
   await page.goto('/mobile/create-rental')
   await expect(page.getByTestId('create-rental')).toBeVisible()

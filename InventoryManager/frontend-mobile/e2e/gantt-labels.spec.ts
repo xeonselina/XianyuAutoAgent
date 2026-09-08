@@ -28,11 +28,7 @@ test.describe('Gantt — floating rental labels', () => {
     const bars = page.locator('.rental-period-bar')
     const labels = page.locator('.bar-label-float')
     const barCount = await bars.count()
-
-    if (barCount === 0) {
-      console.log('No rental bars in current window; skipping label check')
-      return
-    }
+    expect(barCount).toBeGreaterThan(0)
 
     const labelCount = await labels.count()
     // Every rental-period-bar should have a corresponding bar-label-float
@@ -48,11 +44,7 @@ test.describe('Gantt — floating rental labels', () => {
   test('label contains customer name text', async ({ page }) => {
     const labels = page.locator('.bar-label-float')
     const count = await labels.count()
-
-    if (count === 0) {
-      console.log('No labels found; skipping')
-      return
-    }
+    expect(count).toBeGreaterThan(0)
 
     // At least one label should have non-empty name text
     const firstNameSpan = labels.first().locator('.bar-label-name')
@@ -63,11 +55,7 @@ test.describe('Gantt — floating rental labels', () => {
   test('phone part shows ·XXXX format (last 4 digits)', async ({ page }) => {
     const phoneSpans = page.locator('.bar-label-float .bar-label-phone')
     const count = await phoneSpans.count()
-
-    if (count === 0) {
-      console.log('No phone spans visible (all rentals may lack phone numbers); skipping')
-      return
-    }
+    expect(count).toBeGreaterThan(0)
 
     for (let i = 0; i < Math.min(count, 5); i++) {
       const text = await phoneSpans.nth(i).textContent()
@@ -80,11 +68,8 @@ test.describe('Gantt — floating rental labels', () => {
     const bars = page.locator('.rental-period-bar')
     const labels = page.locator('.bar-label-float')
     const count = await bars.count()
-
-    if (count === 0) {
-      console.log('No bars to compare; skipping')
-      return
-    }
+    expect(count).toBeGreaterThan(0)
+    await expect(labels).toHaveCount(count)
 
     // Compare first bar's left position with first label's left position
     const barLeft = await bars.first().evaluate(el => el.getBoundingClientRect().left)
@@ -97,11 +82,7 @@ test.describe('Gantt — floating rental labels', () => {
   test('label text is not clipped by overflow:hidden', async ({ page }) => {
     const labels = page.locator('.bar-label-float')
     const count = await labels.count()
-
-    if (count === 0) {
-      console.log('No labels found; skipping')
-      return
-    }
+    expect(count).toBeGreaterThan(0)
 
     // Check that the label div itself does NOT have overflow:hidden
     const overflow = await labels.first().evaluate(
@@ -113,11 +94,7 @@ test.describe('Gantt — floating rental labels', () => {
   test('label has white-space:nowrap so it extends beyond narrow bars', async ({ page }) => {
     const labels = page.locator('.bar-label-float')
     const count = await labels.count()
-
-    if (count === 0) {
-      console.log('No labels found; skipping')
-      return
-    }
+    expect(count).toBeGreaterThan(0)
 
     const whiteSpace = await labels.first().evaluate(
       el => getComputedStyle(el).whiteSpace
@@ -126,29 +103,19 @@ test.describe('Gantt — floating rental labels', () => {
   })
 
   test('label is vertically centered within its row (26px row)', async ({ page }) => {
-    const rows = page.locator('.gantt-row')
-    const rowCount = await rows.count()
+    const row = page.locator('.gantt-row').filter({
+      has: page.locator('.bar-label-float'),
+    }).first()
+    const label = row.locator('.bar-label-float').first()
+    await expect(row).toBeVisible()
+    await expect(label).toBeVisible()
 
-    if (rowCount === 0) {
-      console.log('No gantt rows found; skipping')
-      return
-    }
+    const rowBox = await row.boundingBox()
+    const labelBox = await label.boundingBox()
+    if (!rowBox || !labelBox) throw new Error('visible Gantt label has no box')
 
-    // Find a row that has a label
-    for (let i = 0; i < Math.min(rowCount, 5); i++) {
-      const label = rows.nth(i).locator('.bar-label-float').first()
-      if (await label.count() === 0) continue
-
-      const rowBox  = await rows.nth(i).boundingBox()
-      const labelBox = await label.boundingBox()
-
-      if (!rowBox || !labelBox) continue
-
-      // Label center should be within the row vertically
-      const labelCenterY = labelBox.y + labelBox.height / 2
-      const rowCenterY   = rowBox.y  + rowBox.height  / 2
-      expect(Math.abs(labelCenterY - rowCenterY)).toBeLessThanOrEqual(5)
-      break
-    }
+    const labelCenterY = labelBox.y + labelBox.height / 2
+    const rowCenterY = rowBox.y + rowBox.height / 2
+    expect(Math.abs(labelCenterY - rowCenterY)).toBeLessThanOrEqual(5)
   })
 })

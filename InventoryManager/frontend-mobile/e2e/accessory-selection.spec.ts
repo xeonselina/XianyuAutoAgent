@@ -1,4 +1,4 @@
-import { test, expect, request as playwrightRequest } from '@playwright/test'
+import { test, expect } from '@playwright/test'
 import {
   safeTestRental,
   TEST_START_DATE,
@@ -6,6 +6,11 @@ import {
   assertSafeToDelete,
   TEST_CUSTOMER_PREFIX,
 } from './helpers/safetyGuard'
+import {
+  createAuthenticatedApi,
+  csrfHeaders,
+  realMobileOrigin,
+} from './helpers/real-backend'
 
 /**
  * Accessory Selection E2E Tests
@@ -20,7 +25,7 @@ import {
  *  - All test-created rentals are deleted in afterAll
  */
 
-const BASE = 'http://localhost:5001'
+const BASE = realMobileOrigin
 const createdRentalIds: number[] = []
 
 // ─── Cleanup ────────────────────────────────────────────────────────────────
@@ -28,7 +33,7 @@ const createdRentalIds: number[] = []
 test.afterAll(async () => {
   if (createdRentalIds.length === 0) return
 
-  const api = await playwrightRequest.newContext({ baseURL: BASE })
+  const { api, csrfToken } = await createAuthenticatedApi()
   for (const id of createdRentalIds) {
     try {
       const getRes = await api.get(`/api/rentals/${id}`)
@@ -40,7 +45,9 @@ test.afterAll(async () => {
       const rental = body.data ?? body
       assertSafeToDelete({ id, customer_name: rental.customer_name, start_date: rental.start_date })
 
-      const del = await api.delete(`/api/rentals/${id}`)
+      const del = await api.delete(`/api/rentals/${id}`, {
+        headers: csrfHeaders(csrfToken),
+      })
       console.log(`Cleanup: ${del.ok() ? 'deleted' : 'FAILED to delete'} rental #${id}`)
     } catch (err) {
       console.error(`Cleanup error for rental #${id}:`, err)
@@ -67,7 +74,7 @@ async function assertNoUndefinedInPicker(page: import('@playwright/test').Page) 
 
 /** Get the first available real rental ID from the API (for read-only edit tests). */
 async function getFirstRealRentalId(): Promise<number | null> {
-  const api = await playwrightRequest.newContext({ baseURL: BASE })
+  const { api } = await createAuthenticatedApi()
   try {
     const res = await api.get('/api/rentals?page=1&per_page=5')
     const body = await res.json()
@@ -83,10 +90,11 @@ async function getFirstRealRentalId(): Promise<number | null> {
 /** Create a minimal test rental via API and return its ID. */
 async function createTestRental(deviceId: number): Promise<number> {
   assertSafeDate(safeTestRental.start_date)
-  const api = await playwrightRequest.newContext({ baseURL: BASE })
+  const { api, csrfToken } = await createAuthenticatedApi()
   try {
     const res = await api.post('/api/rentals', {
       data: { ...safeTestRental, device_id: deviceId },
+      headers: csrfHeaders(csrfToken),
     })
     expect(res.ok()).toBe(true)
     const body = await res.json()
@@ -246,16 +254,13 @@ test.describe('CreateRental: device picker shows real names after date+model sel
   test('Device picker items do not contain "undefined"', async ({ page }) => {
     // We need a model + dates to trigger the availability check
     // First, get a valid model from the API
-    const api = await playwrightRequest.newContext({ baseURL: BASE })
+    const { api } = await createAuthenticatedApi()
     const modelsRes = await api.get('/api/device-models')
     const modelsBody = await modelsRes.json()
     const models: any[] = modelsBody.data ?? []
     await api.dispose()
 
-    if (!models.length) {
-      test.skip()
-      return
-    }
+    expect(models.length).toBeGreaterThan(0)
 
     await page.goto('/mobile/create-rental')
     await page.waitForSelector('.van-form', { timeout: 10_000 })
@@ -302,16 +307,14 @@ test.describe('CreateRental: device picker shows real names after date+model sel
     const deviceField = page.locator('.van-field').filter({ hasText: '可用设备' })
     await deviceField.click()
 
-    const devicePopup = page.locator('.van-popup--bottom')
-    const isVisible = await devicePopup.isVisible().catch(() => false)
-    if (!isVisible) {
-      // No devices available for this slot — that's OK, not a bug
-      console.log('No available devices for selected slot — test skipped')
-      return
-    }
+    const devicePopup = page.locator('.van-popup--bottom').filter({
+      has: page.locator('.van-picker__title', { hasText: '选择可用设备' }),
+    })
+    await expect(devicePopup).toBeVisible({ timeout: 5_000 })
 
     // Check that none of the options contain "undefined"
-    const optionTexts = await page.locator('.van-picker-column__item .van-ellipsis').allTextContents()
+    const optionTexts = await devicePopup.locator('.van-picker-column__item .van-ellipsis').allTextContents()
+    expect(optionTexts.length).toBeGreaterThan(0)
     const undefinedItems = optionTexts.filter(t => t.includes('undefined'))
     expect(
       undefinedItems,
@@ -319,7 +322,7 @@ test.describe('CreateRental: device picker shows real names after date+model sel
     ).toHaveLength(0)
     console.log('Device picker options (first 3):', optionTexts.slice(0, 3))
 
-    await page.locator('.van-picker .van-picker__cancel').click()
+    await devicePopup.locator('.van-picker__cancel').click()
   })
 })
 
@@ -330,13 +333,13 @@ test.describe('EditRental: accessory pickers', () => {
 
   test.beforeAll(async () => {
     rentalId = await getFirstRealRentalId()
+    expect(rentalId, 'E2E fixture must include a rental for edit coverage').not.toBeNull()
     console.log(`Using existing rental #${rentalId} for read-only edit tests`)
   })
 
   test.beforeEach(async ({ page }) => {
-    if (!rentalId) {
-      test.skip()
-      return
+    if (rentalId === null) {
+      throw new Error('E2E fixture rental is missing')
     }
     await page.goto(`/mobile/edit-rental/${rentalId}`)
     // Wait for the form to load (not the initial loading spinner)
@@ -345,7 +348,7 @@ test.describe('EditRental: accessory pickers', () => {
   })
 
   test('Phone holder picker: opens and shows real names (not undefined)', async ({ page }) => {
-    if (!rentalId) { test.skip(); return }
+    if (rentalId === null) throw new Error('E2E fixture rental is missing')
 
     const phoneHolderField = page.locator('.van-field').filter({ hasText: '手机支架' })
     await expect(phoneHolderField).toBeVisible({ timeout: 5_000 })
@@ -362,7 +365,7 @@ test.describe('EditRental: accessory pickers', () => {
   })
 
   test('Tripod picker: opens and shows real names (not undefined)', async ({ page }) => {
-    if (!rentalId) { test.skip(); return }
+    if (rentalId === null) throw new Error('E2E fixture rental is missing')
 
     const tripodField = page.locator('.van-field').filter({ hasText: '三脚架' })
     await expect(tripodField).toBeVisible({ timeout: 5_000 })
@@ -385,14 +388,15 @@ test.describe('EditRental: accessory selection workflow (test rental)', () => {
 
   test.beforeAll(async () => {
     // Get a device to assign the test rental to
-    const api = await playwrightRequest.newContext({ baseURL: BASE })
+    const { api } = await createAuthenticatedApi()
     try {
       const today = new Date().toISOString().slice(0, 10)
       const future = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10)
       const ganttRes = await api.get(`/api/gantt/data?start_date=${today}&end_date=${future}`)
       const ganttBody = await ganttRes.json()
       const devices: any[] = ganttBody.data?.devices ?? []
-      if (!devices.length) return
+      expect(devices.length, 'E2E fixture must include a rentable device').toBeGreaterThan(0)
+      if (!devices.length) throw new Error('E2E fixture rentable device is missing')
 
       testRentalId = await createTestRental(devices[0].id)
       createdRentalIds.push(testRentalId)
@@ -403,9 +407,8 @@ test.describe('EditRental: accessory selection workflow (test rental)', () => {
   })
 
   test.beforeEach(async ({ page }) => {
-    if (!testRentalId) {
-      test.skip()
-      return
+    if (testRentalId === null) {
+      throw new Error('E2E test rental was not created')
     }
     await page.goto(`/mobile/edit-rental/${testRentalId}`)
     await page.waitForSelector('.van-form', { timeout: 15_000 })
@@ -413,7 +416,7 @@ test.describe('EditRental: accessory selection workflow (test rental)', () => {
   })
 
   test('Can open phone holder picker and select an item on a test rental', async ({ page }) => {
-    if (!testRentalId) { test.skip(); return }
+    if (testRentalId === null) throw new Error('E2E test rental was not created')
 
     const phoneHolderField = page.locator('.van-field').filter({ hasText: '手机支架' })
     await expect(phoneHolderField).toBeVisible({ timeout: 5_000 })
@@ -446,7 +449,7 @@ test.describe('EditRental: accessory selection workflow (test rental)', () => {
   })
 
   test('Can open tripod picker and select an item on a test rental', async ({ page }) => {
-    if (!testRentalId) { test.skip(); return }
+    if (testRentalId === null) throw new Error('E2E test rental was not created')
 
     const tripodField = page.locator('.van-field').filter({ hasText: '三脚架' })
     await expect(tripodField).toBeVisible({ timeout: 5_000 })

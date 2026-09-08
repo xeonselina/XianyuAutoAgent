@@ -1,12 +1,17 @@
 import { expect, test } from '@playwright/test'
+import { realAuthStatePath } from './helpers/real-backend'
 
 const DESKTOP_URL = 'http://127.0.0.1:5002/relay-management'
 const MOBILE_URL = 'http://127.0.0.1:5003/mobile/relay'
 
 test('desktop relay table scrolls at 1280px while actions stay fixed', async ({ browser }, testInfo) => {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+  const context = await browser.newContext({
+    storageState: realAuthStatePath,
+    viewport: { width: 1280, height: 800 },
+  })
+  const page = await context.newPage()
   await page.goto(DESKTOP_URL)
-  await expect(page.getByTestId('relay-wide-table')).toBeVisible()
+  await expect(page.getByTestId('relay-wide-table')).toBeVisible({ timeout: 10_000 })
   await expect(page.getByText('SF1234567890')).toBeVisible()
 
   const metrics = await page.evaluate(() => {
@@ -28,13 +33,17 @@ test('desktop relay table scrolls at 1280px while actions stay fixed', async ({ 
   expect(metrics.actionPosition).toBe('sticky')
   expect(metrics.actionRight).toBeLessThanOrEqual(metrics.viewportWidth)
   await page.screenshot({ path: testInfo.outputPath('relay-desktop-1280.png'), fullPage: true })
-  await page.close()
+  await context.close()
 })
 
 test('desktop relay table expands without horizontal scroll at 4K', async ({ browser }, testInfo) => {
-  const page = await browser.newPage({ viewport: { width: 3840, height: 1400 } })
+  const context = await browser.newContext({
+    storageState: realAuthStatePath,
+    viewport: { width: 3840, height: 1400 },
+  })
+  const page = await context.newPage()
   await page.goto(DESKTOP_URL)
-  await expect(page.getByTestId('relay-wide-table')).toBeVisible()
+  await expect(page.getByTestId('relay-wide-table')).toBeVisible({ timeout: 10_000 })
 
   const metrics = await page.evaluate(() => {
     const scroll = document.querySelector('.el-scrollbar__wrap') as HTMLElement
@@ -49,11 +58,15 @@ test('desktop relay table expands without horizontal scroll at 4K', async ({ bro
   expect(metrics.pageScrollWidth).toBeLessThanOrEqual(metrics.viewportWidth)
   expect(metrics.tableScrollWidth).toBeLessThanOrEqual(metrics.tableClientWidth + 1)
   await page.screenshot({ path: testInfo.outputPath('relay-desktop-4k.png'), fullPage: true })
-  await page.close()
+  await context.close()
 })
 
 test('mobile relay card fits 390px and keeps touch actions at least 44px', async ({ browser }, testInfo) => {
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } })
+  const context = await browser.newContext({
+    storageState: realAuthStatePath,
+    viewport: { width: 390, height: 844 },
+  })
+  const page = await context.newPage()
   await page.goto(MOBILE_URL)
   const card = page.getByTestId('relay-card')
   await expect(card).toBeVisible()
@@ -88,5 +101,5 @@ test('mobile relay card fits 390px and keeps touch actions at least 44px', async
   )
   expect(heights.every(height => height >= 44)).toBe(true)
   await page.screenshot({ path: testInfo.outputPath('relay-mobile-390.png'), fullPage: true })
-  await page.close()
+  await context.close()
 })

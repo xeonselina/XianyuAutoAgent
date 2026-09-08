@@ -1,8 +1,10 @@
 import { expect, test } from '@playwright/test'
+import { mockAuthenticatedMobileSession } from './helpers/mock-auth'
 
 
 const baseRental = {
   device_id: 1,
+  warehouse_id: 1,
   start_date: '2026-08-21',
   end_date: '2026-08-24',
   ship_out_time: '2026-08-20T19:00:00',
@@ -18,6 +20,7 @@ const baseRental = {
 
 
 test('relay rentals are marked and excluded from mobile multi-select', async ({ page }) => {
+  await mockAuthenticatedMobileSession(page)
   await page.route('**/api/rentals/by-ship-date**', async route => {
     await route.fulfill({
       json: {

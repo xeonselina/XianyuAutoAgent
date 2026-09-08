@@ -5,6 +5,8 @@ import Components from 'unplugin-vue-components/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { fileURLToPath, URL } from 'node:url'
 
+const backendTarget = process.env.E2E_BACKEND_TARGET ?? 'http://localhost:5001'
+
 // https://vite.dev/config/
 export default defineConfig({
   base: '/', // 使用绝对路径，这样在任何子路径下都能正确加载资源
@@ -32,12 +34,17 @@ export default defineConfig({
     proxy: {
       // 代理 API 请求到 Flask 后端
       '/api': {
-        target: 'http://localhost:5001',
+        target: backendTarget,
+        changeOrigin: true,
+        rewrite: (path) => path
+      },
+      '/auth': {
+        target: backendTarget,
         changeOrigin: true,
         rewrite: (path) => path
       },
       '/web': {
-        target: 'http://localhost:5001',
+        target: backendTarget,
         changeOrigin: true,
         rewrite: (path) => path
       }

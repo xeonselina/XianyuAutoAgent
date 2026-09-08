@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { mockAuthenticatedMobileSession } from './helpers/mock-auth'
 
 const relayCase = {
   case_id: 7,
@@ -193,6 +194,10 @@ async function mockRelayApi(
 }
 
 test.describe('mobile relay management', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockAuthenticatedMobileSession(page)
+  })
+
   test('uses open-status defaults and renders the complete relay card', async ({ page }) => {
     const api = await mockRelayApi(page)
     await page.goto('/mobile/relay')
