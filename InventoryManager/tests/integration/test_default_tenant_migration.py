@@ -26,7 +26,7 @@ from tests.integration.test_saas_lite_business_migrations import (
 
 
 BACKUP_HEAD = "20260807_damage_notes"
-CURRENT_HEAD = "20260907_xianyu_rental_alerts"
+CURRENT_HEAD = "20260908_xianyu_rental_alert_ignore"
 TARGET = "tenant_a_saas_test"
 PHONE = "+8613800138000"
 SECRET_VALUES = {

@@ -22,3 +22,5 @@ class XianyuRentalAlert(db.Model):
     refund_status = db.Column(db.Integer, nullable=False)
     first_detected_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     last_seen_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    ignored_at = db.Column(db.DateTime, nullable=True)
+    ignored_reason = db.Column(db.String(500), nullable=True)

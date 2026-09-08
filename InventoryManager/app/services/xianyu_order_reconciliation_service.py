@@ -287,6 +287,7 @@ class XianyuOrderReconciliationService:
         result = []
         for alert in session.scalars(select(XianyuRentalAlert).where(
             XianyuRentalAlert.xianyu_shop_id.in_(names),
+            XianyuRentalAlert.ignored_at.is_(None),
         ).order_by(XianyuRentalAlert.first_detected_at.desc(), XianyuRentalAlert.id.desc())):
             rentals = by_order.get((alert.xianyu_shop_id, alert.order_no))
             if rentals:
@@ -462,6 +463,43 @@ class XianyuOrderReconciliationService:
             alert.state = "ignored"
             alert.ignored_reason = normalized_reason
             alert.ignored_at = datetime.utcnow()
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            self._release_lock(resources)
+            db.session.expire_all()
+
+        return self.get_snapshot()
+
+    def ignore_rental_alert(self, shop_id, order_no, reason):
+        """永久忽略一笔故意保留的退款/关闭档期提醒。"""
+        normalized_order_no = self._normalize_order_no(order_no)
+        normalized_reason = str(reason or "").strip()
+        if not normalized_reason:
+            raise ValueError("忽略原因不能为空")
+        if len(normalized_reason) > 500:
+            raise ValueError("忽略原因不能超过500个字符")
+
+        resources = self._locked_session(shop_id)
+        if resources is None:
+            raise RuntimeError("店铺正在同步，请稍后重试")
+        _connection, session, _name = resources
+        try:
+            shop = session.get(XianyuShop, shop_id)
+            if shop is None:
+                raise XianyuShopConfigIncompleteError("闲鱼店铺不存在")
+            alert = session.scalar(select(XianyuRentalAlert).where(
+                XianyuRentalAlert.xianyu_shop_id == shop_id,
+                XianyuRentalAlert.order_no == normalized_order_no,
+                XianyuRentalAlert.ignored_at.is_(None),
+            ))
+            if alert is None:
+                raise LookupError("待处理档期提醒不存在")
+
+            alert.ignored_at = datetime.utcnow()
+            alert.ignored_reason = normalized_reason
             session.commit()
         except Exception:
             session.rollback()

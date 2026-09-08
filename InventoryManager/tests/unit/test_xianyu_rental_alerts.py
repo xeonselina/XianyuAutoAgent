@@ -172,6 +172,35 @@ def test_recovered_normal_status_clears_alert_and_error(db_session, device):
     assert XianyuRentalAlert.query.count() == 0
 
 
+def test_intentionally_kept_closed_order_can_be_ignored_across_reconciliation(
+    db_session, device,
+):
+    db_session.add(make_rental(device.id, "XY"))
+    db_session.commit()
+    client = client_for(XY=order())
+    service = XianyuOrderReconciliationService(service=client)
+
+    assert service.reconcile()["rental_alerts"]
+    ignored = service.ignore_rental_alert(
+        XianyuShop.query.first().id,
+        "XY",
+        "买家已线下确认，故意保留档期",
+    )
+    assert ignored["rental_alerts"] == []
+
+    again = service.reconcile()
+    assert again["rental_alerts"] == []
+    cached = XianyuRentalAlert.query.one()
+    assert cached.ignored_reason == "买家已线下确认，故意保留档期"
+    assert cached.ignored_at is not None
+
+
+def test_ignoring_missing_or_already_ignored_rental_alert_fails(db_session, device):
+    service = XianyuOrderReconciliationService(service=client_for())
+    with pytest.raises(LookupError, match="待处理档期提醒不存在"):
+        service.ignore_rental_alert(1, "UNKNOWN", "无需提醒")
+
+
 def test_changing_order_identity_hides_stale_cache_immediately(db_session, device):
     rental = make_rental(device.id, "XY")
     db_session.add(rental)

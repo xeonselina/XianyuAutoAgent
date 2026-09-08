@@ -35,3 +35,31 @@ def test_rental_alert_migration_preserves_existing_data_and_has_shop_order_uniqu
         assert sa.inspect(connection).get_table_names() == ["xianyu_shops"]
         assert connection.exec_driver_sql("SELECT COUNT(*) FROM xianyu_shops").scalar_one() == 2
     engine.dispose()
+
+
+def test_rental_alert_ignore_migration_adds_nullable_reason_columns():
+    path = Path(__file__).resolve().parents[2] / "migrations/versions/20260908_add_xianyu_rental_alert_ignore.py"
+    spec = importlib.util.spec_from_file_location("rental_alert_ignore_migration", path)
+    revision = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(revision)
+    engine = sa.create_engine("sqlite:///:memory:")
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "CREATE TABLE xianyu_rental_alerts ("
+            "id INTEGER PRIMARY KEY, ignored_marker TEXT)"
+        )
+        with Operations.context(MigrationContext.configure(connection)):
+            revision.upgrade()
+        columns = {
+            column["name"]
+            for column in sa.inspect(connection).get_columns("xianyu_rental_alerts")
+        }
+        assert {"ignored_at", "ignored_reason"} <= columns
+        with Operations.context(MigrationContext.configure(connection)):
+            revision.downgrade()
+        columns = {
+            column["name"]
+            for column in sa.inspect(connection).get_columns("xianyu_rental_alerts")
+        }
+        assert {"ignored_at", "ignored_reason"}.isdisjoint(columns)
+    engine.dispose()

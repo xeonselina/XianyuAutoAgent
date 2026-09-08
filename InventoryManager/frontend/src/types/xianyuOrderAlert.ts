@@ -51,6 +51,12 @@ export interface XianyuRentalAlertAction {
   action: 'delete' | 'review'
 }
 
+export interface XianyuRentalAlertIgnore {
+  orderNo: string
+  shopId: number
+  reason: string
+}
+
 export interface XianyuOrderAlertSnapshot {
   alerts: XianyuOrderAlert[]
   rental_alerts?: XianyuRentalAlert[]

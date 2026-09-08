@@ -29,3 +29,9 @@ def refresh_alerts():
 @handle_response
 def ignore_alert(shop_id, order_no):
     return XianyuOrderAlertHandlers.ignore_alert(shop_id, order_no)
+
+
+@bp.post("/api/xianyu-order-alerts/<int:shop_id>/<order_no>/rental-ignore")
+@handle_response
+def ignore_rental_alert(shop_id, order_no):
+    return XianyuOrderAlertHandlers.ignore_rental_alert(shop_id, order_no)

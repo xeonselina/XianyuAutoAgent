@@ -23,6 +23,14 @@
           <span>订单号：{{ alert.order_no }}</span>
           <span class="sync-status">核对时间：{{ formatTime(alert.last_seen_at) }}</span>
         </div>
+        <div class="order-actions">
+          <el-button
+            :data-testid="`rental-ignore-${alert.order_no}`"
+            @click="confirmRentalIgnore(alert)"
+          >
+            忽略提醒
+          </el-button>
+        </div>
         <p v-if="group.kind === 'refund_review'" class="rental-guidance">订单尚未关闭，请核对实际退款范围和仍需履约的设备。</p>
         <div v-for="rental in alert.rentals" :key="rental.id" class="rental-alert-row">
           <div class="alert-copy">
@@ -123,6 +131,7 @@ import { ElMessageBox } from 'element-plus'
 import type {
   XianyuOrderAlert,
   XianyuOrderAlertSnapshot,
+  XianyuRentalAlert,
   XianyuRentalAlertAction,
 } from '@/types/xianyuOrderAlert'
 
@@ -138,6 +147,7 @@ const emit = defineEmits<{
   ignore: [payload: { shopId: number; orderNo: string; reason: string }]
   refresh: []
   'rental-action': [payload: XianyuRentalAlertAction]
+  'rental-ignore': [payload: { shopId: number; orderNo: string; reason: string }]
 }>()
 
 const expanded = ref(false)
@@ -240,6 +250,44 @@ const confirmIgnore = async (alert: XianyuOrderAlert) => {
     emit('ignore', { shopId: alert.xianyu_shop_id, orderNo, reason })
   } catch {
     // 用户取消时保持当前告警。
+  }
+}
+
+const confirmRentalIgnore = async (alert: XianyuRentalAlert) => {
+  try {
+    const promptResult = await ElMessageBox.prompt(
+      '请填写忽略这笔退款/关闭档期提醒的原因；档期不会被删除。',
+      '忽略档期提醒',
+      {
+        confirmButtonText: '下一步',
+        cancelButtonText: '取消',
+        inputPlaceholder: '例如：买家线下已确认，继续保留档期',
+        inputValidator: (value: string) => {
+          const reason = value?.trim()
+          if (!reason) return '忽略原因不能为空'
+          if (reason.length > 500) return '忽略原因不能超过500个字符'
+          return true
+        },
+      },
+    )
+    const reason = String(promptResult.value || '').trim()
+
+    await ElMessageBox.confirm(
+      `订单 ${alert.order_no} 的提醒将被永久忽略，档期仍会保留。是否继续？`,
+      '确认忽略档期提醒',
+      {
+        type: 'warning',
+        confirmButtonText: '永久忽略',
+        cancelButtonText: '取消',
+      },
+    )
+    emit('rental-ignore', {
+      shopId: alert.xianyu_shop_id,
+      orderNo: alert.order_no,
+      reason,
+    })
+  } catch {
+    // 用户取消输入或确认时不做任何操作。
   }
 }
 </script>

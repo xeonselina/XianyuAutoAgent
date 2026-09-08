@@ -96,6 +96,7 @@
       :busy-rental-id="xianyuAlertBusyRentalId"
       @book="startMissingOrderBooking"
       @ignore="handleIgnoreXianyuAlert"
+      @rental-ignore="handleIgnoreXianyuRentalAlert"
       @refresh="refreshXianyuAlerts"
       @rental-action="handleXianyuRentalAlertAction"
     />
@@ -361,6 +362,7 @@ const {
   load: loadXianyuAlerts,
   refresh: refreshXianyuAlerts,
   ignore: ignoreXianyuAlert,
+  ignoreRental: ignoreXianyuRentalAlert,
   startPolling: startXianyuAlertPolling,
   stopPolling: stopXianyuAlertPolling
 } = useXianyuOrderAlerts()
@@ -689,6 +691,14 @@ const handleIgnoreXianyuAlert = async (payload: {
   reason: string
 }) => {
   await ignoreXianyuAlert(payload.shopId, payload.orderNo, payload.reason)
+}
+
+const handleIgnoreXianyuRentalAlert = async (payload: {
+  orderNo: string
+  shopId: number
+  reason: string
+}) => {
+  await ignoreXianyuRentalAlert(payload.shopId, payload.orderNo, payload.reason)
 }
 
 const handleXianyuRentalAlertAction = async (payload: XianyuRentalAlertAction) => {

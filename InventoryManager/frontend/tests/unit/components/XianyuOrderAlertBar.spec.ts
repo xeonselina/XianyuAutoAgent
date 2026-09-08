@@ -79,6 +79,29 @@ describe('XianyuOrderAlertBar', () => {
     expect(wrapper.emitted('ignore')).toBeUndefined()
   })
 
+  it('requires a reason and confirmation before ignoring a rental alert order', async () => {
+    vi.spyOn(ElMessageBox, 'prompt').mockResolvedValue({
+      value: '买家已线下确认，故意保留档期',
+      action: 'confirm',
+    })
+    vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')
+    const snapshot = makeSnapshot()
+    snapshot.rental_alerts = [rentalAlert()]
+    const wrapper = mountBar(snapshot)
+
+    await wrapper.get('[data-testid="toggle-closed"]').trigger('click')
+    await wrapper.get('[data-testid="rental-ignore-XY-2"]').trigger('click')
+
+    expect(ElMessageBox.confirm).toHaveBeenCalledWith(
+      expect.stringContaining('档期仍会保留'),
+      '确认忽略档期提醒',
+      expect.objectContaining({ type: 'warning' }),
+    )
+    expect(wrapper.emitted('rental-ignore')).toEqual([
+      [{ shopId: 7, orderNo: 'XY-2', reason: '买家已线下确认，故意保留档期' }],
+    ])
+  })
+
   it('asks for review rather than deletion on partial refunds and shipped rentals', async () => {
     const snapshot = makeSnapshot()
     snapshot.rental_alerts = [rentalAlert('refund_review')]
