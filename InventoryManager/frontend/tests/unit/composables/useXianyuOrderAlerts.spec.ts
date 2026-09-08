@@ -101,4 +101,15 @@ describe('useXianyuOrderAlerts', () => {
     expect(alerts.snapshot.value.alerts[0]?.order_no).toBe('XY-REFRESH')
   })
 
+  it('keeps cached rental alerts visible when polling fails', async () => {
+    const cached = { ...makeSnapshot(), rental_alerts: [{ order_no: 'CLOSED', rentals: [] }] }
+    vi.mocked(axios.get).mockResolvedValueOnce(response(cached as XianyuOrderAlertSnapshot))
+    const alerts = useXianyuOrderAlerts()
+    await alerts.load()
+    vi.mocked(axios.get).mockRejectedValueOnce(new Error('offline'))
+    await alerts.load()
+    expect(alerts.snapshot.value.rental_alerts).toEqual(cached.rental_alerts)
+    expect(alerts.snapshot.value.sync.last_error).toContain('读取订单提醒失败')
+  })
+
 })

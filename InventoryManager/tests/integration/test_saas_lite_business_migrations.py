@@ -25,6 +25,7 @@ EXPAND_REVISION = "20260824_saas_lite_expand"
 CONTRACT_REVISION = "20260824_saas_lite_contract"
 MODEL_LENS_COMBO_REVISION = "20260830_model_lens_combos"
 RENTAL_PACKAGES_REVISION = "20260830_rental_packages"
+CURRENT_HEAD = "20260907_xianyu_rental_alerts"
 APPROVED_NEW_TABLES = {
     "warehouses",
     "warehouse_sf_configs",
@@ -296,7 +297,8 @@ def test_phase_2_and_model_configuration_use_a_linear_chain():
     assert revisions[CONTRACT_REVISION].down_revision == EXPAND_REVISION
     assert revisions[MODEL_LENS_COMBO_REVISION].down_revision == CONTRACT_REVISION
     assert revisions[RENTAL_PACKAGES_REVISION].down_revision == MODEL_LENS_COMBO_REVISION
-    assert script.get_heads() == [RENTAL_PACKAGES_REVISION]
+    assert script.get_heads() == [CURRENT_HEAD]
+    assert revisions[CURRENT_HEAD].down_revision == RENTAL_PACKAGES_REVISION
     phase_2_revisions = {
         revision.revision
         for revision in script.walk_revisions(
@@ -394,7 +396,7 @@ def test_fresh_chain_has_only_the_approved_tables_and_columns(
         } <= _column_names(inspector, "rentals")
         assert connection.execute(
             text("SELECT version_num FROM alembic_version")
-        ).scalar_one() == RENTAL_PACKAGES_REVISION
+        ).scalar_one() == CURRENT_HEAD
 
 
 def test_contract_backfills_old_business_rows_and_removes_sync_state(
@@ -411,7 +413,7 @@ def test_contract_backfills_old_business_rows_and_removes_sync_state(
     with engine.connect() as connection:
         inspector = inspect(connection)
         new_tables = set(inspector.get_table_names())
-        assert new_tables - old_tables == APPROVED_NEW_TABLES
+        assert new_tables - old_tables == APPROVED_NEW_TABLES | {"xianyu_rental_alerts"}
         assert old_tables - new_tables == {"xianyu_order_sync_state"}
         default_warehouse = connection.execute(
             text("SELECT id, province, city, name FROM warehouses")

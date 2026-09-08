@@ -7,6 +7,7 @@ import type { XianyuOrderAlertSnapshot } from '@/types/xianyuOrderAlert'
 
 const emptySnapshot = (): XianyuOrderAlertSnapshot => ({
   alerts: [],
+  rental_alerts: [],
   count: 0,
   refreshing: false,
   sync: {
@@ -51,7 +52,13 @@ export function useXianyuOrderAlerts() {
         applyResponse(response)
       }
     } catch (error) {
-      console.error('读取闲鱼漏录订单告警失败:', error)
+      console.error('读取闲鱼订单告警失败:', error)
+      if (readId === latestReadId && startedMutationVersion === mutationVersion && mutationCount === 0) {
+        snapshot.value = {
+          ...snapshot.value,
+          sync: { ...snapshot.value.sync, last_error: '读取订单提醒失败，当前显示上次结果' },
+        }
+      }
     }
   }
 

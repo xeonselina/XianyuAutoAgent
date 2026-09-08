@@ -22,8 +22,38 @@ export interface XianyuOrderAlertSync {
   stale_after_seconds?: number
 }
 
+export interface XianyuAlertRental {
+  id: number
+  customer_name: string
+  device_name: string
+  warehouse_id: number
+  warehouse_name: string
+  start_date: string
+  end_date: string
+  status: 'not_shipped' | 'scheduled_for_shipping' | 'shipped'
+  parent_rental_id?: number | null
+}
+
+export interface XianyuRentalAlert {
+  order_no: string
+  xianyu_shop_id: number
+  xianyu_shop_name: string
+  kind: 'closed' | 'refund_review'
+  status_text: string
+  last_seen_at: string
+  rentals: XianyuAlertRental[]
+}
+
+export interface XianyuRentalAlertAction {
+  orderNo: string
+  shopId: number
+  rentalId: number
+  action: 'delete' | 'review'
+}
+
 export interface XianyuOrderAlertSnapshot {
   alerts: XianyuOrderAlert[]
+  rental_alerts?: XianyuRentalAlert[]
   count: number
   refreshing: boolean
   sync: XianyuOrderAlertSync

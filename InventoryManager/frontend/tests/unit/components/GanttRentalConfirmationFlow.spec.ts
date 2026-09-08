@@ -1,6 +1,6 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, shallowMount, type VueWrapper } from '@vue/test-utils'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import BookingDialog from '@/components/BookingDialog.vue'
@@ -9,6 +9,7 @@ import GanttChart from '@/components/GanttChart.vue'
 import RentalConfirmationDialog from '@/components/RentalConfirmationDialog.vue'
 import XianyuOrderAlertBar from '@/components/XianyuOrderAlertBar.vue'
 import { useGanttStore, type Rental } from '@/stores/gantt'
+import { useTenantStore } from '@/stores/tenant'
 
 const { axiosGet, axiosPost } = vi.hoisted(() => ({
   axiosGet: vi.fn(),
@@ -274,5 +275,80 @@ describe('GanttChart rental confirmation flow', () => {
     expect(store.getRentalById).not.toHaveBeenCalled()
     expect(wrapper.findComponent(RentalConfirmationDialog).props('modelValue')).toBe(false)
     expect(ElMessage.error).not.toHaveBeenCalledWith('保存成功，但确认信息加载失败')
+  })
+
+  it('退款提醒切换至档期仓库并确认客户设备日期后，只删除所选档期和刷新提醒', async () => {
+    const { store, wrapper } = await mountGantt()
+    const tenant = useTenantStore()
+    tenant.setWarehousesForSession([
+      { id: 1, name: '广州仓', province: '广东', city: '广州' },
+      { id: 2, name: '深圳仓', province: '广东', city: '深圳' },
+    ])
+    const rental = {
+      ...savedRental(42), warehouse_id: 2, xianyu_shop_id: 7, xianyu_order_no: 'XY-CLOSED',
+      device: { id: 8, name: '相机A', serial_number: 'A', model: 'A' },
+    }
+    vi.mocked(store.getRentalById).mockResolvedValue(rental)
+    const deleteRental = vi.spyOn(store, 'deleteRental').mockResolvedValue({ success: true })
+    const confirm = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')
+    axiosGet.mockClear()
+
+    wrapper.findComponent(XianyuOrderAlertBar).vm.$emit('rental-action', {
+      orderNo: 'XY-CLOSED', shopId: 7, rentalId: 42, action: 'delete',
+    })
+    await flushPromises()
+
+    expect(tenant.currentWarehouseId).toBe(2)
+    expect(confirm).toHaveBeenCalledWith(
+      expect.stringContaining('流程测试客户 的 相机A 档期（2026-07-14 至 2026-07-20）'),
+      '确认删除', expect.any(Object),
+    )
+    expect(deleteRental).toHaveBeenCalledExactlyOnceWith(42)
+    expect(axiosGet).toHaveBeenCalledWith('/api/xianyu-order-alerts')
+  })
+
+  it('取消退款档期删除确认时不删除，提醒保持原样', async () => {
+    const { store, wrapper } = await mountGantt()
+    useTenantStore().setWarehousesForSession([{ id: 1, name: '测试仓', province: '广东', city: '深圳' }])
+    vi.mocked(store.getRentalById).mockResolvedValue({
+      ...savedRental(42), warehouse_id: 1, xianyu_shop_id: 7, xianyu_order_no: 'XY-CLOSED',
+    })
+    const deleteRental = vi.spyOn(store, 'deleteRental')
+    vi.spyOn(ElMessageBox, 'confirm').mockRejectedValue('cancel')
+    wrapper.findComponent(XianyuOrderAlertBar).vm.$emit('rental-action', {
+      orderNo: 'XY-CLOSED', shopId: 7, rentalId: 42, action: 'delete',
+    })
+    await flushPromises()
+    expect(deleteRental).not.toHaveBeenCalled()
+    expect(wrapper.findComponent(XianyuOrderAlertBar).props('busyRentalId')).toBeUndefined()
+  })
+
+  it('点击提醒时档期已发货，改为查看档期并保留设备回收跟进', async () => {
+    const { store, wrapper } = await mountGantt()
+    useTenantStore().setWarehousesForSession([{ id: 1, name: '测试仓', province: '广东', city: '深圳' }])
+    const rental = {
+      ...savedRental(42), warehouse_id: 1, xianyu_shop_id: 7, xianyu_order_no: 'XY-CLOSED', status: 'shipped',
+    }
+    vi.mocked(store.getRentalById).mockResolvedValue(rental)
+    const deleteRental = vi.spyOn(store, 'deleteRental')
+    wrapper.findComponent(XianyuOrderAlertBar).vm.$emit('rental-action', {
+      orderNo: 'XY-CLOSED', shopId: 7, rentalId: 42, action: 'delete',
+    })
+    await flushPromises()
+    expect(deleteRental).not.toHaveBeenCalled()
+    expect(wrapper.findComponent(EditRentalDialogNew).props('modelValue')).toBe(true)
+    expect(wrapper.findComponent(EditRentalDialogNew).props('rental')).toEqual(rental)
+  })
+
+  it('提醒中的档期已经换绑订单时拒绝删除', async () => {
+    const { store, wrapper } = await mountGantt()
+    vi.mocked(store.getRentalById).mockResolvedValue({ ...savedRental(42), xianyu_shop_id: 7, xianyu_order_no: 'NEW' })
+    const deleteRental = vi.spyOn(store, 'deleteRental')
+    wrapper.findComponent(XianyuOrderAlertBar).vm.$emit('rental-action', {
+      orderNo: 'OLD', shopId: 7, rentalId: 42, action: 'delete',
+    })
+    await flushPromises()
+    expect(deleteRental).not.toHaveBeenCalled()
+    expect(wrapper.findComponent(EditRentalDialogNew).props('modelValue')).toBe(false)
   })
 })

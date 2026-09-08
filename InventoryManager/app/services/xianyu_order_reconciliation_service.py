@@ -6,11 +6,12 @@ from datetime import datetime
 
 from flask import current_app
 from sqlalchemy import select, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app import db
 from app.models.rental import Rental
 from app.models.xianyu_order_alert import XianyuOrderAlert
+from app.models.xianyu_rental_alert import XianyuRentalAlert
 from app.models.xianyu_shop import XianyuShop
 from app.services.integration_resolver import IntegrationResolver
 from app.services.xianyu_order_service import XianyuOrderServiceError
@@ -24,11 +25,12 @@ class XianyuShopConfigIncompleteError(RuntimeError):
 
 
 class XianyuOrderReconciliationService:
-    """维护可信的漏录订单缓存。"""
+    """维护漏录订单与已录入档期的退款/关闭提醒。"""
 
     MIN_PAY_AMOUNT = 5000
     RECONCILE_ORDER_STATUSES = (12, 21)
     SYNC_STALE_AFTER_SECONDS = 10 * 60
+    ACTIVE_RENTAL_STATUSES = ("not_shipped", "scheduled_for_shipping", "shipped")
 
     def __init__(self, service_factory=None, service=None, lock_path=None):
         self.service_factory = service_factory
@@ -179,6 +181,126 @@ class XianyuOrderReconciliationService:
             )
             alert.last_seen_at = now
 
+    @classmethod
+    def _active_rentals(cls, shop_ids, session):
+        return list(session.scalars(select(Rental).where(
+            Rental.xianyu_shop_id.in_(shop_ids),
+            Rental.xianyu_order_no.isnot(None),
+            Rental.status.in_(cls.ACTIVE_RENTAL_STATUSES),
+        ).options(joinedload(Rental.device), joinedload(Rental.warehouse))
+          .order_by(Rental.start_date, Rental.id)))
+
+    @staticmethod
+    def _rental_alert_status(order):
+        """只根据平台状态判断；数量和本地档期数量不参与判定。
+
+        枚举来源：闲管家 /api/open/order/list 的 order_status/refund_status。
+        退款成功但交易仍有效时仅提示核对，不能推断整单取消。
+        """
+        try:
+            order_status = int(str(order["order_status"]))
+            refund_status = int(str(order["refund_status"]))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise XianyuOrderServiceError("闲鱼订单状态不完整") from exc
+        if order_status not in {11, 12, 21, 22, 23, 24} or refund_status not in {0, 1, 2, 3, 4, 5, 6, 8}:
+            raise XianyuOrderServiceError("闲鱼订单状态无法识别")
+        if order_status in {23, 24}:
+            kind, label = "closed", "已退款" if order_status == 23 else "交易关闭"
+        elif refund_status in {1, 2, 3, 5, 8}:
+            kind = "refund_review"
+            label = {
+                1: "退款申请中，请核对", 2: "待买家退货，请核对",
+                3: "待确认退货收货，请核对", 5: "退款成功但订单未关闭，请核对",
+                8: "待确认退货地址，请核对",
+            }[refund_status]
+            if refund_status == 5:
+                try:
+                    if 0 < int(order.get("refund_amount") or 0) < int(order.get("pay_amount") or 0):
+                        label = "部分退款，请核对"
+                except (TypeError, ValueError):
+                    pass
+        else:
+            return None
+        return {"kind": kind, "status_text": label, "order_status": order_status, "refund_status": refund_status}
+
+    def _reconcile_rental_alerts(self, client, orders, now, shop_id, session):
+        active = {
+            self._normalize_order_no(rental.xianyu_order_no)
+            for rental in self._active_rentals([shop_id], session)
+            if self._normalize_order_no(rental.xianyu_order_no)
+        }
+        cached = {
+            alert.order_no: alert for alert in session.scalars(select(XianyuRentalAlert).where(
+                XianyuRentalAlert.xianyu_shop_id == shop_id,
+            ))
+        }
+        for order_no in cached.keys() - active:
+            session.delete(cached[order_no])
+
+        failures = 0
+        for order_no in sorted(active):
+            try:
+                # 待发货列表中消失不代表关闭，必须查询该订单的真实状态。
+                order = orders.get(order_no)
+                if order is None:
+                    order = client.get_order_detail(order_no)
+                if not isinstance(order, dict) or self._normalize_order_no(order.get("order_no")) != order_no:
+                    raise XianyuOrderServiceError("闲鱼订单详情无效")
+                status = self._rental_alert_status(order)
+            except Exception as exc:
+                # 单笔失败保留旧提醒，其他已核实订单仍正常更新。
+                failures += 1
+                logger.warning("闲鱼档期订单核对失败，异常类型: %s", type(exc).__name__)
+                continue
+
+            alert = cached.get(order_no)
+            if status is None:
+                if alert is not None:
+                    session.delete(alert)
+                continue
+            if alert is None:
+                alert = XianyuRentalAlert(
+                    xianyu_shop_id=shop_id, order_no=order_no, first_detected_at=now,
+                )
+                session.add(alert)
+            for key, value in status.items():
+                setattr(alert, key, value)
+            alert.last_seen_at = now
+        return failures
+
+    def _rental_alert_snapshot(self, shops, session):
+        by_order = {}
+        for rental in self._active_rentals([shop.id for shop in shops], session):
+            key = (rental.xianyu_shop_id, self._normalize_order_no(rental.xianyu_order_no))
+            by_order.setdefault(key, []).append({
+                "id": rental.id,
+                "customer_name": rental.customer_name,
+                "device_name": rental.device.name,
+                "warehouse_id": rental.warehouse_id,
+                "warehouse_name": rental.warehouse.name,
+                "start_date": rental.start_date.isoformat(),
+                "end_date": rental.end_date.isoformat(),
+                "status": rental.status,
+                "parent_rental_id": rental.parent_rental_id,
+            })
+        names = {shop.id: shop.name for shop in shops}
+        result = []
+        for alert in session.scalars(select(XianyuRentalAlert).where(
+            XianyuRentalAlert.xianyu_shop_id.in_(names),
+        ).order_by(XianyuRentalAlert.first_detected_at.desc(), XianyuRentalAlert.id.desc())):
+            rentals = by_order.get((alert.xianyu_shop_id, alert.order_no))
+            if rentals:
+                result.append({
+                    "order_no": alert.order_no,
+                    "xianyu_shop_id": alert.xianyu_shop_id,
+                    "xianyu_shop_name": names[alert.xianyu_shop_id],
+                    "kind": alert.kind,
+                    "status_text": alert.status_text,
+                    "last_seen_at": XianyuOrderAlert._iso(alert.last_seen_at),
+                    "rentals": rentals,
+                })
+        return result
+
     def get_snapshot(self, shop_id=None, session=None):
         session = session or db.session
         shops = list(session.scalars(select(XianyuShop).order_by(XianyuShop.id)))
@@ -226,6 +348,7 @@ class XianyuOrderReconciliationService:
         return {
             "alerts": alerts,
             "count": len(alerts),
+            "rental_alerts": self._rental_alert_snapshot(selected, session),
             "sync": sync,
             "refreshing": False,
             "shops": [{"id": shop.id, "name": shop.name} for shop in active],
@@ -267,8 +390,14 @@ class XianyuOrderReconciliationService:
             }
 
             self._replace_pending(pending, now, shop.id, session)
-            shop.last_success_at = now
-            shop.last_error = None
+            failures = self._reconcile_rental_alerts(client, {
+                self._normalize_order_no(order.get("order_no")): order for order in orders
+            }, now, shop.id, session)
+            if failures:
+                shop.last_error = f"{failures} 笔档期订单状态查询失败，已保留原提醒"
+            else:
+                shop.last_success_at = now
+                shop.last_error = None
             session.commit()
             logger.info(
                 "闲鱼漏录订单对账成功，店铺ID: %s，接口订单: %s，"

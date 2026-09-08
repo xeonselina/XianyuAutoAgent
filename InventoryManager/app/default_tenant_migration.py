@@ -37,8 +37,9 @@ KNOWN_HEADS = {
     "20260824_saas_lite_contract",
     "20260830_model_lens_combos",
     "20260830_rental_packages",
+    "20260907_xianyu_rental_alerts",
 }
-CURRENT_HEAD = "20260830_rental_packages"
+CURRENT_HEAD = "20260907_xianyu_rental_alerts"
 _IDENTIFIER = re.compile(r"^[a-z0-9_]{1,64}$")
 _SAAS_TABLES = {
     "warehouses",
@@ -46,6 +47,7 @@ _SAAS_TABLES = {
     "warehouse_kuaimai_configs",
     "xianyu_shops",
     "xianyu_order_sync_state",
+    "xianyu_rental_alerts",
 }
 _PREFLIGHT_ISSUES = {
     "orphan_rental_devices",
