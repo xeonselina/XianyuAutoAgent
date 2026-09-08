@@ -26,7 +26,7 @@ CONTRACT_REVISION = "20260824_saas_lite_contract"
 MODEL_LENS_COMBO_REVISION = "20260830_model_lens_combos"
 RENTAL_PACKAGES_REVISION = "20260830_rental_packages"
 RENTAL_ALERTS_REVISION = "20260907_xianyu_rental_alerts"
-CURRENT_HEAD = "20260908_xianyu_rental_alert_ignore"
+CURRENT_HEAD = "20260908_xianyu_alert_ignore"
 APPROVED_NEW_TABLES = {
     "warehouses",
     "warehouse_sf_configs",

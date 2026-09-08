@@ -42,12 +42,22 @@ def test_rental_alert_ignore_migration_adds_nullable_reason_columns():
     spec = importlib.util.spec_from_file_location("rental_alert_ignore_migration", path)
     revision = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(revision)
+    assert len(revision.revision) <= 32
     engine = sa.create_engine("sqlite:///:memory:")
     with engine.begin() as connection:
         connection.exec_driver_sql(
             "CREATE TABLE xianyu_rental_alerts ("
             "id INTEGER PRIMARY KEY, ignored_marker TEXT)"
         )
+        with Operations.context(MigrationContext.configure(connection)):
+            revision.upgrade()
+        columns = {
+            column["name"]
+            for column in sa.inspect(connection).get_columns("xianyu_rental_alerts")
+        }
+        assert {"ignored_at", "ignored_reason"} <= columns
+        # MariaDB DDL is non-transactional; a retry must tolerate columns
+        # that were added before the version marker failed to update.
         with Operations.context(MigrationContext.configure(connection)):
             revision.upgrade()
         columns = {

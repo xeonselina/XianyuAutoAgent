@@ -38,9 +38,9 @@ KNOWN_HEADS = {
     "20260830_model_lens_combos",
     "20260830_rental_packages",
     "20260907_xianyu_rental_alerts",
-    "20260908_xianyu_rental_alert_ignore",
+    "20260908_xianyu_alert_ignore",
 }
-CURRENT_HEAD = "20260908_xianyu_rental_alert_ignore"
+CURRENT_HEAD = "20260908_xianyu_alert_ignore"
 _IDENTIFIER = re.compile(r"^[a-z0-9_]{1,64}$")
 _SAAS_TABLES = {
     "warehouses",
