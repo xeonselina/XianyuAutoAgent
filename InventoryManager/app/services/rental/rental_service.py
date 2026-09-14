@@ -8,6 +8,7 @@ from flask import current_app
 from sqlalchemy.orm import joinedload
 from app import db
 from app.models.rental import Rental, RentalBooking, RentalBookingRequest
+from app.models.rental_relay_binding import RentalRelayBinding
 from app.models.device import Device
 from app.models.warehouse import resolve_write_warehouse_id
 from app.models.xianyu_order_alert import XianyuOrderAlert
@@ -50,6 +51,19 @@ class RentalService:
             query = query.filter(Rental.warehouse_id == warehouse_id)
         rentals = query.all()
 
+        rental_ids = [rental.id for rental in rentals]
+        relay_bindings = (
+            RentalRelayBinding.query.filter(
+                RentalRelayBinding.predecessor_rental_id.in_(rental_ids)
+            ).all()
+            if rental_ids
+            else []
+        )
+        relay_by_predecessor = {
+            binding.predecessor_rental_id: binding
+            for binding in relay_bindings
+        }
+
         rows = []
         for rental in rentals:
             due_date = rental.end_date + timedelta(days=1)
@@ -60,11 +74,19 @@ class RentalService:
                 if device.device_model:
                     device_model = device.device_model.display_name
                 device_model = device_model or device.model or device.name
+            relay_binding = relay_by_predecessor.get(rental.id)
 
             rows.append({
                 'id': rental.id,
                 'warehouse_id': rental.warehouse_id,
                 'device_model': device_model or '-',
+                'device_name': device.name if device and device.name else '-',
+                'customer_name': rental.customer_name,
+                'is_relay_handoff': relay_binding is not None,
+                'relay_successor_rental_id': (
+                    relay_binding.successor_rental_id
+                    if relay_binding else None
+                ),
                 'start_date': rental.start_date.isoformat(),
                 'end_date': rental.end_date.isoformat(),
                 'due_date': due_date.isoformat(),
@@ -411,7 +433,10 @@ class RentalService:
                 includes_lens_mount=data.get('includes_lens_mount', False),
                 photo_transfer=data.get('photo_transfer', False),
                 # 镜头组合（由 handler 层校验/补全后传入，handler 不传则使用 server_default）
-                lens_combo=data.get('lens_combo', 'lens_400mm')
+                lens_combo=data.get('lens_combo', 'lens_400mm'),
+                rental_package_id=data.get('rental_package_id'),
+                rental_package_name=data.get('rental_package_name'),
+                rental_package_items=data.get('rental_package_items'),
             )
 
             db.session.add(main_rental)
@@ -539,7 +564,7 @@ class RentalService:
             if booking and len([r for r in booking.rentals if r.status != 'cancelled']) >= booking.expected_quantity:
                 raise ValueError('该订单已录齐，无需继续补录')
 
-            configurable = {'device_id', 'lens_combo', 'includes_handle', 'includes_lens_mount', 'photo_transfer', 'accessories'}
+            configurable = {'device_id', 'lens_combo', 'rental_package_id', 'rental_package_name', 'rental_package_items', 'includes_handle', 'includes_lens_mount', 'photo_transfer', 'accessories'}
             items = [base] + [dict(base, **{k: v for k, v in item.items() if k in configurable}) for item in extra]
             # Missing inventory selections must not inherit the first device.
             for item, incoming in zip(items[1:], extra):
@@ -1024,6 +1049,8 @@ class RentalService:
                 'ship_in_tracking_no', 'order_amount', 'buyer_id',
                 'includes_handle', 'includes_lens_mount',
                 'photo_transfer', 'lens_combo', 'express_type_id',
+                'rental_package_id', 'rental_package_name',
+                'rental_package_items',
             ):
                 if field in data:
                     setattr(rental, field, data[field])

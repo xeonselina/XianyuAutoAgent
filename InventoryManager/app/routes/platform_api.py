@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.auth import (
+    PasswordPolicyError,
     create_auth_session,
     csrf_matches,
     normalize_china_phone,
@@ -19,6 +20,7 @@ from app.auth import (
     resolve_platform_session,
     revoke_auth_session,
     session_cookie_options,
+    should_secure_session_cookie,
 )
 from app.control.models import PlatformAdmin, Tenant, TenantMember
 from app.crypto import hash_token
@@ -229,9 +231,12 @@ def login_platform_admin():
         credentials.raw_token,
         **session_cookie_options(
             "platform",
-            secure=current_app.config.get(
-                "SESSION_COOKIE_SECURE",
-                False,
+            secure=should_secure_session_cookie(
+                current_app.config.get(
+                    "SESSION_COOKIE_SECURE",
+                    False,
+                ),
+                request.is_secure,
             ),
         ),
     )
@@ -262,7 +267,10 @@ def logout_platform_admin():
     response.delete_cookie(
         "platform_session",
         path="/platform",
-        secure=current_app.config.get("SESSION_COOKIE_SECURE", False),
+        secure=should_secure_session_cookie(
+            current_app.config.get("SESSION_COOKIE_SECURE", False),
+            request.is_secure,
+        ),
         httponly=True,
         samesite="Lax",
     )
@@ -297,6 +305,7 @@ def create_tenant():
             body.get("name"),
             body.get("admin_phone"),
             expires_at,
+            body.get("initial_password"),
         )
     except TenantPhoneConflict:
         return error(
@@ -304,8 +313,10 @@ def create_tenant():
             status_code=409,
             code="PHONE_CONFLICT",
         ).to_flask_response()
+    except PasswordPolicyError:
+        return _invalid_request("初始密码必须为 8 至 128 个字符")
     except ValueError:
-        return _invalid_request("租户名称、手机号或到期时间无效")
+        return _invalid_request("店铺名称、管理员手机号或到期时间无效")
 
     data = _tenant_payload_by_id(tenant.id)
     if tenant.provisioning_status != "active":

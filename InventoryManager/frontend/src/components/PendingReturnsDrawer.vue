@@ -27,28 +27,57 @@
             <table class="returns-table">
               <thead>
                 <tr>
-                  <th>手机型号</th>
+                  <th>设备</th>
                   <th>租赁时间</th>
                   <th>地址</th>
-                  <th>电话</th>
+                  <th>租赁人 / 电话</th>
                   <th>操作</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="rental in group.rentals" :key="rental.id">
-                  <td class="model-cell">{{ rental.device_model }}</td>
+                  <td class="model-cell">
+                    <div class="device-model-line">
+                      <span>{{ rental.device_model }}</span>
+                      <el-tag
+                        v-if="rental.is_relay_handoff"
+                        type="warning"
+                        effect="dark"
+                        size="small"
+                        class="relay-tag"
+                        data-test="relay-tag"
+                      >
+                        接力
+                      </el-tag>
+                    </div>
+                    <div class="device-name">
+                      机器编号：{{ rental.device_name || '-' }}
+                    </div>
+                  </td>
                   <td class="date-cell">
                     <div>{{ rental.start_date }} 至 {{ rental.end_date }}</div>
                     <div class="due-date">应归还：{{ rental.due_date }}</div>
                   </td>
                   <td class="address-cell">{{ rental.destination || '-' }}</td>
                   <td class="phone-cell">
-                    <a
-                      v-if="rental.customer_phone"
-                      :href="`tel:${rental.customer_phone}`"
-                    >
-                      {{ rental.customer_phone }}
-                    </a>
+                    <div class="customer-name">
+                      {{ rental.customer_name || '-' }}
+                    </div>
+                    <div v-if="rental.customer_phone" class="phone-line">
+                      <a :href="`tel:${rental.customer_phone}`">
+                        {{ rental.customer_phone }}
+                      </a>
+                      <el-button
+                        link
+                        type="primary"
+                        :icon="CopyDocument"
+                        class="copy-phone-button"
+                        data-test="copy-phone"
+                        title="复制电话号码"
+                        :aria-label="`复制电话号码 ${rental.customer_phone}`"
+                        @click="copyPhone(rental.customer_phone)"
+                      />
+                    </div>
                     <span v-else>-</span>
                   </td>
                   <td class="action-cell">
@@ -57,6 +86,7 @@
                       size="small"
                       :loading="updatingIds.has(rental.id)"
                       :disabled="readOnly || updatingIds.has(rental.id)"
+                      data-test="mark-returned"
                       @click="emit('mark-returned', rental.id)"
                     >
                       标记为已寄回
@@ -74,6 +104,8 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { ElMessage } from 'element-plus'
+import { CopyDocument } from '@element-plus/icons-vue'
 
 import type { PendingReturn } from '@/types/pendingReturn'
 
@@ -89,6 +121,38 @@ const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   'mark-returned': [rentalId: number]
 }>()
+
+const fallbackCopy = (text: string): boolean => {
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  try {
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    textarea.remove()
+  }
+}
+
+const copyPhone = async (phone: string) => {
+  let copied = false
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(phone)
+      copied = true
+    }
+  } catch {
+    copied = false
+  }
+  if (!copied) copied = fallbackCopy(phone)
+  if (copied) ElMessage.success('电话号码已复制')
+  else ElMessage.error('复制失败，请手动复制电话号码')
+}
 
 const groups = computed(() => [
   {
@@ -193,6 +257,23 @@ const groups = computed(() => [
   font-weight: 600;
 }
 
+.device-model-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.relay-tag {
+  flex: none;
+}
+
+.device-name {
+  margin-top: 4px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
+}
+
 .date-cell {
   min-width: 190px;
   white-space: nowrap;
@@ -215,9 +296,25 @@ const groups = computed(() => [
   white-space: nowrap;
 }
 
+.customer-name {
+  font-weight: 600;
+}
+
+.phone-line {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 4px;
+}
+
 .phone-cell a {
   color: var(--el-color-primary);
   text-decoration: none;
+}
+
+.copy-phone-button {
+  min-height: 20px;
+  padding: 2px;
 }
 
 .action-cell {

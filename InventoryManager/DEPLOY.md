@@ -95,6 +95,7 @@ python -m flask --app run.py upgrade-tenant-databases
 
 2026-09 同单双设备预约新增业务迁移 `20260914_multi_device_booking`（两张关联/幂等表和 `rentals.booking_id`）。
 更新应用前按上述流程升级所有租户库；旧租赁不自动合并，关联字段保持空。本变更未增加控制库迁移。
+业务迁移当前统一到 `20260914_merge_booking_alerts`，合并双机预约与远程套餐/退款提醒两条迁移历史，不改写已发布的父版本。
 
 首次上线另有两条 CLI（同样用 `python -m flask --app run.py <cmd>`）：
 `bootstrap-platform-admin` 与 `migrate-default-tenant`。完整参数与前置条件

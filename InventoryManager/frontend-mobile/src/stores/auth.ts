@@ -19,6 +19,7 @@ export const useMobileAuthStore = defineStore('mobile-auth', () => {
   const session = ref<MobileSession | null>(null)
   const bootstrapped = ref(false)
   const authenticated = computed(() => session.value !== null)
+  let bootstrapPromise: Promise<boolean> | null = null
 
   const clearSession = () => {
     session.value = null
@@ -44,18 +45,34 @@ export const useMobileAuthStore = defineStore('mobile-auth', () => {
 
   const bootstrap = async (): Promise<boolean> => {
     if (bootstrapped.value) return authenticated.value
-    try {
-      const response = await axios.get<SessionEnvelope>('/auth/me')
-      const data = response.data.data
-      if (!data) clearSession()
-      else if (!applySession(data)) return false
-    } catch (error) {
-      if (!isAxiosError(error) || error.response?.status !== 401) throw error
-      clearSession()
-    } finally {
-      bootstrapped.value = true
+    if (!bootstrapPromise) {
+      bootstrapPromise = (async () => {
+        try {
+          const response = await axios.get<SessionEnvelope>('/auth/me')
+          const data = response.data.data
+          if (!data) clearSession()
+          else if (!applySession(data)) return false
+        } catch (error) {
+          if (!isAxiosError(error) || error.response?.status !== 401) throw error
+          clearSession()
+        } finally {
+          bootstrapped.value = true
+        }
+        return authenticated.value
+      })()
     }
-    return authenticated.value
+    try {
+      return await bootstrapPromise
+    } finally {
+      bootstrapPromise = null
+    }
+  }
+
+  const refreshSession = async (): Promise<string | null> => {
+    const response = await axios.get<SessionEnvelope>('/auth/me')
+    const data = response.data.data
+    if (!data || !applySession(data)) return null
+    return data.csrf_token
   }
 
   const logoutToDesktopLogin = async (
@@ -84,6 +101,7 @@ export const useMobileAuthStore = defineStore('mobile-auth', () => {
     bootstrap,
     clearSession,
     logoutToDesktopLogin,
+    refreshSession,
     session,
   }
 })

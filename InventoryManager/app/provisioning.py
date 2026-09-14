@@ -17,8 +17,9 @@ from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine import URL
+from werkzeug.security import generate_password_hash
 
-from app.auth import normalize_china_phone
+from app.auth import normalize_china_phone, validate_tenant_password
 from app.control.models import Tenant, TenantMember
 from app.crypto import hash_token
 
@@ -153,10 +154,12 @@ class TenantProvisioner:
             max_overflow=5,
         )
 
-    def create(self, name, admin_phone, expires_at):
+    def create(self, name, admin_phone, expires_at, initial_password):
         normalized_name = self._normalize_name(name)
         normalized_phone = normalize_china_phone(admin_phone)
         expires_at = validate_tenant_expiration(expires_at)
+        validate_tenant_password(initial_password)
+        initial_password_hash = generate_password_hash(initial_password)
 
         raw_password = secrets.token_urlsafe(32)
         encrypted_password = self.store.secret_box.encrypt(
@@ -199,6 +202,8 @@ class TenantProvisioner:
                     phone=normalized_phone,
                     role="admin",
                     status="active",
+                    password_hash=initial_password_hash,
+                    password_changed_at=datetime.utcnow(),
                 )
             )
             tenant_id = tenant.id

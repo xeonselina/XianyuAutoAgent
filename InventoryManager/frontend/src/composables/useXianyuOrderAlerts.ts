@@ -7,12 +7,14 @@ import type { XianyuOrderAlertSnapshot } from '@/types/xianyuOrderAlert'
 
 const emptySnapshot = (): XianyuOrderAlertSnapshot => ({
   alerts: [],
+  rental_alerts: [],
   count: 0,
   refreshing: false,
   sync: {
     last_attempt_at: null,
     last_success_at: null,
     last_error: null,
+    is_stale: false,
   },
 })
 
@@ -50,7 +52,13 @@ export function useXianyuOrderAlerts() {
         applyResponse(response)
       }
     } catch (error) {
-      console.error('读取闲鱼漏录订单告警失败:', error)
+      console.error('读取闲鱼订单告警失败:', error)
+      if (readId === latestReadId && startedMutationVersion === mutationVersion && mutationCount === 0) {
+        snapshot.value = {
+          ...snapshot.value,
+          sync: { ...snapshot.value.sync, last_error: '读取订单提醒失败，当前显示上次结果' },
+        }
+      }
     }
   }
 
@@ -93,6 +101,36 @@ export function useXianyuOrderAlerts() {
     }
   }
 
+  const ignoreRental = async (shopId: number, orderNo: string, reason: string) => {
+    try {
+      await enqueueMutation(async () => {
+        applyResponse(
+          await axios.post(
+            `/api/xianyu-order-alerts/${shopId}/${encodeURIComponent(orderNo)}/rental-ignore`,
+            { reason },
+          ),
+        )
+      })
+      ElMessage.success('档期退款提醒已忽略')
+    } catch (error: any) {
+      ElMessage.error(
+        error.response?.data?.message || '忽略档期提醒失败',
+      )
+    }
+  }
+
+  const refresh = async () => {
+    try {
+      await enqueueMutation(async () => {
+        applyResponse(await axios.post('/api/xianyu-order-alerts/refresh'))
+      })
+    } catch (error: any) {
+      ElMessage.error(
+        error.response?.data?.message || '刷新漏录订单失败',
+      )
+    }
+  }
+
   const startPolling = (intervalMs = 60_000) => {
     if (pollingTimer) return
     pollingTimer = setInterval(() => {
@@ -112,7 +150,9 @@ export function useXianyuOrderAlerts() {
     snapshot,
     loading,
     load,
+    refresh,
     ignore,
+    ignoreRental,
     startPolling,
     stopPolling,
   }

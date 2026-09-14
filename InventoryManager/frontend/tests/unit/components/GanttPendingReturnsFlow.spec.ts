@@ -2,6 +2,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, shallowMount } from '@vue/test-utils'
 import { ElMessage } from 'element-plus'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { defineComponent } from 'vue'
 
 import PendingReturnsDrawer from '@/components/PendingReturnsDrawer.vue'
 import GanttChart from '@/components/GanttChart.vue'
@@ -29,6 +30,12 @@ vi.mock('vue-router', () => ({
 let resizeCallback: ResizeObserverCallback | undefined
 const observeGanttBody = vi.fn()
 const disconnectGanttBody = vi.fn()
+
+const ElDropdownStub = defineComponent({
+  name: 'ElDropdown',
+  emits: ['command'],
+  template: '<div class="dropdown-stub"><slot /></div>',
+})
 
 class ResizeObserverStub {
   constructor(callback: ResizeObserverCallback) {
@@ -122,7 +129,7 @@ const mountGantt = async (devices: Device[] = []) => {
         ElInput: true,
         ElSelect: true,
         ElOption: true,
-        ElDropdown: true,
+        ElDropdown: ElDropdownStub,
         ElDropdownMenu: true,
         ElDropdownItem: true,
         ElDialog: true,
@@ -146,6 +153,11 @@ describe('GanttChart pending-returns flow', () => {
     observeGanttBody.mockClear()
     disconnectGanttBody.mockClear()
     vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+    vi.stubGlobal('matchMedia', vi.fn(() => ({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })))
     axiosGet.mockReset()
     axiosPost.mockReset()
     axiosPut.mockReset()
@@ -254,6 +266,68 @@ describe('GanttChart pending-returns flow', () => {
     expect(
       wrapper.findComponent(PendingReturnsDrawer).props('modelValue'),
     ).toBe(true)
+  })
+
+  it('keeps only schedule actions in the schedule command bar', async () => {
+    const { wrapper, loadData } = await mountGantt()
+    const actionLabels = wrapper
+      .get('[data-testid="gantt-toolbar-actions"]')
+      .findAll('button')
+      .map((button) => button.text().trim())
+
+    expect(actionLabels).toEqual([
+      '预定设备',
+      '待归还',
+      '客户历史',
+      '档期操作',
+    ])
+    expect(actionLabels).not.toContain('一键重排档期')
+    expect(actionLabels).not.toContain('批量发货')
+    expect(actionLabels).not.toContain('刷新档期')
+
+    const dropdown = wrapper.findComponent(ElDropdownStub)
+    dropdown.vm.$emit('command', 'refresh')
+    await flushPromises()
+    expect(loadData).toHaveBeenCalledOnce()
+
+    dropdown.vm.$emit('command', 'schedule-reorder')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.findComponent({ name: 'ScheduleReorderDialog' }).props('modelValue')).toBe(true)
+
+    expect(wrapper.text()).not.toContain('批量发货')
+    expect(wrapper.text()).not.toContain('出租周期统计')
+  })
+
+  it('collapses secondary actions into the overflow menu on compact screens', async () => {
+    const addEventListener = vi.fn()
+    const removeEventListener = vi.fn()
+    vi.stubGlobal('matchMedia', vi.fn(() => ({
+      matches: true,
+      addEventListener,
+      removeEventListener,
+    })))
+
+    const { wrapper } = await mountGantt()
+    const actionLabels = wrapper
+      .get('[data-testid="gantt-toolbar-actions"]')
+      .findAll('button')
+      .map((button) => button.text().trim())
+
+    expect(actionLabels).toEqual(['预定设备', '待归还', '档期操作'])
+    expect(wrapper.get('.period-compact').text()).toMatch(
+      /^\d{2}\.\d{2} – \d{2}\.\d{2}$/,
+    )
+
+    const dropdown = wrapper.findComponent(ElDropdownStub)
+    dropdown.vm.$emit('command', 'customer-history')
+    await wrapper.vm.$nextTick()
+    expect(
+      wrapper.findComponent({ name: 'CustomerHistoryDialog' }).props('modelValue'),
+    ).toBe(true)
+
+    wrapper.unmount()
+    expect(addEventListener).toHaveBeenCalledOnce()
+    expect(removeEventListener).toHaveBeenCalledOnce()
   })
 
   it('marks a row returned and refreshes the gantt data', async () => {

@@ -36,6 +36,7 @@ const makeSnapshot = (
     last_attempt_at: '2026-07-24T02:00:00Z',
     last_success_at: '2026-07-24T02:00:00Z',
     last_error: null,
+    is_stale: false,
   },
 })
 
@@ -84,6 +85,43 @@ describe('useXianyuOrderAlerts', () => {
     expect(axios.get).not.toHaveBeenCalled()
     pendingPost.resolve(response(makeSnapshot()))
     await mutation
+  })
+
+  it('runs an immediate reconciliation and applies its snapshot', async () => {
+    vi.mocked(axios.post).mockResolvedValueOnce(
+      response(makeSnapshot('XY-REFRESH')),
+    )
+    const alerts = useXianyuOrderAlerts()
+
+    await alerts.refresh()
+
+    expect(axios.post).toHaveBeenCalledWith(
+      '/api/xianyu-order-alerts/refresh',
+    )
+    expect(alerts.snapshot.value.alerts[0]?.order_no).toBe('XY-REFRESH')
+  })
+
+  it('posts a rental alert ignore and applies the returned snapshot', async () => {
+    vi.mocked(axios.post).mockResolvedValueOnce(response(makeSnapshot()))
+    const alerts = useXianyuOrderAlerts()
+
+    await alerts.ignoreRental(7, 'XY/2', '买家已线下确认，保留档期')
+
+    expect(axios.post).toHaveBeenCalledWith(
+      '/api/xianyu-order-alerts/7/XY%2F2/rental-ignore',
+      { reason: '买家已线下确认，保留档期' },
+    )
+  })
+
+  it('keeps cached rental alerts visible when polling fails', async () => {
+    const cached = { ...makeSnapshot(), rental_alerts: [{ order_no: 'CLOSED', rentals: [] }] }
+    vi.mocked(axios.get).mockResolvedValueOnce(response(cached as XianyuOrderAlertSnapshot))
+    const alerts = useXianyuOrderAlerts()
+    await alerts.load()
+    vi.mocked(axios.get).mockRejectedValueOnce(new Error('offline'))
+    await alerts.load()
+    expect(alerts.snapshot.value.rental_alerts).toEqual(cached.rental_alerts)
+    expect(alerts.snapshot.value.sync.last_error).toContain('读取订单提醒失败')
   })
 
 })

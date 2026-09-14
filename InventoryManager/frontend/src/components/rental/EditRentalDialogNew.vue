@@ -12,7 +12,7 @@
     <el-alert v-if="rental?.booking" type="info" :closable="false" style="margin-bottom:12px"
       :title="`同单已录 ${rental.booking.recorded_quantity}/${rental.booking.expected_quantity} 台 · 已发 ${rental.booking.shipped_quantity}/${rental.booking.expected_quantity} 台`" />
     <div v-if="rental?.booking" style="margin-bottom:12px">
-      <div v-for="item in rental.booking.rentals" :key="item.id"><el-button v-if="item.id !== rental.id" link @click="openRelated(item.id)">查看此台</el-button> R-{{ item.id }} · {{ item.device_name }} · {{ item.lens_combo === 'bare' ? '裸机' : item.lens_combo === 'lens_200mm' ? '200mm 镜头' : item.lens_combo === 'lens_dual' ? '双镜头' : '400mm 镜头' }}</div>
+      <div v-for="item in rental.booking.rentals" :key="item.id"><el-button v-if="item.id !== rental.id" link @click="openRelated(item.id)">查看此台</el-button> R-{{ item.id }} · {{ item.device_name }} · {{ item.rental_package_name || (item.lens_combo === 'bare' ? '裸机' : item.lens_combo === 'lens_200mm' ? '200mm 镜头' : item.lens_combo === 'lens_dual' ? '双镜头' : '400mm 镜头') }}</div>
       <small>每台独立验货、归还。订单公共信息和分摊金额保持一致。</small>
     </div>
     <div v-if="rental?.booking?.expected_quantity === 2 && rental.booking.recorded_quantity === 1" style="margin-bottom:12px">
@@ -171,6 +171,10 @@ import {
   formatLogisticsWarning,
   getLogisticsMismatch
 } from '@/utils/logisticsWarning'
+import {
+  getDefaultRentalPackageId,
+  isRentalPackageAllowed,
+} from '@/config/rentalPackage'
 
 // Components
 import RentalActionButtons from './RentalActionButtons.vue'
@@ -231,7 +235,7 @@ const form = ref({
   buyerId: '',
   damageNote: '',
   photoTransfer: false,  // 代传照片标记
-  lensCombo: undefined as ('lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual' | undefined)
+  rentalPackageId: undefined as string | undefined,
 })
 
 // UI State
@@ -398,14 +402,17 @@ const handleSubmit = async () => {
       buyer_id: form.value.buyerId,
       damage_note: form.value.damageNote,
       photo_transfer: form.value.photoTransfer,  // 代传照片标记
-      lens_combo: form.value.lensCombo
+      rental_package_id: form.value.rentalPackageId,
     }
 
     await ganttStore.updateRental(props.rental!.id, updateData)
     ElMessage.success('租赁记录更新成功')
     queuePendingSuccess({ rentalId: props.rental!.id })
   } catch (error: any) {
-    ElMessage.error('更新失败：' + (error.message || '未知错误'))
+    ElMessage.error(
+      '更新失败：'
+      + (error.response?.data?.message || error.message || '未知错误'),
+    )
   } finally {
     submitting.value = false
   }
@@ -427,6 +434,12 @@ const handleDeviceChange = async (deviceId: number) => {
 
   const selectedDevice = deviceManagement.devices.value.find(d => d.id === deviceId)
   if (!selectedDevice) return
+
+  const selectedModel = selectedDevice.device_model
+    || { name: selectedDevice.model }
+  if (!isRentalPackageAllowed(selectedModel, form.value.rentalPackageId)) {
+    form.value.rentalPackageId = getDefaultRentalPackageId(selectedModel)
+  }
 
   try {
     const shipOutTime = props.rental.ship_out_time || props.rental.start_date
@@ -451,6 +464,8 @@ const handleDeviceChange = async (deviceId: number) => {
       ).catch(() => {
         if (props.rental) {
           form.value.deviceId = props.rental.device_id
+          form.value.rentalPackageId = props.rental.rental_package_id
+            || undefined
         }
       })
     }
@@ -670,7 +685,7 @@ const initForm = async () => {
       buyerId: rentalData.buyer_id || '',
       damageNote: rentalData.damage_note || '',
       photoTransfer: rentalData.photo_transfer || false,  // 代传照片标记
-      lensCombo: rentalData.lens_combo || undefined
+      rentalPackageId: rentalData.rental_package_id || undefined,
     }
 
     initialScheduleSnapshot.value = getScheduleSnapshot()

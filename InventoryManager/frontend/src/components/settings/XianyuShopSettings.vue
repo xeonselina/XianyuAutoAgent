@@ -44,7 +44,17 @@ onMounted(() => load().catch(() => ElMessage.error('店铺加载失败')))
 
 <template>
   <section>
-    <div class="section-actions"><p>每个店铺独立同步订单。</p>
+    <div class="credential-guide">
+      <h2>闲管家订单 API</h2>
+      <p>
+        App Key 用于标识该闲鱼店铺的接口身份；App Secret 用于给订单查询、发货等请求签名。
+        它们由闲管家接口服务方分配，不是本站登录密码、闲鱼账号密码或 Cookie。
+      </p>
+      <p>
+        App Secret 会加密保存，保存后不再回显。每个闲鱼店铺应配置其对应的一组凭证。
+      </p>
+    </div>
+    <div class="section-actions"><p>配置完成并启用后，可独立同步该店铺的待发货订单。</p>
       <el-button type="primary" @click="edit()">新增店铺</el-button></div>
     <el-table :data="shops" v-loading="busy">
       <el-table-column prop="name" label="店铺" /><el-table-column prop="app_key" label="App Key" />
@@ -61,9 +71,10 @@ onMounted(() => load().catch(() => ElMessage.error('店铺加载失败')))
     <el-dialog v-model="open" :title="editingId ? '编辑店铺' : '新增店铺'" width="480px">
       <el-form label-width="100px">
         <el-form-item label="店铺名称"><el-input v-model="form.name" /></el-form-item>
-        <el-form-item label="App Key"><el-input v-model="form.app_key" /></el-form-item>
-        <el-form-item label="App Secret"><el-input v-model="form.app_secret" type="password"
-          show-password placeholder="留空保持原值" /></el-form-item>
+        <el-form-item label="闲管家 App Key"><el-input v-model="form.app_key"
+          placeholder="接口服务方分配的应用标识" /></el-form-item>
+        <el-form-item label="闲管家 App Secret"><el-input v-model="form.app_secret" type="password"
+          show-password :placeholder="editingId ? '留空保持原值' : '接口服务方分配的签名密钥'" /></el-form-item>
         <el-form-item label="启用"><el-switch v-model="form.is_active" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="open = false">取消</el-button>
@@ -72,4 +83,11 @@ onMounted(() => load().catch(() => ElMessage.error('店铺加载失败')))
   </section>
 </template>
 
-<style scoped>.section-actions{display:flex;align-items:center;justify-content:space-between}</style>
+<style scoped>
+.credential-guide { margin-bottom: 20px; padding: 16px 18px; border: 1px solid #d0d5dd; border-radius: 10px; background: #f8fafc; }
+.credential-guide h2 { margin: 0 0 8px; color: #101828; font-size: 18px; }
+.credential-guide p { margin: 4px 0; color: #475467; line-height: 1.65; }
+.section-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.section-actions p { color: #475467; }
+@media (max-width: 640px) { .section-actions { align-items: stretch; flex-direction: column; } }
+</style>

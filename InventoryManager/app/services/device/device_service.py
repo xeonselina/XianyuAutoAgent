@@ -4,6 +4,7 @@
 
 from typing import List, Dict, Any, Optional
 from flask import current_app
+from sqlalchemy import or_
 from app import db
 from app.models.device import Device
 
@@ -15,6 +16,7 @@ class DeviceService:
     def get_devices_with_filters(
         page: int = 1,
         per_page: int = 20,
+        q: Optional[str] = None,
         name: Optional[str] = None,
         model: Optional[str] = None,
         lifecycle_status: Optional[str] = None,
@@ -38,6 +40,14 @@ class DeviceService:
         """
         try:
             query = Device.query
+
+            if q:
+                keyword = f'%{q.strip()}%'
+                query = query.filter(or_(
+                    Device.name.like(keyword),
+                    Device.serial_number.like(keyword),
+                    Device.model.like(keyword),
+                ))
             
             # 应用过滤条件
             if name:

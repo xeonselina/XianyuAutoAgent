@@ -227,10 +227,10 @@
         <div class="form-tip">手柄和镜头支架已与设备配齐，无需选择具体编号</div>
       </el-form-item>
 
-      <!-- 镜头组合 -->
+      <!-- 型号租赁组合 -->
       <LensComboSelector
-        v-model="form.lensCombo"
-        :model-name="selectedModelName"
+        v-model="form.rentalPackageId"
+        :model="selectedModel"
       />
 
       <!-- 代传照片 - 复选框 -->
@@ -340,7 +340,7 @@
           </el-select>
         </el-form-item>
         <el-button size="small" @click="copySecondConfig">配置同第 1 台</el-button>
-        <LensComboSelector v-model="secondDevice.lens_combo" :model-name="selectedModelName" />
+        <LensComboSelector v-model="secondDevice.rental_package_id" :model="selectedModel" />
         <el-form-item label="配套附件">
           <el-checkbox v-model="secondDevice.includes_handle">手柄</el-checkbox>
           <el-checkbox v-model="secondDevice.includes_lens_mount">镜头支架</el-checkbox>
@@ -462,11 +462,11 @@ const form = ref({
   orderAmount: '',
   buyerId: '',
   photoTransfer: false,  // 代传照片标记
-  lensCombo: undefined as ('lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual' | undefined)
+  rentalPackageId: undefined as string | undefined,
 })
 
 const secondDevice = ref<{
-  device_id: number | null; lens_combo: typeof form.value.lensCombo;
+  device_id: number | null; rental_package_id: typeof form.value.rentalPackageId;
   includes_handle: boolean; includes_lens_mount: boolean; photo_transfer: boolean;
   phoneHolderId: number | null; tripodId: number | null;
 } | null>(null)
@@ -476,14 +476,14 @@ let bookingPayload = ''
 const copySecondConfig = () => {
   if (!secondDevice.value) return
   Object.assign(secondDevice.value, {
-    lens_combo: form.value.lensCombo,
+    rental_package_id: form.value.rentalPackageId,
     includes_handle: form.value.bundledAccessories.includes('handle'),
     includes_lens_mount: form.value.bundledAccessories.includes('lens_mount'),
     photo_transfer: form.value.photoTransfer,
   })
 }
 const addSecondDevice = () => {
-  secondDevice.value = { device_id: null, lens_combo: undefined, includes_handle: false,
+  secondDevice.value = { device_id: null, rental_package_id: undefined, includes_handle: false,
     includes_lens_mount: false, photo_transfer: false, phoneHolderId: null, tripodId: null }
   copySecondConfig()
 }
@@ -561,11 +561,6 @@ const filteredDevices = computed(() => {
     return deviceModelNames.some(name => selectedModelNames.includes(name))
   })
 })
-
-// 当前所选型号的 short name（用于镜头组合选项）
-const selectedModelName = computed<string | null>(() =>
-  selectedModel.value?.name || null
-)
 
 // UI State
 const submitting = ref(false)
@@ -1050,7 +1045,7 @@ const handleSubmit = async () => {
       order_amount: form.value.orderAmount ? parseFloat(form.value.orderAmount) : undefined,
       buyer_id: form.value.buyerId,
       photo_transfer: form.value.photoTransfer,  // 代传照片标记
-      lens_combo: form.value.lensCombo,
+      rental_package_id: form.value.rentalPackageId,
       append_to_rental_id: appendToRentalId.value || undefined,
       additional_devices: secondDevice.value ? [{ ...secondDevice.value,
         accessories: [secondDevice.value.phoneHolderId, secondDevice.value.tripodId].filter((id): id is number => !!id),
@@ -1101,7 +1096,7 @@ const handleClose = () => {
     orderAmount: '',
     buyerId: '',
     photoTransfer: false,
-    lensCombo: undefined
+    rentalPackageId: undefined
   }
   availableSlot.value = null
   availableAccessorySlot.value = null

@@ -82,3 +82,32 @@ class XianyuOrderAlertHandlers:
                 type(exc).__name__,
             )
             return server_error("忽略订单失败")
+
+    @classmethod
+    def ignore_rental_alert(cls, shop_id, order_no):
+        data = request.get_json(silent=True) or {}
+        reason = str(data.get("reason") or "").strip()
+        if not reason:
+            return bad_request("忽略原因不能为空")
+        if len(reason) > 500:
+            return bad_request("忽略原因不能超过500个字符")
+
+        try:
+            snapshot = cls.service.ignore_rental_alert(shop_id, order_no, reason)
+            return success(data=snapshot, message="档期退款提醒已忽略")
+        except XianyuShopConfigIncompleteError as exc:
+            return error(
+                str(exc),
+                status_code=409,
+                code="CONFIG_INCOMPLETE",
+            )
+        except ValueError as exc:
+            return bad_request(str(exc))
+        except LookupError as exc:
+            return not_found(str(exc))
+        except Exception as exc:
+            current_app.logger.error(
+                "永久忽略闲鱼档期提醒失败，异常类型: %s",
+                type(exc).__name__,
+            )
+            return server_error("忽略档期提醒失败")

@@ -12,6 +12,7 @@ from .inspection_check_item import InspectionCheckItem
 from .rental_relay_binding import RentalRelayBinding
 from .rental_relay_case import RentalRelayCase
 from .xianyu_order_alert import XianyuOrderAlert
+from .xianyu_rental_alert import XianyuRentalAlert
 from .warehouse import (
     Warehouse,
     WarehouseKuaimaiConfig,
@@ -24,6 +25,7 @@ __all__ = [
     'InspectionRecord', 'InspectionCheckItem', 'RentalRelayBinding',
     'RentalRelayCase',
     'XianyuOrderAlert',
+    'XianyuRentalAlert',
     'Warehouse', 'WarehouseSFConfig', 'WarehouseKuaimaiConfig',
     'XianyuShop'
 ]

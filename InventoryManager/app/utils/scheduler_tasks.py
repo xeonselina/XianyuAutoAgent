@@ -1,25 +1,26 @@
 """Reentrant business jobs run only by the independent worker."""
 
 import logging
-from datetime import datetime
 
 from sqlalchemy import select
 
 from app import db
 from app.models.rental import Rental
 from app.models.xianyu_shop import XianyuShop
+from app.utils.business_time import as_business_naive, business_now_naive
 
 
 logger = logging.getLogger(__name__)
 
 
-def process_scheduled_shipments_for_current_tenant():
+def process_scheduled_shipments_for_current_tenant(now=None):
     """Ship due main Rentals, committing or rolling back one at a time."""
+    now = business_now_naive() if now is None else as_business_naive(now)
     due = list(db.session.scalars(
         select(Rental).where(
             Rental.parent_rental_id.is_(None),
             Rental.status == "scheduled_for_shipping",
-            Rental.scheduled_ship_time <= datetime.utcnow(),
+            Rental.scheduled_ship_time <= now,
         ).order_by(Rental.id)
     ))
     for rental in due:
@@ -33,7 +34,7 @@ def process_scheduled_shipments_for_current_tenant():
                     logger.error("预约发货失败，租赁ID: %s", rental.id)
                     continue
 
-            shipped_at = datetime.utcnow()
+            shipped_at = now
             rental.status = "shipped"
             rental.ship_out_time = shipped_at
             for child in rental.child_rentals:

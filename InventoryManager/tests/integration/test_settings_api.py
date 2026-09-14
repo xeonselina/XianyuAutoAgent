@@ -17,6 +17,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import create_engine, delete, event, inspect, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.engine import Engine
+from werkzeug.security import check_password_hash
 
 from app import create_app
 from app.auth import create_auth_session
@@ -354,6 +355,11 @@ def test_public_warehouse_list_still_requires_a_tenant_session(
         ("get", "/api/settings/members", None),
         ("post", "/api/settings/members", {"phone": "13800138009"}),
         ("patch", "/api/settings/members/1", {"status": "disabled"}),
+        (
+            "put",
+            "/api/settings/members/1/password",
+            {"new_password": "Member123"},
+        ),
         ("get", "/api/settings/warehouses", None),
         (
             "post",
@@ -391,7 +397,11 @@ def test_admin_lists_creates_and_updates_normalized_members(
     client = settings_api_environment["admin_client"]
     created = client.post(
         "/api/settings/members",
-        json={"phone": "(+86) 139-0013-9000", "role": "operator"},
+        json={
+            "phone": "(+86) 139-0013-9000",
+            "role": "operator",
+            "initial_password": "Member123",
+        },
         headers=_csrf(settings_api_environment),
     )
     assert created.status_code == 201
@@ -402,6 +412,15 @@ def test_admin_lists_creates_and_updates_normalized_members(
         "role": "operator",
         "status": "active",
     }
+    assert "password" not in json.dumps(member)
+    store = settings_api_environment["app"].extensions["control_store"]
+    with store.session() as session:
+        persisted = session.get(TenantMember, member["id"])
+        assert persisted.password_hash != "Member123"
+        assert check_password_hash(
+            persisted.password_hash, "Member123"
+        )
+        assert persisted.password_changed_at is not None
 
     updated = client.patch(
         f"/api/settings/members/{member['id']}",
@@ -452,12 +471,142 @@ def test_member_phone_is_globally_unique_across_tenants(
 
     response = settings_api_environment["admin_client"].post(
         "/api/settings/members",
-        json={"phone": "13900139001", "role": "operator"},
+        json={
+            "phone": "13900139001",
+            "role": "operator",
+            "initial_password": "Member123",
+        },
         headers=_csrf(settings_api_environment),
     )
 
     assert response.status_code == 409
     assert response.get_json()["code"] == "PHONE_CONFLICT"
+
+
+@pytest.mark.parametrize(
+    "payload,message",
+    [
+        (
+            {"phone": "13900139004", "role": "operator"},
+            "初始密码不能为空",
+        ),
+        (
+            {
+                "phone": "13900139004",
+                "role": "operator",
+                "initial_password": "1234567",
+            },
+            "初始密码必须为 8 至 128 个字符",
+        ),
+    ],
+)
+def test_member_creation_requires_a_policy_compliant_initial_password(
+    settings_api_environment,
+    payload,
+    message,
+):
+    response = settings_api_environment["admin_client"].post(
+        "/api/settings/members",
+        json=payload,
+        headers=_csrf(settings_api_environment),
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["message"] == message
+    store = settings_api_environment["app"].extensions["control_store"]
+    with store.session() as session:
+        assert session.scalar(
+            select(TenantMember).where(
+                TenantMember.phone == "+8613900139004"
+            )
+        ) is None
+
+
+def test_admin_resets_member_password_and_revokes_existing_sessions(
+    settings_api_environment,
+):
+    store = settings_api_environment["app"].extensions["control_store"]
+    with store.session() as session:
+        member = session.get(
+            TenantMember, settings_api_environment["operator_id"]
+        )
+        member.password_hash = "old-hash"
+        member.failed_password_attempts = 4
+        member.password_locked_until = datetime.utcnow() + timedelta(
+            minutes=10
+        )
+
+    response = settings_api_environment["admin_client"].put(
+        "/api/settings/members/"
+        f"{settings_api_environment['operator_id']}/password",
+        json={"new_password": "Reset123"},
+        headers=_csrf(settings_api_environment),
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["message"] == "成员密码已重置"
+    assert "password" not in json.dumps(payload["data"])
+    with store.session() as session:
+        member = session.get(
+            TenantMember, settings_api_environment["operator_id"]
+        )
+        assert check_password_hash(member.password_hash, "Reset123")
+        assert member.failed_password_attempts == 0
+        assert member.password_locked_until is None
+        assert member.password_changed_at is not None
+        assert session.scalar(
+            select(AuthSession).where(
+                AuthSession.kind == "tenant",
+                AuthSession.subject_id == member.id,
+                AuthSession.tenant_id
+                == settings_api_environment["tenant_id"],
+            )
+        ) is None
+
+
+def test_member_password_reset_is_tenant_scoped(
+    settings_api_environment,
+):
+    store = settings_api_environment["app"].extensions["control_store"]
+    box = store.secret_box
+    with store.session() as session:
+        other_tenant = Tenant(
+            name="密码边界租户",
+            status="active",
+            expires_at=datetime.utcnow() + timedelta(days=30),
+            db_name="unused_password_boundary",
+            db_username="unused_password_boundary",
+            db_password_ciphertext=box.encrypt(
+                "unused", purpose="tenant-db-password"
+            ),
+            provisioning_status="active",
+        )
+        session.add(other_tenant)
+        session.flush()
+        other_member = TenantMember(
+            tenant_id=other_tenant.id,
+            phone="+8613900139005",
+            role="operator",
+            status="active",
+            password_hash="unchanged",
+        )
+        session.add(other_member)
+        session.flush()
+        other_member_id = other_member.id
+
+    response = settings_api_environment["admin_client"].put(
+        f"/api/settings/members/{other_member_id}/password",
+        json={"new_password": "Reset123"},
+        headers=_csrf(settings_api_environment),
+    )
+
+    assert response.status_code == 404
+    assert response.get_json()["code"] == "NOT_FOUND"
+    with store.session() as session:
+        assert session.get(
+            TenantMember, other_member_id
+        ).password_hash == "unchanged"
 
 
 @pytest.mark.parametrize(

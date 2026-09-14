@@ -2,10 +2,10 @@
 
 ### Requirement: Identify missing inventory reservations
 
-The system MUST identify every Xianyu order from the configured store whose order status is waiting for shipment, whose paid amount is strictly greater than 5000 cents, and whose order number is absent from inventory rentals and permanent ignores.
+The system MUST identify every Xianyu order from the configured store whose order status is 12 or 21, whose paid amount is strictly greater than 5000 cents, and whose order number is absent from inventory rentals and permanent ignores.
 
 #### Scenario: Eligible order is missing
-- **WHEN** an order has `order_status = 12`, `pay_amount > 5000`, and no matching `rentals.xianyu_order_no`
+- **WHEN** an order has `order_status IN (12, 21)`, `pay_amount > 5000`, and no matching `rentals.xianyu_order_no`
 - **THEN** the system SHALL create or update a pending missing-order alert
 
 #### Scenario: Amount is exactly fifty yuan
@@ -18,7 +18,7 @@ The system MUST identify every Xianyu order from the configured store whose orde
 
 ### Requirement: Reconcile orders reliably
 
-The system MUST reconcile all pages of waiting-for-shipment orders every ten minutes, on Gantt entry, and on manual refresh without running duplicate external queries concurrently.
+The system MUST reconcile all pages of waiting-for-shipment orders every three minutes and on manual refresh without running duplicate external queries concurrently.
 
 #### Scenario: Complete reconciliation succeeds
 - **WHEN** every requested order-list page succeeds
@@ -44,6 +44,10 @@ The system MUST display missing-order warnings only as an inline warning area at
 - **WHEN** the most recent reconciliation failed
 - **THEN** the warning area SHALL retain prior alerts and show the last successful check time and failure state
 
+#### Scenario: Empty cache has unhealthy synchronization
+- **WHEN** no pending alerts exist but reconciliation failed or has not succeeded for more than ten minutes
+- **THEN** the warning area SHALL remain visible, explain the synchronization state, and allow an immediate check
+
 ### Requirement: Reuse the existing booking dialog
 
 The system MUST use the existing `BookingDialog` for missing-order entry.
@@ -67,4 +71,3 @@ The system MUST allow a user to permanently ignore an order after providing a re
 #### Scenario: Ignore lacks a reason
 - **WHEN** the ignore reason is empty
 - **THEN** the system SHALL reject the operation and retain the alert
-

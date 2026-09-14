@@ -18,7 +18,7 @@
       <!-- 信息列表 -->
       <div v-if="rental?.booking" style="padding:12px">
         <strong>同单已录 {{ rental.booking.recorded_quantity }}/{{ rental.booking.expected_quantity }} 台 · 已发 {{ rental.booking.shipped_quantity }} 台</strong>
-        <div v-for="item in rental.booking.rentals" :key="item.id"><van-button v-if="item.id !== rental.id" size="mini" @click="router.push({ name: 'edit-rental', params: { id: item.id } }); visible = false">查看此台</van-button> R-{{ item.id }} · {{ item.device_name }} · {{ item.lens_combo === 'bare' ? '裸机' : item.lens_combo === 'lens_200mm' ? '200mm 镜头' : item.lens_combo === 'lens_dual' ? '双镜头' : '400mm 镜头' }}</div>
+        <div v-for="item in rental.booking.rentals" :key="item.id"><van-button v-if="item.id !== rental.id" size="mini" @click="router.push({ name: 'edit-rental', params: { id: item.id } }); visible = false">查看此台</van-button> R-{{ item.id }} · {{ item.device_name }} · {{ item.rental_package_name || (item.lens_combo === 'bare' ? '裸机' : item.lens_combo === 'lens_200mm' ? '200mm 镜头' : item.lens_combo === 'lens_dual' ? '双镜头' : '400mm 镜头') }}</div>
       </div>
       <van-cell-group v-if="rental?.booking?.expected_quantity === 2 && rental.booking.recorded_quantity === 1">
         <van-field v-model="reductionReason" label="减租原因" placeholder="客户只租一台的原因" />

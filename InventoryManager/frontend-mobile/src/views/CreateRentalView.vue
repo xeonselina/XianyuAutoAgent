@@ -139,21 +139,21 @@
           </van-field>
         </van-cell-group>
 
-        <!-- 镜头组合 -->
-        <van-cell-group inset title="镜头组合" style="margin-top:12px">
+        <!-- 型号租赁组合 -->
+        <van-cell-group inset title="租赁组合" style="margin-top:12px">
           <van-field label="组合">
             <template #input>
-              <van-radio-group v-model="lensComboModel" direction="horizontal" class="combo-radio-group">
+              <van-radio-group v-model="rentalPackageModel" direction="horizontal" class="combo-radio-group">
                 <van-tag
-                  v-for="opt in allowedCombos"
-                  :key="opt"
-                  :type="lensComboModel === opt ? 'primary' : 'default'"
-                  :plain="lensComboModel !== opt"
+                  v-for="opt in allowedPackages"
+                  :key="opt.id"
+                  :type="rentalPackageModel === opt.id ? 'primary' : 'default'"
+                  :plain="rentalPackageModel !== opt.id"
                   size="medium"
                   class="combo-chip"
-                  @click="lensComboModel = opt"
+                  @click="rentalPackageModel = opt.id || ''"
                 >
-                  {{ comboLabel(opt) }}
+                  {{ opt.name }}
                 </van-tag>
               </van-radio-group>
             </template>
@@ -212,8 +212,8 @@
           </van-field>
           <van-cell title="配置同第 1 台" is-link @click="copySecondConfig" />
           <van-field label="镜头组合"><template #input>
-            <select v-model="secondDevice.lens_combo" aria-label="第 2 台镜头">
-              <option v-for="combo in allowedCombos" :key="combo" :value="combo">{{ comboLabel(combo) }}</option>
+            <select v-model="secondDevice.rental_package_id" aria-label="第 2 台镜头">
+              <option v-for="combo in allowedPackages" :key="combo.id" :value="combo.id">{{ combo.name }}</option>
             </select>
           </template></van-field>
           <van-field label="随机配件"><template #input>
@@ -341,12 +341,10 @@ import {
   getLogisticsMismatch
 } from '@/utils/logisticsWarning'
 import {
-  getAllowedCombos,
-  getDefaultCombo,
-  isComboAllowed,
-  lensComboDisplay,
-  type LensCombo,
-} from '@/config/lensCombo'
+  getDefaultRentalPackageId,
+  getEnabledRentalPackages,
+  isRentalPackageAllowed,
+} from '@/config/rentalPackage'
 
 const router = useRouter()
 const route = useRoute()
@@ -372,11 +370,11 @@ const form = ref({
   phoneHolderId: null as number | null,
   tripodId: null as number | null,
   photoTransfer: false,
-  lensCombo: undefined as ('lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual' | undefined)
+  rentalPackageId: undefined as string | undefined,
 })
 
 const secondDevice = ref<{
-  device_id: number | null; lens_combo: LensCombo;
+  device_id: number | null; rental_package_id: string;
   includes_handle: boolean; includes_lens_mount: boolean; photo_transfer: boolean;
   phoneHolderId: number | null; tripodId: number | null;
 } | null>(null)
@@ -387,7 +385,7 @@ let bookingPayload = ''
 const copySecondConfig = () => {
   if (!secondDevice.value) return
   Object.assign(secondDevice.value, {
-    lens_combo: lensComboModel.value,
+    rental_package_id: rentalPackageModel.value,
     includes_handle: form.value.bundledAccessories.includes('handle'),
     includes_lens_mount: form.value.bundledAccessories.includes('lens_mount'),
     photo_transfer: form.value.photoTransfer,
@@ -395,7 +393,7 @@ const copySecondConfig = () => {
 }
 const toggleSecondDevice = () => {
   if (secondDevice.value) { secondDevice.value = null; return }
-  secondDevice.value = { device_id: null, lens_combo: lensComboModel.value, includes_handle: false,
+  secondDevice.value = { device_id: null, rental_package_id: rentalPackageModel.value, includes_handle: false,
     includes_lens_mount: false, photo_transfer: false, phoneHolderId: null, tripodId: null }
   copySecondConfig()
 }
@@ -466,28 +464,26 @@ const endDateMin = computed(() => {
   return form.value.startDate ? new Date(form.value.startDate) : undefined
 })
 
-// 镜头组合：当前所选机型 short name & 选项
-const selectedModelShortName = computed<string | null>(() => {
+// 租赁组合：直接读取当前型号在型号库中的自由配置。
+const selectedModelConfig = computed<DeviceModel | null>(() => {
   if (!form.value.modelId) return null
-  const m = deviceModels.value.find(dm => dm.id === form.value.modelId)
-  return m?.name ?? null
+  return deviceModels.value.find(dm => dm.id === form.value.modelId) || null
 })
-const allowedCombos = computed<LensCombo[]>(() => getAllowedCombos(selectedModelShortName.value))
-const lensComboModel = computed<LensCombo>({
+const allowedPackages = computed(() => getEnabledRentalPackages(selectedModelConfig.value))
+const rentalPackageModel = computed<string>({
   get: () => {
-    const v = form.value.lensCombo
-    if (v && isComboAllowed(selectedModelShortName.value, v)) return v as LensCombo
-    return getDefaultCombo(selectedModelShortName.value)
+    const value = form.value.rentalPackageId
+    if (value && isRentalPackageAllowed(selectedModelConfig.value, value)) return value
+    return getDefaultRentalPackageId(selectedModelConfig.value)
   },
-  set: (v: LensCombo) => { form.value.lensCombo = v }
+  set: (value: string) => { form.value.rentalPackageId = value }
 })
-const comboLabel = (v: LensCombo) => lensComboDisplay(v)
 
-// 机型切换 → 重置不合法的镜头组合
-watch(selectedModelShortName, (newModel) => {
-  if (secondDevice.value && !isComboAllowed(newModel, secondDevice.value.lens_combo)) secondDevice.value.lens_combo = getDefaultCombo(newModel)
-  if (form.value.lensCombo && !isComboAllowed(newModel, form.value.lensCombo)) {
-    form.value.lensCombo = getDefaultCombo(newModel)
+// 机型切换 → 重置不属于新型号的组合。
+watch(selectedModelConfig, (newModel) => {
+  if (secondDevice.value && !isRentalPackageAllowed(newModel, secondDevice.value.rental_package_id)) secondDevice.value.rental_package_id = getDefaultRentalPackageId(newModel)
+  if (form.value.rentalPackageId && !isRentalPackageAllowed(newModel, form.value.rentalPackageId)) {
+    form.value.rentalPackageId = getDefaultRentalPackageId(newModel)
   }
 })
 
@@ -731,7 +727,7 @@ const onSubmit = async () => {
       includes_handle: form.value.bundledAccessories.includes('handle'),
       includes_lens_mount: form.value.bundledAccessories.includes('lens_mount'),
       photo_transfer: form.value.photoTransfer,
-      lens_combo: form.value.lensCombo,
+      rental_package_id: form.value.rentalPackageId,
       xianyu_shop_id: form.value.xianyuShopId,
       append_to_rental_id: appendToRentalId.value || undefined,
       additional_devices: secondDevice.value ? [{ ...secondDevice.value,

@@ -12,6 +12,7 @@ from typing import Callable, Optional
 from flask import g, request
 from sqlalchemy import and_, delete, func, select
 from sqlalchemy.exc import SQLAlchemyError
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.control.models import (
     AuthSession,
@@ -30,7 +31,15 @@ PLATFORM_SESSION_SECONDS = 12 * 60 * 60
 SMS_CODE_MINUTES = 5
 SMS_MAX_ATTEMPTS = 5
 SMS_RETENTION_DAYS = 7
+PASSWORD_MIN_LENGTH = 8
+PASSWORD_MAX_LENGTH = 128
+PASSWORD_MAX_ATTEMPTS = 5
+PASSWORD_LOCK_MINUTES = 15
+PASSWORD_LOGIN_LOCK_TIMEOUT_SECONDS = 5
 _PHONE_PATTERN = re.compile(r"^1[3-9][0-9]{9}$")
+_DUMMY_PASSWORD_HASH = generate_password_hash(
+    "tenant-auth-dummy-password-never-used"
+)
 
 
 @dataclass(frozen=True)
@@ -70,6 +79,14 @@ class SmsRateLimitExceeded(Exception):
     def __init__(self, scope):
         super().__init__(scope)
         self.scope = scope
+
+
+class PasswordPolicyError(ValueError):
+    """Raised when a new tenant-member password violates policy."""
+
+
+class TenantMemberNotFound(LookupError):
+    """Raised by administrative password setup for an unknown phone."""
 
 
 class FakeSmsSender:
@@ -160,6 +177,16 @@ def mask_phone(phone_e164):
     return f"{phone_e164[:6]}****{phone_e164[-4:]}"
 
 
+def validate_tenant_password(password):
+    if not isinstance(password, str) or not (
+        PASSWORD_MIN_LENGTH <= len(password) <= PASSWORD_MAX_LENGTH
+    ):
+        raise PasswordPolicyError(
+            "Password must contain 8 to 128 characters."
+        )
+    return password
+
+
 def _utcnow():
     return datetime.utcnow()
 
@@ -173,6 +200,7 @@ def _session_seconds(kind):
 
 
 def _csrf_token_from_session(raw_session_token):
+    """Derive one stable CSRF token for the lifetime of a login session."""
     return hmac.digest(
         raw_session_token.encode("utf-8"),
         b"inventory-manager-csrf-v1",
@@ -223,6 +251,11 @@ def session_cookie_options(kind, secure):
         "path": "/" if kind == "tenant" else "/platform",
         "max_age": _session_seconds(kind),
     }
+
+
+def should_secure_session_cookie(configured_secure, request_is_secure):
+    """Keep Secure cookies on HTTPS while allowing an explicit HTTP entry."""
+    return bool(configured_secure and request_is_secure)
 
 
 def csrf_matches(auth_session, raw_token):
@@ -300,6 +333,7 @@ def resolve_platform_session(store, raw_token, now=None):
 
 
 def refresh_csrf_token(store, auth_session_id, raw_session_token, now=None):
+    """Return the session-bound token without invalidating sibling tabs."""
     if not raw_session_token:
         return None
     now = now or _utcnow()
@@ -388,6 +422,146 @@ class AuthService:
         self.fixed_code = fixed_code
         self.now = now or _utcnow
         self.logger = logger or LOGGER
+
+    def login_password(self, raw_phone, password):
+        try:
+            phone = normalize_china_phone(raw_phone)
+        except ValueError:
+            phone = None
+        supplied_password = password if isinstance(password, str) else ""
+        now = self.now()
+
+        if phone is None:
+            check_password_hash(_DUMMY_PASSWORD_HASH, supplied_password)
+            return None
+
+        lock_name = f"password-login-{hash_token(phone)[:48]}"
+        try:
+            with self.store.locked_session(
+                (lock_name,),
+                timeout=PASSWORD_LOGIN_LOCK_TIMEOUT_SECONDS,
+            ) as session:
+                member = session.scalar(
+                    select(TenantMember)
+                    .where(TenantMember.phone == phone)
+                    .with_for_update()
+                )
+
+                candidate_hash = (
+                    member.password_hash
+                    if member is not None and member.password_hash
+                    else _DUMMY_PASSWORD_HASH
+                )
+                password_matches = check_password_hash(
+                    candidate_hash,
+                    supplied_password,
+                )
+                eligible = (
+                    member is not None
+                    and member.status == "active"
+                    and member.password_hash is not None
+                )
+                if not eligible:
+                    return None
+
+                if (
+                    member.password_locked_until is not None
+                    and member.password_locked_until > now
+                ):
+                    return None
+                if member.password_locked_until is not None:
+                    member.failed_password_attempts = 0
+                    member.password_locked_until = None
+
+                if not password_matches:
+                    member.failed_password_attempts += 1
+                    if member.failed_password_attempts >= PASSWORD_MAX_ATTEMPTS:
+                        member.failed_password_attempts = PASSWORD_MAX_ATTEMPTS
+                        member.password_locked_until = now + timedelta(
+                            minutes=PASSWORD_LOCK_MINUTES
+                        )
+                    return None
+
+                member.failed_password_attempts = 0
+                member.password_locked_until = None
+                tenant = session.get(Tenant, member.tenant_id)
+                if tenant is None:
+                    return None
+                credentials = create_auth_session(
+                    session,
+                    kind="tenant",
+                    subject_id=member.id,
+                    tenant_id=tenant.id,
+                    now=now,
+                )
+                return TenantLogin(
+                    member=member,
+                    tenant=tenant,
+                    credentials=credentials,
+                )
+        except TimeoutError:
+            return None
+
+    def change_password(
+        self,
+        member_id,
+        auth_session_id,
+        current_password,
+        new_password,
+    ):
+        validate_tenant_password(new_password)
+        supplied_password = (
+            current_password if isinstance(current_password, str) else ""
+        )
+        now = self.now()
+        with self.store.session() as session:
+            member = session.scalar(
+                select(TenantMember)
+                .where(TenantMember.id == member_id)
+                .with_for_update()
+            )
+            candidate_hash = (
+                member.password_hash
+                if member is not None and member.password_hash
+                else _DUMMY_PASSWORD_HASH
+            )
+            current_matches = check_password_hash(
+                candidate_hash,
+                supplied_password,
+            )
+            if (
+                member is None
+                or member.status != "active"
+                or member.password_hash is None
+                or not current_matches
+            ):
+                return False
+
+            current_session = session.scalar(
+                select(AuthSession).where(
+                    AuthSession.id == auth_session_id,
+                    AuthSession.kind == "tenant",
+                    AuthSession.subject_id == member.id,
+                    AuthSession.tenant_id == member.tenant_id,
+                    AuthSession.expires_at > now,
+                )
+            )
+            if current_session is None:
+                return False
+
+            member.password_hash = generate_password_hash(new_password)
+            member.password_changed_at = now
+            member.failed_password_attempts = 0
+            member.password_locked_until = None
+            session.execute(
+                delete(AuthSession).where(
+                    AuthSession.kind == "tenant",
+                    AuthSession.subject_id == member.id,
+                    AuthSession.tenant_id == member.tenant_id,
+                    AuthSession.id != current_session.id,
+                )
+            )
+            return True
 
     def _check_rate_limits(self, session, phone, requested_ip, now):
         limits = (
@@ -616,3 +790,29 @@ class AuthService:
                 tenant=tenant,
                 credentials=credentials,
             )
+
+
+def set_tenant_member_password(store, raw_phone, password, now=None):
+    phone = normalize_china_phone(raw_phone)
+    validate_tenant_password(password)
+    changed_at = now or _utcnow()
+    with store.session() as session:
+        member = session.scalar(
+            select(TenantMember)
+            .where(TenantMember.phone == phone)
+            .with_for_update()
+        )
+        if member is None:
+            raise TenantMemberNotFound(phone)
+        member.password_hash = generate_password_hash(password)
+        member.password_changed_at = changed_at
+        member.failed_password_attempts = 0
+        member.password_locked_until = None
+        session.execute(
+            delete(AuthSession).where(
+                AuthSession.kind == "tenant",
+                AuthSession.subject_id == member.id,
+                AuthSession.tenant_id == member.tenant_id,
+            )
+        )
+        return member

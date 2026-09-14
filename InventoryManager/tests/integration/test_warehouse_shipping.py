@@ -161,11 +161,48 @@ def test_schedule_uses_each_warehouse_and_stable_order_id(
         build_sf_client_order_id(42, rental_id)
         for rental_id in shipping_case["rentals"]
     ]
+    assert [call[1]["sendStartTm"] for call in calls] == [
+        "2026-08-30 18:00:00", "2026-08-30 18:00:00",
+    ]
+    with app.app_context():
+        assert [
+            db.session.get(Rental, rental_id).scheduled_ship_time
+            for rental_id in shipping_case["rentals"]
+        ] == [datetime(2026, 8, 30, 18), datetime(2026, 8, 30, 18)]
     senders = [call[1]["contactInfoList"][0] for call in calls]
     assert [(r["province"], r["city"], r["address"]) for r in senders] == [
         ("广东省", "深圳市", "address-1"), ("浙江省", "杭州市", "address-2")]
     assert (normalize_sender_address("广东省", "深圳市", "广东省深圳市科技园"), normalize_sender_address("上海市", "上海市", "上海市浦东新区")) == ("广东省深圳市科技园", "上海市浦东新区")
     assert build_sf_client_order_id(42, 7) == "t42-r7"
+
+
+def test_schedule_converts_offset_input_to_china_local_wall_time(
+    app, shipping_case, monkeypatch,
+):
+    calls = []
+
+    def create_order(_service, order_data):
+        calls.append(order_data)
+        return {"success": True, "waybill_no": "SF-TZ"}
+
+    monkeypatch.setattr(SFExpressService, "create_order", create_order)
+    rental_id = shipping_case["rentals"][0]
+    response = _tenant_request(
+        app,
+        "post",
+        "/api/shipping-batch/schedule",
+        json={
+            "rental_ids": [rental_id],
+            "scheduled_time": "2026-09-02T02:30:00Z",
+        },
+    )
+
+    assert response.status_code == 200
+    assert calls[0]["sendStartTm"] == "2026-09-02 10:30:00"
+    with app.app_context():
+        assert db.session.get(Rental, rental_id).scheduled_ship_time == (
+            datetime(2026, 9, 2, 10, 30)
+        )
 
 
 def test_schedule_isolates_external_failure_per_rental(

@@ -60,6 +60,8 @@ const models = [
     name: 'x200u',
     display_name: 'VIVO X200 Ultra',
     is_active: true,
+    allowed_lens_combos: ['lens_200mm', 'bare'],
+    default_rental_package_id: 'legacy_bare',
     accessories: [],
     created_at: '',
     updated_at: '',
@@ -69,6 +71,8 @@ const models = [
     name: 'x300u',
     display_name: 'VIVO X300 Ultra',
     is_active: true,
+    allowed_lens_combos: ['lens_400mm', 'lens_dual'],
+    default_lens_combo: 'lens_dual',
     accessories: [],
     created_at: '',
     updated_at: '',
@@ -218,6 +222,7 @@ describe('BookingDialog device model selection', () => {
     expect(wrapper.find('option[value="11"]').text()).toBe('VIVO X200 Ultra 01')
     expect(wrapper.find('option[value="12"]').attributes('disabled')).toBeDefined()
     expect(wrapper.find('option[value="21"]').exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'LensComboSelector' }).props('model')).toEqual(models[0])
   })
 
   it('changing the dialog model clears stale selection without updating the parent prop', async () => {
@@ -330,7 +335,7 @@ describe('BookingDialog device model selection', () => {
     vm.form.startDate = new Date('2026-10-01')
     vm.form.endDate = new Date('2026-10-03')
     vm.form.customerName = '双机客户'
-    vm.form.lensCombo = 'lens_400mm'
+    vm.form.rentalPackageId = 'legacy_lens_400mm'
     vm.form.phoneHolderId = 91
     await flushPromises()
     vm.form.selectedDeviceId = 21
@@ -338,20 +343,20 @@ describe('BookingDialog device model selection', () => {
     expect(vm.secondDevice.phoneHolderId).toBeNull()
     expect(vm.secondDevice.device_id).toBeNull()
     vm.secondDevice.device_id = 22
-    vm.secondDevice.lens_combo = 'bare'
+    vm.secondDevice.rental_package_id = 'legacy_bare'
     vm.secondDevice.tripodId = 92
     const create = vi.spyOn(useGanttStore(), 'createRental')
       .mockRejectedValueOnce(new Error('第 2 台档期冲突'))
       .mockResolvedValueOnce({ success: true, data: { main_rental: { id: 77 } } })
     await vm.handleSubmit()
-    expect(vm.secondDevice.lens_combo).toBe('bare')
+    expect(vm.secondDevice.rental_package_id).toBe('legacy_bare')
     await vm.handleSubmit()
     expect(create).toHaveBeenCalledTimes(2)
     const [first] = create.mock.calls[0]!
     const [retry] = create.mock.calls[1]!
-    expect(first.lens_combo).toBe('lens_400mm')
+    expect(first.rental_package_id).toBe('legacy_lens_400mm')
     expect(first.accessories).toEqual([91])
-    expect(first.additional_devices[0]).toMatchObject({ device_id: 22, lens_combo: 'bare', accessories: [92] })
+    expect(first.additional_devices[0]).toMatchObject({ device_id: 22, rental_package_id: 'legacy_bare', accessories: [92] })
     expect(first.booking_request_id).toMatch(/^[0-9a-f-]{36}$/)
     expect(retry.booking_request_id).toBe(first.booking_request_id)
   })

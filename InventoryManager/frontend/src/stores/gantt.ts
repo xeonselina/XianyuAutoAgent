@@ -9,6 +9,8 @@ import {
 } from '@/utils/dateUtils'
 import dayjs from 'dayjs'
 import { useTenantStore } from '@/stores/tenant'
+import type { LensCombo } from '@/config/lensCombo'
+import type { RentalPackage, RentalPackageItem } from '@/config/rentalPackage'
 
 export interface DeviceModel {
   id: number
@@ -16,12 +18,20 @@ export interface DeviceModel {
   display_name: string
   description?: string
   is_active: boolean
+  is_accessory: boolean
+  parent_model_id?: number | null
   default_accessories?: any[]
   model_accessories?: ModelAccessory[]
   device_value?: number
+  device_count?: number
+  accessory_count?: number
+  allowed_lens_combos?: LensCombo[]
+  default_lens_combo?: LensCombo | null
+  rental_packages?: RentalPackage[]
+  default_rental_package_id?: string | null
   created_at: string
   updated_at: string
-  accessories: ModelAccessory[]
+  accessories?: DeviceModel[]
 }
 
 export interface ModelAccessory {
@@ -55,7 +65,7 @@ export interface Device {
 export interface Rental {
   booking?: {
     id: number; expected_quantity: number; recorded_quantity: number; shipped_quantity: number; total_amount: number | null;
-    rentals: { id: number; device_id: number; device_name: string; lens_combo: string; status: string;
+    rentals: { id: number; device_id: number; device_name: string; lens_combo: string; status: string; rental_package_name?: string | null; rental_package_items?: { name: string; qty: number }[];
       includes_handle: boolean; includes_lens_mount: boolean; photo_transfer: boolean; accessories: string[] }[];
   } | null
   id: number
@@ -96,7 +106,15 @@ export interface Rental {
   // 代传照片标记
   photo_transfer: boolean
   // 镜头组合（lens_400mm/lens_200mm/bare/lens_dual）
-  lens_combo?: 'lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual'
+  lens_combo?: LensCombo
+  rental_package_id?: string | null
+  rental_package_name?: string | null
+  rental_package_items?: RentalPackageItem[]
+  rental_package?: {
+    id: string | null
+    name: string
+    items: RentalPackageItem[]
+  } | null
   xianyu_order_no?: string
   xianyu_shop_id?: number
   order_amount?: number

@@ -118,7 +118,7 @@ test.describe('mobile rental confirmation formatter', () => {
       '寄出时间：未填写',
       '预计收货：未填写',
       '客户归还：未填写',
-      '寄出型号：未识别型号 + 未填写镜头组合 + 无附件',
+      '寄出型号：未识别型号 + 未填写租赁组合 + 无附件',
     ])
   })
 
@@ -145,7 +145,7 @@ const mockEditSave = async (
     : options.refreshedRental
   let rentalGets = 0
 
-  await page.route('**/api/**', async route => {
+  await page.route(/^https?:\/\/[^/]+\/api\//, async route => {
     const url = new URL(route.request().url())
     if (url.pathname === '/api/gantt/data') {
       await route.fulfill({
@@ -316,7 +316,7 @@ const mockCreateSave = async (
   }
   const confirmationIds: number[] = []
 
-  await page.route('**/api/**', async route => {
+  await page.route(/^https?:\/\/[^/]+\/api\//, async route => {
     const request = route.request()
     const url = new URL(request.url())
     if (url.pathname === '/api/gantt/data') {
@@ -488,7 +488,7 @@ test('two devices submit distinct configurations in one request and preserve ret
   await mockCreateSave(page)
   await page.getByText('＋ 添加第 2 台', { exact: true }).click()
   await page.getByLabel('第 2 台设备', { exact: true }).selectOption('9')
-  await page.getByLabel('第 2 台镜头', { exact: true }).selectOption('bare')
+  await page.getByLabel('第 2 台镜头', { exact: true }).selectOption('legacy_bare')
   const payloads: any[] = []
   await page.route('**/api/rentals', async route => {
     payloads.push(route.request().postDataJSON())
@@ -501,14 +501,14 @@ test('two devices submit distinct configurations in one request and preserve ret
   await page.getByRole('button', { name: '一次预约 2 台' }).click()
   await expect(page.locator('.van-toast__text')).toHaveText('第 2 台档期冲突')
   await expect(page.getByLabel('第 2 台设备', { exact: true })).toHaveValue('9')
-  await expect(page.getByLabel('第 2 台镜头', { exact: true })).toHaveValue('bare')
+  await expect(page.getByLabel('第 2 台镜头', { exact: true })).toHaveValue('legacy_bare')
   await page.getByRole('button', { name: '一次预约 2 台' }).click()
   await expect(page.getByTestId('rental-confirmation-popup')).toBeVisible()
   expect(payloads).toHaveLength(2)
   expect(payloads[0].device_id).toBe(8)
   expect(payloads[0].additional_devices).toHaveLength(1)
   expect(payloads[0].additional_devices[0].device_id).toBe(9)
-  expect(payloads[0].additional_devices[0].lens_combo).toBe('bare')
+  expect(payloads[0].additional_devices[0].rental_package_id).toBe('legacy_bare')
   expect(payloads[0].booking_request_id).toMatch(/^[0-9a-f-]{36}$/)
   expect(payloads[1].booking_request_id).toBe(payloads[0].booking_request_id)
 })

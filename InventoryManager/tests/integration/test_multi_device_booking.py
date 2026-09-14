@@ -245,3 +245,25 @@ def test_zero_or_one_cent_amount_is_not_lost(case, amount):
     response = client.post('/api/rentals', json=payload)
     assert response.status_code == 201, response.json
     assert sum(row['order_amount'] for row in response.json['data']['main_rentals']) == float(amount)
+
+
+def test_two_custom_packages_keep_independent_snapshots(case):
+    client, payload, devices = case
+    model = devices[0].device_model
+    model.set_rental_packages_list([
+        {'id': 'body-only', 'name': '裸机套餐', 'is_active': True, 'items': []},
+        {'id': 'long-lens', 'name': '400mm 套餐', 'is_active': True, 'items': [{'name': '400mm 镜头', 'qty': 1}]},
+    ])
+    model.default_rental_package_id = 'body-only'
+    db.session.commit()
+    payload.pop('lens_combo')
+    payload['rental_package_id'] = 'body-only'
+    payload['additional_devices'][0].pop('lens_combo')
+    payload['additional_devices'][0]['rental_package_id'] = 'long-lens'
+    response = client.post('/api/rentals', json=payload)
+    assert response.status_code == 201, response.json
+    rows = response.json['data']['main_rentals']
+    assert [r['rental_package_name'] for r in rows] == ['裸机套餐', '400mm 套餐']
+    assert rows[0]['rental_package_items'] == []
+    assert rows[1]['rental_package_items'] == [{'name': '400mm 镜头', 'qty': 1}]
+    assert [r['rental_package_name'] for r in rows[0]['booking']['rentals']] == ['裸机套餐', '400mm 套餐']

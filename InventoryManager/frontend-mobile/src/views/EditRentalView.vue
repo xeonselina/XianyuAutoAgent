@@ -188,21 +188,21 @@
           />
         </van-cell-group>
 
-        <!-- 镜头组合 -->
-        <van-cell-group inset title="镜头组合" style="margin-top:12px">
+        <!-- 型号租赁组合 -->
+        <van-cell-group inset title="租赁组合" style="margin-top:12px">
           <van-field label="组合">
             <template #input>
               <div class="combo-radio-group">
                 <van-tag
-                  v-for="opt in allowedCombos"
-                  :key="opt"
-                  :type="lensComboModel === opt ? 'primary' : 'default'"
-                  :plain="lensComboModel !== opt"
+                  v-for="opt in allowedPackages"
+                  :key="opt.id"
+                  :type="rentalPackageModel === opt.id ? 'primary' : 'default'"
+                  :plain="rentalPackageModel !== opt.id"
                   size="medium"
                   class="combo-chip"
-                  @click="lensComboModel = opt"
+                  @click="rentalPackageModel = opt.id || ''"
                 >
-                  {{ comboLabel(opt) }}
+                  {{ opt.name }}
                 </van-tag>
               </div>
             </template>
@@ -395,7 +395,7 @@ import axios from 'axios'
 import dayjs from 'dayjs'
 import { useGanttStore } from '@/stores/gantt'
 import { useMobileTenantStore } from '@/stores/tenant'
-import type { Rental, Device } from '@/stores/gantt'
+import type { DeviceModel, Rental, Device } from '@/stores/gantt'
 import RentalConfirmationPopup from '@/components/RentalConfirmationPopup.vue'
 import { useConflictDetection } from '@/composables/useConflictDetection'
 import {
@@ -403,12 +403,10 @@ import {
   getLogisticsMismatch
 } from '@/utils/logisticsWarning'
 import {
-  getAllowedCombos,
-  getDefaultCombo,
-  isComboAllowed,
-  lensComboDisplay,
-  type LensCombo,
-} from '@/config/lensCombo'
+  getDefaultRentalPackageId,
+  getEnabledRentalPackages,
+  isRentalPackageAllowed,
+} from '@/config/rentalPackage'
 
 const router = useRouter()
 const route = useRoute()
@@ -459,7 +457,7 @@ const form = ref({
   photoTransfer: false,
   phoneHolderId: null as number | null,
   tripodId: null as number | null,
-  lensCombo: undefined as ('lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual' | undefined)
+  rentalPackageId: undefined as string | undefined,
 })
 
 const formRef = ref()
@@ -473,23 +471,38 @@ const selectedTripodName = ref('')
 // 配件数据
 const accessories = ref<{ phoneHolders: Device[], tripods: Device[] }>({ phoneHolders: [], tripods: [] })
 
-// 镜头组合：来源于关联的 rental.device.device_model.name 或 rental.device.model
+// 所有可用设备
+const allDevices = ref<Device[]>([])
+
+// 租赁组合：来源于当前选中设备的正式型号配置。
 const currentRental = ref<Rental | null>(null)
-const currentModelShortName = computed<string | null>(() => {
-  const d = currentRental.value?.device as any
-  if (!d) return null
-  return d.device_model?.name || d.model || null
+const currentModelConfig = computed<DeviceModel | string | null>(() => {
+  const selected = allDevices.value.find(device => device.id === form.value.deviceId)
+  const device = selected || currentRental.value?.device
+  if (!device) return null
+  return device.device_model || device.model || null
 })
-const allowedCombos = computed<LensCombo[]>(() => getAllowedCombos(currentModelShortName.value))
-const lensComboModel = computed<LensCombo>({
+const allowedPackages = computed(() => {
+  const configured = getEnabledRentalPackages(currentModelConfig.value)
+  const historicalId = form.value.rentalPackageId
+  if (historicalId && !configured.some((item) => item.id === historicalId)) {
+    return [{
+      id: historicalId,
+      name: `${currentRental.value?.rental_package_name || '已停用组合'}（历史订单）`,
+      is_active: false,
+      items: [],
+    }, ...configured]
+  }
+  return configured
+})
+const rentalPackageModel = computed<string>({
   get: () => {
-    const v = form.value.lensCombo
-    if (v && isComboAllowed(currentModelShortName.value, v)) return v as LensCombo
-    return getDefaultCombo(currentModelShortName.value)
+    const value = form.value.rentalPackageId
+    if (value && allowedPackages.value.some((item) => item.id === value)) return value
+    return getDefaultRentalPackageId(currentModelConfig.value)
   },
-  set: (v: LensCombo) => { form.value.lensCombo = v }
+  set: (value: string) => { form.value.rentalPackageId = value }
 })
-const comboLabel = (v: LensCombo) => lensComboDisplay(v)
 
 // 日期 picker 的数组状态
 const endDateParts = ref<string[]>([])
@@ -497,9 +510,6 @@ const shipOutDateParts = ref<string[]>([])
 const shipOutTimeStr = ref('09:00')
 const shipInDateParts = ref<string[]>([])
 const shipInTimeStr = ref('18:00')
-
-// 所有可用设备
-const allDevices = ref<Device[]>([])
 
 const endDateMin = computed(() => {
   return form.value.startDate ? new Date(form.value.startDate) : undefined
@@ -609,7 +619,7 @@ const initForm = (rental: Rental) => {
   if (rental.includes_lens_mount) form.value.bundledAccessories.push('lens_mount')
   form.value.damageNote = rental.damage_note || ''
   form.value.photoTransfer = rental.photo_transfer || false
-  form.value.lensCombo = rental.lens_combo || undefined
+  form.value.rentalPackageId = rental.rental_package_id || undefined
 
   // 配件（手机支架、三脚架）
   form.value.phoneHolderId = null
@@ -662,6 +672,15 @@ const onDeviceConfirm = ({ selectedValues, selectedOptions }: any) => {
   if (newDeviceId !== form.value.deviceId) {
     form.value.deviceId = newDeviceId
     selectedDeviceName.value = selectedOptions[0]?.text ?? ''
+    const selectedDevice = allDevices.value.find(
+      device => device.id === newDeviceId
+    )
+    const selectedModel = selectedDevice?.device_model
+      || selectedDevice?.model
+      || null
+    if (!isRentalPackageAllowed(selectedModel, form.value.rentalPackageId)) {
+      form.value.rentalPackageId = getDefaultRentalPackageId(selectedModel)
+    }
     checkDeviceConflict()
   }
   showDevicePicker.value = false
@@ -798,7 +817,7 @@ const onSubmit = async () => {
       includes_lens_mount: form.value.bundledAccessories.includes('lens_mount'),
       damage_note: form.value.damageNote,
       photo_transfer: form.value.photoTransfer,
-      lens_combo: form.value.lensCombo,
+      rental_package_id: form.value.rentalPackageId,
       accessories: [
         ...(form.value.phoneHolderId ? [{ id: form.value.phoneHolderId, is_bundled: false }] : []),
         ...(form.value.tripodId ? [{ id: form.value.tripodId, is_bundled: false }] : [])
@@ -825,7 +844,10 @@ const onSubmit = async () => {
     }
     savedRental.value = latestRental
   } catch (e: any) {
-    const errMsg = e.response?.data?.error || e.message || '保存失败'
+    const errMsg = e.response?.data?.message
+      || e.response?.data?.error
+      || e.message
+      || '保存失败'
     showToast({ message: errMsg, type: 'fail' })
   } finally {
     submitting.value = false

@@ -1,5 +1,6 @@
 import base64
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from threading import Barrier, Event, Lock
@@ -7,6 +8,7 @@ from threading import Barrier, Event, Lock
 import pytest
 from sqlalchemy import create_engine, event, func, inspect, select
 from sqlalchemy.engine import make_url
+from werkzeug.security import generate_password_hash
 
 from app import create_app, db
 from app.control.models import (
@@ -319,6 +321,16 @@ def test_verify_sets_secure_session_shape_and_me_keeps_csrf_stable(
         stored = session.scalars(select(AuthSession)).one()
         assert stored.csrf_token_hash == hash_token(second_csrf)
         assert stored.csrf_token_hash != second_csrf
+
+    sibling_tab = auth_api_environment["app"].test_client()
+    sibling_tab.set_cookie("tenant_session", cookie.value)
+    sibling_me = sibling_tab.get("/auth/me")
+    assert sibling_me.status_code == 200
+    assert sibling_me.get_json()["data"]["csrf_token"] == first_csrf
+    assert client.post(
+        "/api/_auth-write",
+        headers={"X-CSRF-Token": first_csrf},
+    ).status_code == 200
 
 
 def test_logout_requires_csrf_and_revokes_server_session(
@@ -960,3 +972,112 @@ def test_concurrent_wrong_guesses_cannot_exceed_five_attempts(
         json={"phone": "13800138000", "code": "123456"},
     )
     assert correct_after_five.status_code == 401
+
+
+def test_password_login_advisory_lock_serializes_unknown_and_existing_candidates(
+    monkeypatch,
+):
+    """Exercise MariaDB GET_LOCK, not SQLite's no-op lock compatibility path."""
+    control_url = _required_test_url("TEST_CONTROL_DATABASE_URL")
+    setup_engine = create_engine(control_url, pool_pre_ping=True)
+    box = SecretBox.from_base64(TEST_MASTER_KEY)
+    store = None
+    schema_verified_safe = False
+    try:
+        with setup_engine.connect() as connection:
+            assert connection.exec_driver_sql("SELECT DATABASE()").scalar_one() == (
+                DATABASE_ENVIRONMENTS["TEST_CONTROL_DATABASE_URL"]
+            )
+            _assert_test_only_grants(connection)
+        schema_verified_safe = True
+        _reset_schema(setup_engine)
+        ControlBase.metadata.create_all(setup_engine)
+
+        from sqlalchemy.orm import Session
+
+        with Session(setup_engine) as session:
+            tenant = Tenant(
+                name="Password concurrency tenant",
+                status="active",
+                expires_at=datetime.utcnow() + timedelta(days=30),
+                db_name="unused_password_concurrency_tenant",
+                db_username="unused_password_concurrency_user",
+                db_password_ciphertext="test-only-ciphertext",
+                provisioning_status="active",
+            )
+            session.add(tenant)
+            session.flush()
+            member = TenantMember(
+                tenant_id=tenant.id,
+                phone="+8613800138000",
+                role="operator",
+                status="active",
+                password_hash=generate_password_hash("Initial-pass-123"),
+            )
+            session.add(member)
+            session.flush()
+            member_id = member.id
+            session.commit()
+
+        store = ControlStore(
+            control_url.render_as_string(hide_password=False),
+            box,
+            pool_size=8,
+            max_overflow=0,
+        )
+        auth_module = __import__("app.auth", fromlist=["AuthService"])
+        service = auth_module.AuthService(
+            store,
+            TEST_MASTER_KEY,
+            sender=None,
+        )
+        original_check = auth_module.check_password_hash
+        tracking_lock = Lock()
+        active_checks = 0
+        maximum_active_checks = 0
+
+        def slow_check(password_hash, password):
+            nonlocal active_checks, maximum_active_checks
+            with tracking_lock:
+                active_checks += 1
+                maximum_active_checks = max(
+                    maximum_active_checks,
+                    active_checks,
+                )
+            try:
+                time.sleep(0.05)
+                return original_check(password_hash, password)
+            finally:
+                with tracking_lock:
+                    active_checks -= 1
+
+        monkeypatch.setattr(auth_module, "check_password_hash", slow_check)
+
+        def concurrent_logins(phone):
+            start = Barrier(6)
+
+            def login(_index):
+                start.wait(timeout=2)
+                return service.login_password(phone, "definitely-wrong")
+
+            with ThreadPoolExecutor(max_workers=6) as executor:
+                return list(executor.map(login, range(6)))
+
+        assert concurrent_logins("13900139000") == [None] * 6
+        assert maximum_active_checks == 1
+
+        maximum_active_checks = 0
+        assert concurrent_logins("13800138000") == [None] * 6
+        assert maximum_active_checks == 1
+        with store.session() as session:
+            locked_member = session.get(TenantMember, member_id)
+            assert locked_member.failed_password_attempts == 5
+            assert locked_member.password_locked_until is not None
+    finally:
+        if store is not None:
+            store.dispose()
+        try:
+            if schema_verified_safe:
+                _reset_schema(setup_engine)
+        finally:
+            setup_engine.dispose()
