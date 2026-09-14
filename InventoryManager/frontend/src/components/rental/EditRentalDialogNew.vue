@@ -12,8 +12,13 @@
     <el-alert v-if="rental?.booking" type="info" :closable="false" style="margin-bottom:12px"
       :title="`同单已录 ${rental.booking.recorded_quantity}/${rental.booking.expected_quantity} 台 · 已发 ${rental.booking.shipped_quantity}/${rental.booking.expected_quantity} 台`" />
     <div v-if="rental?.booking" style="margin-bottom:12px">
-      <div v-for="item in rental.booking.rentals" :key="item.id">R-{{ item.id }} · {{ item.device_name }} · {{ item.lens_combo === 'bare' ? '裸机' : item.lens_combo === 'lens_200mm' ? '200mm 镜头' : item.lens_combo === 'lens_dual' ? '双镜头' : '400mm 镜头' }}</div>
+      <div v-for="item in rental.booking.rentals" :key="item.id"><el-button v-if="item.id !== rental.id" link @click="openRelated(item.id)">查看此台</el-button> R-{{ item.id }} · {{ item.device_name }} · {{ item.lens_combo === 'bare' ? '裸机' : item.lens_combo === 'lens_200mm' ? '200mm 镜头' : item.lens_combo === 'lens_dual' ? '双镜头' : '400mm 镜头' }}</div>
       <small>每台独立验货、归还。订单公共信息和分摊金额保持一致。</small>
+    </div>
+    <div v-if="rental?.booking?.expected_quantity === 2 && rental.booking.recorded_quantity === 1" style="margin-bottom:12px">
+      <el-input v-model="reductionReason" placeholder="客户减租原因（如需补齐，请从预约入口查看同单）" />
+      <el-input v-model="reductionAmount" type="number" placeholder="减租后的订单总金额" />
+      <el-button :loading="reducingBooking" @click="reduceBooking">确认只租 1 台</el-button>
     </div>
     <RentalActionButtons
       :rental="rental"
@@ -126,6 +131,34 @@ import { ref, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
+import axios from 'axios'
+
+const openRelated = async (id: number) => {
+  try {
+    await ElMessageBox.confirm('切换设备会放弃当前未保存的修改，是否继续？', '查看同单设备')
+    emit('open-related', id)
+  } catch { /* keep the current form */ }
+}
+
+const reductionReason = ref('')
+const reductionAmount = ref('')
+const reducingBooking = ref(false)
+const reduceBooking = async () => {
+  if (!props.rental || reducingBooking.value) return
+  try {
+    await ElMessageBox.confirm('确认客户只租一台，并以所填金额作为订单总金额？', '确认减租')
+    reducingBooking.value = true
+    await axios.post(`/api/rentals/${props.rental.id}/reduce-booking`, {
+      warehouse_id: props.rental.warehouse_id, reason: reductionReason.value, total_amount: reductionAmount.value,
+    })
+    ElMessage.success('已确认减租为一台')
+    await ganttStore.loadData()
+    emit('success', props.rental.id)
+    emit('update:modelValue', false)
+  } catch (e: any) {
+    if (e !== 'cancel' && e !== 'close') ElMessage.error(e.response?.data?.error || e.message || '减租失败')
+  } finally { reducingBooking.value = false }
+}
 
 // Store & Composables
 import { useGanttStore } from '@/stores/gantt'
@@ -156,6 +189,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   'success': [rentalId?: number]
+  'open-related': [rentalId: number]
 }>()
 
 // Store & Router

@@ -397,6 +397,7 @@ import { Monitor } from '@element-plus/icons-vue'
 import VueDatePicker from '@vuepic/vue-datepicker'
 import '@vuepic/vue-datepicker/dist/main.css'
 import dayjs from 'dayjs'
+import { newBookingRequestId } from '@/utils/bookingRequest'
 import axios from 'axios'
 
 // 导入组合式函数
@@ -501,6 +502,7 @@ const loadBookingContext = async () => {
     if (r.warehouse_id !== tenantStore.currentWarehouseId) {
       ElMessage.error('请先切换到原订单仓库'); return
     }
+    await axios.post(`/api/rentals/${r.id}/declare-booking`, { warehouse_id: r.warehouse_id })
     secondDevice.value = null
     form.value.selectedModelId = r.device?.model_id || r.device?.device_model?.id
     form.value.startDate = new Date(r.start_date)
@@ -521,6 +523,7 @@ const loadBookingContext = async () => {
 watch(() => [form.value.selectedModelId, form.value.startDate, form.value.endDate, form.value.logisticsDays, tenantStore.currentWarehouseId], () => {
   if (secondDevice.value) secondDevice.value.device_id = null
 })
+watch(() => tenantStore.currentWarehouseId, () => { secondDevice.value = null; appendToRentalId.value = null })
 watch(() => [form.value.xianyuOrderNo, form.value.xianyuShopId], () => { appendToRentalId.value = null })
 
 const availableDeviceModels = computed(() =>
@@ -1055,7 +1058,7 @@ const handleSubmit = async () => {
     }
 
     const payload = JSON.stringify(rentalData)
-    if (payload !== bookingPayload) { bookingRequestId = crypto.randomUUID(); bookingPayload = payload }
+    if (payload !== bookingPayload) { bookingRequestId = newBookingRequestId(); bookingPayload = payload }
     const result = await ganttStore.createRental({ ...rentalData, booking_request_id: bookingRequestId })
     const rentalId = result.data?.main_rental?.id
     ElMessage.success(secondDevice.value ? '两台设备预约成功' : '租赁记录创建成功')

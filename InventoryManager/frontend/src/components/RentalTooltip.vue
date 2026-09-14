@@ -24,6 +24,7 @@
         </div>
         
         <div class="tooltip-body">
+          <div v-if="rental.booking" class="info-row">同单已录 {{ rental.booking.recorded_quantity }}/{{ rental.booking.expected_quantity }} 台 · 已发 {{ rental.booking.shipped_quantity }} 台</div>
           <div class="info-row">
             <span class="label">闲鱼 ID:</span>
             <span class="value">{{ rental.customer_name || '未填写' }}</span>

@@ -291,7 +291,8 @@ def test_phase_2_uses_exactly_two_linear_revisions():
 
     assert revisions[EXPAND_REVISION].down_revision == CURRENT_PHASE_1_HEAD
     assert revisions[CONTRACT_REVISION].down_revision == EXPAND_REVISION
-    assert script.get_heads() == [CONTRACT_REVISION]
+    assert revisions["20260914_multi_device_booking"].down_revision == CONTRACT_REVISION
+    assert script.get_heads() == ["20260914_multi_device_booking"]
     phase_2_revisions = {
         revision.revision
         for revision in script.walk_revisions(
@@ -305,7 +306,7 @@ def test_fresh_chain_has_only_the_approved_tables_and_columns(
     empty_business_database,
 ):
     database_url, engine = empty_business_database
-    _upgrade(database_url, "head")
+    _upgrade(database_url, CONTRACT_REVISION)
 
     with engine.connect() as connection:
         inspector = inspect(connection)
@@ -341,7 +342,7 @@ def test_contract_backfills_old_business_rows_and_removes_sync_state(
         old_tables = set(inspect(connection).get_table_names())
     _insert_legacy_rows(engine)
 
-    _upgrade(database_url, "head")
+    _upgrade(database_url, CONTRACT_REVISION)
 
     with engine.connect() as connection:
         inspector = inspect(connection)
@@ -408,7 +409,7 @@ def test_contract_enforces_foreign_keys_not_null_and_shop_uniqueness(
     database_url, engine = empty_business_database
     _upgrade(database_url, CURRENT_PHASE_1_HEAD)
     _insert_legacy_rows(engine)
-    _upgrade(database_url, "head")
+    _upgrade(database_url, CONTRACT_REVISION)
 
     with engine.connect() as connection:
         inspector = inspect(connection)
@@ -543,7 +544,7 @@ def test_downgrade_preserves_the_documented_expand_contract_boundary(
     database_url, engine = empty_business_database
     _upgrade(database_url, CURRENT_PHASE_1_HEAD)
     _insert_legacy_rows(engine)
-    _upgrade(database_url, "head")
+    _upgrade(database_url, CONTRACT_REVISION)
 
     _downgrade(database_url, EXPAND_REVISION)
 
@@ -665,7 +666,7 @@ def test_head_public_create_apis_resolve_and_persist_warehouses(
     empty_business_database,
 ):
     database_url, engine = empty_business_database
-    _upgrade(database_url, "head")
+    _upgrade(database_url, CONTRACT_REVISION)
     application = _business_api_app(database_url)
     client = application.test_client()
     try:
@@ -814,7 +815,7 @@ def test_head_xianyu_alert_endpoint_reads_shop_sync_state(
     empty_business_database,
 ):
     database_url, _engine = empty_business_database
-    _upgrade(database_url, "head")
+    _upgrade(database_url, CONTRACT_REVISION)
     application = _business_api_app(database_url)
     try:
         response = application.test_client().get("/api/xianyu-order-alerts")
@@ -833,7 +834,7 @@ def test_public_rental_rejects_cross_warehouse_accessory_before_insert(
     empty_business_database,
 ):
     database_url, engine = empty_business_database
-    _upgrade(database_url, "head")
+    _upgrade(database_url, CONTRACT_REVISION)
     application = _business_api_app(database_url)
     client = application.test_client()
     try:
@@ -900,7 +901,7 @@ def test_public_rental_rejects_one_missing_accessory_without_partial_rows(
     empty_business_database,
 ):
     database_url, engine = empty_business_database
-    _upgrade(database_url, "head")
+    _upgrade(database_url, CONTRACT_REVISION)
     application = _business_api_app(database_url)
     client = application.test_client()
     try:

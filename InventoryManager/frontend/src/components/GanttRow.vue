@@ -65,7 +65,7 @@
                 <span v-if="rental.status === 'shipped'" class="status-icon shipped-icon">🚀</span>
                 <span v-else-if="rental.status === 'returned'" class="status-icon returned-icon">✅</span>
                 <span v-else-if="rental.status === 'not_shipped'" class="status-icon">📦</span>
-                {{ rental.customer_name }}
+                {{ rental.customer_name }}<small v-if="rental.booking"> · 同单 {{ rental.booking.recorded_quantity }}/{{ rental.booking.expected_quantity }} 台</small>
               </span>
               <el-icon v-if="hasAccessories(rental)" class="accessory-icon" title="包含附件">
                 <Tools />

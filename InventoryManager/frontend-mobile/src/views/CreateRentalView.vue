@@ -18,6 +18,12 @@
       <van-form ref="formRef" @submit="onSubmit">
         <!-- 闲鱼订单号 -->
         <van-cell-group inset title="订单信息">
+          <van-field v-if="xianyuShops.length" label="闲鱼店铺"><template #input>
+            <select v-model="form.xianyuShopId" aria-label="闲鱼店铺">
+              <option :value="undefined" disabled>请选择店铺</option>
+              <option v-for="shop in xianyuShops" :key="shop.id" :value="shop.id">{{ shop.name }}</option>
+            </select>
+          </template></van-field>
           <van-field
             v-model="form.xianyuOrderNo"
             label="闲鱼订单号"
@@ -323,6 +329,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { showToast, showConfirmDialog } from 'vant'
 import axios from 'axios'
 import dayjs from 'dayjs'
+import { newBookingRequestId } from '@/utils/bookingRequest'
 import { useGanttStore } from '@/stores/gantt'
 import { useMobileTenantStore } from '@/stores/tenant'
 import type { DeviceModel, Device, Rental } from '@/stores/gantt'
@@ -374,6 +381,7 @@ const secondDevice = ref<{
   phoneHolderId: number | null; tripodId: number | null;
 } | null>(null)
 const appendToRentalId = ref<number | null>(null)
+const xianyuShops = ref<{ id: number; name: string }[]>([])
 let bookingRequestId = ''
 let bookingPayload = ''
 const copySecondConfig = () => {
@@ -404,6 +412,7 @@ const loadBookingContext = async () => {
     const r = rows[0]
     await showConfirmDialog({ title: '同单设备', message: `已录设备：${r.device?.name}。沿用此单信息补齐第 2 台？` })
     if (r.warehouse_id !== tenantStore.currentWarehouseId) { showToast('请先切换到原订单仓库'); return }
+    await axios.post(`/api/rentals/${r.id}/declare-booking`, { warehouse_id: r.warehouse_id })
     secondDevice.value = null
     form.value.modelId = r.device?.model_id || r.device?.device_model?.id
     selectedModelName.value = r.device?.device_model?.display_name || r.device?.model || ''
@@ -476,6 +485,7 @@ const comboLabel = (v: LensCombo) => lensComboDisplay(v)
 
 // 机型切换 → 重置不合法的镜头组合
 watch(selectedModelShortName, (newModel) => {
+  if (secondDevice.value && !isComboAllowed(newModel, secondDevice.value.lens_combo)) secondDevice.value.lens_combo = getDefaultCombo(newModel)
   if (form.value.lensCombo && !isComboAllowed(newModel, form.value.lensCombo)) {
     form.value.lensCombo = getDefaultCombo(newModel)
   }
@@ -604,7 +614,8 @@ const fetchOrderInfo = async () => {
   fetchingOrder.value = true
   try {
     const res = await axios.post('/api/rentals/fetch-xianyu-order', {
-      order_no: form.value.xianyuOrderNo.trim()
+      order_no: form.value.xianyuOrderNo.trim(),
+      xianyu_shop_id: form.value.xianyuShopId
     })
     if (res.data.success) {
       const d = res.data.data
@@ -730,7 +741,7 @@ const onSubmit = async () => {
     }
 
     const payload = JSON.stringify(rentalData)
-    if (payload !== bookingPayload) { bookingRequestId = crypto.randomUUID(); bookingPayload = payload }
+    if (payload !== bookingPayload) { bookingRequestId = newBookingRequestId(); bookingPayload = payload }
     const result = await ganttStore.createRental({ ...rentalData, booking_request_id: bookingRequestId })
     showToast({ message: '租赁创建成功', type: 'success' })
     const rentalId = result?.data?.main_rental?.id
@@ -821,6 +832,11 @@ onMounted(async () => {
     await ganttStore.loadData()
   }
   await loadInitData()
+  try {
+    const res = await axios.get('/api/xianyu-order-alerts')
+    xianyuShops.value = res.data.data?.shops || []
+    if (xianyuShops.value.length === 1) form.value.xianyuShopId = xianyuShops.value[0]!.id
+  } catch { /* order-less rentals remain available without configured shops */ }
 })
 
 watch(() => tenantStore.currentWarehouseId, async () => {

@@ -45,6 +45,13 @@ def test_two_configurations_atomic_and_retry(case):
     assert round(sum(r['order_amount'] for r in rows), 2) == 101.01
     assert rows[0]['booking']['recorded_quantity'] == 2
     assert all(r['parent_rental_id'] is None for r in rows)
+    gantt = client.get('/api/gantt/data', query_string={
+        'start_date': payload['start_date'], 'end_date': payload['end_date'],
+        'warehouse_id': payload['warehouse_id'],
+    })
+    assert gantt.status_code == 200
+    assert all(r['booking']['recorded_quantity'] == 2 for r in gantt.json['data']['rentals'])
+    assert len(gantt.json['data']['rentals']) == 2
     retry = client.post('/api/rentals', json=payload)
     assert retry.status_code == 201, retry.json
     assert [r['id'] for r in retry.json['data']['main_rentals']] == [r['id'] for r in rows]
@@ -57,6 +64,184 @@ def test_second_conflict_leaves_no_first_rental(case):
     single = dict(payload, device_id=payload['additional_devices'][0]['device_id'], additional_devices=[], booking_request_id=str(uuid.uuid4()))
     assert client.post('/api/rentals', json=single).status_code == 201
     response = client.post('/api/rentals', json=payload)
-    assert response.status_code == 400, response.json
+    assert response.status_code == 409, response.json
     assert Rental.query.count() == 1
     assert RentalBooking.query.count() == 0
+
+
+@pytest.mark.parametrize('case_name', ['same_device', 'different_model', 'invalid_combo', 'repeat_accessory'])
+def test_invalid_second_selection_rolls_back(case, case_name):
+    client, payload, devices = case
+    if case_name == 'same_device':
+        payload['additional_devices'][0]['device_id'] = payload['device_id']
+    elif case_name == 'different_model':
+        devices[1].model_id = None
+        devices[1].model = 'x200u'
+        payload['additional_devices'][0]['lens_combo'] = 'bare'
+        db.session.commit()
+    elif case_name == 'invalid_combo':
+        payload['additional_devices'][0]['lens_combo'] = 'invalid'
+    else:
+        devices[2].is_accessory = True
+        devices[2].name = '三脚架'
+        db.session.commit()
+        payload['accessories'] = [devices[2].id]
+        payload['additional_devices'][0]['accessories'] = [devices[2].id]
+    response = client.post('/api/rentals', json=payload)
+    assert response.status_code == 400, response.json
+    assert Rental.query.count() == RentalBooking.query.count() == RentalBookingRequest.query.count() == 0
+
+
+def test_append_existing_order_preserves_shared_fields_and_splits_amount(case):
+    client, payload, devices = case
+    first = dict(payload, additional_devices=[])
+    response = client.post('/api/rentals', json=first)
+    rid = response.json['data']['main_rental']['id']
+    append = dict(payload, additional_devices=[], device_id=devices[1].id,
+                  booking_request_id=str(uuid.uuid4()), append_to_rental_id=rid,
+                  customer_name='must not overwrite', order_amount='999', lens_combo='lens_200mm')
+    response = client.post('/api/rentals', json=append)
+    assert response.status_code == 201, response.json
+    rows = Rental.query.order_by(Rental.id).all()
+    assert len(rows) == 2
+    assert rows[1].customer_name == rows[0].customer_name == '双机客户'
+    assert float(sum(r.order_amount for r in rows)) == 101.01
+    assert rows[1].booking_id == rows[0].booking_id
+    assert client.post('/api/rentals', json=append).status_code == 201
+    third = dict(append, booking_request_id=str(uuid.uuid4()), device_id=devices[2].id)
+    assert client.post('/api/rentals', json=third).status_code == 400
+    assert Rental.query.count() == 2
+
+
+def test_cancel_restore_reminder_and_explicit_reduction(case):
+    from app.models.xianyu_shop import XianyuShop
+    from app.services.xianyu_order_reconciliation_service import XianyuOrderReconciliationService
+    client, payload, _ = case
+    shop = XianyuShop(name='双机测试店', app_key='', app_secret_ciphertext='', is_active=True)
+    db.session.add(shop)
+    db.session.commit()
+    payload.update(xianyu_shop_id=shop.id, xianyu_order_no='TWO-ORDER')
+    created = client.post('/api/rentals', json=payload)
+    assert created.status_code == 201, created.json
+    rows = created.json['data']['main_rentals']
+    assert XianyuOrderReconciliationService().get_snapshot()['count'] == 0
+    assert client.put(f"/api/rentals/{rows[1]['id']}/status", json={'status': 'cancelled'}).status_code == 200
+    alerts = XianyuOrderReconciliationService().get_snapshot()['alerts']
+    assert len(alerts) == 1
+    assert alerts[0]['recorded_quantity'] == 1
+    reduced = client.post(f"/api/rentals/{rows[0]['id']}/reduce-booking", json={
+        'warehouse_id': payload['warehouse_id'], 'reason': '客户确认只租一台', 'total_amount': '70.00',
+    })
+    assert reduced.status_code == 200, reduced.json
+    assert XianyuOrderReconciliationService().get_snapshot()['count'] == 0
+    assert float(db.session.get(Rental, rows[0]['id']).order_amount) == 70
+
+
+def test_replenish_cancelled_device_does_not_double_amount(case):
+    client, payload, devices = case
+    response = client.post('/api/rentals', json=payload)
+    rows = response.json['data']['main_rentals']
+    client.put(f"/api/rentals/{rows[1]['id']}/status", json={'status': 'cancelled'})
+    append = dict(payload, device_id=devices[2].id, additional_devices=[],
+                  booking_request_id=str(uuid.uuid4()), append_to_rental_id=rows[0]['id'])
+    response = client.post('/api/rentals', json=append)
+    assert response.status_code == 201, response.json
+    active = Rental.query.filter(Rental.status != 'cancelled').all()
+    assert len(active) == 2
+    assert float(sum(r.order_amount for r in active)) == 101.01
+
+
+def test_changed_payload_cannot_reuse_receipt(case):
+    client, payload, _ = case
+    assert client.post('/api/rentals', json=payload).status_code == 201
+    payload['order_amount'] = '120'
+    assert client.post('/api/rentals', json=payload).status_code == 400
+    assert Rental.query.count() == 2
+
+
+def test_same_waybill_notification_is_sent_once(case, monkeypatch):
+    from app.services.xianyu_order_service import XianyuOrderService
+    client, payload, _ = case
+    assert client.post('/api/rentals', json=payload).status_code == 201
+    rows = Rental.query.order_by(Rental.id).all()
+    for row in rows:
+        row.xianyu_order_no = 'SHIP-TWO'
+        row.ship_out_tracking_no = 'SF-TWO'
+    db.session.commit()
+    service = XianyuOrderService.__new__(XianyuOrderService)
+    calls = []
+    monkeypatch.setattr(service, '_request_with_body_sign', lambda *args: calls.append(args) or {'code': 0})
+    assert service.ship_order(rows[0])['success']
+    db.session.commit()
+    assert service.ship_order(rows[1])['success']
+    assert len(calls) == 1
+    rows[1].ship_out_tracking_no = 'SF-OTHER'
+    assert not service.ship_order(rows[1])['success']
+    assert len(calls) == 1
+
+
+def test_multi_booking_migration_preserves_old_rows_and_downgrades():
+    import importlib.util
+    from pathlib import Path
+    import sqlalchemy as sa
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    engine = sa.create_engine('sqlite:///:memory:')
+    with engine.begin() as connection:
+        connection.exec_driver_sql('CREATE TABLE xianyu_shops (id INTEGER PRIMARY KEY)')
+        connection.exec_driver_sql('CREATE TABLE rentals (id INTEGER PRIMARY KEY, customer_name VARCHAR(100))')
+        connection.exec_driver_sql("INSERT INTO rentals VALUES (1, 'existing')")
+        path = Path(__file__).resolve().parents[2] / 'migrations/versions/20260914_multi_device_booking.py'
+        spec = importlib.util.spec_from_file_location('booking_migration', path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with Operations.context(MigrationContext.configure(connection)):
+            module.upgrade()
+            assert 'booking_id' in {c['name'] for c in sa.inspect(connection).get_columns('rentals')}
+            assert connection.exec_driver_sql('SELECT customer_name, booking_id FROM rentals').one() == ('existing', None)
+            module.downgrade()
+            assert 'rental_bookings' not in sa.inspect(connection).get_table_names()
+            assert connection.exec_driver_sql('SELECT customer_name FROM rentals').scalar_one() == 'existing'
+
+
+def test_declaring_existing_order_keeps_reminder_before_second_save(case):
+    from app.models.xianyu_shop import XianyuShop
+    from app.services.xianyu_order_reconciliation_service import XianyuOrderReconciliationService
+    client, payload, _ = case
+    shop = XianyuShop(name='声明测试店', app_key='', app_secret_ciphertext='', is_active=True)
+    db.session.add(shop)
+    db.session.commit()
+    payload.update(xianyu_shop_id=shop.id, xianyu_order_no='DECLARE-TWO', additional_devices=[])
+    response = client.post('/api/rentals', json=payload)
+    rid = response.json['data']['main_rental']['id']
+    response = client.post(f'/api/rentals/{rid}/declare-booking', json={'warehouse_id': payload['warehouse_id']})
+    assert response.status_code == 200, response.json
+    assert response.json['data']['recorded_quantity'] == 1
+    assert XianyuOrderReconciliationService().get_snapshot()['count'] == 1
+    assert float(db.session.get(Rental, rid).order_amount) == 101.01
+
+
+def test_all_cancelled_order_can_be_rebooked(case):
+    from app.models.xianyu_shop import XianyuShop
+    client, payload, _ = case
+    shop = XianyuShop(name='重录测试店', app_key='', app_secret_ciphertext='', is_active=True)
+    db.session.add(shop)
+    db.session.commit()
+    payload.update(xianyu_shop_id=shop.id, xianyu_order_no='REBOOK-TWO')
+    created = client.post('/api/rentals', json=payload)
+    for row in created.json['data']['main_rentals']:
+        client.put(f"/api/rentals/{row['id']}/status", json={'status': 'cancelled'})
+    payload['booking_request_id'] = str(uuid.uuid4())
+    response = client.post('/api/rentals', json=payload)
+    assert response.status_code == 201, response.json
+    assert response.json['data']['main_rental']['booking']['recorded_quantity'] == 2
+    assert RentalBooking.query.count() == 1
+
+
+@pytest.mark.parametrize('amount', ['0', '0.01'])
+def test_zero_or_one_cent_amount_is_not_lost(case, amount):
+    client, payload, _ = case
+    payload['order_amount'] = amount
+    response = client.post('/api/rentals', json=payload)
+    assert response.status_code == 201, response.json
+    assert sum(row['order_amount'] for row in response.json['data']['main_rentals']) == float(amount)

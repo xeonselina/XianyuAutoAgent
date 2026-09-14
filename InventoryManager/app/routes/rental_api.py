@@ -165,3 +165,80 @@ def booking_context():
         return success(data={'rentals': [r.to_dict() for r in rows]})
     except ValueError as exc:
         return bad_request(str(exc))
+
+
+@bp.route('/api/rentals/<int:rental_id>/reduce-booking', methods=['POST'])
+@handle_response
+def reduce_booking(rental_id):
+    """Explicitly reduce a declared order after cancelling a device."""
+    from decimal import Decimal, InvalidOperation
+    from flask import request
+    from app import db
+    from app.models.rental import Rental, RentalBooking
+    from app.models.warehouse import resolve_write_warehouse_id
+    from app.utils.response import success, bad_request
+    try:
+        data = request.get_json() or {}
+        rental = db.session.get(Rental, rental_id)
+        if rental is None or not rental.booking_id:
+            return bad_request('租赁不属于多设备订单')
+        if rental.warehouse_id != resolve_write_warehouse_id(data.get('warehouse_id')):
+            return bad_request('请切换到订单所属仓库')
+        reason = str(data.get('reason') or '').strip()
+        if not reason or len(reason) > 500:
+            return bad_request('请填写减租原因（最多 500 字）')
+        total = Decimal(str(data.get('total_amount')))
+        if not total.is_finite() or total < 0 or total > Decimal('99999999.99') or total != total.quantize(Decimal('.01')):
+            return bad_request('请填写减租后的订单总金额，最多两位小数')
+        booking = RentalBooking.query.filter_by(id=rental.booking_id).populate_existing().with_for_update().one()
+        rows = Rental.query.filter_by(booking_id=booking.id).filter(Rental.status != 'cancelled').populate_existing().with_for_update().all()
+        if booking.expected_quantity != 2 or len(rows) != 1:
+            return bad_request('请先取消不再租用的一台，仅保留一台有效主机')
+        booking.expected_quantity = 1
+        booking.total_amount = total
+        booking.quantity_change_reason = reason
+        from app.models.audit_log import AuditLog
+        AuditLog.log_action('reduce_booking', resource_type='rental_booking', resource_id=str(booking.id),
+                            description=reason, details={'expected_quantity': 1, 'total_amount': str(total)}, commit=False)
+        rows[0].order_amount = total
+        db.session.commit()
+        return success(data=booking.to_dict(), message='已确认减租为一台')
+    except (ValueError, InvalidOperation):
+        db.session.rollback()
+        return bad_request('请检查仓库及减租后的订单金额')
+
+
+@bp.route('/api/rentals/<int:rental_id>/declare-booking', methods=['POST'])
+@handle_response
+def declare_booking(rental_id):
+    """Persist an explicit two-device declaration before filling the missing slot."""
+    from flask import request
+    from app import db
+    from app.models.rental import Rental, RentalBooking
+    from app.models.xianyu_shop import XianyuShop
+    from app.models.warehouse import resolve_write_warehouse_id
+    from app.utils.response import success, bad_request
+    try:
+        data = request.get_json() or {}
+        warehouse_id = resolve_write_warehouse_id(data.get('warehouse_id'))
+        source = db.session.get(Rental, rental_id)
+        if source is None or source.warehouse_id != warehouse_id or source.parent_rental_id or source.status == 'cancelled':
+            return bad_request('请选择本仓库有效主机记录')
+        if source.xianyu_shop_id:
+            XianyuShop.query.filter_by(id=source.xianyu_shop_id).with_for_update().one()
+        source = Rental.query.filter_by(id=rental_id).populate_existing().with_for_update().one()
+        if source.booking_id:
+            return success(data=source.booking.to_dict())
+        if source.xianyu_order_no:
+            existing = Rental.query.filter_by(xianyu_shop_id=source.xianyu_shop_id, xianyu_order_no=source.xianyu_order_no, parent_rental_id=None).filter(Rental.status != 'cancelled').all()
+            if len(existing) != 1:
+                return bad_request('同单已有多条记录，请先核对，不能自动合并')
+        booking = RentalBooking(xianyu_shop_id=source.xianyu_shop_id, order_no=source.xianyu_order_no,
+                                expected_quantity=2, total_amount=source.order_amount)
+        db.session.add(booking)
+        source.booking = booking
+        db.session.commit()
+        return success(data=booking.to_dict(), message='已确认应租两台，待补齐提醒将保留')
+    except ValueError as exc:
+        db.session.rollback()
+        return bad_request(str(exc))

@@ -324,4 +324,46 @@ describe('BookingDialog device model selection', () => {
     expect(findAvailableSlot).not.toHaveBeenCalled()
     expect(ElMessage.warning).toHaveBeenCalledWith('请先选择设备型号')
   })
+  it('submits two independently configured devices together and reuses the key after failure', async () => {
+    const { wrapper } = await mountDialog('VIVO X300 Ultra')
+    const vm = wrapper.vm as any
+    vm.form.startDate = new Date('2026-10-01')
+    vm.form.endDate = new Date('2026-10-03')
+    vm.form.customerName = '双机客户'
+    vm.form.lensCombo = 'lens_400mm'
+    vm.form.phoneHolderId = 91
+    await flushPromises()
+    vm.form.selectedDeviceId = 21
+    vm.addSecondDevice()
+    expect(vm.secondDevice.phoneHolderId).toBeNull()
+    expect(vm.secondDevice.device_id).toBeNull()
+    vm.secondDevice.device_id = 22
+    vm.secondDevice.lens_combo = 'bare'
+    vm.secondDevice.tripodId = 92
+    const create = vi.spyOn(useGanttStore(), 'createRental')
+      .mockRejectedValueOnce(new Error('第 2 台档期冲突'))
+      .mockResolvedValueOnce({ success: true, data: { main_rental: { id: 77 } } })
+    await vm.handleSubmit()
+    expect(vm.secondDevice.lens_combo).toBe('bare')
+    await vm.handleSubmit()
+    expect(create).toHaveBeenCalledTimes(2)
+    const [first] = create.mock.calls[0]!
+    const [retry] = create.mock.calls[1]!
+    expect(first.lens_combo).toBe('lens_400mm')
+    expect(first.accessories).toEqual([91])
+    expect(first.additional_devices[0]).toMatchObject({ device_id: 22, lens_combo: 'bare', accessories: [92] })
+    expect(first.booking_request_id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(retry.booking_request_id).toBe(first.booking_request_id)
+  })
+
+  it('does not submit an unconfigured second device', async () => {
+    const { wrapper } = await mountDialog('VIVO X300 Ultra')
+    const vm = wrapper.vm as any
+    const create = vi.spyOn(useGanttStore(), 'createRental')
+    vm.addSecondDevice()
+    await vm.handleSubmit()
+    expect(create).not.toHaveBeenCalled()
+    expect(ElMessage.error).toHaveBeenCalledWith('请选择第 2 台设备')
+  })
+
 })

@@ -112,6 +112,7 @@ class GanttService:
                 for rental in device_rentals:
                     rental_data = {
                         'id': rental.id,
+                        'booking': rental.booking.to_dict() if rental.booking else None,
                         'start_date': rental.start_date.isoformat(),
                         'end_date': rental.end_date.isoformat(),
                         'customer_name': rental.customer_name,
@@ -134,6 +135,10 @@ class GanttService:
 
                 rental_data = {
                     'id': rental.id,
+                    'booking': rental.booking.to_dict() if rental.booking else None,
+                    'lens_combo': rental.lens_combo,
+                    'xianyu_order_no': rental.xianyu_order_no,
+                    'xianyu_shop_id': rental.xianyu_shop_id,
                     'device_id': rental.device_id,
                     'warehouse_id': rental.warehouse_id,
                     'device_name': rental.device.name if rental.device else 'Unknown',

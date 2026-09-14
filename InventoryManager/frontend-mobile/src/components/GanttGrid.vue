@@ -73,7 +73,7 @@
                 class="bar-label-float"
                 :style="getBarLabelStyle(rental)!"
               >
-                <span class="bar-label-name">{{ rental.customer_name }}</span>
+                <span class="bar-label-name">{{ rental.customer_name }}<small v-if="rental.booking"> · 同单 {{ rental.booking.recorded_quantity }}/{{ rental.booking.expected_quantity }} 台</small></span>
                 <span v-if="rental.customer_phone" class="bar-label-phone">·{{ rental.customer_phone.slice(-4) }}</span>
               </div>
             </template>

@@ -156,7 +156,7 @@ class Rental(db.Model):
             'destination': self.destination,
             'xianyu_order_no': self.xianyu_order_no,
             'xianyu_shop_id': self.xianyu_shop_id,
-            'order_amount': float(self.order_amount) if self.order_amount else None,
+            'order_amount': float(self.order_amount) if self.order_amount is not None else None,
             'buyer_id': self.buyer_id,
             'damage_note': self.damage_note,
             'ship_out_tracking_no': self.ship_out_tracking_no,

@@ -35,8 +35,9 @@ KNOWN_HEADS = {
     "20260825_audit_schema",
     "20260824_saas_lite_expand",
     "20260824_saas_lite_contract",
+    "20260914_multi_device_booking",
 }
-CURRENT_HEAD = "20260824_saas_lite_contract"
+CURRENT_HEAD = "20260914_multi_device_booking"
 _IDENTIFIER = re.compile(r"^[a-z0-9_]{1,64}$")
 _SAAS_TABLES = {
     "warehouses",

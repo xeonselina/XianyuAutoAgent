@@ -15,6 +15,10 @@
 
     <!-- 发货单内容 -->
     <div class="shipping-order-container" v-if="rental">
+      <div v-if="rental.booking" style="padding:12px;border:1px solid #ddd">
+        <strong>同单已录 {{ rental.booking.recorded_quantity }}/{{ rental.booking.expected_quantity }} 台，请逐台核对：</strong>
+        <div v-for="item in rental.booking.rentals" :key="item.id">R-{{ item.id }} · {{ item.device_name }} · {{ item.lens_combo === 'bare' ? '裸机' : item.lens_combo === 'lens_200mm' ? '200mm 镜头' : item.lens_combo === 'lens_dual' ? '双镜头' : '400mm 镜头' }} · {{ item.accessories.join('、') }}</div>
+      </div>
       <div class="content-section">
         <!-- 页眉 -->
         <div class="header-section">

@@ -331,7 +331,7 @@ class RentalService:
         return device, accessories
 
     @staticmethod
-    def create_rental_with_accessories(data: Dict[str, Any], *, commit=True) -> Tuple[Rental, List[Rental]]:
+    def create_rental_with_accessories(data: Dict[str, Any], *, commit=True, resolved_shop=None) -> Tuple[Rental, List[Rental]]:
         """创建租赁记录及其附件
         
         Args:
@@ -383,7 +383,7 @@ class RentalService:
                     occupancy_end,
                 )
             )
-            order_no, shop_id = RentalService._resolve_shop(
+            order_no, shop_id = resolved_shop or RentalService._resolve_shop(
                 data.get('xianyu_order_no'),
                 data.get('xianyu_shop_id'),
             )
@@ -528,7 +528,7 @@ class RentalService:
                 booking = RentalBooking.query.filter_by(id=source.booking_id).populate_existing().with_for_update().one()
             elif order_no:
                 booking = RentalBooking.query.filter_by(xianyu_shop_id=shop_id, order_no=order_no).populate_existing().with_for_update().first()
-            if booking and not source:
+            if booking and not source and any(r.status != 'cancelled' for r in booking.rentals):
                 raise ValueError('该订单已有关联设备，请查看同单记录后补齐')
             if extra and order_no and Rental.query.filter_by(xianyu_shop_id=shop_id, xianyu_order_no=order_no, parent_rental_id=None).filter(Rental.status != 'cancelled').first():
                 raise ValueError('该订单已录入设备，请使用“补齐第 2 台”')
@@ -557,6 +557,11 @@ class RentalService:
             if source:
                 all_ids.extend([source.device_id] + [c.device_id for c in source.child_rentals])
             devices = Device.query.filter(Device.id.in_(sorted(set(all_ids)))).order_by(Device.id).populate_existing().with_for_update().all()
+            if source:
+                source_booking_id = source.booking_id
+                source = Rental.query.filter_by(id=source.id).populate_existing().with_for_update().one()
+                if source.booking_id != source_booking_id or source.status == 'cancelled':
+                    raise ValueError('原单已被其他操作修改，请重新查询后补齐')
             device_map = {d.id: d for d in devices}
             main_devices = [device_map.get(int(item['device_id'])) for item in items]
             if source:
@@ -566,7 +571,9 @@ class RentalService:
             if len({d.model_id or d.model for d in main_devices}) != 1:
                 raise ValueError('同一订单的两台设备必须是同一个型号')
 
-            if extra or source:
+            if booking and not source and len(items) != booking.expected_quantity:
+                raise ValueError(f'该订单需一次补齐 {booking.expected_quantity} 台')
+            if extra or source or booking:
                 if booking is None:
                     booking = RentalBooking(xianyu_shop_id=shop_id, order_no=order_no, expected_quantity=2)
                     db.session.add(booking)
@@ -588,8 +595,9 @@ class RentalService:
                         source.order_amount = half
                         items[0]['order_amount'] = total - half
                     else:
-                        items[0]['order_amount'] = half
-                        items[1]['order_amount'] = total - half
+                        items[0]['order_amount'] = half if len(items) == 2 else total
+                        if len(items) == 2:
+                            items[1]['order_amount'] = total - half
                 else:
                     for item in items:
                         item['order_amount'] = None
@@ -597,7 +605,9 @@ class RentalService:
             results = []
             for index, item in enumerate(items, 1):
                 try:
-                    main, children = RentalService.create_rental_with_accessories(item, commit=False)
+                    main, children = RentalService.create_rental_with_accessories(item, commit=False, resolved_shop=(order_no, shop_id))
+                except (WarehouseMismatchError, DeviceUnavailableError) as exc:
+                    raise type(exc)(f'第 {2 if source else index} 台：{exc}') from exc
                 except (ValueError, TypeError) as exc:
                     raise ValueError(f'第 {2 if source else index} 台：{exc}') from exc
                 if booking:
@@ -906,6 +916,11 @@ class RentalService:
                     preserve_existing=preserve_existing,
                 )
             )
+
+            if rental.booking_id:
+                for other in rental.booking.rentals:
+                    if other.id != rental.id and other.status != 'cancelled' and (other.device.model_id or other.device.model) != (_device.model_id or _device.model):
+                        raise ValueError('同单两台设备必须保持同一型号')
 
             # Device rows are always locked before Rental rows. The explicit
             # current read below serializes edits to this main/child group and

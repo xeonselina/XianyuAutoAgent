@@ -296,6 +296,7 @@
       :rental="selectedRental"
       :xianyu-shops="xianyuAlertSnapshot.shops || []"
       @success="handleEditSuccess"
+      @open-related="openRelatedRental"
     />
 
     <RentalConfirmationDialog
@@ -880,6 +881,13 @@ const handleScheduleReorderCompleted = async () => {
   statsCache.clear()
   await loadDailyStats()
   await nextTick()
+}
+
+const openRelatedRental = async (id: number) => {
+  try {
+    const rental = await ganttStore.getRentalById(id)
+    if (rental) handleEditRental(rental)
+  } catch { ElMessage.error('同单设备加载失败') }
 }
 
 const handleEditRental = (rental: Rental) => {

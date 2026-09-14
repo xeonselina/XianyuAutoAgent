@@ -350,7 +350,7 @@ const mockCreateSave = async (
           success: true,
           data: {
             device,
-            available_devices: [device],
+            available_devices: [device, { ...device, id: 9, name: '第二台' }],
             ship_out_date: '2026-07-11',
             ship_in_date: '2026-07-18',
           },
@@ -481,4 +481,34 @@ test.describe('mobile create save confirmation popup', () => {
     await expect(page.locator('.van-toast__text')).toHaveText('保存成功，但确认信息加载失败')
     await expect(page).toHaveURL(/\/mobile\/gantt$/)
   })
+})
+
+
+test('two devices submit distinct configurations in one request and preserve retry key', async ({ page }) => {
+  await mockCreateSave(page)
+  await page.getByText('＋ 添加第 2 台', { exact: true }).click()
+  await page.getByLabel('第 2 台设备', { exact: true }).selectOption('9')
+  await page.getByLabel('第 2 台镜头', { exact: true }).selectOption('bare')
+  const payloads: any[] = []
+  await page.route('**/api/rentals', async route => {
+    payloads.push(route.request().postDataJSON())
+    if (payloads.length === 1) {
+      await route.fulfill({ status: 409, json: { success: false, error: '第 2 台档期冲突' } })
+    } else {
+      await route.fulfill({ json: { success: true, data: { main_rental: { id: 77 } } } })
+    }
+  })
+  await page.getByRole('button', { name: '一次预约 2 台' }).click()
+  await expect(page.locator('.van-toast__text')).toHaveText('第 2 台档期冲突')
+  await expect(page.getByLabel('第 2 台设备', { exact: true })).toHaveValue('9')
+  await expect(page.getByLabel('第 2 台镜头', { exact: true })).toHaveValue('bare')
+  await page.getByRole('button', { name: '一次预约 2 台' }).click()
+  await expect(page.getByTestId('rental-confirmation-popup')).toBeVisible()
+  expect(payloads).toHaveLength(2)
+  expect(payloads[0].device_id).toBe(8)
+  expect(payloads[0].additional_devices).toHaveLength(1)
+  expect(payloads[0].additional_devices[0].device_id).toBe(9)
+  expect(payloads[0].additional_devices[0].lens_combo).toBe('bare')
+  expect(payloads[0].booking_request_id).toMatch(/^[0-9a-f-]{36}$/)
+  expect(payloads[1].booking_request_id).toBe(payloads[0].booking_request_id)
 })
