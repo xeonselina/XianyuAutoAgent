@@ -147,3 +147,21 @@ def search_rentals():
 def get_rentals_by_ship_date():
     """根据发货日期范围查询租赁记录（用于批量打印）"""
     return RentalHandlers.handle_get_rentals_by_ship_date()
+
+
+@bp.route('/api/rentals/booking-context')
+@handle_response
+def booking_context():
+    """Read same-shop order records before explicitly appending a device."""
+    from flask import request
+    from app.models.rental import Rental
+    from app.services.rental.rental_service import RentalService
+    from app.utils.response import success, bad_request
+    try:
+        order_no, shop_id = RentalService._resolve_shop(request.args.get('order_no'), request.args.get('shop_id'))
+        if not order_no:
+            return success(data={'rentals': []})
+        rows = Rental.query.filter_by(xianyu_order_no=order_no, xianyu_shop_id=shop_id, parent_rental_id=None).filter(Rental.status != 'cancelled').order_by(Rental.id).all()
+        return success(data={'rentals': [r.to_dict() for r in rows]})
+    except ValueError as exc:
+        return bad_request(str(exc))

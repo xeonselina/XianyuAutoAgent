@@ -16,6 +16,10 @@
       </div>
 
       <!-- 信息列表 -->
+      <div v-if="rental?.booking" style="padding:12px">
+        <strong>同单已录 {{ rental.booking.recorded_quantity }}/{{ rental.booking.expected_quantity }} 台 · 已发 {{ rental.booking.shipped_quantity }} 台</strong>
+        <div v-for="item in rental.booking.rentals" :key="item.id">R-{{ item.id }} · {{ item.device_name }} · {{ item.lens_combo === 'bare' ? '裸机' : item.lens_combo === 'lens_200mm' ? '200mm 镜头' : item.lens_combo === 'lens_dual' ? '双镜头' : '400mm 镜头' }}</div>
+      </div>
       <div class="info-list" v-if="rental">
         <div class="info-row">
           <span class="info-label">租客</span>

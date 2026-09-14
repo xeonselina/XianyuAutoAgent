@@ -332,6 +332,12 @@ class ShippingSlipImageService:
 
             y = self._draw_section_separator(draw, y)
 
+            if rental.booking:
+                info = rental.booking.to_dict()
+                y = self._draw_info_row(draw, y, "同单:", f"已录 {info['recorded_quantity']}/{info['expected_quantity']} 台（逐台核对）")
+                for row in info['rentals']:
+                    y = self._draw_info_row(draw, y, f"R-{row['id']}:", f"{row['device_name']} / {lens_combo_display(row['lens_combo'])}")
+
             # 4. 归还时间（租期结束日期 + 1天）
             if rental.end_date:
                 return_date = rental.end_date + timedelta(days=1)

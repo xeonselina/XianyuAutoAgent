@@ -225,12 +225,22 @@ class RentalHandlers:
 
             current_app.logger.info(f"创建租赁: includes_handle={data['includes_handle']}, includes_lens_mount={data['includes_lens_mount']}, photo_transfer={data['photo_transfer']}, lens_combo={data['lens_combo']}")
 
-            # 创建租赁记录
-            main_rental, accessory_rentals = RentalService.create_rental_with_accessories(data)
+            extra = data.get('additional_devices', [])
+            if not isinstance(extra, list) or len(extra) > 1:
+                return bad_request('一次只能预约一台或两台设备')
+            for item in extra:
+                if not isinstance(item, dict) or not item.get('device_id'):
+                    return bad_request('请选择第 2 台设备')
+                lens_error = _normalize_and_validate_lens_combo(item, item['device_id'])
+                if lens_error:
+                    return bad_request(f'第 2 台：{lens_error}')
+            results = RentalService.create_booking(data)
+            main_rental, accessory_rentals = results[0]
 
             # 构建响应数据
             response_data = {
                 'main_rental': main_rental.to_dict(),
+                'main_rentals': [r.to_dict() for r, _ in results],
                 'accessory_rentals': [r.to_dict() for r in accessory_rentals]
             }
 
@@ -757,7 +767,7 @@ class RentalHandlers:
                 db.session.rollback()
 
                 current_app.logger.error("单个发货失败: Rental %s", rental_id)
-                return server_error('闲鱼发货失败')
+                return bad_request(result.get('message') or '闲鱼发货失败')
 
         except Exception as e:
             from app import db

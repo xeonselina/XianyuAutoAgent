@@ -9,7 +9,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app import db
-from app.models.rental import Rental
+from app.models.rental import Rental, RentalBooking
 from app.models.xianyu_order_alert import XianyuOrderAlert
 from app.models.xianyu_shop import XianyuShop
 from app.services.integration_resolver import IntegrationResolver
@@ -112,10 +112,15 @@ class XianyuOrderReconciliationService:
             Rental.xianyu_shop_id == shop_id,
             Rental.xianyu_order_no.isnot(None),
         )).all()
+        incomplete = {
+            booking.order_no
+            for booking in session.scalars(select(RentalBooking).where(RentalBooking.xianyu_shop_id == shop_id))
+            if len([r for r in booking.rentals if r.status != 'cancelled' and r.parent_rental_id is None]) < booking.expected_quantity
+        }
         return {
             str(value).strip()
             for (value,) in rows
-            if value and str(value).strip()
+            if value and str(value).strip() and str(value).strip() not in incomplete
         }
 
     def _replace_pending(self, pending_orders, now, shop_id, session):
@@ -182,6 +187,25 @@ class XianyuOrderReconciliationService:
             for alert in rows
             if (alert.xianyu_shop_id, alert.order_no) not in existing
         ]
+        # Local declarations remain visible even after the upstream order leaves
+        # the pending-shipment window or its cached missing-order alert is removed.
+        for booking in session.scalars(select(RentalBooking).where(RentalBooking.xianyu_shop_id.in_(ids))):
+            info = booking.to_dict()
+            if not booking.order_no or info['recorded_quantity'] >= info['expected_quantity']:
+                continue
+            alerts = [a for a in alerts if (a['xianyu_shop_id'], a['order_no']) != (booking.xianyu_shop_id, booking.order_no)]
+            source = next(iter(booking.rentals), None)
+            shop = next(shop for shop in selected if shop.id == booking.xianyu_shop_id)
+            alerts.append({
+                'id': -booking.id, 'order_no': booking.order_no,
+                'xianyu_shop_id': booking.xianyu_shop_id, 'xianyu_shop_name': shop.name,
+                'buyer_nick': source.customer_name if source else '',
+                'receiver_mobile': source.customer_phone if source else '',
+                'pay_amount': int((booking.total_amount or 0) * 100),
+                'goods_title': f"同单设备已录 {info['recorded_quantity']}/{info['expected_quantity']} 台，待补齐",
+                'expected_quantity': info['expected_quantity'],
+                'recorded_quantity': info['recorded_quantity'],
+            })
         active = [shop for shop in shops if shop.is_active]
         sync_shop = selected[0] if shop_id is not None else None
         aggregate_success = min((shop.last_success_at for shop in active), default=None) \

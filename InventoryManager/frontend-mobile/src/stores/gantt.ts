@@ -53,6 +53,11 @@ export interface Device {
 }
 
 export interface Rental {
+  booking?: {
+    id: number; expected_quantity: number; recorded_quantity: number; shipped_quantity: number; total_amount: number | null;
+    rentals: { id: number; device_id: number; device_name: string; lens_combo: string; status: string;
+      includes_handle: boolean; includes_lens_mount: boolean; photo_transfer: boolean; accessories: string[] }[];
+  } | null
   id: number
   device_id: number
   device?: {

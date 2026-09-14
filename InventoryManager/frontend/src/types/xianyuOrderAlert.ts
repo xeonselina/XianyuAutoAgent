@@ -1,4 +1,6 @@
 export interface XianyuOrderAlert {
+  expected_quantity?: number
+  recorded_quantity?: number
   order_no: string
   xianyu_shop_id: number
   xianyu_shop_name?: string

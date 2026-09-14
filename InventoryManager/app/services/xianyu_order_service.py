@@ -328,6 +328,21 @@ class XianyuOrderService:
                 'message': '没有运单号'
             }
 
+        booking = None
+        if getattr(rental, 'booking_id', None):
+            from app.models.rental import RentalBooking
+            booking = RentalBooking.query.filter_by(id=rental.booking_id).populate_existing().with_for_update().one()
+            rows = [r for r in booking.rentals if r.status != 'cancelled']
+            if len(rows) != booking.expected_quantity or any(not r.ship_out_tracking_no for r in rows):
+                return {'success': False, 'message': '同单设备尚未录齐或未全部录入运单，请先核对两台备货'}
+            waybills = {r.ship_out_tracking_no for r in rows}
+            if len(waybills) != 1:
+                return {'success': False, 'message': '同单拆包有多个运单，请到闲鱼核对并手动发货，避免覆盖运单'}
+            if booking.xianyu_waybill_no:
+                if booking.xianyu_waybill_no != rental.ship_out_tracking_no:
+                    return {'success': False, 'message': '同单已回传另一运单，请到闲鱼核对'}
+                return {'success': True, 'message': '同单运单已回传，无需重复通知'}
+
         # 使用寄出快递单号
         waybill_no = rental.ship_out_tracking_no
 
@@ -353,6 +368,8 @@ class XianyuOrderService:
 
         # 检查业务状态码
         if result.get('code') == 0:
+            if booking is not None:
+                booking.xianyu_waybill_no = waybill_no
             logger.info(f"闲鱼发货成功: Rental {rental.id}")
             return {
                 'success': True,

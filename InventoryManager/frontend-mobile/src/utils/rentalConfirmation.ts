@@ -65,5 +65,14 @@ export const buildRentalConfirmation = (rental: Rental): RentalConfirmationConte
     `客户归还：${dateOnly(rental.end_date, 1)}`,
     `寄出型号：${[model, lens, ...accessoryParts].join(' + ')}`,
   ]
+  if (rental.booking) {
+    lines.push(`同单设备：已录 ${rental.booking.recorded_quantity}/${rental.booking.expected_quantity} 台`)
+    rental.booking.rentals.forEach((r, index) => {
+      const parts = [r.device_name, lensComboDisplay(r.lens_combo as NonNullable<Rental['lens_combo']>),
+        ...(r.includes_handle ? ['手柄'] : []), ...(r.includes_lens_mount ? ['镜头支架'] : []),
+        ...r.accessories, ...(r.photo_transfer ? ['代传照片'] : [])]
+      lines.push(`第 ${index + 1} 台：${parts.join(' + ')}`)
+    })
+  }
   return { lines, text: lines.join('\n') }
 }

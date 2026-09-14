@@ -44,9 +44,10 @@
             :data-testid="`book-${alert.order_no}`"
             @click="$emit('book', { orderNo: alert.order_no, shopId: alert.xianyu_shop_id, shopName: alert.xianyu_shop_name || '' })"
           >
-            去补录
+            {{ alert.expected_quantity ? '去补齐' : '去补录' }}
           </el-button>
           <el-button
+            v-if="!alert.expected_quantity"
             :data-testid="`ignore-${alert.order_no}`"
             @click="confirmIgnore(alert)"
           >

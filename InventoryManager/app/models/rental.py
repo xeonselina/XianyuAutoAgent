@@ -11,6 +11,9 @@ class Rental(db.Model):
     """租赁记录模型"""
     __tablename__ = 'rentals'
 
+    booking_id = db.Column(db.Integer, db.ForeignKey("rental_bookings.id", ondelete="RESTRICT"), nullable=True, index=True)
+    booking = db.relationship("RentalBooking", back_populates="rentals")
+
     # 主键
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     
@@ -141,6 +144,7 @@ class Rental(db.Model):
 
         return {
             'id': self.id,
+            'booking': self.booking.to_dict() if self.booking else None,
             'device_id': self.device_id,
             'warehouse_id': self.warehouse_id,
             'start_date': self.start_date.isoformat(),
@@ -447,3 +451,43 @@ class Rental(db.Model):
             }
         }
     
+
+
+class RentalBooking(db.Model):
+    """An explicitly declared multi-device order, independent of accessory groups."""
+    __tablename__ = 'rental_bookings'
+    __table_args__ = (db.UniqueConstraint('xianyu_shop_id', 'order_no', name='uq_booking_shop_order'),)
+    id = db.Column(db.Integer, primary_key=True)
+    xianyu_shop_id = db.Column(db.Integer, db.ForeignKey('xianyu_shops.id', ondelete='RESTRICT'))
+    order_no = db.Column(db.String(50))
+    expected_quantity = db.Column(db.Integer, nullable=False, default=2)
+    total_amount = db.Column(db.Numeric(10, 2))
+    quantity_change_reason = db.Column(db.Text)
+    xianyu_waybill_no = db.Column(db.String(50))
+    rentals = db.relationship('Rental', back_populates='booking')
+
+    def to_dict(self):
+        rows = sorted((r for r in self.rentals if r.parent_rental_id is None and r.status != 'cancelled'), key=lambda r: r.id)
+        return {
+            'id': self.id, 'expected_quantity': self.expected_quantity,
+            'recorded_quantity': len(rows),
+            'shipped_quantity': sum(r.status in ('shipped', 'returned', 'completed') for r in rows),
+            'total_amount': float(self.total_amount) if self.total_amount is not None else None,
+            'rentals': [{
+                'id': r.id, 'device_id': r.device_id,
+                'device_name': r.device.name if r.device else '',
+                'lens_combo': r.lens_combo, 'status': r.status,
+                'includes_handle': r.includes_handle,
+                'includes_lens_mount': r.includes_lens_mount,
+                'photo_transfer': r.photo_transfer,
+                'accessories': [c.device.name for c in r.child_rentals if c.device],
+            } for r in rows],
+        }
+
+
+class RentalBookingRequest(db.Model):
+    """Persist retries in the same transaction as the rentals."""
+    __tablename__ = 'rental_booking_requests'
+    id = db.Column(db.String(36), primary_key=True)
+    payload_hash = db.Column(db.String(64), nullable=False)
+    rental_ids = db.Column(db.JSON, nullable=False, default=list)

@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from flask import current_app
 from sqlalchemy.orm import joinedload
 from app import db
-from app.models.rental import Rental
+from app.models.rental import Rental, RentalBooking, RentalBookingRequest
 from app.models.device import Device
 from app.models.warehouse import resolve_write_warehouse_id
 from app.models.xianyu_order_alert import XianyuOrderAlert
@@ -331,7 +331,7 @@ class RentalService:
         return device, accessories
 
     @staticmethod
-    def create_rental_with_accessories(data: Dict[str, Any]) -> Tuple[Rental, List[Rental]]:
+    def create_rental_with_accessories(data: Dict[str, Any], *, commit=True) -> Tuple[Rental, List[Rental]]:
         """创建租赁记录及其附件
         
         Args:
@@ -453,13 +453,173 @@ class RentalService:
                 db.session.add(accessory_rental)
                 accessory_rentals.append(accessory_rental)
 
-            db.session.commit()
+            if commit:
+                db.session.commit()
+            else:
+                db.session.flush()
             return main_rental, accessory_rentals
 
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f"创建租赁记录失败: {e}")
             raise
+
+    @staticmethod
+    def create_booking(data):
+        """One transaction for all main devices, accessories and retry receipts."""
+        import hashlib
+        import json
+        import uuid
+        from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+        from sqlalchemy.exc import IntegrityError
+
+        extra = data.get('additional_devices', [])
+        if not isinstance(extra, list) or len(extra) > 1 or any(not isinstance(x, dict) for x in extra):
+            raise ValueError('一次只能预约一台或两台设备')
+        append_id = data.get('append_to_rental_id')
+        if append_id and extra:
+            raise ValueError('补齐订单只能新增一台')
+        request_id = data.get('booking_request_id')
+        if (extra or append_id) and not request_id:
+            raise ValueError('多设备预约缺少请求标识，请刷新重试')
+        receipt = None
+        payload_hash = hashlib.sha256(json.dumps(data, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        try:
+            if request_id:
+                try:
+                    request_id = str(uuid.UUID(str(request_id)))
+                except (ValueError, TypeError):
+                    raise ValueError('预约请求标识无效') from None
+                old = db.session.get(RentalBookingRequest, request_id)
+                if old:
+                    return RentalService._replay_booking(old, payload_hash)
+                receipt = RentalBookingRequest(id=request_id, payload_hash=payload_hash, rental_ids=[])
+                db.session.add(receipt)
+                try:
+                    db.session.flush()
+                except IntegrityError:
+                    db.session.rollback()
+                    old = db.session.get(RentalBookingRequest, request_id)
+                    if old:
+                        return RentalService._replay_booking(old, payload_hash)
+                    raise
+
+            warehouse_id = resolve_write_warehouse_id(data.get('warehouse_id'))
+            base = dict(data, warehouse_id=warehouse_id)
+            order_no, shop_id = RentalService._resolve_shop(data.get('xianyu_order_no'), data.get('xianyu_shop_id'))
+            base.update(xianyu_order_no=order_no, xianyu_shop_id=shop_id)
+            # All same-shop creates use this lock before inventory locks.
+            if shop_id:
+                XianyuShop.query.filter_by(id=shop_id).with_for_update().populate_existing().one()
+            source = db.session.get(Rental, int(append_id)) if append_id else None
+            if append_id and (source is None or source.parent_rental_id is not None or source.status == 'cancelled'):
+                raise ValueError('请选择同单有效主机记录补齐')
+            if source:
+                if source.warehouse_id != warehouse_id:
+                    raise WarehouseMismatchError('请切换到原订单仓库补齐')
+                if (source.xianyu_order_no, source.xianyu_shop_id) != (order_no, shop_id):
+                    raise ValueError('补齐订单的店铺或订单号不一致')
+                for field in ('customer_name', 'customer_phone', 'destination', 'start_date', 'end_date', 'ship_out_time', 'ship_in_time', 'buyer_id'):
+                    value = getattr(source, field)
+                    base[field] = value.isoformat() if isinstance(value, (date, datetime)) else value
+
+            booking = None
+            if source and source.booking_id:
+                booking = RentalBooking.query.filter_by(id=source.booking_id).populate_existing().with_for_update().one()
+            elif order_no:
+                booking = RentalBooking.query.filter_by(xianyu_shop_id=shop_id, order_no=order_no).populate_existing().with_for_update().first()
+            if booking and not source:
+                raise ValueError('该订单已有关联设备，请查看同单记录后补齐')
+            if extra and order_no and Rental.query.filter_by(xianyu_shop_id=shop_id, xianyu_order_no=order_no, parent_rental_id=None).filter(Rental.status != 'cancelled').first():
+                raise ValueError('该订单已录入设备，请使用“补齐第 2 台”')
+            if source and order_no:
+                existing = Rental.query.filter_by(xianyu_shop_id=shop_id, xianyu_order_no=order_no, parent_rental_id=None).filter(Rental.status != 'cancelled').all()
+                if len(existing) != 1 or existing[0].id != source.id:
+                    raise ValueError('该订单已有两台或更多设备，请先核对同单记录')
+            if booking and len([r for r in booking.rentals if r.status != 'cancelled']) >= booking.expected_quantity:
+                raise ValueError('该订单已录齐，无需继续补录')
+
+            configurable = {'device_id', 'lens_combo', 'includes_handle', 'includes_lens_mount', 'photo_transfer', 'accessories'}
+            items = [base] + [dict(base, **{k: v for k, v in item.items() if k in configurable}) for item in extra]
+            # Missing inventory selections must not inherit the first device.
+            for item, incoming in zip(items[1:], extra):
+                if not incoming.get('device_id'):
+                    raise ValueError('请选择第 2 台设备')
+                item['accessories'] = incoming.get('accessories', [])
+            all_ids = []
+            for index, item in enumerate(items, 1):
+                if not isinstance(item.get('accessories', []), list):
+                    raise ValueError(f'第 {index} 台附件格式错误')
+                ids = [int(item['device_id'])] + [int(v) for v in item.get('accessories', [])]
+                if len(set(ids)) != len(ids) or set(ids).intersection(all_ids):
+                    raise ValueError('两台主机和库存附件不能重复选择同一设备')
+                all_ids.extend(ids)
+            if source:
+                all_ids.extend([source.device_id] + [c.device_id for c in source.child_rentals])
+            devices = Device.query.filter(Device.id.in_(sorted(set(all_ids)))).order_by(Device.id).populate_existing().with_for_update().all()
+            device_map = {d.id: d for d in devices}
+            main_devices = [device_map.get(int(item['device_id'])) for item in items]
+            if source:
+                main_devices.append(device_map.get(source.device_id))
+            if any(d is None for d in main_devices):
+                raise ValueError('设备不存在')
+            if len({d.model_id or d.model for d in main_devices}) != 1:
+                raise ValueError('同一订单的两台设备必须是同一个型号')
+
+            if extra or source:
+                if booking is None:
+                    booking = RentalBooking(xianyu_shop_id=shop_id, order_no=order_no, expected_quantity=2)
+                    db.session.add(booking)
+                    db.session.flush()
+                if source:
+                    source.booking = booking
+                amount = booking.total_amount if booking.total_amount is not None else (source.order_amount if source else data.get('order_amount'))
+                if amount not in (None, ''):
+                    try:
+                        total = Decimal(str(amount))
+                        if not total.is_finite() or total < 0 or total > Decimal('99999999.99'):
+                            raise ValueError('订单金额无效')
+                        total = total.quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
+                    except InvalidOperation:
+                        raise ValueError('订单金额无效') from None
+                    booking.total_amount = total
+                    half = (total / 2).quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
+                    if source:
+                        source.order_amount = half
+                        items[0]['order_amount'] = total - half
+                    else:
+                        items[0]['order_amount'] = half
+                        items[1]['order_amount'] = total - half
+                else:
+                    for item in items:
+                        item['order_amount'] = None
+
+            results = []
+            for index, item in enumerate(items, 1):
+                try:
+                    main, children = RentalService.create_rental_with_accessories(item, commit=False)
+                except (ValueError, TypeError) as exc:
+                    raise ValueError(f'第 {2 if source else index} 台：{exc}') from exc
+                if booking:
+                    main.booking = booking
+                results.append((main, children))
+            db.session.flush()
+            if receipt:
+                receipt.rental_ids = [r.id for r, _ in results]
+            db.session.commit()
+            return results
+        except Exception:
+            db.session.rollback()
+            raise
+
+    @staticmethod
+    def _replay_booking(receipt, payload_hash):
+        if receipt.payload_hash != payload_hash:
+            raise ValueError('此请求已保存，请刷新后重新操作')
+        rows = [db.session.get(Rental, rid) for rid in receipt.rental_ids]
+        if not rows or any(r is None for r in rows):
+            raise ValueError('此预约已处理但记录已删除，请刷新核对')
+        return [(r, list(r.child_rentals)) for r in rows]
 
     @staticmethod
     def update_rental_status(rental_id: int, new_status: str) -> Rental:
@@ -626,6 +786,21 @@ class RentalService:
             rental = db.session.get(Rental, rental_id)
             if not rental:
                 raise ValueError('租赁记录不存在')
+            if rental.booking_id:
+                for field in ('xianyu_order_no', 'xianyu_shop_id', 'warehouse_id', 'start_date', 'end_date', 'ship_out_time', 'ship_in_time', 'customer_name', 'customer_phone', 'destination', 'order_amount'):
+                    if field not in data:
+                        continue
+                    current = getattr(rental, field)
+                    incoming = data[field]
+                    if field in ('start_date', 'end_date'):
+                        incoming = parse_date_strings(incoming, incoming)[0]
+                    elif field in ('ship_out_time', 'ship_in_time'):
+                        incoming = RentalService._parse_datetime(incoming)
+                    elif field == 'order_amount':
+                        from decimal import Decimal
+                        incoming = Decimal(str(incoming)) if incoming not in (None, '') else None
+                    if incoming != current and not (incoming in (None, '') and current in (None, '')):
+                        raise ValueError('同单公共信息和分摊金额不能在单台编辑中修改，请保留原值')
             target_rental_id = rental.id
             main_rental_id = rental.parent_rental_id or rental.id
 
