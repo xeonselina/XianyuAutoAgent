@@ -30,8 +30,8 @@ def upgrade():
 
 def downgrade():
     with op.batch_alter_table('rentals') as batch:
-        batch.drop_index('ix_rentals_booking_id')
         batch.drop_constraint('fk_rental_booking', type_='foreignkey')
+        batch.drop_index('ix_rentals_booking_id')
         batch.drop_column('booking_id')
     op.drop_table('rental_booking_requests')
     op.drop_table('rental_bookings')

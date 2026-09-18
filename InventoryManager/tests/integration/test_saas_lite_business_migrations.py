@@ -744,6 +744,20 @@ def test_model_serializers_never_expose_secret_material():
     assert shop.to_dict()["app_secret_configured"] is True
 
 
+def _create_public_device_models(application):
+    from app import db
+    from app.models.device_model import DeviceModel
+
+    with application.app_context():
+        main = DeviceModel(name="migration-camera", display_name="测试相机")
+        accessory = DeviceModel(
+            name="migration-tripod", display_name="测试三脚架", is_accessory=True
+        )
+        db.session.add_all([main, accessory])
+        db.session.commit()
+        return main.id, accessory.id
+
+
 def test_head_public_create_apis_resolve_and_persist_warehouses(
     empty_business_database,
 ):
@@ -751,13 +765,18 @@ def test_head_public_create_apis_resolve_and_persist_warehouses(
     _upgrade(database_url, "head")
     application = _business_api_app(database_url)
     client = application.test_client()
+    main_model_id, accessory_model_id = _create_public_device_models(application)
     try:
         with engine.begin() as connection:
             connection.execute(text("DELETE FROM warehouses"))
 
         no_warehouse = client.post(
             "/api/devices",
-            json={"name": "无仓设备", "serial_number": "NO-WAREHOUSE"},
+            json={
+                "name": "无仓设备",
+                "serial_number": "NO-WAREHOUSE",
+                "model_id": main_model_id,
+            },
         )
         assert no_warehouse.status_code == 400
         assert no_warehouse.get_json() == {
@@ -777,13 +796,18 @@ def test_head_public_create_apis_resolve_and_persist_warehouses(
 
         main_response = client.post(
             "/api/devices",
-            json={"name": "主设备", "serial_number": "MAIN-PUBLIC"},
+            json={
+                "name": "主设备",
+                "serial_number": "MAIN-PUBLIC",
+                "model_id": main_model_id,
+            },
         )
         accessory_response = client.post(
             "/api/devices",
             json={
                 "name": "三脚架",
                 "serial_number": "TRIPOD-PUBLIC",
+                "model_id": accessory_model_id,
                 "is_accessory": True,
             },
         )
@@ -832,13 +856,18 @@ def test_head_public_create_apis_resolve_and_persist_warehouses(
 
         missing_warehouse = client.post(
             "/api/devices",
-            json={"name": "多仓设备", "serial_number": "MULTI-MISSING"},
+            json={
+                "name": "多仓设备",
+                "serial_number": "MULTI-MISSING",
+                "model_id": main_model_id,
+            },
         )
         invalid_warehouse = client.post(
             "/api/devices",
             json={
                 "name": "无效仓设备",
                 "serial_number": "INVALID-WAREHOUSE",
+                "model_id": main_model_id,
                 "warehouse_id": 999999,
             },
         )
@@ -852,6 +881,7 @@ def test_head_public_create_apis_resolve_and_persist_warehouses(
             json={
                 "name": "广州设备",
                 "serial_number": "GUANGZHOU-DEVICE",
+                "model_id": main_model_id,
                 "warehouse_id": second_warehouse_id,
             },
         )
@@ -883,7 +913,7 @@ def test_head_public_create_apis_resolve_and_persist_warehouses(
             "WAREHOUSE_MISMATCH"
         )
         assert mismatched_rental_warehouse.get_json()["message"] == (
-            "主设备不属于所选仓库"
+            "第 1 台：主设备不属于所选仓库"
         )
         with engine.connect() as connection:
             assert connection.scalar(
@@ -907,6 +937,8 @@ def test_head_xianyu_alert_endpoint_reads_shop_sync_state(
             "last_attempt_at": None,
             "last_success_at": None,
             "last_error": None,
+            "is_stale": True,
+            "stale_after_seconds": 600,
         }
     finally:
         _dispose_business_api_app(application)
@@ -919,6 +951,7 @@ def test_public_rental_rejects_cross_warehouse_accessory_before_insert(
     _upgrade(database_url, "head")
     application = _business_api_app(database_url)
     client = application.test_client()
+    main_model_id, accessory_model_id = _create_public_device_models(application)
     try:
         with engine.begin() as connection:
             first_warehouse_id = connection.scalar(
@@ -938,6 +971,7 @@ def test_public_rental_rejects_cross_warehouse_accessory_before_insert(
             json={
                 "name": "主仓相机",
                 "serial_number": "CROSS-MAIN",
+                "model_id": main_model_id,
                 "warehouse_id": first_warehouse_id,
             },
         )
@@ -946,6 +980,7 @@ def test_public_rental_rejects_cross_warehouse_accessory_before_insert(
             json={
                 "name": "异仓三脚架",
                 "serial_number": "CROSS-TRIPOD",
+                "model_id": accessory_model_id,
                 "warehouse_id": second_warehouse_id,
                 "is_accessory": True,
             },
@@ -968,7 +1003,7 @@ def test_public_rental_rejects_cross_warehouse_accessory_before_insert(
         assert response.status_code == 409
         assert response.get_json() == {
             "success": False,
-            "message": "附件设备不属于所选仓库",
+            "message": "第 1 台：附件设备不属于所选仓库",
             "code": "WAREHOUSE_MISMATCH",
         }
         with engine.connect() as connection:
@@ -986,16 +1021,22 @@ def test_public_rental_rejects_one_missing_accessory_without_partial_rows(
     _upgrade(database_url, "head")
     application = _business_api_app(database_url)
     client = application.test_client()
+    main_model_id, accessory_model_id = _create_public_device_models(application)
     try:
         main_response = client.post(
             "/api/devices",
-            json={"name": "主设备", "serial_number": "INVALID-MAIN"},
+            json={
+                "name": "主设备",
+                "serial_number": "INVALID-MAIN",
+                "model_id": main_model_id,
+            },
         )
         accessory_response = client.post(
             "/api/devices",
             json={
                 "name": "有效三脚架",
                 "serial_number": "VALID-TRIPOD",
+                "model_id": accessory_model_id,
                 "is_accessory": True,
             },
         )
@@ -1017,7 +1058,7 @@ def test_public_rental_rejects_one_missing_accessory_without_partial_rows(
         assert response.status_code == 400
         assert response.get_json() == {
             "success": False,
-            "message": "附件设备不存在",
+            "message": "第 1 台：附件设备不存在",
         }
         with engine.connect() as connection:
             assert connection.scalar(
