@@ -685,30 +685,6 @@ class RentalService:
                 )
             except (TypeError, ValueError):
                 selection_is_unchanged = False
-            if not selection_is_unchanged:
-                # No-lock, no-mutation current-status preflight. Its short
-                # connection avoids retaining a Rental lock before Device
-                # validation; the later locked group guard remains authoritative
-                # if fulfillment history changes concurrently.
-                snapshot_bind = db.session.get_bind()
-                with snapshot_bind.connect() as snapshot_connection:
-                    snapshot_rows = snapshot_connection.execute(
-                        db.select(
-                            Rental.status,
-                            Rental.ship_out_tracking_no,
-                        )
-                        .where(
-                            (Rental.id == main_rental_id)
-                            | (Rental.parent_rental_id == main_rental_id)
-                        )
-                        .order_by(Rental.id)
-                    ).all()
-                if any(
-                    row.status in {'shipped', 'returned', 'completed'}
-                    or bool(str(row.ship_out_tracking_no or '').strip())
-                    for row in snapshot_rows
-                ):
-                    raise ValueError('已履约租赁不能更换仓库或设备')
             occupancy_is_unchanged = (
                 start_date == rental.start_date
                 and end_date == rental.end_date
@@ -805,14 +781,6 @@ class RentalService:
             )
             if preserve_existing and identity_changed:
                 raise ValueError('租赁记录已被其他操作修改，请重试')
-            has_fulfillment_history = any(
-                row.status in {'shipped', 'returned', 'completed'}
-                or bool(str(row.ship_out_tracking_no or '').strip())
-                for row in locked_group
-            )
-            if has_fulfillment_history and identity_changed:
-                raise ValueError('已履约租赁不能更换仓库或设备')
-
             if 'xianyu_order_no' in data or 'xianyu_shop_id' in data:
                 order_no, shop_id = RentalService._resolve_shop(
                     data.get('xianyu_order_no', rental.xianyu_order_no),

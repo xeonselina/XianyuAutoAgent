@@ -120,8 +120,10 @@
     <XianyuOrderAlertBar
       :snapshot="xianyuAlertSnapshot"
       :loading="xianyuAlertsLoading"
+      :busy-rental-id="xianyuAlertBusyRentalId"
       @book="startMissingOrderBooking"
       @ignore="handleIgnoreXianyuAlert"
+      @rental-action="handleXianyuRentalAlertAction"
     />
 
     <PendingReturnsDrawer
@@ -445,6 +447,7 @@ import WarehouseMovementDialog from './WarehouseMovementDialog.vue'
 import XianyuOrderAlertBar from './XianyuOrderAlertBar.vue'
 import PendingReturnsDrawer from './PendingReturnsDrawer.vue'
 import { useXianyuOrderAlerts } from '@/composables/useXianyuOrderAlerts'
+import type { XianyuRentalAlertAction } from '@/types/xianyuOrderAlert'
 import { usePendingReturns } from '@/composables/usePendingReturns'
 import {
   toSystemDateString,
@@ -489,6 +492,7 @@ const {
   startPolling: startXianyuAlertPolling,
   stopPolling: stopXianyuAlertPolling
 } = useXianyuOrderAlerts()
+const xianyuAlertBusyRentalId = ref<number>()
 const {
   rentals: pendingReturns,
   count: pendingReturnsCount,
@@ -855,6 +859,46 @@ const handleIgnoreXianyuAlert = async (payload: {
   await ignoreXianyuAlert(payload.shopId, payload.orderNo, payload.reason)
 }
 
+const handleXianyuRentalAlertAction = async (payload: XianyuRentalAlertAction) => {
+  if (xianyuAlertBusyRentalId.value !== undefined) return
+  xianyuAlertBusyRentalId.value = payload.rentalId
+  try {
+    let rental = await ganttStore.getRentalById(payload.rentalId)
+    if (!rental || rental.xianyu_order_no?.trim() !== payload.orderNo || rental.xianyu_shop_id !== payload.shopId) {
+      ElMessage.warning('档期已变更或不存在，请刷新提醒后重试')
+      await loadXianyuAlerts(true)
+      return
+    }
+    if (!['not_shipped', 'scheduled_for_shipping', 'shipped'].includes(rental.status)) {
+      await loadXianyuAlerts(true)
+      ElMessage.info('该档期已处理')
+      return
+    }
+    if (!rental.warehouse_id) throw new Error('档期缺少仓库信息')
+    tenantStore.selectWarehouse(rental.warehouse_id)
+    // 切换仓库后刷新，确保现有编辑/删除流程使用对应仓库的数据。
+    await ganttStore.loadData()
+    rental = await ganttStore.getRentalById(payload.rentalId)
+    if (!rental || rental.warehouse_id !== tenantStore.currentWarehouseId
+      || rental.xianyu_order_no?.trim() !== payload.orderNo || rental.xianyu_shop_id !== payload.shopId) {
+      throw new Error('档期或仓库已变更，请刷新后重试')
+    }
+    if (!['not_shipped', 'scheduled_for_shipping', 'shipped'].includes(rental.status)) {
+      await loadXianyuAlerts(true)
+      return
+    }
+    if (payload.action === 'delete' && rental.status !== 'shipped') {
+      await handleDeleteRental(rental)
+    } else {
+      handleEditRental(rental)
+    }
+  } catch (error) {
+    ElMessage.error((error as Error).message || '读取档期失败')
+  } finally {
+    xianyuAlertBusyRentalId.value = undefined
+  }
+}
+
 const handleBookingSuccess = async (rentalId?: number) => {
   ElMessage.success('预定成功！')
   showBookingDialog.value = false
@@ -902,6 +946,7 @@ const handleEditSuccess = async (rentalId?: number) => {
   // 清除缓存以确保统计数据更新
   statsCache.clear()
   await loadDailyStats()
+  await loadXianyuAlerts(true)
 
   // 强制触发组件重新渲染，清除GanttRow中的缓存
   await nextTick()
@@ -1002,7 +1047,7 @@ const handleDeleteRental = async (rental: Rental) => {
   }
   try {
     await ElMessageBox.confirm(
-      '确定要删除这个租赁记录吗？此操作不可恢复。',
+      `确定删除 ${rental.customer_name} 的 ${rental.device?.name || '设备'} 档期（${rental.start_date} 至 ${rental.end_date}）吗？关联附件档期也会一并删除，此操作不可恢复。`,
       '确认删除',
       {
         confirmButtonText: '确定',
@@ -1013,6 +1058,7 @@ const handleDeleteRental = async (rental: Rental) => {
     
     await ganttStore.deleteRental(rental.id)
     ElMessage.success('删除成功！')
+    await loadXianyuAlerts(true)
 
     // 重新加载数据以反映最新变化
     await ganttStore.loadData()
@@ -1021,7 +1067,7 @@ const handleDeleteRental = async (rental: Rental) => {
     statsCache.clear()
     await loadDailyStats()
   } catch (error) {
-    if (error !== 'cancel') {
+    if (error !== 'cancel' && error !== 'close') {
       ElMessage.error('删除失败：' + (error as Error).message)
     }
   }
@@ -1136,43 +1182,23 @@ const loadDailyStats = async () => {
         return
       }
 
-      const stats = await Promise.all(
-        dateArray.value.map(async (date) => {
-          const dateStr = toSystemDateString(date)
-          const params: any = { date: dateStr }
-          params.warehouse_id = warehouseId
+      const params: Record<string, string | number> = {
+        start_date: toSystemDateString(dateArray.value[0]),
+        end_date: toSystemDateString(dateArray.value[dateArray.value.length - 1]),
+        warehouse_id: warehouseId,
+      }
+      if (selectedDeviceModel.value) {
+        params.device_model = selectedDeviceModel.value
+      }
 
-          // 如果选择了设备型号，添加到参数中
-          if (selectedDeviceModel.value) {
-            params.device_model = selectedDeviceModel.value
-          }
-
-          const response = await axios.get('/api/gantt/daily-stats', { params })
-
-          if (response.data.success) {
-            return {
-              date: dateStr,
-              ...response.data.data
-            }
-          }
-          return {
-            date: dateStr,
-            available_count: 0,
-            ship_out_count: 0,
-            accessory_ship_out_count: 0
-          }
-        })
-      )
-
-      // 将统计数据存储到响应式对象中
-      const statsMap: Record<string, {available_count: number, ship_out_count: number, accessory_ship_out_count: number}> = {}
-      stats.forEach(stat => {
-        statsMap[stat.date] = {
-          available_count: stat.available_count,
-          ship_out_count: stat.ship_out_count,
-          accessory_ship_out_count: stat.accessory_ship_out_count || 0
-        }
-      })
+      // 可见窗口的所有日期一次请求，避免原来的按天并发。
+      const response = await axios.get('/api/gantt/daily-stats', { params })
+      if (!response.data.success) return
+      const statsMap = (response.data.data?.stats || {}) as Record<string, {
+        available_count: number
+        ship_out_count: number
+        accessory_ship_out_count: number
+      }>
 
       // 缓存结果
       statsCache.set(cacheKey, statsMap)

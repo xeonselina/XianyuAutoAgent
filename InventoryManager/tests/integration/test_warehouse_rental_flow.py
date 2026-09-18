@@ -236,6 +236,8 @@ def test_gantt_data_statistics_and_slot_are_warehouse_scoped(
         _create_existing_rental(warehouse_case, "warehouse_b")
         start_date = rental_a.start_date.isoformat()
         end_date = rental_a.end_date.isoformat()
+        ship_out_date = rental_a.ship_out_time.date()
+        ship_in_date = rental_a.ship_in_time.date()
         rental_a_id = rental_a.id
 
     gantt = client.get(
@@ -271,6 +273,36 @@ def test_gantt_data_statistics_and_slot_are_warehouse_scoped(
         },
     )
     assert stats.get_json()["data"]["available_count"] == 1
+
+    range_start = ship_out_date - timedelta(days=1)
+    range_end = ship_in_date + timedelta(days=1)
+    range_stats = client.get(
+        "/api/gantt/daily-stats",
+        query_string={
+            "start_date": range_start.isoformat(),
+            "end_date": range_end.isoformat(),
+            "warehouse_id": warehouse_case["warehouse_a"],
+        },
+    )
+    range_data = range_stats.get_json()["data"]
+    assert range_stats.status_code == 200
+    assert range_data["start_date"] == range_start.isoformat()
+    assert range_data["end_date"] == range_end.isoformat()
+    assert range_data["stats"][range_start.isoformat()][
+        "available_count"
+    ] == 1
+    assert range_data["stats"][ship_out_date.isoformat()] == {
+        "date": ship_out_date.isoformat(),
+        "available_count": 0,
+        "ship_out_count": 1,
+        "accessory_ship_out_count": 0,
+    }
+    assert range_data["stats"][ship_in_date.isoformat()][
+        "available_count"
+    ] == 0
+    assert range_data["stats"][range_end.isoformat()][
+        "available_count"
+    ] == 1
 
     slot = client.post(
         "/api/rentals/find-slot",
@@ -667,13 +699,14 @@ def test_concurrent_rental_updates_serialize_the_fresh_whole_group(
 @pytest.mark.parametrize(
     ("status", "ship_out_tracking_no"),
     [
+        ("scheduled_for_shipping", "SF-SCHEDULED-EVIDENCE"),
         ("shipped", None),
         ("returned", None),
         ("completed", None),
         ("not_shipped", "SF-OUTBOUND-EVIDENCE"),
     ],
 )
-def test_fulfilled_rental_rejects_identity_reassignment_atomically(
+def test_fulfilled_rental_allows_identity_reassignment_atomically(
     client, app, warehouse_case, status, ship_out_tracking_no
 ):
     created = client.post(
@@ -693,7 +726,6 @@ def test_fulfilled_rental_rejects_identity_reassignment_atomically(
             child.status = status
             child.ship_out_tracking_no = ship_out_tracking_no
         db.session.commit()
-        original_customer = rental.customer_name
 
     response = client.put(
         f"/api/rentals/{rental_id}",
@@ -701,86 +733,20 @@ def test_fulfilled_rental_rejects_identity_reassignment_atomically(
             "warehouse_id": warehouse_case["warehouse_b"],
             "device_id": warehouse_case["main_b"],
             "accessories": [warehouse_case["accessory_b"]],
-            "customer_name": "不得部分写入",
+            "customer_name": "允许修改备注字段",
         },
     )
 
-    assert response.status_code == 400
-    assert response.get_json()["message"] == "已履约租赁不能更换仓库或设备"
+    assert response.status_code == 200
     with app.app_context():
         persisted = db.session.get(Rental, rental_id)
         children = list(persisted.child_rentals)
-        assert persisted.warehouse_id == warehouse_case["warehouse_a"]
-        assert persisted.device_id == warehouse_case["main_a"]
-        assert persisted.customer_name == original_customer
+        assert persisted.warehouse_id == warehouse_case["warehouse_b"]
+        assert persisted.device_id == warehouse_case["main_b"]
+        assert persisted.customer_name == "允许修改备注字段"
         assert len(children) == 1
-        assert children[0].warehouse_id == warehouse_case["warehouse_a"]
-        assert children[0].device_id == warehouse_case["accessory_a"]
-
-
-@pytest.mark.parametrize(
-    ("status", "ship_out_tracking_no"),
-    [
-        ("shipped", None),
-        ("returned", None),
-        ("completed", None),
-        ("not_shipped", "SF-OUTBOUND-EVIDENCE"),
-    ],
-)
-@pytest.mark.parametrize(
-    "identity_change",
-    ["warehouse", "main_device", "accessory"],
-)
-def test_fulfilled_rental_partial_identity_edits_use_history_guard(
-    client,
-    app,
-    warehouse_case,
-    status,
-    ship_out_tracking_no,
-    identity_change,
-):
-    created = client.post(
-        "/api/rentals",
-        json=_rental_payload(
-            warehouse_case,
-            accessories=[warehouse_case["accessory_a"]],
-        ),
-    )
-    rental_id = created.get_json()["data"]["main_rental"]["id"]
-    with app.app_context():
-        rental = db.session.get(Rental, rental_id)
-        rental.status = status
-        rental.ship_out_tracking_no = ship_out_tracking_no
-        for child in rental.child_rentals:
-            child.status = status
-            child.ship_out_tracking_no = ship_out_tracking_no
-        db.session.commit()
-        original_customer = rental.customer_name
-
-    payload = {
-        "warehouse_id": warehouse_case["warehouse_a"],
-        "customer_name": "不得部分写入",
-    }
-    if identity_change == "warehouse":
-        payload["warehouse_id"] = warehouse_case["warehouse_b"]
-    elif identity_change == "main_device":
-        payload["device_id"] = warehouse_case["main_b"]
-    else:
-        payload["accessories"] = [warehouse_case["accessory_b"]]
-
-    response = client.put(f"/api/rentals/{rental_id}", json=payload)
-
-    assert response.status_code == 400
-    assert response.get_json()["message"] == "已履约租赁不能更换仓库或设备"
-    with app.app_context():
-        persisted = db.session.get(Rental, rental_id)
-        children = list(persisted.child_rentals)
-        assert persisted.warehouse_id == warehouse_case["warehouse_a"]
-        assert persisted.device_id == warehouse_case["main_a"]
-        assert persisted.customer_name == original_customer
-        assert len(children) == 1
-        assert children[0].warehouse_id == warehouse_case["warehouse_a"]
-        assert children[0].device_id == warehouse_case["accessory_a"]
+        assert children[0].warehouse_id == warehouse_case["warehouse_b"]
+        assert children[0].device_id == warehouse_case["accessory_b"]
 
 
 @pytest.mark.parametrize(

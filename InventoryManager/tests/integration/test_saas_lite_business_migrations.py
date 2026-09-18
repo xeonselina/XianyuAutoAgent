@@ -22,6 +22,7 @@ MIGRATIONS_DIRECTORY = str(
 CURRENT_PHASE_1_HEAD = "20260825_audit_schema"
 EXPAND_REVISION = "20260824_saas_lite_expand"
 CONTRACT_REVISION = "20260824_saas_lite_contract"
+CURRENT_HEAD = "20260907_xianyu_rental_alerts"
 APPROVED_NEW_TABLES = {
     "warehouses",
     "warehouse_sf_configs",
@@ -291,7 +292,8 @@ def test_phase_2_uses_exactly_two_linear_revisions():
 
     assert revisions[EXPAND_REVISION].down_revision == CURRENT_PHASE_1_HEAD
     assert revisions[CONTRACT_REVISION].down_revision == EXPAND_REVISION
-    assert script.get_heads() == [CONTRACT_REVISION]
+    assert script.get_heads() == [CURRENT_HEAD]
+    assert revisions[CURRENT_HEAD].down_revision == CONTRACT_REVISION
     phase_2_revisions = {
         revision.revision
         for revision in script.walk_revisions(
@@ -329,7 +331,7 @@ def test_fresh_chain_has_only_the_approved_tables_and_columns(
         }
         assert connection.execute(
             text("SELECT version_num FROM alembic_version")
-        ).scalar_one() == CONTRACT_REVISION
+        ).scalar_one() == CURRENT_HEAD
 
 
 def test_contract_backfills_old_business_rows_and_removes_sync_state(
@@ -346,7 +348,7 @@ def test_contract_backfills_old_business_rows_and_removes_sync_state(
     with engine.connect() as connection:
         inspector = inspect(connection)
         new_tables = set(inspector.get_table_names())
-        assert new_tables - old_tables == APPROVED_NEW_TABLES
+        assert new_tables - old_tables == APPROVED_NEW_TABLES | {"xianyu_rental_alerts"}
         assert old_tables - new_tables == {"xianyu_order_sync_state"}
         default_warehouse = connection.execute(
             text("SELECT id, province, city, name FROM warehouses")
