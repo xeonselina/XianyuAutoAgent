@@ -40,6 +40,9 @@ logs/
 htmlcov/
 .tox/
 coverage/
+playwright-report/
+test-results/
+xianyu-mobile-e2e-generated-*/
 
 # Chroma database
 chroma_data/
@@ -51,6 +54,10 @@ chroma_data/
 .worktrees/
 .claude/
 ai_kefu/scripts/xianyu_conversations.sql
+
+# Agent scratch（各 AI 工具的临时状态与头脑风暴产物，含 server.pid 进程残留）
+.superpowers/
+*.pid
 
 # OS files
 Thumbs.db

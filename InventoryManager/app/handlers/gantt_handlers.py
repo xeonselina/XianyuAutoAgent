@@ -69,8 +69,6 @@ class GanttHandlers:
                 request.args.get('warehouse_id')
             )
 
-            # 同一端点兼容原单日调用，并支持甘特图一次
-            # 请求整个可见日期范围。
             if start_date_str is not None or end_date_str is not None:
                 if not start_date_str or not end_date_str:
                     raise ValueError('必须同时提供start_date和end_date')

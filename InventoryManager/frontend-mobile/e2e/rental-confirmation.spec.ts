@@ -2,10 +2,12 @@ import { expect, test, type Page } from '@playwright/test'
 
 import type { Rental } from '../src/stores/gantt'
 import { buildRentalConfirmation } from '../src/utils/rentalConfirmation'
+import { mockAuthenticatedMobileSession } from './helpers/mock-auth'
 
 const rental = (overrides: Partial<Rental> = {}): Rental => ({
   id: 42,
   device_id: 8,
+  warehouse_id: 1,
   device: {
     id: 8,
     name: '3618',
@@ -116,7 +118,7 @@ test.describe('mobile rental confirmation formatter', () => {
       '寄出时间：未填写',
       '预计收货：未填写',
       '客户归还：未填写',
-      '寄出型号：未识别型号 + 未填写镜头组合 + 无附件',
+      '寄出型号：未识别型号 + 未填写租赁组合 + 无附件',
     ])
   })
 
@@ -143,7 +145,7 @@ const mockEditSave = async (
     : options.refreshedRental
   let rentalGets = 0
 
-  await page.route('**/api/**', async route => {
+  await page.route(/^https?:\/\/[^/]+\/api\//, async route => {
     const url = new URL(route.request().url())
     if (url.pathname === '/api/gantt/data') {
       await route.fulfill({
@@ -160,7 +162,7 @@ const mockEditSave = async (
               created_at: '2026-01-01',
               updated_at: '2026-01-01',
             }],
-            rentals: [],
+            rentals: [rental()],
           },
         },
       })
@@ -191,6 +193,7 @@ const mockEditSave = async (
     await route.fulfill({ status: 500, json: { success: false, error: 'unexpected mocked web API' } })
   })
 
+  await mockAuthenticatedMobileSession(page)
   await page.goto('/mobile/gantt')
   await page.goto('/mobile/edit-rental/42')
   await expect(page.getByTestId('save-rental')).toBeVisible()
@@ -313,7 +316,7 @@ const mockCreateSave = async (
   }
   const confirmationIds: number[] = []
 
-  await page.route('**/api/**', async route => {
+  await page.route(/^https?:\/\/[^/]+\/api\//, async route => {
     const request = route.request()
     const url = new URL(request.url())
     if (url.pathname === '/api/gantt/data') {
@@ -347,7 +350,7 @@ const mockCreateSave = async (
           success: true,
           data: {
             device,
-            available_devices: [device],
+            available_devices: [device, { ...device, id: 9, name: '第二台' }],
             ship_out_date: '2026-07-11',
             ship_in_date: '2026-07-18',
           },
@@ -358,6 +361,19 @@ const mockCreateSave = async (
     if (url.pathname === '/api/rentals/check-duplicate') {
       await route.fulfill({
         json: { success: true, data: { has_duplicate: false, duplicates: [] } },
+      })
+      return
+    }
+    if (url.pathname === '/api/rentals/estimate-logistics') {
+      await route.fulfill({
+        json: {
+          success: true,
+          data: {
+            logistics_days: 1,
+            matched_location: '广东',
+            message: '预计 1 天送达',
+          },
+        },
       })
       return
     }
@@ -387,6 +403,7 @@ const mockCreateSave = async (
     await route.fulfill({ status: 500, json: { success: false, error: 'unexpected mocked API' } })
   })
 
+  await mockAuthenticatedMobileSession(page)
   await page.goto('/mobile/gantt')
   await page.goto('/mobile/create-rental')
   await expect(page.getByTestId('create-rental')).toBeVisible()
@@ -464,4 +481,34 @@ test.describe('mobile create save confirmation popup', () => {
     await expect(page.locator('.van-toast__text')).toHaveText('保存成功，但确认信息加载失败')
     await expect(page).toHaveURL(/\/mobile\/gantt$/)
   })
+})
+
+
+test('two devices submit distinct configurations in one request and preserve retry key', async ({ page }) => {
+  await mockCreateSave(page)
+  await page.getByText('＋ 添加第 2 台', { exact: true }).click()
+  await page.getByLabel('第 2 台设备', { exact: true }).selectOption('9')
+  await page.getByLabel('第 2 台镜头', { exact: true }).selectOption('legacy_bare')
+  const payloads: any[] = []
+  await page.route('**/api/rentals', async route => {
+    payloads.push(route.request().postDataJSON())
+    if (payloads.length === 1) {
+      await route.fulfill({ status: 409, json: { success: false, error: '第 2 台档期冲突' } })
+    } else {
+      await route.fulfill({ json: { success: true, data: { main_rental: { id: 77 } } } })
+    }
+  })
+  await page.getByRole('button', { name: '一次预约 2 台' }).click()
+  await expect(page.locator('.van-toast__text')).toHaveText('第 2 台档期冲突')
+  await expect(page.getByLabel('第 2 台设备', { exact: true })).toHaveValue('9')
+  await expect(page.getByLabel('第 2 台镜头', { exact: true })).toHaveValue('legacy_bare')
+  await page.getByRole('button', { name: '一次预约 2 台' }).click()
+  await expect(page.getByTestId('rental-confirmation-popup')).toBeVisible()
+  expect(payloads).toHaveLength(2)
+  expect(payloads[0].device_id).toBe(8)
+  expect(payloads[0].additional_devices).toHaveLength(1)
+  expect(payloads[0].additional_devices[0].device_id).toBe(9)
+  expect(payloads[0].additional_devices[0].rental_package_id).toBe('legacy_bare')
+  expect(payloads[0].booking_request_id).toMatch(/^[0-9a-f-]{36}$/)
+  expect(payloads[1].booking_request_id).toBe(payloads[0].booking_request_id)
 })

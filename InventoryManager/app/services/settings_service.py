@@ -1,10 +1,17 @@
 """Explicit tenant member and warehouse settings operations."""
 
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from datetime import datetime
 
-from app.auth import normalize_china_phone
-from app.control.models import TenantMember
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
+from werkzeug.security import generate_password_hash
+
+from app.auth import (
+    PasswordPolicyError,
+    normalize_china_phone,
+    validate_tenant_password,
+)
+from app.control.models import AuthSession, TenantMember
 from app.models.warehouse import (
     Warehouse,
     WarehouseKuaimaiConfig,
@@ -66,11 +73,30 @@ def _optional_text(value, field, maximum):
     return value
 
 
+def _secret_text(value, field):
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        raise SettingsValidationError(f"{field} 必须是字符串")
+    if not value.strip():
+        raise SettingsValidationError(f"{field} 不能只包含空白字符")
+    return value
+
+
 def _automatic_warehouse_name(province, city):
     name = f"{province}{city}仓库"
     if len(name) > 100:
         raise SettingsValidationError("自动生成的仓库名称过长")
     return name
+
+
+def _validated_password(value, field):
+    try:
+        return validate_tenant_password(value)
+    except PasswordPolicyError as exc:
+        raise SettingsValidationError(
+            f"{field}必须为 8 至 128 个字符"
+        ) from exc
 
 
 class SettingsService:
@@ -89,13 +115,16 @@ class SettingsService:
             ).all()
             return [member_to_dict(member) for member in members]
 
-    def create_member(self, phone, role="operator"):
+    def create_member(self, phone, initial_password, role="operator"):
         try:
             normalized_phone = normalize_china_phone(phone)
         except ValueError as exc:
             raise SettingsValidationError("请输入有效的大陆手机号") from exc
         if not isinstance(role, str) or role not in {"admin", "operator"}:
             raise SettingsValidationError("role 必须是 admin 或 operator")
+        initial_password = _validated_password(
+            initial_password, "初始密码"
+        )
         try:
             with self.control_store.tenant_members_locked_session(
                 self.tenant_id
@@ -105,6 +134,8 @@ class SettingsService:
                     phone=normalized_phone,
                     role=role,
                     status="active",
+                    password_hash=generate_password_hash(initial_password),
+                    password_changed_at=datetime.utcnow(),
                 )
                 session.add(member)
                 session.flush()
@@ -112,6 +143,34 @@ class SettingsService:
             return result
         except IntegrityError as exc:
             raise MemberPhoneConflictError from exc
+
+    def reset_member_password(self, member_id, new_password):
+        new_password = _validated_password(new_password, "新密码")
+        with self.control_store.tenant_members_locked_session(
+            self.tenant_id
+        ) as (session, members):
+            member = next(
+                (
+                    candidate
+                    for candidate in members
+                    if candidate.id == member_id
+                ),
+                None,
+            )
+            if member is None:
+                raise SettingsNotFoundError("成员不存在")
+            member.password_hash = generate_password_hash(new_password)
+            member.password_changed_at = datetime.utcnow()
+            member.failed_password_attempts = 0
+            member.password_locked_until = None
+            session.execute(
+                delete(AuthSession).where(
+                    AuthSession.kind == "tenant",
+                    AuthSession.subject_id == member.id,
+                    AuthSession.tenant_id == self.tenant_id,
+                )
+            )
+            return member_to_dict(member)
 
     def update_member(self, member_id, payload):
         role = payload.get("role")
@@ -258,12 +317,8 @@ class SettingsService:
                 SF_MONTHLY_CARD_PURPOSE,
             ),
         ):
-            value = payload.get(request_field)
-            if value not in (None, ""):
-                if not isinstance(value, str):
-                    raise SettingsValidationError(
-                        f"{request_field} 必须是字符串"
-                    )
+            value = _secret_text(payload.get(request_field), request_field)
+            if value is not None:
                 setattr(
                     config,
                     model_field,
@@ -297,12 +352,8 @@ class SettingsService:
                     field,
                     _optional_text(payload[field], field, maximum),
                 )
-        secret = payload.get("app_secret")
-        if secret not in (None, ""):
-            if not isinstance(secret, str):
-                raise SettingsValidationError(
-                    "app_secret 必须是字符串"
-                )
+        secret = _secret_text(payload.get("app_secret"), "app_secret")
+        if secret is not None:
             box = secret_box or self.secret_box
             config.app_secret_ciphertext = box.encrypt(
                 secret,
@@ -321,10 +372,8 @@ class SettingsService:
             shop.name = _required_text(payload["name"], "name", 100)
         if "app_key" in payload:
             shop.app_key = _optional_text(payload["app_key"], "app_key", 255) or ""
-        secret = payload.get("app_secret")
-        if secret not in (None, ""):
-            if not isinstance(secret, str):
-                raise SettingsValidationError("app_secret 必须是字符串")
+        secret = _secret_text(payload.get("app_secret"), "app_secret")
+        if secret is not None:
             shop.app_secret_ciphertext = self.secret_box.encrypt(
                 secret, purpose=XIANYU_SECRET_PURPOSE
             )

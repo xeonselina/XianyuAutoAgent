@@ -42,21 +42,14 @@ test.describe('Gantt — status-based bar colors', () => {
   })
 
   test('rental bars exist on the gantt', async ({ page }) => {
-    // The gantt should render at least the grid container
-    const grid = page.locator('.gantt-grid')
-    await expect(grid).toBeVisible()
+    await expect(page.locator('.rental-period-bar').first()).toBeVisible()
   })
 
   test('rental period bars use status color (not random)', async ({ page }) => {
     // Get all rental-period bars
     const bars = page.locator('.rental-period-bar')
     const count = await bars.count()
-
-    if (count === 0) {
-      // No rentals in the current window — not a test failure, just skip color check
-      console.log('No rental-period bars visible in current gantt window; skipping color check')
-      return
-    }
+    expect(count).toBeGreaterThan(0)
 
     // For each visible bar, check that its background color matches one of the valid status colors
     const validColors = new Set(Object.values(STATUS_COLORS))
@@ -69,16 +62,22 @@ test.describe('Gantt — status-based bar colors', () => {
         || validColors.has(bg)
       expect(isKnownColor, `bar ${i} has unexpected color: ${bg}`).toBe(true)
     }
+
+    const returnedRow = page.locator('.gantt-row').filter({
+      has: page.locator('.device-name').filter({ hasText: 'E2E 主设备 2001' }),
+    })
+    await expect(returnedRow).toHaveCount(1)
+    const returnedBar = returnedRow.locator('.rental-period-bar')
+    await expect(returnedBar).toHaveCount(1)
+    expect(await returnedBar.evaluate(
+      el => getComputedStyle(el).backgroundColor,
+    )).toBe(STATUS_COLORS.returned)
   })
 
   test('ship-range bars use the same status color with transparency', async ({ page }) => {
     const bars = page.locator('.ship-range-bar')
     const count = await bars.count()
-
-    if (count === 0) {
-      console.log('No ship-range bars visible; skipping')
-      return
-    }
+    expect(count).toBeGreaterThan(0)
 
     for (let i = 0; i < Math.min(count, 5); i++) {
       const bar = bars.nth(i)

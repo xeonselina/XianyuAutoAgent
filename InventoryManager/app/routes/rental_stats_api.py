@@ -293,13 +293,14 @@ def get_periodic_stats():
                 )
             ]
 
-            order_count = len(period_rentals)
+            device_rental_count = len(period_rentals)
+            order_count = len({('booking', r.booking_id) if r.booking_id else ('rental', r.id) for r in period_rentals})
             order_amount = sum(
                 float(r.order_amount) if r.order_amount is not None else 0.0
                 for r in period_rentals
             )
             # 预计收益 = 订单金额 - 每订单 15 元快递费
-            profit = order_amount - order_count * 15.0
+            profit = order_amount - device_rental_count * 15.0
 
             # 折旧：对该周期内每台活跃设备，以其 first_order_date 为购买日计算
             depreciation = sum(
@@ -321,7 +322,7 @@ def get_periodic_stats():
             #   按周 = 订单数 / 设备数（单周维度，每台设备最多 1 单）
             #   按月 = 订单数 / (设备数 × 本月周数)（消除月份长短差异）
             rental_rate = (
-                round(order_count / available_device_weeks, 4)
+                round(device_rental_count / available_device_weeks, 4)
                 if available_device_weeks > 0
                 else 0.0
             )

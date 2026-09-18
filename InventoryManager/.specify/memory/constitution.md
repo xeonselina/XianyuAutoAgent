@@ -1,64 +1,62 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# InventoryManager Constitution
+
+> 本宪法仅适用 `InventoryManager/`。仓库根的 `.specify/memory/constitution.md`
+> 描述的是 `ai_kefu` 项目（FastAPI / Redis / ChromaDB），与本项目无关。
 
 ## Core Principles
 
-### I. 中文文档规范 (Chinese Documentation Standard)
-所有项目文档、规格说明、任务描述、代码注释等必须使用中文书写。这包括但不限于:
-- 功能规格说明 (spec.md)
-- 实施计划 (plan.md)
-- 任务清单 (tasks.md)
-- 检查清单 (checklists)
-- 代码注释和文档字符串
-- 提交信息和变更日志
+### I. 文档最小化（Documentation Minimalism）
 
-例外情况:
-- 代码本身(变量名、函数名、类名等)使用英文
-- 技术术语可保留英文原文,但需提供中文解释
-- 引用外部文档或API时可保留原文
+**语言**：新增文档用简体中文；代码标识符（变量、函数、类）用英文。
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. Library-First -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+**数量（不可协商）**：文档总量只减不增。本项目长期维护的文档只有 5 份：
+`README.md`、`AGENTS.md`、`docs/INDEX.md`、`docs/ARCHITECTURE.md`、`DEPLOY.md`。
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+**禁止**为「记录工作过程」而创建文件——包括但不限于：实施总结、完成报告、修复报告、
+验证报告、交付说明、探索记录、阶段进度、以及**文档索引的索引**。
+工作结论写在对话回复里；需要留痕时写进 `openspec/changes/<change-id>/` 或 commit message，
+变更完成后执行 `openspec archive`，不在仓库根留痕。
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+**理由**：过程文档的边际信息量接近于零，却会持续抬高每次 AI 协作的上下文成本
+（全仓检索时被大量召回），并在与代码漂移后**主动误导**后续工作。
+旧原则「所有文档必须中文输出」被误读为「应当多产出中文文档」，
+是本项目历史上 68 份根级报告的直接成因——此类文件已归档至 `docs/archive/`，禁止检索。
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### II. 代码即事实来源（Code over Docs）
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+文档与代码冲突时，**以代码为准**，并立即修正文档。
+不得依据文档中的路径、命令、环境变量名直接执行而不先验证其存在。
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+### III. 前端双端对等（Frontend Parity）
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+`frontend/`（PC，Element Plus）与 `frontend-mobile/`（移动端，Vant 4）必须同步考虑。
+任何交互、字段、状态变更都要同时覆盖两侧，不得只改一端。
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+### IV. 发布护栏不可绕过（Release Guards are Load-Bearing）
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+`tests/unit/test_production_config.py` 断言的约束（Makefile target 集合、
+Dockerfile COPY 清单、worker 权限隔离、文档中无敏感残留）是**有意的设计**，
+不是可以随手放宽的历史包袱。需要改变行为时，先讨论为什么，再同时改代码与断言。
+
+### V. 多租户隔离优先（Tenant Isolation First）
+
+一切涉及数据库的改动，先确认落在控制库还是租户业务库（见 `docs/ARCHITECTURE.md`）。
+两套 Alembic 迁移不可混用，顺序为控制库先、租户库后。
+
+## Additional Constraints
+
+- `Makefile` 只允许 6 个 target；主机特定的部署脚本写在 `scripts/` 下。
+- `docs/archive/**` 为历史归档，AI 禁止 grep / Read / 引用。
+- `makefile.example`、`README-Docker.md`、`README-多架构构建.md` 已废弃，不可作为依据。
+
+## Development Workflow
+
+- 规格与计划走 `openspec/changes/<change-id>/`，完成后 `openspec archive`。
+- 提交遵循 Conventional Commits（`feat:` / `fix:` / `docs:` / `chore:` / `test:`）。
+- **默认不推送远程**，除非用户明确要求；不自动切换分支。
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+本宪法优先于其他约定。修订需说明起因，并同步更新 `AGENTS.md` 中的硬约束。
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2026-09-07 | **Last Amended**: 2026-09-07

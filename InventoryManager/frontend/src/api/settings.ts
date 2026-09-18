@@ -94,8 +94,13 @@ export const listMembers = async () => dataFrom<TenantMember[]>(
 export const createMember = async (
   phone: string,
   role: TenantMember['role'],
+  initialPassword: string,
 ) => dataFrom<TenantMember>(
-  await axios.post('/api/settings/members', { phone, role }),
+  await axios.post('/api/settings/members', {
+    phone,
+    role,
+    initial_password: initialPassword,
+  }),
 )
 
 export const updateMember = async (
@@ -103,6 +108,15 @@ export const updateMember = async (
   patch: Partial<Pick<TenantMember, 'role' | 'status'>>,
 ) => dataFrom<TenantMember>(
   await axios.patch(`/api/settings/members/${memberId}`, patch),
+)
+
+export const resetMemberPassword = async (
+  memberId: number,
+  newPassword: string,
+) => dataFrom<TenantMember>(
+  await axios.put(`/api/settings/members/${memberId}/password`, {
+    new_password: newPassword,
+  }),
 )
 
 export const listWarehouseSettings = async () => dataFrom<WarehouseSettings[]>(

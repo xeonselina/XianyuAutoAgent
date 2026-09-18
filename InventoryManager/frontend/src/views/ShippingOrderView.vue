@@ -15,11 +15,15 @@
 
     <!-- 发货单内容 -->
     <div class="shipping-order-container" v-if="rental">
+      <div v-if="rental.booking" style="padding:12px;border:1px solid #ddd">
+        <strong>同单已录 {{ rental.booking.recorded_quantity }}/{{ rental.booking.expected_quantity }} 台，请逐台核对：</strong>
+        <div v-for="item in rental.booking.rentals" :key="item.id">R-{{ item.id }} · {{ item.device_name }} · {{ item.rental_package_name || (item.lens_combo === 'bare' ? '裸机' : item.lens_combo === 'lens_200mm' ? '200mm 镜头' : item.lens_combo === 'lens_dual' ? '双镜头' : '400mm 镜头') }} · {{ item.accessories.join('、') }}</div>
+      </div>
       <div class="content-section">
         <!-- 页眉 -->
+        <div class="tenant-name">{{ authStore.tenant?.name }}</div>
         <div class="header-section">
           <div class="header-content">
-            <img src="/src/assets/logo.jpg" alt="光影租界" class="logo" />
             <h2><el-icon><Document /></el-icon> 出货单</h2>
           </div>
           <!-- Barcode for Rental ID -->
@@ -59,7 +63,7 @@
             </tr>
           </thead>
           <tbody>
-            <!-- 按镜头组合动态渲染品名 -->
+            <!-- 按订单保存的租赁组合快照动态渲染品名 -->
             <tr
               v-for="(line, idx) in productLines"
               :key="`line-${idx}`"
@@ -177,13 +181,15 @@ import {
 } from '@element-plus/icons-vue'
 import { useGanttStore, type Rental } from '../stores/gantt'
 import { resolveWarehouseReturnContact, useTenantStore } from '@/stores/tenant'
-import { getProductLines, lensComboDisplay, type LensCombo } from '../config/lensCombo'
+import { useAuthStore } from '@/stores/auth'
+import { rentalPackageDisplay, rentalProductLines } from '../config/rentalPackage'
 import dayjs from 'dayjs'
 
 const router = useRouter()
 const route = useRoute()
 const ganttStore = useGanttStore()
 const tenantStore = useTenantStore()
+const authStore = useAuthStore()
 
 // 响应式状态
 const rental = ref<Rental | null>(null)
@@ -200,22 +206,20 @@ const rentalDays = computed(() => {
   return end.diff(start, 'day') + 1
 })
 
-// 当前订单的镜头组合（默认 lens_400mm 兜底）
-const lensCombo = computed<LensCombo>(() =>
-  (rental.value?.lens_combo as LensCombo) || 'lens_400mm'
-)
-
 // 主机型号 short name
 const modelName = computed<string | undefined>(() => {
   const dm = rental.value?.device?.device_model
   return dm?.name || rental.value?.device?.model
 })
 
-// 按机型 + 镜头组合渲染的品名清单
-const productLines = computed(() => getProductLines(modelName.value, lensCombo.value))
+// 优先按订单组合快照渲染品名；旧订单回退到历史镜头规则。
+const productLines = computed(() => rentalProductLines(
+  rental.value,
+  modelName.value,
+  rental.value?.device?.device_model?.display_name,
+))
 
-// 镜头组合中文化（主机行的备注栏）
-const lensComboLabel = computed(() => lensComboDisplay(lensCombo.value))
+const lensComboLabel = computed(() => rentalPackageDisplay(rental.value))
 
 const customerMessage = computed(() => {
   // 这里可以从rental数据中获取买家留言，如果没有对应字段，可以扩展数据结构
@@ -423,14 +427,12 @@ onMounted(async () => {
   font-weight: bold;
 }
 
-.logo {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  height: 50px;
-  width: auto;
-  filter: brightness(1.2) contrast(1.1);
+.tenant-name {
+  text-align: center;
+  font-size: 22px;
+  font-weight: bold;
+  overflow-wrap: anywhere;
+  margin-bottom: 8px;
 }
 
 .header-section h1 {
@@ -726,11 +728,6 @@ onMounted(async () => {
   
   .sf-express {
     font-size: 24px;
-  }
-
-  .logo {
-    height: 40px;
-    filter: brightness(1) contrast(1);
   }
 
   .qr-codes-section {

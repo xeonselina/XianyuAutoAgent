@@ -10,9 +10,10 @@ from typing import Optional
 from datetime import timedelta
 
 from PIL import Image, ImageDraw, ImageFont
+from flask import g
 
 from app.models import Rental
-from app.services.printing.rental_product_lines import lens_combo_display, get_default_combo, _resolve_model_name
+from app.services.printing.rental_product_lines import rental_package_display
 from app import db
 
 logger = logging.getLogger(__name__)
@@ -293,13 +294,18 @@ class ShippingSlipImageService:
 
             y = self.padding
 
-            # 1. 订单号部分
-            order_text = f"光影租界: R-{rental.id}"
-            bbox = self.font_large.getbbox(order_text)
-            text_width = bbox[2] - bbox[0]
-            x_centered = (self.width_px - text_width) // 2
-            draw.text((x_centered, y), order_text, fill='black', font=self.font_large)
-            y += bbox[3] - bbox[1] + 15
+            # 每次从已认证的请求上下文读取，不能在全局服务中缓存租户名称。
+            tenant_name = (getattr(getattr(g, 'tenant', None), 'name', '') or '').strip()
+            header_lines = self._wrap_text(
+                tenant_name or '发货单', self.font_large,
+                self.width_px - 2 * self.padding,
+            )
+            for order_text in [*header_lines, f"R-{rental.id}"]:
+                bbox = self.font_large.getbbox(order_text)
+                text_width = bbox[2] - bbox[0]
+                x_centered = (self.width_px - text_width) // 2
+                draw.text((x_centered, y), order_text, fill='black', font=self.font_large)
+                y += bbox[3] - bbox[1] + 15
 
             y = self._draw_section_separator(draw, y)
 
@@ -312,9 +318,8 @@ class ShippingSlipImageService:
             device_name = rental.device.name if rental.device else '未知设备'
             y = self._draw_info_row(draw, y, "设备:", device_name)
 
-            # 镜头组合中文化（便于发货员核对；裸机也显示）
-            combo = getattr(rental, 'lens_combo', None) or get_default_combo(_resolve_model_name(rental))
-            y = self._draw_info_row(draw, y, "组合:", lens_combo_display(combo))
+            # 使用下单时保存的组合名称；旧订单自动回退到镜头枚举中文名。
+            y = self._draw_info_row(draw, y, "组合:", rental_package_display(rental))
 
             # 附件信息（库存附件如手机支架/三脚架；配套附件 handle/lens_mount 不单列）
             all_accessories = rental.get_all_accessories_for_display()
@@ -331,6 +336,13 @@ class ShippingSlipImageService:
                     y = self._draw_info_row(draw, y, "附件:", ', '.join(accessories_list))
 
             y = self._draw_section_separator(draw, y)
+
+            from app.services.shipping.shipment_group_service import parcel_members
+            members = parcel_members(rental)
+            position = next((i for i, row in enumerate(members, 1) if row.id == rental.id), 1)
+            y = self._draw_info_row(draw, y, "包裹:", f"第 {position}/{len(members)} 台 · R-{rental.id}")
+            if rental.ship_out_tracking_no:
+                y = self._draw_info_row(draw, y, "运单:", rental.ship_out_tracking_no)
 
             # 4. 归还时间（租期结束日期 + 1天）
             if rental.end_date:

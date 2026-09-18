@@ -24,6 +24,7 @@
         </div>
         
         <div class="tooltip-body">
+          <div v-if="rental.booking" class="info-row">同单已录 {{ rental.booking.recorded_quantity }}/{{ rental.booking.expected_quantity }} 台 · 已发 {{ rental.booking.shipped_quantity }} 台</div>
           <div class="info-row">
             <span class="label">闲鱼 ID:</span>
             <span class="value">{{ rental.customer_name || '未填写' }}</span>
@@ -49,9 +50,9 @@
             <span class="value">{{ rental.destination }}</span>
           </div>
 
-          <div class="info-row" v-if="rental.lens_combo">
-            <span class="label">镜头组合:</span>
-            <span class="value">{{ lensComboLabel }}</span>
+          <div class="info-row" v-if="rental.rental_package_name || rental.lens_combo">
+            <span class="label">租赁组合:</span>
+            <span class="value">{{ rentalPackageLabel }}</span>
           </div>
           
           <div class="info-row" v-if="rental.ship_out_tracking_no">
@@ -115,7 +116,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Rental } from '../stores/gantt'
-import { lensComboDisplay } from '../config/lensCombo'
+import { rentalPackageDisplay } from '../config/rentalPackage'
 import dayjs from 'dayjs'
 
 interface ConflictInfo {
@@ -140,7 +141,7 @@ const emit = defineEmits<{
 
 const props = defineProps<Props>()
 
-const lensComboLabel = computed(() => lensComboDisplay(props.rental?.lens_combo))
+const rentalPackageLabel = computed(() => rentalPackageDisplay(props.rental))
 
 // Tooltip悬停事件处理
 const handleTooltipEnter = () => {

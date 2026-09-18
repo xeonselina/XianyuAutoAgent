@@ -6,11 +6,11 @@ import XianyuShopSettings from '@/components/settings/XianyuShopSettings.vue'
 
 <template>
   <main class="settings-shell">
-    <h1>租户设置</h1>
+    <h1>店铺设置</h1>
     <el-tabs>
-      <el-tab-pane label="成员"><MemberSettings /></el-tab-pane>
-      <el-tab-pane label="仓库"><WarehouseSettings /></el-tab-pane>
-      <el-tab-pane label="闲鱼店铺">
+      <el-tab-pane label="团队成员"><MemberSettings /></el-tab-pane>
+      <el-tab-pane label="仓库与发货"><WarehouseSettings /></el-tab-pane>
+      <el-tab-pane label="闲鱼 API">
         <XianyuShopSettings />
       </el-tab-pane>
     </el-tabs>

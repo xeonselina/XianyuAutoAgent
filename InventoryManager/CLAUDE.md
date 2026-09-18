@@ -1,5 +1,4 @@
-# CLAUDE.md - InventoryManager 项目 AI 协作准则
+# CLAUDE.md — InventoryManager
 
-## 前端开发准则
-
-1. **所有前端改动都必须同时考虑 PC 端和移动端**。组件布局、交互和样式需确保在桌面浏览器和移动设备（尤其是 iPad）上均可正常使用。必要时使用响应式设计（媒体查询、弹性布局等）。
+本项目的 AI 协作规则（含硬约束）**全部在 `AGENTS.md`**，此处不重复。
+先读 `AGENTS.md`，再按其中「按需加载」清单取用 `docs/INDEX.md` / `docs/ARCHITECTURE.md` / `DEPLOY.md`。

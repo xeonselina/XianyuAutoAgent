@@ -71,8 +71,11 @@ def inspection():
 
 @bp.route('/devices')
 def devices():
-    """设备管理页面"""
-    return render_template('devices.html')
+    """设备管理页面 - 服务 Vue 应用。"""
+    from flask import send_from_directory
+    import os
+    vue_dist_path = os.path.join(current_app.root_path, '..', 'static', 'vue-dist')
+    return send_from_directory(vue_dist_path, 'index.html')
 
 
 @bp.route('/rentals')

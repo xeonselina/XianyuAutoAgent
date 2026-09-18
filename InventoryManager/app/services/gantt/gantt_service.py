@@ -116,6 +116,7 @@ class GanttService:
                 for rental in device_rentals:
                     rental_data = {
                         'id': rental.id,
+                        'booking': rental.booking.to_dict() if rental.booking else None,
                         'start_date': rental.start_date.isoformat(),
                         'end_date': rental.end_date.isoformat(),
                         'customer_name': rental.customer_name,
@@ -138,6 +139,10 @@ class GanttService:
 
                 rental_data = {
                     'id': rental.id,
+                    'booking': rental.booking.to_dict() if rental.booking else None,
+                    'lens_combo': rental.lens_combo,
+                    'xianyu_order_no': rental.xianyu_order_no,
+                    'xianyu_shop_id': rental.xianyu_shop_id,
                     'device_id': rental.device_id,
                     'warehouse_id': rental.warehouse_id,
                     'device_name': rental.device.name if rental.device else 'Unknown',
@@ -248,7 +253,6 @@ class GanttService:
             )
             range_end = datetime.combine(end_date, datetime.max.time())
 
-            # 只加载和当前窗口有交集的占用记录。
             occupancy_rows = []
             if eligible_device_ids:
                 occupancy_rows = Rental.query.with_entities(
@@ -286,8 +290,6 @@ class GanttService:
                     occupied_device_ids
                 )
 
-            # 查询窗口内待寄出记录。型号筛选仍保持原单日
-            # 接口的兼容语义：附件按其父租赁的主设备型号归类。
             parent_rental = aliased(Rental)
             parent_device = aliased(Device)
             current_model = aliased(DeviceModel)

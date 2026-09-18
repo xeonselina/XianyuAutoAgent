@@ -9,6 +9,8 @@ import {
   formatDisplayDate
 } from '@/utils/dateUtils'
 import dayjs from 'dayjs'
+import type { LensCombo } from '@/config/lensCombo'
+import type { RentalPackage, RentalPackageItem } from '@/config/rentalPackage'
 
 export interface DeviceModel {
   id: number
@@ -19,6 +21,10 @@ export interface DeviceModel {
   default_accessories?: any[]
   model_accessories?: ModelAccessory[]
   device_value?: number
+  allowed_lens_combos?: LensCombo[]
+  default_lens_combo?: LensCombo | null
+  rental_packages?: RentalPackage[]
+  default_rental_package_id?: string | null
   created_at: string
   updated_at: string
   accessories: ModelAccessory[]
@@ -53,6 +59,13 @@ export interface Device {
 }
 
 export interface Rental {
+  shipping_group_id?: string
+  shipping_group_size?: number
+  booking?: {
+    id: number; expected_quantity: number; recorded_quantity: number; shipped_quantity: number; total_amount: number | null;
+    rentals: { id: number; device_id: number; device_name: string; lens_combo: string; status: string; rental_package_name?: string | null; rental_package_items?: { name: string; qty: number }[];
+      includes_handle: boolean; includes_lens_mount: boolean; photo_transfer: boolean; accessories: string[] }[];
+  } | null
   id: number
   device_id: number
   device?: {
@@ -90,8 +103,11 @@ export interface Rental {
   includes_lens_mount: boolean
   // 代传照片标记
   photo_transfer: boolean
-  // 镜头组合
-  lens_combo?: 'lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual'
+  // 旧镜头组合（兼容字段）
+  lens_combo?: LensCombo
+  rental_package_id?: string | null
+  rental_package_name?: string | null
+  rental_package_items?: RentalPackageItem[]
   xianyu_order_no?: string
   order_amount?: number
   buyer_id?: string

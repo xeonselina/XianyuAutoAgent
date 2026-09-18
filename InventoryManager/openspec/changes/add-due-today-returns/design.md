@@ -2,7 +2,8 @@
 
 现有租赁以 `end_date` 表示租赁结束日期，以 `shipped` 表示已寄出，以 `returned` 表示客户已寄回。甘特图数据范围会随用户浏览日期变化，不能可靠承担全局的今日提醒查询。
 
-完整设计见 `docs/superpowers/specs/2026-07-29-due-today-returns-design.md`。
+早期完整设计已归档在 `docs/archive/superpowers/specs/2026-07-29-due-today-returns-design.md`
+（本文件为当前生效的设计）。
 
 ## Goals / Non-Goals
 

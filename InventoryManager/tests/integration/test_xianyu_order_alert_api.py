@@ -140,6 +140,40 @@ def test_ignore_passes_compound_shop_order_identity(client, monkeypatch):
     assert called == {"shop_id": 9, "order_no": "SAME", "reason": "不处理"}
 
 
+def test_rental_ignore_validates_reason_and_calls_rental_service(client, monkeypatch):
+    from app.handlers.xianyu_order_alert_handlers import XianyuOrderAlertHandlers
+
+    called = {}
+    monkeypatch.setattr(
+        XianyuOrderAlertHandlers.service,
+        "ignore_rental_alert",
+        lambda shop_id, order_no, reason: called.update(
+            shop_id=shop_id, order_no=order_no, reason=reason
+        ) or snapshot(None),
+    )
+
+    response = client.post(
+        "/api/xianyu-order-alerts/9/SAME/rental-ignore",
+        json={"reason": "买家已确认，保留档期"},
+    )
+
+    assert response.status_code == 200
+    assert called == {
+        "shop_id": 9,
+        "order_no": "SAME",
+        "reason": "买家已确认，保留档期",
+    }
+
+
+def test_rental_ignore_rejects_empty_reason(client):
+    response = client.post(
+        "/api/xianyu-order-alerts/7/XY-1/rental-ignore",
+        json={"reason": "   "},
+    )
+    assert response.status_code == 400
+    assert response.get_json()["message"] == "忽略原因不能为空"
+
+
 @pytest.mark.parametrize("exists", [False, True])
 def test_order_detail_rejects_missing_or_inactive_shop(empty_business_client, app, monkeypatch, exists):
     from app import db

@@ -8,7 +8,10 @@
     "build": "vue-tsc --noEmit && vite build",
     "build-only": "vite build",
     "preview": "vite preview",
-    "test:e2e": "playwright test",
+    "test:e2e": "npm run test:e2e:mock && npm run test:e2e:real",
+    "test:e2e:mock": "playwright test --config playwright.mock.config.ts",
+    "test:e2e:real": "playwright test --config playwright.real.config.ts",
+    "test:e2e:x86": "python3 ../scripts/run_mobile_e2e_x86.py",
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {

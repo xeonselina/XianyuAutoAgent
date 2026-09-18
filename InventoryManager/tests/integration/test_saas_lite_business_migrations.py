@@ -1,5 +1,6 @@
 """MariaDB coverage for the lightweight warehouse/shop schema migrations."""
 
+import json
 import os
 from datetime import datetime
 from pathlib import Path
@@ -22,7 +23,10 @@ MIGRATIONS_DIRECTORY = str(
 CURRENT_PHASE_1_HEAD = "20260825_audit_schema"
 EXPAND_REVISION = "20260824_saas_lite_expand"
 CONTRACT_REVISION = "20260824_saas_lite_contract"
-CURRENT_HEAD = "20260907_xianyu_rental_alerts"
+MODEL_LENS_COMBO_REVISION = "20260830_model_lens_combos"
+RENTAL_PACKAGES_REVISION = "20260830_rental_packages"
+RENTAL_ALERTS_REVISION = "20260907_xianyu_rental_alerts"
+CURRENT_HEAD = "20260914_merge_booking_alerts"
 APPROVED_NEW_TABLES = {
     "warehouses",
     "warehouse_sf_configs",
@@ -282,7 +286,7 @@ def _insert_legacy_rows(engine):
         )
 
 
-def test_phase_2_uses_exactly_two_linear_revisions():
+def test_phase_2_and_model_configuration_use_a_linear_chain():
     config = AlembicConfig()
     config.set_main_option("script_location", MIGRATIONS_DIRECTORY)
     script = ScriptDirectory.from_config(config)
@@ -292,8 +296,13 @@ def test_phase_2_uses_exactly_two_linear_revisions():
 
     assert revisions[EXPAND_REVISION].down_revision == CURRENT_PHASE_1_HEAD
     assert revisions[CONTRACT_REVISION].down_revision == EXPAND_REVISION
+    assert revisions[MODEL_LENS_COMBO_REVISION].down_revision == CONTRACT_REVISION
+    assert revisions[RENTAL_PACKAGES_REVISION].down_revision == MODEL_LENS_COMBO_REVISION
+    assert revisions[RENTAL_ALERTS_REVISION].down_revision == RENTAL_PACKAGES_REVISION
     assert script.get_heads() == [CURRENT_HEAD]
-    assert revisions[CURRENT_HEAD].down_revision == CONTRACT_REVISION
+    assert revisions["20260908_xianyu_alert_ignore"].down_revision == RENTAL_ALERTS_REVISION
+    assert set(revisions[CURRENT_HEAD].down_revision) == {"20260908_xianyu_alert_ignore", "20260914_multi_device_booking"}
+    assert revisions["20260914_multi_device_booking"].down_revision == CONTRACT_REVISION
     phase_2_revisions = {
         revision.revision
         for revision in script.walk_revisions(
@@ -301,6 +310,55 @@ def test_phase_2_uses_exactly_two_linear_revisions():
         )
     } - {CURRENT_PHASE_1_HEAD}
     assert phase_2_revisions == {EXPAND_REVISION, CONTRACT_REVISION}
+
+
+def test_model_lens_combo_migration_seeds_main_models_only(
+    empty_business_database,
+):
+    database_url, engine = empty_business_database
+    _upgrade(database_url, CONTRACT_REVISION)
+    with engine.begin() as connection:
+        connection.execute(text(
+            """
+            INSERT INTO device_models (
+                name, display_name, is_active, is_accessory,
+                created_at, updated_at
+            ) VALUES
+                ('x300u', 'X300 Ultra', 1, 0,
+                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+                ('camera-pro', 'Camera Pro', 1, 0,
+                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+                ('tripod', 'Tripod', 1, 1,
+                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """
+        ))
+
+    _upgrade(database_url, "head")
+
+    with engine.connect() as connection:
+        rows = {
+            row["name"]: row
+            for row in connection.execute(text(
+                "SELECT name, allowed_lens_combos, default_lens_combo, "
+                "rental_packages, default_rental_package_id "
+                "FROM device_models WHERE name IN "
+                "('x200u', 'x300u', 'camera-pro', 'tripod')"
+            )).mappings()
+        }
+        assert rows["x300u"]["allowed_lens_combos"] == (
+            '["lens_400mm", "lens_200mm", "bare", "lens_dual"]'
+        )
+        assert rows["x300u"]["default_lens_combo"] == "lens_400mm"
+        assert rows["x200u"]["allowed_lens_combos"] == (
+            '["lens_200mm", "bare"]'
+        )
+        assert rows["camera-pro"]["default_lens_combo"] == "lens_200mm"
+        camera_packages = json.loads(rows["camera-pro"]["rental_packages"])
+        assert [item["name"] for item in camera_packages] == ["200MM 镜头", "裸机"]
+        assert rows["camera-pro"]["default_rental_package_id"] == "legacy_lens_200mm"
+        assert rows["tripod"]["allowed_lens_combos"] is None
+        assert rows["tripod"]["default_lens_combo"] is None
+        assert rows["tripod"]["rental_packages"] is None
 
 
 def test_fresh_chain_has_only_the_approved_tables_and_columns(
@@ -329,6 +387,17 @@ def test_fresh_chain_has_only_the_approved_tables_and_columns(
             "id", "name", "app_key", "app_secret_ciphertext", "is_active",
             "last_success_at", "last_error", "created_at", "updated_at",
         }
+        assert {
+            "allowed_lens_combos",
+            "default_lens_combo",
+            "rental_packages",
+            "default_rental_package_id",
+        } <= _column_names(inspector, "device_models")
+        assert {
+            "rental_package_id",
+            "rental_package_name",
+            "rental_package_items",
+        } <= _column_names(inspector, "rentals")
         assert connection.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one() == CURRENT_HEAD
@@ -348,7 +417,7 @@ def test_contract_backfills_old_business_rows_and_removes_sync_state(
     with engine.connect() as connection:
         inspector = inspect(connection)
         new_tables = set(inspector.get_table_names())
-        assert new_tables - old_tables == APPROVED_NEW_TABLES | {"xianyu_rental_alerts"}
+        assert new_tables - old_tables == APPROVED_NEW_TABLES | {"xianyu_rental_alerts", "rental_bookings", "rental_booking_requests"}
         assert old_tables - new_tables == {"xianyu_order_sync_state"}
         default_warehouse = connection.execute(
             text("SELECT id, province, city, name FROM warehouses")
@@ -402,6 +471,18 @@ def test_contract_backfills_old_business_rows_and_removes_sync_state(
             202: None,
             203: None,
         }
+        snapshots = {
+            row["id"]: row
+            for row in connection.execute(text(
+                "SELECT id, rental_package_id, rental_package_name, "
+                "rental_package_items FROM rentals ORDER BY id"
+            )).mappings()
+        }
+        assert snapshots[201]["rental_package_id"] == "legacy_lens_400mm"
+        assert snapshots[201]["rental_package_name"] == "400MM 镜头"
+        assert json.loads(snapshots[201]["rental_package_items"])[1]["name"].startswith("400MM")
+        assert snapshots[202]["rental_package_id"] is None
+        assert snapshots[203]["rental_package_id"] == "legacy_lens_400mm"
 
 
 def test_contract_enforces_foreign_keys_not_null_and_shop_uniqueness(

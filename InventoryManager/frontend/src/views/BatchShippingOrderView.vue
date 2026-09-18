@@ -45,9 +45,9 @@
         <div class="shipping-order-container">
           <div class="content-section">
             <!-- 页眉 -->
+            <div class="tenant-name">{{ authStore.tenant?.name }}</div>
             <div class="header-section">
               <div class="header-content">
-                <img src="/src/assets/logo.jpg" alt="光影租界" class="logo" />
                 <h2><el-icon><Document /></el-icon> 出货单</h2>
               </div>
               <!-- Barcode for Rental ID -->
@@ -203,6 +203,7 @@ import {
 import axios from 'axios'
 import dayjs from 'dayjs'
 import { resolveWarehouseReturnContact, useTenantStore } from '@/stores/tenant'
+import { useAuthStore } from '@/stores/auth'
 // @ts-ignore
 import JsBarcode from 'jsbarcode'
 
@@ -210,6 +211,7 @@ import JsBarcode from 'jsbarcode'
 const route = useRoute()
 const router = useRouter()
 const tenantStore = useTenantStore()
+const authStore = useAuthStore()
 
 // State
 const rentals = ref<any[]>([])
@@ -482,10 +484,12 @@ const getPersonalizedAccessories = (rental: any) => {
   font-weight: bold;
 }
 
-.logo {
-  width: 60px;
-  height: 60px;
-  border-radius: 8px;
+.tenant-name {
+  text-align: center;
+  font-size: 22px;
+  font-weight: bold;
+  overflow-wrap: anywhere;
+  margin-bottom: 8px;
 }
 
 .header-content h2 {
@@ -719,11 +723,6 @@ const getPersonalizedAccessories = (rental: any) => {
 
   .header-content h2 {
     font-size: 22px;
-  }
-
-  .logo {
-    width: 50px;
-    height: 50px;
   }
 
   .info-card {

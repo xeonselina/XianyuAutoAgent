@@ -10,6 +10,29 @@ from config import ProductionConfig
 ROOT = Path(__file__).resolve().parents[2]
 MASTER_KEY = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
 
+# 文档扫描时排除的目录：
+# - node_modules：第三方依赖
+# - .specify/templates：spec-kit 自带模板，其中的 "Contract test" 与被下线的
+#   租赁合同功能无关，属固定样板文字
+_SCAN_EXCLUDED_DIRS = {"node_modules", ".git", "__pycache__", "templates"}
+
+
+def _markdown_files(include_archive=False):
+    """收集待扫描的 markdown 文件。
+
+    include_archive=False 时排除 docs/archive/**：归档是历史快照，
+    其中提到已下线功能属正常，不构成回归。
+    """
+    files = []
+    for path in ROOT.rglob("*.md"):
+        parts = set(path.parts)
+        if parts & _SCAN_EXCLUDED_DIRS:
+            continue
+        if not include_archive and "archive" in path.parts:
+            continue
+        files.append(path)
+    return sorted(files)
+
 
 def _production_config(tmp_path, **overrides):
     attributes = {
@@ -97,6 +120,7 @@ def test_runtime_template_has_only_safe_delivery_configuration():
     assert {
         "FLASK_ENV", "DATABASE_URL", "CONTROL_DATABASE_URL",
         "PROVISIONER_DATABASE_URL", "SAAS_MASTER_KEY", "SECRET_KEY",
+        "TENANT_AUTH_MODE",
         "TENANT_DB_HOST", "TENANT_DB_PORT", "TENANT_DB_NAME_PREFIX",
         "TENANT_DB_USER_PREFIX", "CONTROL_DB_POOL_SIZE",
         "TENANT_DB_POOL_SIZE", "CORS_ORIGINS", "TRUSTED_PROXY_HOPS",
@@ -110,6 +134,7 @@ def test_runtime_template_has_only_safe_delivery_configuration():
         "TENCENTCLOUD_SECRET_KEY", "TENCENT_SMS_SDK_APP_ID",
         "TENCENT_SMS_SIGN_NAME", "TENCENT_SMS_TEMPLATE_ID",
     ))
+    assert active["TENANT_AUTH_MODE"] == "sms"
     for legacy in (
         "SF_PARTNER_ID", "SF_CHECKWORD", "SF_MONTHLY_CARD",
         "KUAIMAI_APP_ID", "KUAIMAI_APP_SECRET", "KUAIMAI_PRINTER_SN",
@@ -132,12 +157,23 @@ def test_runtime_image_context_excludes_sensitive_and_local_files():
     } <= ignored
 
 
-def test_runtime_image_context_keeps_only_shipping_slip_qr_assets():
+def test_runtime_image_builds_frontend_but_directly_copies_only_qr_assets():
     ignored = set((ROOT / ".dockerignore").read_text().splitlines())
-    assert "frontend/src/*" in ignored and {
-        "!frontend/src/assets/安装调试教程.jpg",
-        "!frontend/src/assets/照片传输教程.png",
+    dockerfile_lines = (ROOT / "Dockerfile").read_text().splitlines()
+
+    assert "frontend/src/*" not in ignored
+    assert "frontend/*" not in ignored
+    assert {
+        "frontend/tests/", "frontend/.vscode/", "frontend/app/",
+        "frontend/*.md", "frontend/vitest.config.ts",
     } <= ignored
+    assert [
+        line for line in dockerfile_lines
+        if line.startswith("COPY frontend/src/assets/")
+    ] == [
+        "COPY frontend/src/assets/安装调试教程.jpg ./frontend/src/assets/安装调试教程.jpg",
+        "COPY frontend/src/assets/照片传输教程.png ./frontend/src/assets/照片传输教程.png",
+    ]
 
 
 def test_one_image_and_parameterized_make_contract():
@@ -160,15 +196,25 @@ def test_one_image_and_parameterized_make_contract():
     } <= dockerfile_lines
     assert "HEALTHCHECK" not in dockerfile and "curl" not in dockerfile
     assert "docker-compose" not in dockerfile.lower()
-    assert targets == {"help", "build", "push", "run-app", "run-worker", "worker-once"}
+    assert targets == {
+        "help", "build", "push", "run-app", "run-worker", "worker-once",
+        "build-push", "check-nas", "deploy-nas", "release-nas",
+        "nas-status", "nas-logs",
+    }
+    assert "include .env" not in makefile
+    for credential_name in ("NAS_PASS", "SUDO_PASS"):
+        assert f"{credential_name} :=" not in makefile
     assert all(token not in makefile for token in (
-        "NAS_", "sshpass", "docker-compose", "include .env", "REGISTRY :=",
+        "sshpass", "docker-compose", "REGISTRY :=",
     ))
-    assert {"tests/", "frontend/*", "frontend-mobile/", "openspec/"} <= dockerignore
+    assert {
+        "tests/", "frontend/tests/", "frontend-mobile/", "openspec/",
+        "static/vue-dist/",
+    } <= dockerignore
     for key in (
         "PROVISIONER_DATABASE_URL", "TENCENTCLOUD_SECRET_ID",
         "TENCENTCLOUD_SECRET_KEY", "TENCENT_SMS_SDK_APP_ID",
-        "TENCENT_SMS_SIGN_NAME", "TENCENT_SMS_TEMPLATE_ID",
+        "TENCENT_SMS_SIGN_NAME", "TENCENT_SMS_TEMPLATE_ID", "TENCENT_SMS_REGION",
     ):
         assert makefile.count(f'--env "{key}="') == 2
 
@@ -182,8 +228,8 @@ def test_handoff_and_retired_artifacts_are_sanitized():
         "upgrade-tenant-databases", "python worker.py", "--once",
         "维护窗口", "完整备份", "NAS", "公网入口",
     ))
-    assert text.count("python -m flask --app run.py") == 3
-    assert "compose" not in text.lower()
+    assert text.count("python -m flask --app run.py") == 4
+    assert "Docker Compose" in text
     for path in (
         ROOT / ".env.docker", ROOT / "env.production", ROOT / "deploy.sh",
         ROOT / "templates/shipping_order2.html",
@@ -192,13 +238,14 @@ def test_handoff_and_retired_artifacts_are_sanitized():
         assert not path.exists()
     legacy_phone = "135102" + "24947"
     legacy_address = "竹苑" + "9栋"
-    for relative in (
-        "docs/SF_OAUTH2_GUIDE.md", "docs/SF_SETUP.md",
-        "openspec/changes/view-sf-shipment-tracking/proposal.md",
-        "PROJECT_EXPLORATION.md",
-    ):
-        contents = (ROOT / relative).read_text()
-        assert legacy_phone not in contents and legacy_address not in contents
+    # 全仓扫描（含 docs/archive/）—— 归档不是敏感信息的避风港。
+    # 改为 rglob 而非固定清单，新增文档自动纳入，无需再维护路径列表。
+    scanned = _markdown_files(include_archive=True)
+    assert scanned, "守卫自身：markdown 扫描范围不得为空"
+    for path in scanned:
+        contents = path.read_text(errors="ignore")
+        assert legacy_phone not in contents, f"{path} 含已下线的旧手机号"
+        assert legacy_address not in contents, f"{path} 含已下线的旧地址"
 
 
 def test_rental_contract_and_exclusive_ocr_surface_is_removed():
@@ -210,19 +257,24 @@ def test_rental_contract_and_exclusive_ocr_surface_is_removed():
         "docs/设备租赁合同模板.docx",
     )
     assert all(not (ROOT / relative).exists() for relative in removed)
+    # 代码文件固定路径（这些是真实存在的活跃代码，必须逐个点名）
+    code_relative = (
+        "frontend/src/router/index.ts",
+        "frontend/src/components/rental/RentalActionButtons.vue",
+        "frontend/src/components/rental/EditRentalDialogNew.vue",
+        "app/routes/web.py", "app/routes/web_pages.py",
+        "app/routes/vue_app.py",
+    )
     sources = {
-        relative: (ROOT / relative).read_text()
-        for relative in (
-            "frontend/src/router/index.ts",
-            "frontend/src/components/rental/RentalActionButtons.vue",
-            "frontend/src/components/rental/EditRentalDialogNew.vue",
-            "app/routes/web.py", "app/routes/web_pages.py",
-            "app/routes/vue_app.py", "README.md", "docs/安装使用说明.md",
-            "FORM_FIELD_MAPPING.md", "FRONTEND_STRUCTURE.md",
-            "PROJECT_EXPLORATION.md", "FRONTEND_COMPLETE_LISTING.md",
-            "FRONTEND_VISUAL_GUIDE.md", "MOBILE_FORM_DESIGN_ANALYSIS.md",
-        )
+        relative: (ROOT / relative).read_text() for relative in code_relative
     }
+    # 文档改为扫描全部「活」文档（排除 docs/archive/）：
+    # 历史归档提到已下线功能属正常，但活文档中再出现即为回归。
+    live_docs = _markdown_files(include_archive=False)
+    assert live_docs, "守卫自身：活文档扫描范围不得为空"
+    sources.update(
+        {str(path): path.read_text(errors="ignore") for path in live_docs}
+    )
     assert all(token not in "\n".join(sources.values()) for token in (
         "RentalContractView", "rental-contract", "open-contract",
         "/contract/", "ocr_api", "/api/ocr/id-card",

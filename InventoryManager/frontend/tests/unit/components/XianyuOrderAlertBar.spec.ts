@@ -28,6 +28,8 @@ const makeSnapshot = (
     last_attempt_at: '2026-07-24T10:01:00',
     last_success_at: '2026-07-24T10:01:00',
     last_error: null,
+    is_stale: false,
+    stale_after_seconds: 600,
   },
 })
 
@@ -75,6 +77,29 @@ describe('XianyuOrderAlertBar', () => {
       orderNo: 'XY-2', shopId: 7, rentalId: 10, action: 'delete',
     }]])
     expect(wrapper.emitted('ignore')).toBeUndefined()
+  })
+
+  it('requires a reason and confirmation before ignoring a rental alert order', async () => {
+    vi.spyOn(ElMessageBox, 'prompt').mockResolvedValue({
+      value: '买家已线下确认，故意保留档期',
+      action: 'confirm',
+    })
+    vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')
+    const snapshot = makeSnapshot()
+    snapshot.rental_alerts = [rentalAlert()]
+    const wrapper = mountBar(snapshot)
+
+    await wrapper.get('[data-testid="toggle-closed"]').trigger('click')
+    await wrapper.get('[data-testid="rental-ignore-XY-2"]').trigger('click')
+
+    expect(ElMessageBox.confirm).toHaveBeenCalledWith(
+      expect.stringContaining('档期仍会保留'),
+      '确认忽略档期提醒',
+      expect.objectContaining({ type: 'warning' }),
+    )
+    expect(wrapper.emitted('rental-ignore')).toEqual([
+      [{ shopId: 7, orderNo: 'XY-2', reason: '买家已线下确认，故意保留档期' }],
+    ])
   })
 
   it('asks for review rather than deletion on partial refunds and shipped rentals', async () => {
@@ -126,7 +151,7 @@ describe('XianyuOrderAlertBar', () => {
     const wrapper = mountBar(makeSnapshot())
 
     expect(wrapper.text()).toContain(
-      '发现 1 笔待发货订单尚未录入库存管理',
+      '发现 1 笔闲鱼订单尚未录入库存管理',
     )
     await wrapper.get('[data-testid="toggle-alerts"]').trigger('click')
 
@@ -150,15 +175,31 @@ describe('XianyuOrderAlertBar', () => {
     ).toBe(false)
   })
 
-  it('keeps a visible failure warning when no trusted result exists', () => {
+  it('shows sync failures even when no orders are cached', () => {
     const failed = makeSnapshot()
     failed.alerts = []
     failed.count = 0
     failed.sync.last_success_at = null
     failed.sync.last_error = '请求超时'
 
-    expect(mountBar(failed).text()).toContain('暂时无法检查闲鱼订单')
-    expect(mountBar(failed).text()).toContain('请求超时')
+    const wrapper = mountBar(failed)
+
+    expect(wrapper.find('[data-testid="xianyu-order-alert-bar"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('闲鱼订单检查失败')
+    expect(wrapper.text()).toContain('请求超时')
+  })
+
+  it('shows a stale worker warning and allows an immediate check', async () => {
+    const stale = makeSnapshot()
+    stale.alerts = []
+    stale.count = 0
+    stale.sync.is_stale = true
+
+    const wrapper = mountBar(stale)
+
+    expect(wrapper.text()).toContain('闲鱼订单检查长时间未更新')
+    await wrapper.get('[data-testid="refresh-alerts"]').trigger('click')
+    expect(wrapper.emitted('refresh')).toEqual([[]])
   })
 
   it('requires a reason and confirmation before emitting permanent ignore', async () => {

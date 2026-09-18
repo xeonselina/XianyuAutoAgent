@@ -114,6 +114,12 @@ def create_app(config_class=Config, worker_mode=False):
     )
     app.config.from_object(config_class)
 
+    tenant_auth_mode = app.config.get('TENANT_AUTH_MODE')
+    if tenant_auth_mode not in {'sms', 'password'}:
+        raise RuntimeError(
+            'TENANT_AUTH_MODE must be exactly sms or password'
+        )
+
     trusted_proxy_hops = int(app.config.get('TRUSTED_PROXY_HOPS') or 0)
     if trusted_proxy_hops < 0:
         raise RuntimeError('TRUSTED_PROXY_HOPS cannot be negative')
@@ -196,11 +202,16 @@ def create_app(config_class=Config, worker_mode=False):
         app.config.get('CORS_ORIGINS')
     )
 
-    sms_sender = None if worker_mode else app.config.get('SMS_SENDER')
+    sms_sender = (
+        app.config.get('SMS_SENDER')
+        if not worker_mode and tenant_auth_mode == 'sms'
+        else None
+    )
     if not worker_mode:
         from app.auth import AuthService, FakeSmsSender, TencentSmsSender
     if (
         not worker_mode
+        and tenant_auth_mode == 'sms'
         and app.config.get('IS_PRODUCTION')
         and sms_sender is not None
     ):
@@ -208,7 +219,11 @@ def create_app(config_class=Config, worker_mode=False):
             raise RuntimeError(
                 'Production forbids FakeSmsSender or custom SMS senders'
             )
-    if not worker_mode and sms_sender is None:
+    if (
+        not worker_mode
+        and tenant_auth_mode == 'sms'
+        and sms_sender is None
+    ):
         tencent_settings = {
             'secret_id': app.config.get('TENCENTCLOUD_SECRET_ID'),
             'secret_key': app.config.get('TENCENTCLOUD_SECRET_KEY'),
@@ -331,6 +346,8 @@ def create_app(config_class=Config, worker_mode=False):
         app.register_blueprint(platform_api.bp)
         app.register_blueprint(settings_api.bp)
         platform_api.register_platform_commands(app)
+        from app.tenant_password_cli import register_tenant_password_command
+        register_tenant_password_command(app)
         from app.default_tenant_migration import (
             register_default_tenant_command,
         )

@@ -1,7 +1,4 @@
-# Claude 工作习惯
+# CLAUDE.md — 仓库根
 
-## Git 提交 & 推送
-用户说"push 一下"或"提交推送"时，直接执行以下流程，无需确认：
-1. `git add <相关文件>`
-2. `git commit -m "<message>"`
-3. `git push`
+本仓库的 AI 协作规则（子项目路由、git 习惯、检索警告）**全部在 `AGENTS.md`**，此处不重复。
+先读 `AGENTS.md`。

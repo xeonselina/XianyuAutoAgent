@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { mockAuthenticatedMobileSession } from './helpers/mock-auth'
 
 const relayCase = {
   case_id: 7,
@@ -193,6 +194,10 @@ async function mockRelayApi(
 }
 
 test.describe('mobile relay management', () => {
+  test.beforeEach(async ({ page }) => {
+    await mockAuthenticatedMobileSession(page)
+  })
+
   test('uses open-status defaults and renders the complete relay card', async ({ page }) => {
     const api = await mockRelayApi(page)
     await page.goto('/mobile/relay')
@@ -206,7 +211,7 @@ test.describe('mobile relay management', () => {
     await expect(page.getByText('X300U', { exact: true })).toBeVisible()
     await expect(page.getByText(/400MM 镜头/)).toBeVisible()
     await expect(page.getByText(/手柄/)).toBeVisible()
-    await expect(page.getByTestId('equipment-warning')).toContainText('镜头组合不一致')
+    await expect(page.getByTestId('equipment-warning')).toContainText('租赁组合不一致')
     await expect(page.getByTestId('equipment-warning')).toContainText('后单附件更多（2 > 1）')
     await expect(page.getByText(/2026-08-06/)).toBeVisible()
     await expect(page.getByText(/2026-08-09/)).toBeVisible()

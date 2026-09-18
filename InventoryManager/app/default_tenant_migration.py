@@ -35,9 +35,14 @@ KNOWN_HEADS = {
     "20260825_audit_schema",
     "20260824_saas_lite_expand",
     "20260824_saas_lite_contract",
+    "20260914_multi_device_booking",
+    "20260914_merge_booking_alerts",
+    "20260830_model_lens_combos",
+    "20260830_rental_packages",
     "20260907_xianyu_rental_alerts",
+    "20260908_xianyu_alert_ignore",
 }
-CURRENT_HEAD = "20260907_xianyu_rental_alerts"
+CURRENT_HEAD = "20260914_merge_booking_alerts"
 _IDENTIFIER = re.compile(r"^[a-z0-9_]{1,64}$")
 _SAAS_TABLES = {
     "warehouses",

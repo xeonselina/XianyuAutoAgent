@@ -48,12 +48,7 @@ test.describe('Gantt — model filter', () => {
     // Count rows before filtering
     const allRows = page.locator('.device-row, .gantt-row')
     const totalBefore = await allRows.count()
-
-    if (totalBefore === 0) {
-      console.log('No device rows visible; skipping filter test')
-      test.skip()
-      return
-    }
+    expect(totalBefore).toBeGreaterThan(1)
 
     // Open filter
     const filterBtn = page.locator('.van-nav-bar .van-button').filter({ hasText: '筛选' })
@@ -75,12 +70,7 @@ test.describe('Gantt — model filter', () => {
     // Get all model options (skip '全部型号')
     const items = sheet.locator('.van-action-sheet__item')
     const itemCount = await items.count()
-    if (itemCount <= 1) {
-      // Only "全部型号" exists — no model options to filter
-      console.log('No model options besides 全部型号; skipping filter assertion')
-      await page.keyboard.press('Escape')
-      return
-    }
+    expect(itemCount).toBeGreaterThan(1)
 
     // Click the second item (first actual model, not '全部型号')
     await items.nth(1).click()
@@ -88,16 +78,13 @@ test.describe('Gantt — model filter', () => {
 
     // Row count should be <= totalBefore
     const rowsAfter = await allRows.count()
-    expect(rowsAfter).toBeLessThanOrEqual(totalBefore)
+    expect(rowsAfter).toBeLessThan(totalBefore)
   })
 
   test('selecting 全部型号 restores all device rows', async ({ page }) => {
     const allRows = page.locator('.device-row, .gantt-row')
     const totalBefore = await allRows.count()
-    if (totalBefore === 0) {
-      test.skip()
-      return
-    }
+    expect(totalBefore).toBeGreaterThan(1)
 
     // Open filter and pick first real model
     let filterBtn = page.locator('.van-nav-bar .van-button').filter({ hasText: '筛选' })
@@ -106,14 +93,12 @@ test.describe('Gantt — model filter', () => {
       const sheet = page.locator('.van-action-sheet')
       await expect(sheet).toBeVisible({ timeout: 3_000 })
       const items = sheet.locator('.van-action-sheet__item')
-      if (await items.count() > 1) {
-        await items.nth(1).click()
-        await page.waitForTimeout(400)
-      } else {
-        await page.keyboard.press('Escape')
-        return
-      }
+      expect(await items.count()).toBeGreaterThan(1)
+      await items.nth(1).click()
+      await page.waitForTimeout(400)
     }
+
+    expect(await allRows.count()).toBeLessThan(totalBefore)
 
     // Now reopen and pick 全部型号
     const anyModelBtn = page.locator('.van-nav-bar__right .van-button').first()

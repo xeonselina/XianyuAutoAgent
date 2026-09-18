@@ -23,6 +23,14 @@
           <span>订单号：{{ alert.order_no }}</span>
           <span class="sync-status">核对时间：{{ formatTime(alert.last_seen_at) }}</span>
         </div>
+        <div class="order-actions">
+          <el-button
+            :data-testid="`rental-ignore-${alert.order_no}`"
+            @click="confirmRentalIgnore(alert)"
+          >
+            忽略提醒
+          </el-button>
+        </div>
         <p v-if="group.kind === 'refund_review'" class="rental-guidance">订单尚未关闭，请核对实际退款范围和仍需履约的设备。</p>
         <div v-for="rental in alert.rentals" :key="rental.id" class="rental-alert-row">
           <div class="alert-copy">
@@ -63,6 +71,13 @@
 
       <div class="alert-actions">
         <el-button
+          data-testid="refresh-alerts"
+          :loading="loading"
+          @click="$emit('refresh')"
+        >
+          立即检查
+        </el-button>
+        <el-button
           v-if="snapshot.count > 0"
           data-testid="toggle-alerts"
           @click="expanded = !expanded"
@@ -95,9 +110,10 @@
             :data-testid="`book-${alert.order_no}`"
             @click="$emit('book', { orderNo: alert.order_no, shopId: alert.xianyu_shop_id, shopName: alert.xianyu_shop_name || '' })"
           >
-            去补录
+            {{ alert.expected_quantity ? '去补齐' : '去补录' }}
           </el-button>
           <el-button
+            v-if="!alert.expected_quantity"
             :data-testid="`ignore-${alert.order_no}`"
             @click="confirmIgnore(alert)"
           >
@@ -116,6 +132,7 @@ import { ElMessageBox } from 'element-plus'
 import type {
   XianyuOrderAlert,
   XianyuOrderAlertSnapshot,
+  XianyuRentalAlert,
   XianyuRentalAlertAction,
 } from '@/types/xianyuOrderAlert'
 
@@ -129,7 +146,9 @@ const props = defineProps<{
 const emit = defineEmits<{
   book: [payload: { orderNo: string; shopId: number; shopName: string }]
   ignore: [payload: { shopId: number; orderNo: string; reason: string }]
+  refresh: []
   'rental-action': [payload: XianyuRentalAlertAction]
+  'rental-ignore': [payload: { shopId: number; orderNo: string; reason: string }]
 }>()
 
 const expanded = ref(false)
@@ -145,20 +164,22 @@ const rentalAlertGroups = computed(() => (['closed', 'refund_review'] as const).
   }
 }).filter(group => group.alerts.length > 0))
 
+const syncNeedsAttention = computed(() => (
+  Boolean(props.snapshot.sync.last_error)
+  || props.snapshot.sync.is_stale === true
+))
+
 const visible = computed(() => (
-  props.snapshot.count > 0
-  || Boolean(props.snapshot.sync.last_error)
-  || !props.snapshot.sync.last_success_at
+  props.snapshot.count > 0 || syncNeedsAttention.value
 ))
 
 const headline = computed(() => {
-  if (props.snapshot.count > 0) {
-    return `发现 ${props.snapshot.count} 笔待发货订单尚未录入库存管理`
+  if (props.snapshot.count === 0) {
+    return props.snapshot.sync.last_error
+      ? '闲鱼订单检查失败'
+      : '闲鱼订单检查长时间未更新'
   }
-  if (props.snapshot.sync.last_error) {
-    return '暂时无法检查闲鱼订单'
-  }
-  return '正在检查闲鱼订单…'
+  return `发现 ${props.snapshot.count} 笔闲鱼订单尚未录入库存管理`
 })
 
 const statusText = computed(() => {
@@ -171,6 +192,11 @@ const statusText = computed(() => {
   }
   if (props.loading || props.snapshot.refreshing) {
     return '正在刷新'
+  }
+  if (sync.is_stale) {
+    return sync.last_success_at
+      ? `最近成功：${formatTime(sync.last_success_at)}；请立即检查`
+      : '尚无成功检查记录；请立即检查'
   }
   return ''
 })
@@ -225,6 +251,44 @@ const confirmIgnore = async (alert: XianyuOrderAlert) => {
     emit('ignore', { shopId: alert.xianyu_shop_id, orderNo, reason })
   } catch {
     // 用户取消时保持当前告警。
+  }
+}
+
+const confirmRentalIgnore = async (alert: XianyuRentalAlert) => {
+  try {
+    const promptResult = await ElMessageBox.prompt(
+      '请填写忽略这笔退款/关闭档期提醒的原因；档期不会被删除。',
+      '忽略档期提醒',
+      {
+        confirmButtonText: '下一步',
+        cancelButtonText: '取消',
+        inputPlaceholder: '例如：买家线下已确认，继续保留档期',
+        inputValidator: (value: string) => {
+          const reason = value?.trim()
+          if (!reason) return '忽略原因不能为空'
+          if (reason.length > 500) return '忽略原因不能超过500个字符'
+          return true
+        },
+      },
+    )
+    const reason = String(promptResult.value || '').trim()
+
+    await ElMessageBox.confirm(
+      `订单 ${alert.order_no} 的提醒将被永久忽略，档期仍会保留。是否继续？`,
+      '确认忽略档期提醒',
+      {
+        type: 'warning',
+        confirmButtonText: '永久忽略',
+        cancelButtonText: '取消',
+      },
+    )
+    emit('rental-ignore', {
+      shopId: alert.xianyu_shop_id,
+      orderNo: alert.order_no,
+      reason,
+    })
+  } catch {
+    // 用户取消输入或确认时不做任何操作。
   }
 }
 </script>

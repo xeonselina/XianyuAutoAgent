@@ -1,12 +1,24 @@
 IMAGE ?= inventory-manager:saas-main-lite
 PLATFORM ?= linux/amd64
+IMAGE_REPOSITORY ?= docker.cnb.cool/tdcc-demo/jimmy/inventory-manager
+GIT_SHA ?= $(shell git rev-parse --short=12 HEAD)
+RELEASE_TIME ?= $(shell date +%Y%m%d-%H%M%S)
+RELEASE_TAG ?= $(RELEASE_TIME)-$(GIT_SHA)
+BACKUP_VERIFIED ?=
+IMAGE_TAG ?=
+LOG_TAIL ?= 200
+MIN_FREE_SPACE_MB ?= 1024
 APP_CONTAINER ?= inventory-manager-app
 WORKER_CONTAINER ?= inventory-manager-worker
 APP_PORT ?= 5002
 ENV_FILE ?= .env
 
+export IMAGE PLATFORM IMAGE_REPOSITORY GIT_SHA RELEASE_TIME RELEASE_TAG \
+	BACKUP_VERIFIED IMAGE_TAG LOG_TAIL MIN_FREE_SPACE_MB APP_CONTAINER \
+	WORKER_CONTAINER APP_PORT ENV_FILE
+
 .DEFAULT_GOAL := help
-.PHONY: help build push run-app run-worker worker-once
+.PHONY: help build push run-app run-worker worker-once build-push check-nas deploy-nas release-nas nas-status nas-logs
 
 help:
 	@echo "make build IMAGE=<image> PLATFORM=<platform>"
@@ -14,25 +26,51 @@ help:
 	@echo "make run-app IMAGE=<image> ENV_FILE=<path> APP_PORT=<port>"
 	@echo "make run-worker IMAGE=<image> ENV_FILE=<path>"
 	@echo "make worker-once IMAGE=<image> ENV_FILE=<path>"
+	@echo "First NAS release setup: see ../docs/deployment/saas-main-lite.md"
+	@echo "make deploy-nas IMAGE_TAG=<pushed-tag> BACKUP_VERIFIED=backup-verified"
+	@echo "make release-nas BACKUP_VERIFIED=backup-verified"
 
 build:
-	docker build --platform "$(PLATFORM)" --tag "$(IMAGE)" .
+	docker build --platform "$$PLATFORM" --tag "$$IMAGE" .
 
 push:
-	docker push "$(IMAGE)"
+	docker push "$$IMAGE"
 
 run-app:
-	docker run --rm --name "$(APP_CONTAINER)" --env-file "$(ENV_FILE)" \
-		--publish "$(APP_PORT):5002" "$(IMAGE)"
+	docker run --rm --name "$$APP_CONTAINER" --env-file "$$ENV_FILE" \
+		--publish "$$APP_PORT:5002" "$$IMAGE"
 
 run-worker:
-	docker run --rm --name "$(WORKER_CONTAINER)" --env-file "$(ENV_FILE)" \
+	docker run --rm --name "$$WORKER_CONTAINER" --env-file "$$ENV_FILE" \
 		--env "PROVISIONER_DATABASE_URL=" --env "TENCENTCLOUD_SECRET_ID=" --env "TENCENTCLOUD_SECRET_KEY=" \
-		--env "TENCENT_SMS_SDK_APP_ID=" --env "TENCENT_SMS_SIGN_NAME=" --env "TENCENT_SMS_TEMPLATE_ID=" \
-		"$(IMAGE)" python worker.py
+		--env "TENCENT_SMS_SDK_APP_ID=" --env "TENCENT_SMS_SIGN_NAME=" --env "TENCENT_SMS_TEMPLATE_ID=" --env "TENCENT_SMS_REGION=" \
+		"$$IMAGE" python worker.py
 
 worker-once:
-	docker run --rm --name "$(WORKER_CONTAINER)" --env-file "$(ENV_FILE)" \
+	docker run --rm --name "$$WORKER_CONTAINER" --env-file "$$ENV_FILE" \
 		--env "PROVISIONER_DATABASE_URL=" --env "TENCENTCLOUD_SECRET_ID=" --env "TENCENTCLOUD_SECRET_KEY=" \
-		--env "TENCENT_SMS_SDK_APP_ID=" --env "TENCENT_SMS_SIGN_NAME=" --env "TENCENT_SMS_TEMPLATE_ID=" \
-		"$(IMAGE)" python worker.py --once
+		--env "TENCENT_SMS_SDK_APP_ID=" --env "TENCENT_SMS_SIGN_NAME=" --env "TENCENT_SMS_TEMPLATE_ID=" --env "TENCENT_SMS_REGION=" \
+		"$$IMAGE" python worker.py --once
+
+build-push:
+	docker buildx build --platform "linux/amd64" \
+		--tag "$$IMAGE_REPOSITORY:$$RELEASE_TAG" --push .
+
+check-nas:
+	@bash scripts/deploy_nas.sh check
+
+deploy-nas:
+	@test -n "$$IMAGE_TAG" || { echo "IMAGE_TAG is required" >&2; exit 2; }
+	@bash scripts/deploy_nas.sh deploy
+
+release-nas:
+	@test "$$BACKUP_VERIFIED" = "backup-verified" || { echo "BACKUP_VERIFIED=backup-verified is required" >&2; exit 2; }
+	@test -z "$$(git status --porcelain -- .)" || { echo "InventoryManager working tree must be clean" >&2; exit 2; }
+	@$(MAKE) --no-print-directory build-push
+	@IMAGE_TAG="$$RELEASE_TAG" $(MAKE) --no-print-directory deploy-nas
+
+nas-status:
+	@bash scripts/deploy_nas.sh status
+
+nas-logs:
+	@bash scripts/deploy_nas.sh logs

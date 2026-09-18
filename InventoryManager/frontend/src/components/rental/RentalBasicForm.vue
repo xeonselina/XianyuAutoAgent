@@ -30,10 +30,12 @@
       <div class="form-tip">选择不同设备会检查时间冲突</div>
     </el-form-item>
 
-    <!-- 镜头组合 -->
+    <!-- 型号租赁组合 -->
     <LensComboSelector
-      v-model="form.lensCombo"
-      :model-name="selectedModelName"
+      v-model="form.rentalPackageId"
+      :model="selectedModel"
+      preserve-unknown
+      :model-value-name="rental.rental_package_name"
     />
 
     <!-- 客户信息（只读） -->
@@ -43,8 +45,10 @@
 
     <!-- 日期信息 -->
     <el-form-item label="开始日期">
-      <el-input :value="rental.start_date" disabled />
-      <div class="form-tip">开始日期不可修改</div>
+      <VueDatePicker v-model="form.startDate" placeholder="选择开始日期"
+        format="yyyy-MM-dd" :enable-time-picker="false" :clearable="false"
+        :max-date="form.endDate || undefined" auto-apply />
+      <div class="form-tip">修改后会检查设备和附件档期，请同时核对寄出时间</div>
     </el-form-item>
 
     <el-form-item label="结束日期" prop="endDate">
@@ -130,10 +134,9 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const selectedModelName = computed<string | null>(() => {
+const selectedModel = computed(() => {
   const dev = props.availableDevices.find(d => d.id === props.form.deviceId)
-  if (!dev) return null
-  return dev.device_model?.name || dev.model || null
+  return dev?.device_model || null
 })
 
 const emit = defineEmits<{

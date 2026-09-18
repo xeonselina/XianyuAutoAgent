@@ -57,6 +57,7 @@
 
       <el-table
         :data="rentals"
+        :span-method="parcelSpan"
         border
         stripe
         :row-key="(row: any) => row.id"
@@ -65,6 +66,13 @@
         @cell-mouse-leave="handleCellMouseLeave"
       >
         <el-table-column type="selection" width="55" :selectable="isSelectableRow" />
+        <el-table-column label="发货分组" width="150">
+          <template #default="{ row }">
+            <el-tag>{{ row.shipping_group_size || 1 }} 台 / 1 票</el-tag>
+            <div>{{ row.shipping_group_id || `R-${row.id}` }}</div>
+            <small>勾选的同组设备合单预约</small>
+          </template>
+        </el-table-column>
         <el-table-column label="设备名称" width="80">
           <template #default="{ row }">
             {{ row.device?.name || '-' }}
@@ -208,14 +216,14 @@
           :closable="false"
         >
           <template #title>
-            打印完成: 成功 {{ printResults.success_count }} / 失败 {{ printResults.failed_count }}
+            打印完成: 地址联 {{ printResults.waybill_success_count }} 张 / 内容联 {{ printResults.slip_success_count }} 张 / 失败 {{ printResults.failed_count }} 台
           </template>
         </el-alert>
 
         <div v-if="printResults.failed_count > 0" class="failed-items">
           <h4>失败项目:</h4>
           <div
-            v-for="result in printResults.results.filter((r: any) => !r.success)"
+            v-for="result in printResults.results.filter((r: any) => !r.waybill_success || !r.slip_success)"
             :key="result.rental_id"
             class="failed-item"
           >
@@ -264,7 +272,7 @@ let previewGeneration = 0
 // Computed
 // 统计预约发货状态且有运单号和预约时间的订单（用于打印面单）
 const hasWaybills = computed(() => rentals.value.some(r => r.status === 'scheduled_for_shipping' && r.ship_out_tracking_no && r.scheduled_ship_time))
-const waybillCount = computed(() => rentals.value.filter(r => r.status === 'scheduled_for_shipping' && r.ship_out_tracking_no && r.scheduled_ship_time).length)
+const waybillCount = computed(() => new Set(rentals.value.filter(r => r.status === 'scheduled_for_shipping' && r.ship_out_tracking_no && r.scheduled_ship_time).map(r => `${r.warehouse_id}:${r.ship_out_tracking_no}`)).size)
 const canWrite = computed(() => tenantStore.currentWarehouseId !== 'all')
 
 const ensureConcreteWarehouse = () => {
@@ -287,6 +295,14 @@ const rowsBelongToWarehouse = (rows: any[], warehouseId: number) => {
 // Methods
 const goBack = () => {
   router.push('/')
+}
+
+const parcelSpan = ({ row, rowIndex, columnIndex }: any) => {
+  if (columnIndex !== 1 || !row.shipping_group_id) return [1, 1]
+  if (rowIndex > 0 && rentals.value[rowIndex - 1].shipping_group_id === row.shipping_group_id) return [0, 0]
+  let count = 1
+  while (rentals.value[rowIndex + count]?.shipping_group_id === row.shipping_group_id) count++
+  return [count, 1]
 }
 
 // Selection handlers
@@ -404,13 +420,13 @@ const confirmSchedule = async () => {
     })
 
     if (response.data.success) {
-      const { scheduled_count, failed_rentals, results } = response.data.data
+      const { scheduled_count, shipment_count, failed_rentals, results } = response.data.data
 
       // 显示详细结果
       if (failed_rentals && failed_rentals.length > 0) {
         ElMessage.warning(`预约完成: 成功 ${scheduled_count} 个，失败 ${failed_rentals.length} 个`)
       } else {
-        ElMessage.success(`成功预约 ${scheduled_count} 个订单，运单号已自动生成`)
+        ElMessage.success(`成功预约 ${shipment_count} 票，共 ${scheduled_count} 台设备`)
       }
 
       scheduleDialogVisible.value = false
@@ -441,6 +457,7 @@ const updateExpressType = async (rentalId: number, expressTypeId: number) => {
 
     if (response.data.success) {
       ElMessage.success('快递类型已更新')
+      await previewOrders()
     } else {
       ElMessage.error(response.data.message || '更新快递类型失败')
     }
@@ -486,7 +503,7 @@ const showWaybillPrintDialog = async () => {
       printResults.value = response.data.data
 
       if (printResults.value.failed_count === 0) {
-        ElMessage.success(`成功打印 ${printResults.value.success_count} 个面单`)
+        ElMessage.success(`成功打印 ${printResults.value.waybill_success_count} 个面单`)
         // 全部成功，2秒后自动关闭
         setTimeout(() => {
           if (printResults.value?.failed_count === 0) {
@@ -495,7 +512,7 @@ const showWaybillPrintDialog = async () => {
         }, 2000)
       } else {
         ElMessage.warning(
-          `打印完成: 成功 ${printResults.value.success_count} 个，失败 ${printResults.value.failed_count} 个`
+          `打印完成: 成功 ${printResults.value.waybill_success_count} 个，失败 ${printResults.value.failed_count} 个`
         )
       }
     } else {

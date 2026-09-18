@@ -161,11 +161,48 @@ def test_schedule_uses_each_warehouse_and_stable_order_id(
         build_sf_client_order_id(42, rental_id)
         for rental_id in shipping_case["rentals"]
     ]
+    assert [call[1]["sendStartTm"] for call in calls] == [
+        "2026-08-30 18:00:00", "2026-08-30 18:00:00",
+    ]
+    with app.app_context():
+        assert [
+            db.session.get(Rental, rental_id).scheduled_ship_time
+            for rental_id in shipping_case["rentals"]
+        ] == [datetime(2026, 8, 30, 18), datetime(2026, 8, 30, 18)]
     senders = [call[1]["contactInfoList"][0] for call in calls]
     assert [(r["province"], r["city"], r["address"]) for r in senders] == [
         ("广东省", "深圳市", "address-1"), ("浙江省", "杭州市", "address-2")]
     assert (normalize_sender_address("广东省", "深圳市", "广东省深圳市科技园"), normalize_sender_address("上海市", "上海市", "上海市浦东新区")) == ("广东省深圳市科技园", "上海市浦东新区")
     assert build_sf_client_order_id(42, 7) == "t42-r7"
+
+
+def test_schedule_converts_offset_input_to_china_local_wall_time(
+    app, shipping_case, monkeypatch,
+):
+    calls = []
+
+    def create_order(_service, order_data):
+        calls.append(order_data)
+        return {"success": True, "waybill_no": "SF-TZ"}
+
+    monkeypatch.setattr(SFExpressService, "create_order", create_order)
+    rental_id = shipping_case["rentals"][0]
+    response = _tenant_request(
+        app,
+        "post",
+        "/api/shipping-batch/schedule",
+        json={
+            "rental_ids": [rental_id],
+            "scheduled_time": "2026-09-02T02:30:00Z",
+        },
+    )
+
+    assert response.status_code == 200
+    assert calls[0]["sendStartTm"] == "2026-09-02 10:30:00"
+    with app.app_context():
+        assert db.session.get(Rental, rental_id).scheduled_ship_time == (
+            datetime(2026, 9, 2, 10, 30)
+        )
 
 
 def test_schedule_isolates_external_failure_per_rental(
@@ -419,3 +456,152 @@ def test_schedule_rolls_back_only_failed_rental_commit(app, shipping_case, monke
     results = response.get_json()["data"]["results"]
     assert results[0]["code"] == "EXTERNAL_SERVICE_ERROR"
     assert results[1]["success"] is True
+
+
+def test_same_recipient_parcel_schedule_print_and_retry(app, shipping_case, monkeypatch):
+    """Two machines reserve once and print address + contents + contents."""
+    from app.services.shipping.waybill_print_service import WaybillPrintService
+    calls, printed = [], []
+    with app.app_context():
+        first, second = [db.session.get(Rental, i) for i in shipping_case['rentals']]
+        second.warehouse_id = first.warehouse_id
+        second.device.warehouse_id = first.warehouse_id
+        second.destination = first.destination
+        second.customer_phone = first.customer_phone
+        db.session.commit()
+    monkeypatch.setattr(SFExpressService, 'create_order', lambda self, data: (
+        calls.append(data) or {'success': True, 'waybill_no': 'SF-COMBINED'}))
+    payload = {'rental_ids': shipping_case['rentals'], 'scheduled_time': '2026-10-01T10:00:00'}
+    response = _tenant_request(app, 'post', '/api/shipping-batch/schedule', json=payload).json['data']
+    assert response['scheduled_count'] == 2 and response['shipment_count'] == 1
+    assert len(calls) == 1 and calls[0]['cargoDetails'][0]['count'] == 2
+    assert '2 台' in calls[0]['cargoDetails'][0]['name']
+    assert {r['waybill_no'] for r in response['results']} == {'SF-COMBINED'}
+    retry = _tenant_request(app, 'post', '/api/shipping-batch/schedule', json=payload).json['data']
+    assert retry['scheduled_count'] == 0 and len(calls) == 1
+    monkeypatch.setattr(WaybillPrintService, 'print_single_waybill', lambda self, i: (
+        printed.append(('address', i)) or {'success': True, 'job_ids': ['label']}))
+    monkeypatch.setattr(WaybillPrintService, '_print_single_shipping_slip', lambda self, i, *args: (
+        printed.append(('contents', i)) or {'success': True, 'job_id': str(i)}))
+    # Selecting even one member prints the complete confirmed parcel.
+    result = _tenant_request(app, 'post', '/api/shipping-batch/print-waybills', json={
+        'rental_ids': [shipping_case['rentals'][1]], 'include_shipping_slips': True}).json['data']
+    assert result['parcel_count'] == 1 and result['slip_success_count'] == 2
+    assert result['waybill_success_count'] == 1 and result['failed_count'] == 0
+    assert [kind for kind, _ in printed] == ['address', 'contents', 'contents']
+    assert {i for kind, i in printed if kind == 'contents'} == set(shipping_case['rentals'])
+    labels = []
+    monkeypatch.setattr(SFExpressSDK, '_call_sf_express_service', lambda self, method, data: (
+        labels.append(data) or {'apiResultCode': 'ERROR'}))
+    from app.services.integration_resolver import IntegrationResolver
+    with app.app_context():
+        first = db.session.get(Rental, shipping_case['rentals'][0])
+        IntegrationResolver().sf_for_rental(first).get_waybill_pdf(first)
+    assert '机器共 2 台' in labels[0]['documents'][0]['remark']
+
+
+def test_parcel_grouping_boundaries(app, shipping_case):
+    from app.services.shipping.shipment_group_service import group_shipments
+    with app.app_context():
+        first, second = [db.session.get(Rental, i) for i in shipping_case['rentals']]
+        second.destination = first.destination
+        second.customer_phone = first.customer_phone
+        assert len(group_shipments([first, second])) == 2  # different warehouse
+        second.warehouse_id = first.warehouse_id
+        assert len(group_shipments([first, second])) == 1
+        for field, value in [('customer_phone', '13911112222'), ('destination', 'other address'),
+                             ('express_type_id', 263), ('start_date', first.start_date + timedelta(days=1))]:
+            original = getattr(second, field)
+            setattr(second, field, value)
+            assert len(group_shipments([first, second])) == 2
+            setattr(second, field, original)
+        assert len(group_shipments([first, second], [second.id])) == 2  # relay
+
+
+@pytest.mark.parametrize('machine_count', [1, 2, 3])
+def test_parcel_pdf_pipeline_without_upload(app, shipping_case, monkeypatch, tmp_path, machine_count):
+    """Run real PDF conversion and slip rendering; capture the printer boundary."""
+    import base64
+    from io import BytesIO
+    from pathlib import Path
+    from PIL import Image, ImageDraw, ImageFont
+    from pdf2image import pdfinfo_from_bytes
+    from app.services.printing.shipping_slip_image_service import shipping_slip_image_service
+
+    with app.app_context():
+        first = db.session.get(Rental, shipping_case['rentals'][0])
+        first.destination = '测试收件人 13900139001 广东省深圳市南山区测试路一号'
+        first.customer_name = '测试收件人'
+        first.rental_package_name = '裸机'
+        first.ship_out_tracking_no = 'SF-TEST-PARCEL'
+        first.status = 'scheduled_for_shipping'
+        ids = [first.id]
+        for index in range(1, machine_count):
+            device = Device(name=f'测试机器{index + 1}', model='x200u', warehouse_id=first.warehouse_id)
+            db.session.add(device)
+            db.session.flush()
+            row = Rental(device_id=device.id, warehouse_id=first.warehouse_id,
+                         start_date=first.start_date, end_date=first.end_date,
+                         customer_name=first.customer_name, customer_phone=first.customer_phone,
+                         destination=first.destination, status=first.status,
+                         rental_package_name=f'{index * 200}mm 镜头',
+                         ship_out_tracking_no=first.ship_out_tracking_no)
+            db.session.add(row)
+            db.session.flush()
+            ids.append(row.id)
+        db.session.commit()
+
+    pages, requests, content_fields = [], [], []
+    address_pdf = BytesIO()
+    font = ImageFont.truetype(str(Path(__file__).resolve().parents[2] / 'static/fonts/WenQuanYiMicroHei.ttf'), 25)
+
+    def sf_pdf_response(self, method, data):
+        assert method == 'COM_RECE_CLOUD_PRINT_WAYBILLS'
+        requests.append(data)
+        # An explicit synthetic carrier PDF: no real booking/HTTP request.
+        sheet = Image.new('RGB', (607, 1039), 'white')
+        draw = ImageDraw.Draw(sheet)
+        lines = ['地址联测试样本（非真实运单）', 'SF-TEST-PARCEL', '测试收件人 13900139001',
+                 '广东省深圳市南山区测试路一号', *data['documents'][0]['remark'].split('|')]
+        y = 35
+        for line in lines:
+            for start in range(0, len(line), 20):
+                draw.text((25, y), line[start:start + 20], fill='black', font=font)
+                y += 38
+        sheet.save(address_pdf, format='PDF', resolution=203)
+        return {'apiResultCode': 'A1000', 'apiResultData': {'success': True, 'obj': {
+            'files': [{'url': 'https://example.invalid/fixture.pdf', 'token': 'fixture'}]}}}
+
+    def capture(self, base64_image, **kwargs):
+        frame = Image.open(BytesIO(base64.b64decode(base64_image))).convert('RGB')
+        assert frame.width > 500 and frame.height > 500
+        assert frame.getextrema()[0][0] == 0  # not a blank page
+        pages.append(frame.resize((607, 1039)))
+        return {'success': True, 'job_id': f'captured-{len(pages)}'}
+
+    original_draw = shipping_slip_image_service._draw_info_row
+
+    def record_field(draw, y, label, value, *args, **kwargs):
+        content_fields.append((label, value))
+        return original_draw(draw, y, label, value, *args, **kwargs)
+
+    monkeypatch.setattr(SFExpressSDK, '_call_sf_express_service', sf_pdf_response)
+    monkeypatch.setattr(SFExpressService, '_download_pdf', lambda *args: address_pdf.getvalue())
+    monkeypatch.setattr(KuaimaiPrintService, 'print_image', capture)
+    monkeypatch.setattr(shipping_slip_image_service, '_draw_info_row', record_field)
+    response = _tenant_request(app, 'post', '/api/shipping-batch/print-waybills', json={
+        'rental_ids': [ids[-1], ids[-1]], 'include_shipping_slips': True})
+    result = response.json['data']
+    assert result['failed_count'] == 0, result
+    assert result['waybill_success_count'] == 1 and result['slip_success_count'] == machine_count
+    assert len(requests) == 1 and len(pages) == machine_count + 1
+    assert f'机器共 {machine_count} 台' in requests[0]['documents'][0]['remark']
+    assert [value for label, value in content_fields if label == '组合:'] == (
+        ['裸机'] + [f'{i * 200}mm 镜头' for i in range(1, machine_count)])
+    assert [value for label, value in content_fields if label == '包裹:'] == [
+        f'第 {i}/{machine_count} 台 · R-{rental_id}' for i, rental_id in enumerate(ids, 1)]
+    target = Path(os.environ.get('PARCEL_PDF_OUTPUT', str(tmp_path)))
+    target.mkdir(parents=True, exist_ok=True)
+    output = target / f'grouped-parcel-{machine_count}.pdf'
+    pages[0].save(output, format='PDF', save_all=True, append_images=pages[1:], resolution=203)
+    assert pdfinfo_from_bytes(output.read_bytes())['Pages'] == machine_count + 1

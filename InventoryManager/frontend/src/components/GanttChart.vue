@@ -2,119 +2,92 @@
   <div class="gantt-container">
     <!-- 工具栏 -->
     <div class="toolbar">
-      <el-row :gutter="16" align="middle">
-        <el-col :span="8">
-          <el-button-group>
-            <el-button @click="ganttStore.navigateWeek(-1)">
-              <el-icon><ArrowLeft /></el-icon>
-              上周
-            </el-button>
-            <el-button @click="ganttStore.goToToday">今天</el-button>
-            <el-button @click="ganttStore.navigateWeek(1)">
-              下周
-              <el-icon><ArrowRight /></el-icon>
-            </el-button>
-          </el-button-group>
-          <el-date-picker
-            v-model="selectedDatePicker"
-            type="date"
-            placeholder="跳转到日期"
-            size="default"
-            style="margin-left: 12px; width: 160px;"
-            @change="handleDateJump"
-            :clearable="false"
-          />
-        </el-col>
-        
-        <el-col :span="8" class="text-center">
-          <span class="current-period">{{ ganttStore.currentPeriod }}</span>
-        </el-col>
-        
-        <el-col :span="8" class="text-right">
-          <el-button
-            type="primary"
-            :icon="Sort"
-            :disabled="tenantStore.currentWarehouseId === 'all'"
-            @click="showScheduleReorderDialog = true"
-          >
-            一键重排档期
+      <div class="toolbar-navigation" data-testid="gantt-date-navigation">
+        <el-button-group>
+          <el-button aria-label="查看上周" @click="ganttStore.navigateWeek(-1)">
+            <el-icon><ArrowLeft /></el-icon>
+            <span class="navigation-label">上周</span>
           </el-button>
-          <el-button
-            type="success"
-            @click="showAddDeviceDialog = true"
-            :icon="Plus"
-            :disabled="tenantStore.currentWarehouseId === 'all'"
-          >
-            添加设备
+          <el-button @click="ganttStore.goToToday">今天</el-button>
+          <el-button aria-label="查看下周" @click="ganttStore.navigateWeek(1)">
+            <span class="navigation-label">下周</span>
+            <el-icon><ArrowRight /></el-icon>
           </el-button>
+        </el-button-group>
+        <el-date-picker
+          v-model="selectedDatePicker"
+          type="date"
+          placeholder="跳转到日期"
+          size="default"
+          class="date-jump"
+          @change="handleDateJump"
+          :clearable="false"
+        />
+      </div>
+
+      <span class="current-period" :title="ganttStore.currentPeriod">
+        <span class="period-full">{{ ganttStore.currentPeriod }}</span>
+        <span class="period-compact">{{ compactPeriod }}</span>
+      </span>
+
+      <div class="toolbar-actions" data-testid="gantt-toolbar-actions">
+        <el-button
+          data-testid="manual-booking-button"
+          type="primary"
+          :icon="Plus"
+          @click="openManualBooking"
+        >
+          预定设备
+        </el-button>
+        <el-badge
+          :value="pendingReturnsCount"
+          :hidden="pendingReturnsCount === 0"
+          class="pending-returns-badge"
+        >
           <el-button
-            type="primary"
-            @click="openManualBooking"
-            :icon="Plus"
+            data-testid="pending-returns-button"
+            class="pending-action"
+            :icon="Bell"
+            @click="openPendingReturns"
           >
-            预定设备
+            待归还
           </el-button>
-          <el-button
-            type="warning"
-            @click="openBatchShipping"
-          >
-            📦 批量发货
+        </el-badge>
+        <el-button
+          v-if="!compactToolbar"
+          data-testid="customer-history-button"
+          :icon="User"
+          @click="showCustomerHistoryDialog = true"
+        >
+          客户历史
+        </el-button>
+        <el-dropdown data-testid="gantt-schedule-actions" @command="handleScheduleCommand">
+          <el-button>
+            档期操作
+            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
           </el-button>
-          <el-badge
-            :value="pendingReturnsCount"
-            :hidden="pendingReturnsCount === 0"
-            class="pending-returns-badge"
-          >
-            <el-button
-              data-testid="pending-returns-button"
-              type="danger"
-              :icon="Bell"
-              @click="openPendingReturns"
-            >
-              待归还
-            </el-button>
-          </el-badge>
-          <el-button
-            @click="showCustomerHistoryDialog = true"
-            :icon="User"
-          >
-            客户历史
-          </el-button>
-          <el-dropdown @command="handleMoreCommand">
-            <el-button type="info">
-              更多
-              <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-            </el-button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="rental-stats">
-                  <el-icon><TrendCharts /></el-icon>
-                  出租周期统计
-                </el-dropdown-item>
-                <el-dropdown-item command="sf-tracking">
-                  <el-icon><Location /></el-icon>
-                  物流查询
-                </el-dropdown-item>
-                <el-dropdown-item command="relay-management">
-                  <el-icon><Connection /></el-icon>
-                  接力管理
-                </el-dropdown-item>
-                <el-dropdown-item command="inspection">
-                  <el-icon><CircleCheck /></el-icon>
-                  验机
-                </el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
-          <el-button
-            @click="ganttStore.loadData()"
-            :loading="ganttStore.loading"
-            :icon="Refresh"
-          >
-            刷新
-          </el-button>
-        </el-col>
-      </el-row>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item v-if="compactToolbar" command="customer-history">
+                <el-icon><User /></el-icon>
+                客户历史
+              </el-dropdown-item>
+              <el-dropdown-item
+                command="schedule-reorder"
+                :disabled="tenantStore.currentWarehouseId === 'all'"
+                :divided="compactToolbar"
+              >
+                <el-icon><Sort /></el-icon>
+                一键重排档期
+              </el-dropdown-item>
+              <el-dropdown-item command="refresh">
+                <el-icon><Refresh /></el-icon>
+                刷新档期
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
     </div>
 
     <XianyuOrderAlertBar
@@ -123,6 +96,8 @@
       :busy-rental-id="xianyuAlertBusyRentalId"
       @book="startMissingOrderBooking"
       @ignore="handleIgnoreXianyuAlert"
+      @rental-ignore="handleIgnoreXianyuRentalAlert"
+      @refresh="refreshXianyuAlerts"
       @rental-action="handleXianyuRentalAlertAction"
     />
 
@@ -273,8 +248,6 @@
                 :style="{ height: `${itemHeight}px` }"
                 @edit-rental="handleEditRental"
                 @delete-rental="handleDeleteRental"
-                @update-device-lifecycle="handleUpdateDeviceLifecycle"
-                @move-device="openWarehouseMovement"
               />
             </div>
           </div>
@@ -298,6 +271,7 @@
       :rental="selectedRental"
       :xianyu-shops="xianyuAlertSnapshot.shops || []"
       @success="handleEditSuccess"
+      @open-related="openRelatedRental"
     />
 
     <RentalConfirmationDialog
@@ -319,122 +293,14 @@
       @completed="handleScheduleReorderCompleted"
     />
 
-    <WarehouseMovementDialog
-      v-if="movementDevice?.warehouse_id"
-      v-model="showWarehouseMovement"
-      :device-id="movementDevice.id"
-      :current-warehouse-id="movementDevice.warehouse_id"
-      @moved="handleWarehouseMoved"
-    />
-
-    <!-- 添加设备对话框 -->
-    <el-dialog 
-      v-model="showAddDeviceDialog" 
-      title="添加设备" 
-      width="500px"
-      @close="resetAddDeviceForm"
-    >
-      <el-form 
-        ref="addDeviceFormRef" 
-        :model="addDeviceForm" 
-        :rules="addDeviceRules"
-        label-width="100px"
-      >
-        <el-form-item label="设备名称" prop="name">
-          <el-input 
-            v-model="addDeviceForm.name" 
-            placeholder="请输入设备名称" 
-            maxlength="100"
-            show-word-limit
-          />
-        </el-form-item>
-        
-        <el-form-item label="序列号" prop="serial_number">
-          <el-input 
-            v-model="addDeviceForm.serial_number" 
-            placeholder="请输入设备序列号" 
-            maxlength="50"
-            show-word-limit
-          />
-        </el-form-item>
-        
-        <el-form-item label="型号" prop="model_id">
-          <el-select
-            v-model="addDeviceForm.model_id"
-            placeholder="请选择型号"
-            style="width: 100%"
-            @change="onModelChange"
-          >
-            <el-option
-              v-for="model in deviceModels"
-              :key="model.id"
-              :label="model.display_name"
-              :value="model.id"
-            />
-          </el-select>
-        </el-form-item>
-
-        <el-form-item
-          v-if="selectedModelAccessories.length > 0"
-          label="附件类型"
-          prop="accessory_type"
-        >
-          <el-select
-            v-model="addDeviceForm.accessory_type"
-            placeholder="选择附件类型（可选）"
-            style="width: 100%"
-            clearable
-            @change="onAccessoryTypeChange"
-          >
-            <el-option
-              v-for="accessory in selectedModelAccessories"
-              :key="accessory.id"
-              :label="accessory.accessory_name"
-              :value="accessory.accessory_name"
-            />
-          </el-select>
-        </el-form-item>
-        
-        <el-form-item label="设备类型" prop="is_accessory">
-          <el-checkbox v-model="addDeviceForm.is_accessory">
-            附件设备（手柄等不在租赁列表中显示）
-          </el-checkbox>
-        </el-form-item>
-        
-        <el-form-item label="设备描述" prop="description">
-          <el-input 
-            v-model="addDeviceForm.description" 
-            type="textarea"
-            :rows="3"
-            placeholder="请输入设备描述（可选）" 
-            maxlength="500"
-            show-word-limit
-          />
-        </el-form-item>
-      </el-form>
-      
-      <template #footer>
-        <span class="dialog-footer">
-          <el-button @click="showAddDeviceDialog = false">取消</el-button>
-          <el-button 
-            type="primary" 
-            @click="handleAddDevice"
-            :loading="addingDevice"
-          >
-            添加设备
-          </el-button>
-        </span>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { useGanttStore, type Device, type Rental, type DeviceModel, type ModelAccessory } from '@/stores/gantt'
+import { useGanttStore, type Device, type Rental } from '@/stores/gantt'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, ArrowLeft, ArrowRight, Search, ArrowDown, Location, CircleCheck, TrendCharts, User, Sort, Bell } from '@element-plus/icons-vue'
+import { Plus, Refresh, ArrowLeft, ArrowRight, Search, ArrowDown, User, Sort, Bell } from '@element-plus/icons-vue'
 import axios from 'axios'
 import GanttRow from './GanttRow.vue'
 import BookingDialog from './BookingDialog.vue'
@@ -443,7 +309,6 @@ import { EditRentalDialogNew } from './rental'
 import BatchPrintDialog from './rental/BatchPrintDialog.vue'
 import CustomerHistoryDialog from './CustomerHistoryDialog.vue'
 import ScheduleReorderDialog from './ScheduleReorderDialog.vue'
-import WarehouseMovementDialog from './WarehouseMovementDialog.vue'
 import XianyuOrderAlertBar from './XianyuOrderAlertBar.vue'
 import PendingReturnsDrawer from './PendingReturnsDrawer.vue'
 import { useXianyuOrderAlerts } from '@/composables/useXianyuOrderAlerts'
@@ -459,7 +324,6 @@ import {
 import dayjs from 'dayjs'
 import { useTenantStore } from '@/stores/tenant'
 
-const router = useRouter()
 const ganttStore = useGanttStore()
 const tenantStore = useTenantStore()
 
@@ -468,13 +332,10 @@ const showBookingDialog = ref(false)
 const bookingOrderNo = ref<string>()
 const bookingShopId = ref<number>()
 const showEditDialog = ref(false)
-const showAddDeviceDialog = ref(false)
 const showCustomerHistoryDialog = ref(false)
 const showBatchPrintDialog = ref(false)
 const showScheduleReorderDialog = ref(false)
 const showPendingReturnsDrawer = ref(false)
-const showWarehouseMovement = ref(false)
-const movementDevice = ref<Device | null>(null)
 const selectedRental = ref<Rental | null>(null)
 const showRentalConfirmationDialog = ref(false)
 const confirmationRental = ref<Rental | null>(null)
@@ -484,11 +345,25 @@ const selectedDeviceType = ref<string[]>([])
 const selectedLifecycleStatus = ref<string>('active')  // 默认只显示使用中设备
 const selectedDatePicker = ref<Date>(ganttStore.currentDate)
 const dailyStats = ref<Record<string, {available_count: number, ship_out_count: number, accessory_ship_out_count: number}>>({})
+const compactToolbarMedia = typeof window !== 'undefined'
+  && typeof window.matchMedia === 'function'
+  ? window.matchMedia('(max-width: 1280px)')
+  : null
+const compactToolbar = ref(compactToolbarMedia?.matches ?? false)
+const compactPeriod = computed(() => {
+  const { start, end } = ganttStore.dateRange
+  return `${dayjs(start).format('MM.DD')} – ${dayjs(end).format('MM.DD')}`
+})
+const updateCompactToolbar = (event: MediaQueryListEvent) => {
+  compactToolbar.value = event.matches
+}
 const {
   snapshot: xianyuAlertSnapshot,
   loading: xianyuAlertsLoading,
   load: loadXianyuAlerts,
+  refresh: refreshXianyuAlerts,
   ignore: ignoreXianyuAlert,
+  ignoreRental: ignoreXianyuRentalAlert,
   startPolling: startXianyuAlertPolling,
   stopPolling: stopXianyuAlertPolling
 } = useXianyuOrderAlerts()
@@ -511,46 +386,6 @@ const scrollTop = ref(0)
 const startIndex = ref(0)
 const endIndex = ref(0)
 let ganttBodyResizeObserver: ResizeObserver | null = null
-
-// 添加设备表单
-const addDeviceFormRef = ref()
-const addingDevice = ref(false)
-const deviceModels = ref<DeviceModel[]>([])
-const selectedModelAccessories = ref<ModelAccessory[]>([])
-const addDeviceForm = ref<{
-  name: string
-  serial_number: string
-  model: string
-  model_id?: number
-  accessory_type: string
-  is_accessory: boolean
-  description: string
-}>({
-  name: '',
-  serial_number: '',
-  model: '',
-  model_id: undefined,
-  accessory_type: '',
-  is_accessory: false,
-  description: ''
-})
-
-const addDeviceRules = {
-  name: [
-    { required: true, message: '请输入设备名称', trigger: 'blur' },
-    { min: 1, max: 100, message: '设备名称长度在 1 到 100 个字符', trigger: 'blur' }
-  ],
-  serial_number: [
-    { required: true, message: '请输入序列号', trigger: 'blur' },
-    { min: 1, max: 50, message: '序列号长度在 1 到 50 个字符', trigger: 'blur' }
-  ],
-  model_id: [
-    { required: true, message: '请选择型号', trigger: 'change' }
-  ],
-  description: [
-    { max: 500, message: '描述不能超过 500 个字符', trigger: 'blur' }
-  ]
-}
 
 // 计算属性
 const dateArray = computed(() => {
@@ -859,6 +694,14 @@ const handleIgnoreXianyuAlert = async (payload: {
   await ignoreXianyuAlert(payload.shopId, payload.orderNo, payload.reason)
 }
 
+const handleIgnoreXianyuRentalAlert = async (payload: {
+  orderNo: string
+  shopId: number
+  reason: string
+}) => {
+  await ignoreXianyuRentalAlert(payload.shopId, payload.orderNo, payload.reason)
+}
+
 const handleXianyuRentalAlertAction = async (payload: XianyuRentalAlertAction) => {
   if (xianyuAlertBusyRentalId.value !== undefined) return
   xianyuAlertBusyRentalId.value = payload.rentalId
@@ -926,6 +769,13 @@ const handleScheduleReorderCompleted = async () => {
   await nextTick()
 }
 
+const openRelatedRental = async (id: number) => {
+  try {
+    const rental = await ganttStore.getRentalById(id)
+    if (rental) handleEditRental(rental)
+  } catch { ElMessage.error('同单设备加载失败') }
+}
+
 const handleEditRental = (rental: Rental) => {
   if (tenantStore.currentWarehouseId === 'all') {
     ElMessage.warning('请选择具体仓库')
@@ -953,90 +803,6 @@ const handleEditSuccess = async (rentalId?: number) => {
 
   if (typeof rentalId === 'number') {
     await openRentalConfirmation(rentalId)
-  }
-}
-
-// 加载设备型号
-const loadDeviceModels = async () => {
-  try {
-    const response = await axios.get('/api/device-models')
-    if (response.data.success) {
-      deviceModels.value = response.data.data
-    }
-  } catch (error) {
-    console.error('加载设备型号失败:', error)
-    ElMessage.error('加载设备型号失败')
-  }
-}
-
-// 型号选择变化处理
-const onModelChange = (modelId: number) => {
-  const selectedModel = deviceModels.value.find(model => model.id === modelId)
-  if (selectedModel) {
-    addDeviceForm.value.model_id = modelId
-    addDeviceForm.value.model = selectedModel.name
-    selectedModelAccessories.value = selectedModel.accessories || []
-    // 清空附件类型选择
-    addDeviceForm.value.accessory_type = ''
-    addDeviceForm.value.is_accessory = false
-  }
-}
-
-// 附件类型选择变化处理
-const onAccessoryTypeChange = (accessoryType: string) => {
-  if (accessoryType) {
-    addDeviceForm.value.is_accessory = true
-    // 根据附件类型自动设置设备名称
-    const selectedModel = deviceModels.value.find(model => model.id === addDeviceForm.value.model_id)
-    if (selectedModel && !addDeviceForm.value.name) {
-      addDeviceForm.value.name = accessoryType
-    }
-  } else {
-    addDeviceForm.value.is_accessory = false
-  }
-}
-
-// 添加设备相关处理函数
-const resetAddDeviceForm = () => {
-  addDeviceForm.value = {
-    name: '',
-    serial_number: '',
-    model: '',
-    model_id: undefined,
-    accessory_type: '',
-    is_accessory: false,
-    description: ''
-  }
-  selectedModelAccessories.value = []
-  if (addDeviceFormRef.value) {
-    addDeviceFormRef.value.resetFields()
-  }
-}
-
-const handleAddDevice = async () => {
-  if (!addDeviceFormRef.value) return
-  
-  try {
-    await addDeviceFormRef.value.validate()
-    addingDevice.value = true
-    
-    // 调用API添加设备
-    await ganttStore.addDevice(addDeviceForm.value)
-    
-    ElMessage.success('设备添加成功！')
-    showAddDeviceDialog.value = false
-    resetAddDeviceForm()
-    
-    // 重新加载数据
-    await ganttStore.loadData()
-  } catch (error) {
-    if (typeof error === 'string') {
-      // 表单验证错误
-      return
-    }
-    ElMessage.error('添加设备失败：' + (error as Error).message)
-  } finally {
-    addingDevice.value = false
   }
 }
 
@@ -1073,43 +839,6 @@ const handleDeleteRental = async (rental: Rental) => {
   }
 }
 
-const handleUpdateDeviceLifecycle = async (device: Device, newLifecycle: string) => {
-  if (tenantStore.currentWarehouseId === 'all') {
-    ElMessage.warning('请选择具体仓库')
-    return
-  }
-  try {
-    await ganttStore.updateDeviceLifecycle(device.id, newLifecycle)
-    const labels: Record<string, string> = {
-      active: '使用中', sold: '已售出', damaged: '已损坏',
-      decommissioned: '已停用', retired: '已退役'
-    }
-    ElMessage.success(`设备 ${device.name} 已标记为「${labels[newLifecycle] || newLifecycle}」`)
-    await ganttStore.loadData()
-  } catch (error) {
-    ElMessage.error('更新失败：' + (error as Error).message)
-    await ganttStore.loadData()
-  }
-}
-
-const openWarehouseMovement = (device: Device) => {
-  if (!device.warehouse_id) {
-    ElMessage.error('设备缺少仓库信息')
-    return
-  }
-  movementDevice.value = device
-  showWarehouseMovement.value = true
-}
-
-const handleWarehouseMoved = async () => {
-  await ganttStore.loadData()
-  movementDevice.value = null
-}
-
-const openBatchShipping = () => {
-  window.open('/batch-shipping', '_blank')
-}
-
 const openPendingReturns = async () => {
   showPendingReturnsDrawer.value = true
   try {
@@ -1135,20 +864,20 @@ const handleMarkPendingReturnReturned = async (rentalId: number) => {
   }
 }
 
-// 处理"更多"菜单命令
-const handleMoreCommand = (command: string) => {
+const handleScheduleCommand = (command: string) => {
   switch (command) {
-    case 'rental-stats':
-      router.push('/rental-stats')
+    case 'customer-history':
+      showCustomerHistoryDialog.value = true
       break
-    case 'sf-tracking':
-      router.push('/sf-tracking')
+    case 'schedule-reorder':
+      if (tenantStore.currentWarehouseId === 'all') {
+        ElMessage.warning('请选择具体仓库')
+        break
+      }
+      showScheduleReorderDialog.value = true
       break
-    case 'relay-management':
-      router.push('/relay-management')
-      break
-    case 'inspection':
-      window.open('/inspection-records', '_blank')
+    case 'refresh':
+      void ganttStore.loadData()
       break
   }
 }
@@ -1191,7 +920,6 @@ const loadDailyStats = async () => {
         params.device_model = selectedDeviceModel.value
       }
 
-      // 可见窗口的所有日期一次请求，避免原来的按天并发。
       const response = await axios.get('/api/gantt/daily-stats', { params })
       if (!response.data.success) return
       const statsMap = (response.data.data?.stats || {}) as Record<string, {
@@ -1292,8 +1020,6 @@ watch(() => tenantStore.currentWarehouseId, async () => {
   showEditDialog.value = false
   confirmationRental.value = null
   showRentalConfirmationDialog.value = false
-  movementDevice.value = null
-  showWarehouseMovement.value = false
   dailyStats.value = {}
   await Promise.all([
     ganttStore.loadData(),
@@ -1318,10 +1044,10 @@ watch(showBookingDialog, (visible) => {
 
 // 生命周期
 onMounted(async () => {
+  compactToolbarMedia?.addEventListener('change', updateCompactToolbar)
   await Promise.all([
     ganttStore.loadData(),
     loadDailyStats(),
-    loadDeviceModels(),
     loadXianyuAlerts(),
     loadPendingReturns().catch((error) => {
       ElMessage.error((error as Error).message)
@@ -1334,6 +1060,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  compactToolbarMedia?.removeEventListener('change', updateCompactToolbar)
   if (ganttBodyRef.value) {
     ganttBodyRef.value.removeEventListener('scroll', handleScroll)
   }
@@ -1365,26 +1092,89 @@ onUnmounted(() => {
 }
 
 .toolbar {
+  display: grid;
+  grid-template-columns: auto minmax(110px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
   flex: 0 0 auto;
-  margin-bottom: 20px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+  background: var(--el-bg-color);
 }
 
 .pending-returns-badge {
-  margin-right: 12px;
+  margin-right: 2px;
 }
 
 .current-period {
+  justify-self: center;
   font-weight: 600;
-  font-size: 16px;
+  font-size: 14px;
   color: var(--el-text-color-primary);
+  white-space: nowrap;
 }
 
-.text-center {
-  text-align: center;
+.toolbar-navigation,
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.text-right {
-  text-align: right;
+.toolbar-actions {
+  justify-content: flex-end;
+}
+
+.date-jump {
+  width: 150px;
+}
+
+.period-compact {
+  display: none;
+}
+
+.pending-action {
+  color: var(--el-color-danger);
+  border-color: var(--el-color-danger-light-5);
+  background: var(--el-color-danger-light-9);
+}
+
+@media (max-width: 1280px) {
+  .period-full {
+    display: none;
+  }
+
+  .period-compact {
+    display: inline;
+  }
+}
+
+@media (max-width: 720px) {
+  .toolbar {
+    display: flex;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .toolbar-navigation,
+  .toolbar-actions {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+  }
+
+  .current-period {
+    display: none;
+  }
+
+  .date-jump {
+    width: 125px;
+  }
+
+  .navigation-label {
+    display: none;
+  }
 }
 
 .filters {

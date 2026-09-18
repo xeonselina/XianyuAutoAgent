@@ -16,7 +16,7 @@ from sqlalchemy import func, or_
 from app import db
 from app.models.rental import Rental
 from app.utils.response import handle_response, success, bad_request
-from app.services.printing.rental_product_lines import lens_combo_display
+from app.services.printing.rental_product_lines import rental_package_display
 
 bp = Blueprint('customer_api', __name__)
 
@@ -183,7 +183,9 @@ def get_customer_rentals():
             'device_model_name': model_name,
             'device_model_display_name': model_display,
             'lens_combo': r.lens_combo,
-            'lens_combo_display': lens_combo_display(r.lens_combo),
+            'lens_combo_display': rental_package_display(r),
+            'rental_package_id': r.rental_package_id,
+            'rental_package_name': rental_package_display(r),
             'order_amount': float(r.order_amount) if r.order_amount is not None else None,
             'start_date': r.start_date.isoformat() if r.start_date else None,
             'end_date': r.end_date.isoformat() if r.end_date else None,

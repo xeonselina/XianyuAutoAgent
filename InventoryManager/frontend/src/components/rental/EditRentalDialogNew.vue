@@ -9,6 +9,17 @@
     @close="handleClose"
     @closed="handleClosed"
   >
+    <el-alert v-if="rental?.booking" type="info" :closable="false" style="margin-bottom:12px"
+      :title="`同单已录 ${rental.booking.recorded_quantity}/${rental.booking.expected_quantity} 台 · 已发 ${rental.booking.shipped_quantity}/${rental.booking.expected_quantity} 台`" />
+    <div v-if="rental?.booking" style="margin-bottom:12px">
+      <div v-for="item in rental.booking.rentals" :key="item.id"><el-button v-if="item.id !== rental.id" link @click="openRelated(item.id)">查看此台</el-button> R-{{ item.id }} · {{ item.device_name }} · {{ item.rental_package_name || (item.lens_combo === 'bare' ? '裸机' : item.lens_combo === 'lens_200mm' ? '200mm 镜头' : item.lens_combo === 'lens_dual' ? '双镜头' : '400mm 镜头') }}</div>
+      <small>每台可独立调整开始日期、寄出时间，并独立验货、归还。</small>
+    </div>
+    <div v-if="rental?.booking?.expected_quantity === 2 && rental.booking.recorded_quantity === 1" style="margin-bottom:12px">
+      <el-input v-model="reductionReason" placeholder="客户减租原因（如需补齐，请从预约入口查看同单）" />
+      <el-input v-model="reductionAmount" type="number" placeholder="减租后的订单总金额" />
+      <el-button :loading="reducingBooking" @click="reduceBooking">确认只租 1 台</el-button>
+    </div>
     <RentalActionButtons
       :rental="rental"
       :loading-latest-data="loadingLatestData"
@@ -120,6 +131,34 @@ import { ref, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance } from 'element-plus'
 import { useRouter } from 'vue-router'
 import dayjs from 'dayjs'
+import axios from 'axios'
+
+const openRelated = async (id: number) => {
+  try {
+    await ElMessageBox.confirm('切换设备会放弃当前未保存的修改，是否继续？', '查看同单设备')
+    emit('open-related', id)
+  } catch { /* keep the current form */ }
+}
+
+const reductionReason = ref('')
+const reductionAmount = ref('')
+const reducingBooking = ref(false)
+const reduceBooking = async () => {
+  if (!props.rental || reducingBooking.value) return
+  try {
+    await ElMessageBox.confirm('确认客户只租一台，并以所填金额作为订单总金额？', '确认减租')
+    reducingBooking.value = true
+    await axios.post(`/api/rentals/${props.rental.id}/reduce-booking`, {
+      warehouse_id: props.rental.warehouse_id, reason: reductionReason.value, total_amount: reductionAmount.value,
+    })
+    ElMessage.success('已确认减租为一台')
+    await ganttStore.loadData()
+    emit('success', props.rental.id)
+    emit('update:modelValue', false)
+  } catch (e: any) {
+    if (e !== 'cancel' && e !== 'close') ElMessage.error(e.response?.data?.error || e.message || '减租失败')
+  } finally { reducingBooking.value = false }
+}
 
 // Store & Composables
 import { useGanttStore } from '@/stores/gantt'
@@ -132,6 +171,10 @@ import {
   formatLogisticsWarning,
   getLogisticsMismatch
 } from '@/utils/logisticsWarning'
+import {
+  getDefaultRentalPackageId,
+  isRentalPackageAllowed,
+} from '@/config/rentalPackage'
 
 // Components
 import RentalActionButtons from './RentalActionButtons.vue'
@@ -150,6 +193,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   'success': [rentalId?: number]
+  'open-related': [rentalId: number]
 }>()
 
 // Store & Router
@@ -171,6 +215,7 @@ const dialogVisible = computed({
 // Form State
 const form = ref({
   deviceId: 0,
+  startDate: null as Date | null,
   endDate: null as Date | null,
   customerPhone: '',
   destination: '',
@@ -191,7 +236,7 @@ const form = ref({
   buyerId: '',
   damageNote: '',
   photoTransfer: false,  // 代传照片标记
-  lensCombo: undefined as ('lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual' | undefined)
+  rentalPackageId: undefined as string | undefined,
 })
 
 // UI State
@@ -205,7 +250,7 @@ const queryingShipOut = ref(false)
 const queryingShipIn = ref(false)
 const deviceConflictChecked = ref(false)
 const accessoryConflictChecked = ref(false)
-const currentStartDate = ref('')
+const currentStartDate = computed(() => form.value.startDate ? dayjs(form.value.startDate).format('YYYY-MM-DD') : '')
 const initialScheduleSnapshot = ref('')
 
 // Form Rules
@@ -213,8 +258,7 @@ const rules = getEditRentalRules()
 
 // Computed
 const minSelectableDate = computed(() => {
-  if (!props.rental) return null
-  return new Date(props.rental.start_date)
+  return form.value.startDate
 })
 
 const selectedLogisticsDays = computed<number | null>(() => {
@@ -335,6 +379,7 @@ const handleSubmit = async () => {
 
     const updateData = {
       device_id: form.value.deviceId,
+      start_date: dayjs(form.value.startDate).format('YYYY-MM-DD'),
       end_date: dayjs(form.value.endDate).format('YYYY-MM-DD'),
       customer_phone: form.value.customerPhone,
       destination: form.value.destination,
@@ -358,14 +403,17 @@ const handleSubmit = async () => {
       buyer_id: form.value.buyerId,
       damage_note: form.value.damageNote,
       photo_transfer: form.value.photoTransfer,  // 代传照片标记
-      lens_combo: form.value.lensCombo
+      rental_package_id: form.value.rentalPackageId,
     }
 
     await ganttStore.updateRental(props.rental!.id, updateData)
     ElMessage.success('租赁记录更新成功')
     queuePendingSuccess({ rentalId: props.rental!.id })
   } catch (error: any) {
-    ElMessage.error('更新失败：' + (error.message || '未知错误'))
+    ElMessage.error(
+      '更新失败：'
+      + (error.response?.data?.message || error.message || '未知错误'),
+    )
   } finally {
     submitting.value = false
   }
@@ -387,6 +435,12 @@ const handleDeviceChange = async (deviceId: number) => {
 
   const selectedDevice = deviceManagement.devices.value.find(d => d.id === deviceId)
   if (!selectedDevice) return
+
+  const selectedModel = selectedDevice.device_model
+    || { name: selectedDevice.model }
+  if (!isRentalPackageAllowed(selectedModel, form.value.rentalPackageId)) {
+    form.value.rentalPackageId = getDefaultRentalPackageId(selectedModel)
+  }
 
   try {
     const shipOutTime = props.rental.ship_out_time || props.rental.start_date
@@ -411,6 +465,8 @@ const handleDeviceChange = async (deviceId: number) => {
       ).catch(() => {
         if (props.rental) {
           form.value.deviceId = props.rental.device_id
+          form.value.rentalPackageId = props.rental.rental_package_id
+            || undefined
         }
       })
     }
@@ -575,7 +631,6 @@ const initForm = async () => {
 
     const latestRental = await loadLatestRentalData()
     const rentalData = latestRental || props.rental
-    currentStartDate.value = rentalData.start_date
 
     // 从 API 响应转换为 UI 格式
     const bundledAccessories: ('handle' | 'lens_mount')[] = []
@@ -610,6 +665,7 @@ const initForm = async () => {
 
     form.value = {
       deviceId: rentalData.device_id,
+      startDate: new Date(rentalData.start_date),
       endDate: new Date(rentalData.end_date),
       customerPhone: rentalData.customer_phone || '',
       destination: rentalData.destination || '',
@@ -630,7 +686,7 @@ const initForm = async () => {
       buyerId: rentalData.buyer_id || '',
       damageNote: rentalData.damage_note || '',
       photoTransfer: rentalData.photo_transfer || false,  // 代传照片标记
-      lensCombo: rentalData.lens_combo || undefined
+      rentalPackageId: rentalData.rental_package_id || undefined,
     }
 
     initialScheduleSnapshot.value = getScheduleSnapshot()

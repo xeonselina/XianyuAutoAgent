@@ -5,7 +5,7 @@ import sqlalchemy as sa
 
 
 revision = "20260907_xianyu_rental_alerts"
-down_revision = "20260824_saas_lite_contract"
+down_revision = "20260830_rental_packages"
 branch_labels = None
 depends_on = None
 

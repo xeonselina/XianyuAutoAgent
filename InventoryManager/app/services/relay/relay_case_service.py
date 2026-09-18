@@ -180,8 +180,12 @@ class RelayCaseService:
             "successor": cls._customer(successor),
             "device": cls._device(predecessor),
             "lens_combo": predecessor.lens_combo,
+            "rental_package_id": predecessor.rental_package_id,
+            "rental_package_name": predecessor.rental_package_name,
             "accessories": predecessor.get_all_accessories_for_display(),
             "successor_lens_combo": successor.lens_combo,
+            "successor_rental_package_id": successor.rental_package_id,
+            "successor_rental_package_name": successor.rental_package_name,
             "successor_accessories": successor.get_all_accessories_for_display(),
             "tracking": cls._tracking(case),
             "created_at": (
@@ -382,8 +386,12 @@ class RelayCaseService:
                 "predecessor": cls._manual_rental(predecessor),
                 "successor": cls._manual_rental(successor),
                 "lens_combo": predecessor.lens_combo,
+                "rental_package_id": predecessor.rental_package_id,
+                "rental_package_name": predecessor.rental_package_name,
                 "accessories": predecessor.get_all_accessories_for_display(),
                 "successor_lens_combo": successor.lens_combo,
+                "successor_rental_package_id": successor.rental_package_id,
+                "successor_rental_package_name": successor.rental_package_name,
                 "successor_accessories": (
                     successor.get_all_accessories_for_display()
                 ),

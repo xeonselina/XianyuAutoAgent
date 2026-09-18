@@ -2,7 +2,8 @@
 
 系统已有闲鱼订单详情集成和 `Rental.xianyu_order_no`，但没有主动发现闲鱼待发货订单与库存预定之间的差异。订单列表接口最多返回一万条，支持按订单状态分页查询；当前业务仅有一个绑定店铺。
 
-完整设计见 `docs/superpowers/specs/2026-07-24-xianyu-missing-order-alerts-design.md`。
+早期完整设计已归档在 `docs/archive/superpowers/specs/2026-07-24-xianyu-missing-order-alerts-design.md`
+（本文件为当前生效的设计）。
 
 ## Goals / Non-Goals
 
@@ -12,10 +13,11 @@
 ## Decisions
 
 - 使用 APScheduler 定时查询并将结果持久化，而不是让每个浏览器页面直接轮询闲管家。
-- 固定查询订单状态 12，金额按 `pay_amount > 5000` 分判断，不处理退款状态。
+- 完整查询订单状态 12 和 21，覆盖待发货以及已经进入后续履约状态但仍未录入库存的订单；金额保持按 `pay_amount > 5000` 分判断，不处理退款状态。
 - 使用订单号与 `rentals.xianyu_order_no` 精确匹配。
 - 只有完整分页成功后才替换缓存；失败保留旧结果。
 - 甘特图只增加内联警告条，“去补录”复用现有 `BookingDialog`。
+- 即使当前缓存为零，同步失败或最近成功时间超过 10 分钟也显示健康告警，并提供立即检查入口。
 - “无需录入”永久生效，不提供恢复入口。
 
 ## Risks / Trade-offs
@@ -27,4 +29,3 @@
 ## Migration Plan
 
 新增告警和同步状态表，不修改现有租赁数据。回滚时可以停止任务、移除路由和 UI；新增表可保留，不影响旧版本运行。
-

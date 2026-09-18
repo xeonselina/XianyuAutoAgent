@@ -18,6 +18,12 @@
       <van-form ref="formRef" @submit="onSubmit">
         <!-- 闲鱼订单号 -->
         <van-cell-group inset title="订单信息">
+          <van-field v-if="xianyuShops.length" label="闲鱼店铺"><template #input>
+            <select v-model="form.xianyuShopId" aria-label="闲鱼店铺">
+              <option :value="undefined" disabled>请选择店铺</option>
+              <option v-for="shop in xianyuShops" :key="shop.id" :value="shop.id">{{ shop.name }}</option>
+            </select>
+          </template></van-field>
           <van-field
             v-model="form.xianyuOrderNo"
             label="闲鱼订单号"
@@ -133,21 +139,21 @@
           </van-field>
         </van-cell-group>
 
-        <!-- 镜头组合 -->
-        <van-cell-group inset title="镜头组合" style="margin-top:12px">
+        <!-- 型号租赁组合 -->
+        <van-cell-group inset title="租赁组合" style="margin-top:12px">
           <van-field label="组合">
             <template #input>
-              <van-radio-group v-model="lensComboModel" direction="horizontal" class="combo-radio-group">
+              <van-radio-group v-model="rentalPackageModel" direction="horizontal" class="combo-radio-group">
                 <van-tag
-                  v-for="opt in allowedCombos"
-                  :key="opt"
-                  :type="lensComboModel === opt ? 'primary' : 'default'"
-                  :plain="lensComboModel !== opt"
+                  v-for="opt in allowedPackages"
+                  :key="opt.id"
+                  :type="rentalPackageModel === opt.id ? 'primary' : 'default'"
+                  :plain="rentalPackageModel !== opt.id"
                   size="medium"
                   class="combo-chip"
-                  @click="lensComboModel = opt"
+                  @click="rentalPackageModel = opt.id || ''"
                 >
-                  {{ comboLabel(opt) }}
+                  {{ opt.name }}
                 </van-tag>
               </van-radio-group>
             </template>
@@ -190,6 +196,46 @@
           </van-field>
         </van-cell-group>
 
+        <van-cell-group inset title="同单设备" style="margin-top:12px">
+          <van-cell v-if="form.xianyuOrderNo" title="查看已录设备 / 补齐第 2 台" is-link @click="loadBookingContext" />
+          <van-notice-bar v-if="appendToRentalId" text="补齐第 2 台：沿用原单租期和收件信息，订单金额自动分摊。" />
+          <van-cell v-else :title="secondDevice ? '移除第 2 台' : '＋ 添加第 2 台'" is-link @click="toggleSecondDevice" />
+        </van-cell-group>
+        <van-cell-group v-if="secondDevice" inset title="第 2 台 · 同型号、同租期、同地址" style="margin-top:12px">
+          <van-field label="实际设备">
+            <template #input>
+              <select v-model="secondDevice.device_id" aria-label="第 2 台设备">
+                <option :value="null" disabled>请选择另一台设备</option>
+                <option v-for="slot in availableSlots" :key="slot.device.id" :value="slot.device.id" :disabled="slot.device.id === form.deviceId">{{ slot.device.name }}</option>
+              </select>
+            </template>
+          </van-field>
+          <van-cell title="配置同第 1 台" is-link @click="copySecondConfig" />
+          <van-field label="镜头组合"><template #input>
+            <select v-model="secondDevice.rental_package_id" aria-label="第 2 台镜头">
+              <option v-for="combo in allowedPackages" :key="combo.id" :value="combo.id">{{ combo.name }}</option>
+            </select>
+          </template></van-field>
+          <van-field label="随机配件"><template #input>
+            <van-checkbox v-model="secondDevice.includes_handle">手柄</van-checkbox>
+            <van-checkbox v-model="secondDevice.includes_lens_mount">镜头座</van-checkbox>
+          </template></van-field>
+          <van-field label="手机支架"><template #input>
+            <select v-model="secondDevice.phoneHolderId" aria-label="第 2 台手机支架">
+              <option :value="null">无</option>
+              <option v-for="a in accessories.phoneHolders" :key="a.id" :value="a.id" :disabled="a.id === form.phoneHolderId">{{ a.name }}</option>
+            </select>
+          </template></van-field>
+          <van-field label="三脚架"><template #input>
+            <select v-model="secondDevice.tripodId" aria-label="第 2 台三脚架">
+              <option :value="null">无</option>
+              <option v-for="a in accessories.tripods" :key="a.id" :value="a.id" :disabled="a.id === form.tripodId">{{ a.name }}</option>
+            </select>
+          </template></van-field>
+          <van-field label="代传照片"><template #input><van-switch v-model="secondDevice.photo_transfer" size="20" /></template></van-field>
+          <van-cell title="两台一起校验和保存；订单总金额只计一次，按两台均摊。" />
+        </van-cell-group>
+
         <!-- 提交 -->
         <div class="submit-wrap">
           <van-button
@@ -199,7 +245,7 @@
             :loading="submitting"
             :disabled="tenantStore.currentWarehouseId === 'all'"
             data-testid="create-rental"
-          >创建租赁</van-button>
+          >{{ secondDevice ? '一次预约 2 台' : appendToRentalId ? '补齐第 2 台' : '创建租赁' }}</van-button>
         </div>
       </van-form>
     </div>
@@ -278,11 +324,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast, showConfirmDialog } from 'vant'
 import axios from 'axios'
 import dayjs from 'dayjs'
+import { newBookingRequestId } from '@/utils/bookingRequest'
 import { useGanttStore } from '@/stores/gantt'
 import { useMobileTenantStore } from '@/stores/tenant'
 import type { DeviceModel, Device, Rental } from '@/stores/gantt'
@@ -294,12 +341,10 @@ import {
   getLogisticsMismatch
 } from '@/utils/logisticsWarning'
 import {
-  getAllowedCombos,
-  getDefaultCombo,
-  isComboAllowed,
-  lensComboDisplay,
-  type LensCombo,
-} from '@/config/lensCombo'
+  getDefaultRentalPackageId,
+  getEnabledRentalPackages,
+  isRentalPackageAllowed,
+} from '@/config/rentalPackage'
 
 const router = useRouter()
 const route = useRoute()
@@ -310,6 +355,7 @@ const conflictDetection = useConflictDetection()
 // 表单状态
 const form = ref({
   xianyuOrderNo: '',
+  xianyuShopId: undefined as number | undefined,
   customerName: '',
   customerPhone: '',
   destination: '',
@@ -324,8 +370,66 @@ const form = ref({
   phoneHolderId: null as number | null,
   tripodId: null as number | null,
   photoTransfer: false,
-  lensCombo: undefined as ('lens_400mm' | 'lens_200mm' | 'bare' | 'lens_dual' | undefined)
+  rentalPackageId: undefined as string | undefined,
 })
+
+const secondDevice = ref<{
+  device_id: number | null; rental_package_id: string;
+  includes_handle: boolean; includes_lens_mount: boolean; photo_transfer: boolean;
+  phoneHolderId: number | null; tripodId: number | null;
+} | null>(null)
+const appendToRentalId = ref<number | null>(null)
+const xianyuShops = ref<{ id: number; name: string }[]>([])
+let bookingRequestId = ''
+let bookingPayload = ''
+const copySecondConfig = () => {
+  if (!secondDevice.value) return
+  Object.assign(secondDevice.value, {
+    rental_package_id: rentalPackageModel.value,
+    includes_handle: form.value.bundledAccessories.includes('handle'),
+    includes_lens_mount: form.value.bundledAccessories.includes('lens_mount'),
+    photo_transfer: form.value.photoTransfer,
+  })
+}
+const toggleSecondDevice = () => {
+  if (secondDevice.value) { secondDevice.value = null; return }
+  secondDevice.value = { device_id: null, rental_package_id: rentalPackageModel.value, includes_handle: false,
+    includes_lens_mount: false, photo_transfer: false, phoneHolderId: null, tripodId: null }
+  copySecondConfig()
+}
+const loadBookingContext = async () => {
+  try {
+    const res = await axios.get('/api/rentals/booking-context', { params: {
+      order_no: form.value.xianyuOrderNo, shop_id: form.value.xianyuShopId,
+    } })
+    const rows = res.data.data?.rentals || []
+    if (!rows.length) { showToast('该订单尚未录入设备'); return }
+    if (rows.length !== 1 || (rows[0].booking && rows[0].booking.expected_quantity <= rows.length)) {
+      showToast('该订单已录齐，请查看同单设备'); return
+    }
+    const r = rows[0]
+    await showConfirmDialog({ title: '同单设备', message: `已录设备：${r.device?.name}。沿用此单信息补齐第 2 台？` })
+    if (r.warehouse_id !== tenantStore.currentWarehouseId) { showToast('请先切换到原订单仓库'); return }
+    await axios.post(`/api/rentals/${r.id}/declare-booking`, { warehouse_id: r.warehouse_id })
+    secondDevice.value = null
+    form.value.modelId = r.device?.model_id || r.device?.device_model?.id
+    selectedModelName.value = r.device?.device_model?.display_name || r.device?.model || ''
+    form.value.startDate = r.start_date
+    form.value.endDate = r.end_date
+    form.value.customerName = r.customer_name
+    form.value.customerPhone = r.customer_phone || ''
+    form.value.destination = r.destination || ''
+    form.value.xianyuShopId = r.xianyu_shop_id
+    form.value.orderAmount = String(r.booking?.total_amount ?? r.order_amount ?? '')
+    form.value.logisticsDays = Math.max(0, dayjs(r.start_date).diff(dayjs(r.ship_out_time), 'day') - 1)
+    await nextTick()
+    appendToRentalId.value = r.id
+    form.value.deviceId = null
+  } catch (e: any) {
+    if (e !== 'cancel' && e !== 'close') showToast(e.response?.data?.error || e.message || '查询失败')
+  }
+}
+watch(() => [form.value.xianyuOrderNo, form.value.xianyuShopId], () => { appendToRentalId.value = null })
 
 const formRef = ref()
 const fetchingOrder = ref(false)
@@ -360,27 +464,26 @@ const endDateMin = computed(() => {
   return form.value.startDate ? new Date(form.value.startDate) : undefined
 })
 
-// 镜头组合：当前所选机型 short name & 选项
-const selectedModelShortName = computed<string | null>(() => {
+// 租赁组合：直接读取当前型号在型号库中的自由配置。
+const selectedModelConfig = computed<DeviceModel | null>(() => {
   if (!form.value.modelId) return null
-  const m = deviceModels.value.find(dm => dm.id === form.value.modelId)
-  return m?.name ?? null
+  return deviceModels.value.find(dm => dm.id === form.value.modelId) || null
 })
-const allowedCombos = computed<LensCombo[]>(() => getAllowedCombos(selectedModelShortName.value))
-const lensComboModel = computed<LensCombo>({
+const allowedPackages = computed(() => getEnabledRentalPackages(selectedModelConfig.value))
+const rentalPackageModel = computed<string>({
   get: () => {
-    const v = form.value.lensCombo
-    if (v && isComboAllowed(selectedModelShortName.value, v)) return v as LensCombo
-    return getDefaultCombo(selectedModelShortName.value)
+    const value = form.value.rentalPackageId
+    if (value && isRentalPackageAllowed(selectedModelConfig.value, value)) return value
+    return getDefaultRentalPackageId(selectedModelConfig.value)
   },
-  set: (v: LensCombo) => { form.value.lensCombo = v }
+  set: (value: string) => { form.value.rentalPackageId = value }
 })
-const comboLabel = (v: LensCombo) => lensComboDisplay(v)
 
-// 机型切换 → 重置不合法的镜头组合
-watch(selectedModelShortName, (newModel) => {
-  if (form.value.lensCombo && !isComboAllowed(newModel, form.value.lensCombo)) {
-    form.value.lensCombo = getDefaultCombo(newModel)
+// 机型切换 → 重置不属于新型号的组合。
+watch(selectedModelConfig, (newModel) => {
+  if (secondDevice.value && !isRentalPackageAllowed(newModel, secondDevice.value.rental_package_id)) secondDevice.value.rental_package_id = getDefaultRentalPackageId(newModel)
+  if (form.value.rentalPackageId && !isRentalPackageAllowed(newModel, form.value.rentalPackageId)) {
+    form.value.rentalPackageId = getDefaultRentalPackageId(newModel)
   }
 })
 
@@ -429,6 +532,7 @@ watch(() => form.value.destination, (val) => {
 // 日期/型号变化时重新查找可用设备
 const checkAvailability = async () => {
   if (!form.value.startDate || !form.value.endDate || !form.value.modelId) return
+  if (secondDevice.value) secondDevice.value.device_id = null
   checkingSlots.value = true
   form.value.deviceId = null
   selectedDeviceName.value = ''
@@ -506,7 +610,8 @@ const fetchOrderInfo = async () => {
   fetchingOrder.value = true
   try {
     const res = await axios.post('/api/rentals/fetch-xianyu-order', {
-      order_no: form.value.xianyuOrderNo.trim()
+      order_no: form.value.xianyuOrderNo.trim(),
+      xianyu_shop_id: form.value.xianyuShopId
     })
     if (res.data.success) {
       const d = res.data.data
@@ -550,6 +655,8 @@ const confirmLogisticsTiming = async (): Promise<boolean> => {
 
 // 提交
 const onSubmit = async () => {
+  if (submitting.value || savedRental.value) return
+  if (secondDevice.value && !secondDevice.value.device_id) { showToast('请选择第 2 台设备'); return }
   if (tenantStore.currentWarehouseId === 'all') {
     showToast('请先选择具体仓库')
     return
@@ -598,10 +705,10 @@ const onSubmit = async () => {
 
     const accessoriesArr: any[] = []
     if (form.value.phoneHolderId) {
-      accessoriesArr.push({ id: form.value.phoneHolderId, is_bundled: false })
+      accessoriesArr.push(form.value.phoneHolderId)
     }
     if (form.value.tripodId) {
-      accessoriesArr.push({ id: form.value.tripodId, is_bundled: false })
+      accessoriesArr.push(form.value.tripodId)
     }
 
     const rentalData = {
@@ -620,11 +727,18 @@ const onSubmit = async () => {
       includes_handle: form.value.bundledAccessories.includes('handle'),
       includes_lens_mount: form.value.bundledAccessories.includes('lens_mount'),
       photo_transfer: form.value.photoTransfer,
-      lens_combo: form.value.lensCombo,
+      rental_package_id: form.value.rentalPackageId,
+      xianyu_shop_id: form.value.xianyuShopId,
+      append_to_rental_id: appendToRentalId.value || undefined,
+      additional_devices: secondDevice.value ? [{ ...secondDevice.value,
+        accessories: [secondDevice.value.phoneHolderId, secondDevice.value.tripodId].filter((id): id is number => !!id),
+      }] : [],
       accessories: accessoriesArr
     }
 
-    const result = await ganttStore.createRental(rentalData)
+    const payload = JSON.stringify(rentalData)
+    if (payload !== bookingPayload) { bookingRequestId = newBookingRequestId(); bookingPayload = payload }
+    const result = await ganttStore.createRental({ ...rentalData, booking_request_id: bookingRequestId })
     showToast({ message: '租赁创建成功', type: 'success' })
     const rentalId = result?.data?.main_rental?.id
     if (typeof rentalId !== 'number' || !Number.isFinite(rentalId) || rentalId <= 0) {
@@ -714,9 +828,16 @@ onMounted(async () => {
     await ganttStore.loadData()
   }
   await loadInitData()
+  try {
+    const res = await axios.get('/api/xianyu-order-alerts')
+    xianyuShops.value = res.data.data?.shops || []
+    if (xianyuShops.value.length === 1) form.value.xianyuShopId = xianyuShops.value[0]!.id
+  } catch { /* order-less rentals remain available without configured shops */ }
 })
 
 watch(() => tenantStore.currentWarehouseId, async () => {
+  secondDevice.value = null
+  appendToRentalId.value = null
   form.value.deviceId = null
   form.value.phoneHolderId = null
   form.value.tripodId = null
@@ -744,6 +865,8 @@ watch(() => tenantStore.currentWarehouseId, async () => {
 .submit-wrap {
   padding: 16px;
 }
+
+select { max-width: 100%; padding: 6px; border: 1px solid #dcdee0; border-radius: 4px; background: white; }
 
 .combo-radio-group {
   display: flex;

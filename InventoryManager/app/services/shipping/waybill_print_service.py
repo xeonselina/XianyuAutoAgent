@@ -309,13 +309,29 @@ class WaybillPrintService:
 
         results = []
 
+        from app.services.shipping.shipment_group_service import parcel_members
+        expanded_ids = []
+        seen_ids = set()
+        for selected_id in dict.fromkeys(rental_ids):
+            row = Rental.query.get(selected_id)
+            members = parcel_members(row) if row and row.parent_rental_id is None else []
+            for member_id in ([r.id for r in members] or [selected_id]):
+                if member_id not in seen_ids:
+                    seen_ids.add(member_id)
+                    expanded_ids.append(member_id)
+        rental_ids = expanded_ids
+        printed_parcels = {}
         # 顺序处理每个打印任务
         for idx, rental_id in enumerate(rental_ids, 1):
             logger.info(f"处理第 {idx}/{len(rental_ids)} 个订单: Rental {rental_id}")
             try:
                 # 1. 打印面单
                 logger.info(f"Rental {rental_id}: 开始打印面单")
-                waybill_result = self.print_single_waybill(rental_id)
+                rental = Rental.query.get(rental_id)
+                parcel_key = (rental.warehouse_id, rental.ship_out_tracking_no) if rental and rental.ship_out_tracking_no and rental.parent_rental_id is None else ('single', rental_id)
+                if parcel_key not in printed_parcels:
+                    printed_parcels[parcel_key] = self.print_single_waybill(rental_id)
+                waybill_result = printed_parcels[parcel_key]
 
                 # 如果面单打印失败,跳过发货单
                 if not waybill_result.get('success'):
@@ -370,13 +386,14 @@ class WaybillPrintService:
                 })
 
         # 统计结果
-        waybill_success_count = sum(1 for r in results if r.get('waybill_success'))
+        waybill_success_count = sum(1 for r in printed_parcels.values() if r.get('success'))
         slip_success_count = sum(1 for r in results if r.get('slip_success'))
-        failed_count = len(results) - waybill_success_count
+        failed_count = sum(1 for r in results if not r.get('waybill_success') or (include_shipping_slips and not r.get('slip_success')))
 
         logger.info(f"批量打印完成: 总数 {len(results)}, 面单成功 {waybill_success_count}, 发货单成功 {slip_success_count}, 失败 {failed_count}")
 
         return {
+            'parcel_count': len(printed_parcels),
             'total': len(results),
             'waybill_success_count': waybill_success_count,
             'slip_success_count': slip_success_count if include_shipping_slips else 0,

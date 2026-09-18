@@ -1,4 +1,6 @@
 export interface XianyuOrderAlert {
+  expected_quantity?: number
+  recorded_quantity?: number
   order_no: string
   xianyu_shop_id: number
   xianyu_shop_name?: string
@@ -18,6 +20,8 @@ export interface XianyuOrderAlertSync {
   last_attempt_at?: string | null
   last_success_at?: string | null
   last_error?: string | null
+  is_stale?: boolean
+  stale_after_seconds?: number
 }
 
 export interface XianyuAlertRental {
@@ -47,6 +51,12 @@ export interface XianyuRentalAlertAction {
   shopId: number
   rentalId: number
   action: 'delete' | 'review'
+}
+
+export interface XianyuRentalAlertIgnore {
+  orderNo: string
+  shopId: number
+  reason: string
 }
 
 export interface XianyuOrderAlertSnapshot {

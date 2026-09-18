@@ -5,29 +5,6 @@
         <div class="device-name">{{ device.name }}</div>
         <div class="device-details">
           <span class="device-sn">{{ device.serial_number }}</span>
-          <el-button
-            link
-            size="small"
-            data-testid="move-device"
-            @click="$emit('move-device', device)"
-          >
-            移仓
-          </el-button>
-        </div>
-        <div class="device-lifecycle">
-          <el-select
-            :model-value="device.lifecycle_status || 'active'"
-            size="small"
-            style="width: 100px;"
-            :disabled="readOnly"
-            @change="updateLifecycleStatus"
-          >
-            <el-option label="🟢 使用中" value="active" />
-            <el-option label="💰 已售出" value="sold" />
-            <el-option label="🔧 已损坏" value="damaged" />
-            <el-option label="⛔ 已停用" value="decommissioned" />
-            <el-option label="📦 已退役" value="retired" />
-          </el-select>
         </div>
       </div>
     </div>
@@ -65,7 +42,7 @@
                 <span v-if="rental.status === 'shipped'" class="status-icon shipped-icon">🚀</span>
                 <span v-else-if="rental.status === 'returned'" class="status-icon returned-icon">✅</span>
                 <span v-else-if="rental.status === 'not_shipped'" class="status-icon">📦</span>
-                {{ rental.customer_name }}
+                {{ rental.customer_name }}<small v-if="rental.booking"> · 同单 {{ rental.booking.recorded_quantity }}/{{ rental.booking.expected_quantity }} 台</small>
               </span>
               <el-icon v-if="hasAccessories(rental)" class="accessory-icon" title="包含附件">
                 <Tools />
@@ -100,8 +77,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, defineAsyncComponent, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import type { Device, Rental } from '../stores/gantt'
+import RentalTooltip from './RentalTooltip.vue'
 import {
   toDateString,
   parseDate,
@@ -115,8 +93,6 @@ const isWeekend = (date: Date) => {
   const day = date.getDay()
   return day === 0 || day === 6
 }
-
-const RentalTooltip = defineAsyncComponent(() => import('./RentalTooltip.vue'))
 
 interface Props {
   device: Device
@@ -138,8 +114,6 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   'edit-rental': [rental: Rental]
   'delete-rental': [rental: Rental]
-  'update-device-lifecycle': [device: Device, newLifecycle: string]
-  'move-device': [device: Device]
 }>()
 
 // Tooltip相关状态
@@ -148,11 +122,6 @@ const tooltipVisible = ref(false)
 const tooltipTriggerRef = ref<HTMLElement>()
 let showTimer: number | null = null
 let hideTimer: number | null = null
-
-// 更新设备生命周期状态
-const updateLifecycleStatus = (newLifecycle: string) => {
-  emit('update-device-lifecycle', props.device, newLifecycle)
-}
 
 // 检查租赁是否包含附件
 const hasAccessories = (rental: Rental): boolean => {

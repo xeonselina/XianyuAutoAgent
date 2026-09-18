@@ -8,6 +8,7 @@ import axios from 'axios'
 import BatchShippingOrderView from '@/views/BatchShippingOrderView.vue'
 import singleViewSource from '@/views/ShippingOrderView.vue?raw'
 import { useTenantStore } from '@/stores/tenant'
+import { useAuthStore } from '@/stores/auth'
 
 vi.mock('axios')
 vi.mock('jsbarcode', () => ({ default: vi.fn() }))
@@ -44,6 +45,24 @@ const mountView = () => {
 describe('BatchShippingOrderView warehouse isolation', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  it('renders the authenticated tenant name and reacts to name changes without the fixed logo', async () => {
+    vi.mocked(axios.get).mockResolvedValueOnce(response([{
+      id: 1, warehouse_id: 1, status: 'not_shipped',
+    }]))
+    const wrapper = mountView()
+    await flushPromises()
+    const auth = useAuthStore()
+    auth.$patch({ tenant: { id: 2, name: '远山摄影器材租赁' } as any })
+    await nextTick()
+    expect(wrapper.get('.tenant-name').text()).toBe('远山摄影器材租赁')
+    expect(wrapper.find('img.logo').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('光影租界')
+    auth.$patch({ tenant: { id: 2, name: '远山摄影新店名' } as any })
+    await nextTick()
+    expect(wrapper.get('.tenant-name').text()).toBe('远山摄影新店名')
+    wrapper.unmount()
   })
 
   it('clears A orders as soon as the B request starts and stays empty if B fails', async () => {

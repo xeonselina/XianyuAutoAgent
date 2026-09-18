@@ -16,6 +16,7 @@ import { useInspectionStore } from '@/stores/inspection'
 import { useTenantStore } from '@/stores/tenant'
 import AccessRestrictedView from '@/views/AccessRestrictedView.vue'
 import LoginView from '@/views/LoginView.vue'
+import PasswordChangeView from '@/views/PasswordChangeView.vue'
 import PlatformLoginView from '@/views/PlatformLoginView.vue'
 import PlatformTenantsView from '@/views/PlatformTenantsView.vue'
 import {
@@ -32,10 +33,13 @@ import { useMobileTenantStore } from '../../../frontend-mobile/src/stores/tenant
 
 const apiMocks = vi.hoisted(() => ({
   createTenant: vi.fn(),
+  changeTenantPassword: vi.fn(),
+  fetchTenantAuthConfig: vi.fn(),
   fetchPlatformSession: vi.fn(),
   fetchTenantSession: vi.fn(),
   listTenants: vi.fn(),
   loginPlatform: vi.fn(),
+  loginTenantPassword: vi.fn(),
   logoutPlatformSession: vi.fn(),
   logoutTenantSession: vi.fn(),
   patchTenant: vi.fn(),
@@ -77,6 +81,7 @@ const platformData = {
   csrf_token: 'platform-csrf',
   admin: { id: 1, username: 'root-admin' },
 }
+const tenantInitialPassword = 'tenant-initial-password-123'
 
 const apiRejection = (message: string, status: number) => Object.assign(
   new Error(message),
@@ -355,6 +360,7 @@ describe('tenant auth store and login form', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.resetAllMocks()
+    apiMocks.fetchTenantAuthConfig.mockResolvedValue({ method: 'sms' })
   })
 
   it('keeps tenant and platform CSRF values in memory without browser storage', async () => {
@@ -372,6 +378,22 @@ describe('tenant auth store and login form', () => {
     expect(setItem).not.toHaveBeenCalled()
     expect(localStorage.length).toBe(0)
     expect(sessionStorage.length).toBe(0)
+  })
+
+  it('shares one tenant bootstrap request across concurrent route guards', async () => {
+    const pendingSession = deferred<ReturnType<typeof tenantData>>()
+    apiMocks.fetchTenantSession.mockReturnValue(pendingSession.promise)
+    const auth = useAuthStore()
+
+    const first = auth.bootstrap()
+    const second = auth.bootstrap()
+
+    expect(apiMocks.fetchTenantSession).toHaveBeenCalledOnce()
+    expect(apiMocks.fetchTenantAuthConfig).toHaveBeenCalledOnce()
+    pendingSession.resolve(tenantData())
+
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true])
+    expect(auth.csrfToken).toBe('tenant-csrf')
   })
 
   it('fails closed and resets only tenant state when a different tenant session arrives', () => {
@@ -498,6 +520,9 @@ describe('tenant auth store and login form', () => {
       global: { plugins: [pinia, router] },
     })
 
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="phone"]').exists()).toBe(true)
+    })
     await wrapper.get('[data-testid="phone"]').setValue('13800138000')
     await wrapper.get('[data-testid="request-code"]').trigger('click')
     expect(apiMocks.requestTenantCode).toHaveBeenCalledWith('13800138000')
@@ -514,6 +539,111 @@ describe('tenant auth store and login form', () => {
       '123456',
     )
     expect(router.currentRoute.value.fullPath).toBe('/login?next=/business')
+  })
+
+  it('loads password mode and submits phone plus password without SMS controls', async () => {
+    apiMocks.fetchTenantAuthConfig.mockResolvedValue({ method: 'password' })
+    apiMocks.loginTenantPassword.mockResolvedValue(tenantData())
+    const pinia = createPinia()
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/login', component: LoginView },
+        { path: '/business', component: EmptyView },
+      ],
+    })
+    await router.push('/login?next=/business')
+    await router.isReady()
+    const wrapper = mount(LoginView, {
+      global: { plugins: [pinia, router] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="password"]').exists()).toBe(true)
+    })
+    expect(wrapper.find('[data-testid="request-code"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="code"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="platform-login-entry"]').attributes('href')).toBe(
+      '/platform/login',
+    )
+
+    await wrapper.get('[data-testid="phone"]').setValue('13800138000')
+    await wrapper.get('[data-testid="password"]').setValue('Initial-pass-123')
+    await wrapper.get('form').trigger('submit')
+
+    await vi.waitFor(() => {
+      expect(apiMocks.loginTenantPassword).toHaveBeenCalledWith(
+        '13800138000',
+        'Initial-pass-123',
+      )
+    })
+    expect(apiMocks.requestTenantCode).not.toHaveBeenCalled()
+    expect(apiMocks.verifyTenantCode).not.toHaveBeenCalled()
+  })
+
+  it('fails closed with retry UI when auth config cannot be loaded', async () => {
+    apiMocks.fetchTenantAuthConfig
+      .mockRejectedValueOnce(apiRejection('登录方式加载失败', 503))
+      .mockResolvedValueOnce({ method: 'password' })
+    const pinia = createPinia()
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/login', component: LoginView }],
+    })
+    await router.push('/login')
+    await router.isReady()
+    const wrapper = mount(LoginView, {
+      global: { plugins: [pinia, router] },
+    })
+
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="auth-config-retry"]').exists()).toBe(true)
+    })
+    expect(wrapper.find('form').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="request-code"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('登录方式加载失败')
+
+    await wrapper.get('[data-testid="auth-config-retry"]').trigger('click')
+
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="password"]').exists()).toBe(true)
+    })
+    expect(apiMocks.fetchTenantAuthConfig).toHaveBeenCalledTimes(2)
+  })
+
+  it('changes password without clearing or replacing the active CSRF token', async () => {
+    apiMocks.changeTenantPassword.mockResolvedValue(undefined)
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const auth = useAuthStore()
+    auth.applyTenantSession(tenantData('active', 'operator'))
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/change-password', component: PasswordChangeView }],
+    })
+    await router.push('/change-password')
+    await router.isReady()
+    const wrapper = mount(PasswordChangeView, {
+      global: { plugins: [pinia, router] },
+    })
+
+    await wrapper.get('[data-testid="current-password"]').setValue('Initial-pass-123')
+    await wrapper.get('[data-testid="new-password"]').setValue('Updated-pass-456')
+    await wrapper.get('[data-testid="confirm-password"]').setValue('Updated-pass-456')
+    await wrapper.get('form').trigger('submit')
+
+    await vi.waitFor(() => {
+      expect(apiMocks.changeTenantPassword).toHaveBeenCalledWith(
+        'Initial-pass-123',
+        'Updated-pass-456',
+        'tenant-csrf',
+      )
+    })
+    expect(auth.csrfToken).toBe('tenant-csrf')
+    expect(axios.defaults.headers.common['X-CSRF-Token']).toBe('tenant-csrf')
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('密码已更新')
+    })
   })
 
   it('explains an expired tenant without exposing business content', async () => {
@@ -635,6 +765,12 @@ describe('authenticated shell and platform tenant actions', () => {
     })
     await nextTick()
 
+    expect(wrapper.get('[data-testid="platform-store-page"]').text()).toContain(
+      '创建客户店铺、设置首位店铺管理员',
+    )
+    expect(wrapper.get('.summary-grid').text()).toContain('需要处理')
+    expect(wrapper.get('.summary-grid').text()).toContain('1')
+
     await wrapper.get('[data-testid="new-tenant"]').trigger('click')
     await vi.waitFor(() => {
       expect(wrapper.find('[data-testid="tenant-name"]').exists()).toBe(true)
@@ -642,12 +778,30 @@ describe('authenticated shell and platform tenant actions', () => {
     await wrapper.get('[data-testid="tenant-name"]').setValue('租户乙')
     await wrapper.get('[data-testid="admin-phone"]').setValue('13900139000')
     await wrapper.get('[data-testid="tenant-expiry"]').setValue('2026-10-01T08:00')
+    expect(wrapper.get('.create-panel').text()).toContain(
+      '只用于首位店铺管理员登录，不是 App Key 或 App Secret',
+    )
+
+    await wrapper.get('[data-testid="initial-password"]').setValue('short7!')
+    await wrapper.get('[data-testid="confirm-password"]').setValue('short7!')
+    await wrapper.get('.create-form').trigger('submit')
+    expect(apiMocks.createTenant).not.toHaveBeenCalled()
+    expect(wrapper.get('[role="alert"]').text()).toBe('初始密码必须为 8 至 128 个字符')
+
+    await wrapper.get('[data-testid="initial-password"]').setValue(tenantInitialPassword)
+    await wrapper.get('[data-testid="confirm-password"]').setValue(`${tenantInitialPassword}-mismatch`)
+    await wrapper.get('.create-form').trigger('submit')
+    expect(apiMocks.createTenant).not.toHaveBeenCalled()
+    expect(wrapper.get('[role="alert"]').text()).toBe('两次输入的初始密码不一致')
+
+    await wrapper.get('[data-testid="confirm-password"]').setValue(tenantInitialPassword)
     await wrapper.get('.create-form').trigger('submit')
     await vi.waitFor(() => expect(apiMocks.createTenant).toHaveBeenCalledOnce())
     expect(apiMocks.createTenant).toHaveBeenCalledWith(
       {
         name: '租户乙',
         admin_phone: '13900139000',
+        initial_password: tenantInitialPassword,
         expires_at: '2026-10-01T00:00:00.000Z',
       },
       'platform-csrf',
@@ -808,6 +962,8 @@ describe('authenticated shell and platform tenant actions', () => {
     })
     await wrapper.get('[data-testid="tenant-name"]').setValue('租户乙')
     await wrapper.get('[data-testid="admin-phone"]').setValue('13900139000')
+    await wrapper.get('[data-testid="initial-password"]').setValue(tenantInitialPassword)
+    await wrapper.get('[data-testid="confirm-password"]').setValue(tenantInitialPassword)
     await wrapper.get('[data-testid="tenant-expiry"]').setValue('2026-10-01T08:00')
     await wrapper.get('.create-form').trigger('submit')
 
@@ -904,6 +1060,8 @@ describe('authenticated shell and platform tenant actions', () => {
     await wrapper.get('[data-testid="new-tenant"]').trigger('click')
     await wrapper.get('[data-testid="tenant-name"]').setValue('租户乙')
     await wrapper.get('[data-testid="admin-phone"]').setValue('13900139000')
+    await wrapper.get('[data-testid="initial-password"]').setValue(tenantInitialPassword)
+    await wrapper.get('[data-testid="confirm-password"]').setValue(tenantInitialPassword)
     await wrapper.get('[data-testid="tenant-expiry"]').setValue('2026-10-01T08:00')
     await wrapper.get('.create-form').trigger('submit')
 
@@ -995,6 +1153,8 @@ describe('authenticated shell and platform tenant actions', () => {
     await wrapper.get('[data-testid="new-tenant"]').trigger('click')
     await wrapper.get('[data-testid="tenant-name"]').setValue('租户乙')
     await wrapper.get('[data-testid="admin-phone"]').setValue('13900139000')
+    await wrapper.get('[data-testid="initial-password"]').setValue(tenantInitialPassword)
+    await wrapper.get('[data-testid="confirm-password"]').setValue(tenantInitialPassword)
     await wrapper.get('[data-testid="tenant-expiry"]').setValue('2026-10-01T08:00')
     await wrapper.get('.create-form').trigger('submit')
     await vi.waitFor(() => expect(apiMocks.createTenant).toHaveBeenCalledOnce())
@@ -1062,6 +1222,8 @@ describe('authenticated shell and platform tenant actions', () => {
     })
     await wrapper.get('[data-testid="tenant-name"]').setValue('租户乙')
     await wrapper.get('[data-testid="admin-phone"]').setValue('13900139000')
+    await wrapper.get('[data-testid="initial-password"]').setValue(tenantInitialPassword)
+    await wrapper.get('[data-testid="confirm-password"]').setValue(tenantInitialPassword)
     await wrapper.get('[data-testid="tenant-expiry"]').setValue('2026-10-01T08:00')
     await wrapper.get('.create-form').trigger('submit')
     await wrapper.get('.create-form').trigger('submit')
