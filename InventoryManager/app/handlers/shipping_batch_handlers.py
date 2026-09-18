@@ -50,186 +50,64 @@ class ShippingBatchHandlers:
             except (AttributeError, TypeError, ValueError):
                 return bad_request('时间格式无效，请使用ISO格式')
 
-            # 查询租赁记录
-            rentals = Rental.query.filter(Rental.id.in_(rental_ids)).all()
-            relay_successor_ids = {
-                successor_id
-                for (successor_id,) in db.session.query(
-                    RentalRelayBinding.successor_rental_id
-                ).filter(
-                    RentalRelayBinding.successor_rental_id.in_(rental_ids)
-                ).all()
-            }
-
-            success_count = 0
-            failed_rentals = []
+            if not isinstance(rental_ids, list) or len(rental_ids) > 100 or any(type(i) is not int for i in rental_ids):
+                return bad_request('租赁ID列表无效或超过100台')
+            from app.services.shipping.shipment_group_service import group_shipments
+            rentals = Rental.query.filter(Rental.id.in_(rental_ids)).order_by(Rental.id).all()
+            relay_ids = {i for (i,) in db.session.query(RentalRelayBinding.successor_rental_id).filter(
+                RentalRelayBinding.successor_rental_id.in_(rental_ids)).all()}
+            groups = group_shipments(rentals, relay_ids)
             results = []
-
-            for rental in rentals:
-                if rental.id in relay_successor_ids:
-                    reason = '接力订单由前一位客户直接寄出，不能批量预约发货'
-                    current_app.logger.info(
-                        f"Rental {rental.id} 为接力后一单，跳过批量发货"
-                    )
-                    results.append({
-                        'success': False,
-                        'rental_id': rental.id,
-                        'message': reason,
-                        'waybill_no': None
-                    })
-                    failed_rentals.append({
-                        'id': rental.id,
-                        'reason': reason,
-                        'waybill_no': None
-                    })
-                    continue
-
-                # 跳过已发货或已预约发货的订单
-                if rental.status in ('shipped', 'scheduled_for_shipping'):
-                    current_app.logger.info(f"Rental {rental.id} 已发货或已预约发货，跳过")
-                    result_item = {
-                        'success': False,
-                        'rental_id': rental.id,
-                        'message': '订单已发货或已预约发货',
-                        'waybill_no': None
-                    }
-                    results.append(result_item)
-                    failed_rentals.append({
-                        'id': rental.id,
-                        'reason': '订单已发货或已预约发货',
-                        'waybill_no': None
-                    })
-                    continue
-
+            for missing_id in set(rental_ids) - {r.id for r in rentals}:
+                results.append({'success': False, 'rental_id': missing_id, 'message': '租赁记录不存在', 'waybill_no': None})
+            shipment_count = 0
+            for initial_group in groups:
+                ids = [r.id for r in initial_group]
                 try:
-                    validate_shipping_preflight(rental)
+                    # A current read serializes duplicate submissions before contacting SF.
+                    members = Rental.query.filter(Rental.id.in_(ids)).order_by(Rental.id).populate_existing().with_for_update().all()
+                    if len(members) != len(ids) or len(group_shipments(members, relay_ids)) != 1:
+                        raise ValueError('订单信息已变化，请刷新后重新选择')
+                    for member in members:
+                        if member.id in relay_ids:
+                            raise ValueError('接力订单由前一位客户直接寄出，不能批量预约发货')
+                        if member.status != 'not_shipped':
+                            raise ValueError('订单已发货或已预约发货，不能重复预约')
+                        validate_shipping_preflight(member)
+                    rental = members[0]
                     sf_service = IntegrationResolver().sf_for_rental(rental)
-                    # 调用顺丰API下单
-                    current_app.logger.info(f"预约发货: Rental {rental.id}, 预约时间: {scheduled_time}")
+                    kwargs = {'machine_count': len(members)} if len(members) > 1 else {}
                     sf_result = sf_service.place_shipping_order(
-                        rental,
-                        scheduled_time=scheduled_time,
-                        client_order_id=sf_client_order_id_for(rental),
-                    )
-
-                    if not sf_result.get('success'):
-                        error_msg = '顺丰服务调用失败'
-                        result_item = {
-                            'success': False,
-                            'rental_id': rental.id,
-                            'message': error_msg,
-                            'code': 'EXTERNAL_SERVICE_ERROR',
-                            'waybill_no': None
-                        }
-                        results.append(result_item)
-                        failed_rentals.append({
-                            'id': rental.id,
-                            'reason': error_msg,
-                            'waybill_no': None
-                        })
-                        db.session.rollback()
-                        continue
-
-                    # 获取运单号
-                    waybill_no = sf_result.get('waybill_no')
-                    if not waybill_no:
-                        error_msg = '顺丰API未返回运单号'
-                        current_app.logger.error(f"Rental {rental.id} {error_msg}")
-                        result_item = {
-                            'success': False,
-                            'rental_id': rental.id,
-                            'message': error_msg,
-                            'code': 'EXTERNAL_SERVICE_ERROR',
-                            'waybill_no': None
-                        }
-                        results.append(result_item)
-                        failed_rentals.append({
-                            'id': rental.id,
-                            'reason': error_msg,
-                            'waybill_no': None
-                        })
-                        db.session.rollback()
-                        continue
-
-                    # 保存运单号和预约时间
-                    rental.ship_out_tracking_no = waybill_no
-                    rental.scheduled_ship_time = scheduled_time
-                    rental.status = 'scheduled_for_shipping'
+                        rental, scheduled_time=scheduled_time,
+                        client_order_id=sf_client_order_id_for(rental), **kwargs)
+                    if not sf_result.get('success') or not sf_result.get('waybill_no'):
+                        raise RuntimeError('顺丰服务调用失败')
+                    waybill_no = sf_result['waybill_no']
+                    for member in members:
+                        member.ship_out_tracking_no = waybill_no
+                        member.scheduled_ship_time = scheduled_time
+                        member.status = 'scheduled_for_shipping'
                     db.session.commit()
-
-                    success_count += 1
-                    result_item = {
-                        'success': True,
-                        'rental_id': rental.id,
-                        'message': '预约发货成功',
-                        'waybill_no': waybill_no
-                    }
-                    results.append(result_item)
-                except ConfigurationIncomplete:
+                    shipment_count += 1
+                    results.extend({'success': True, 'rental_id': i, 'message': '预约发货成功',
+                                    'waybill_no': waybill_no, 'parcel_rental_ids': ids} for i in ids)
+                except Exception as exc:
                     db.session.rollback()
-                    code = 'CONFIG_INCOMPLETE'
-                    message = '租赁或仓库顺丰配置不完整'
-                    result_item = {
-                        'success': False, 'rental_id': rental.id,
-                        'message': message, 'code': code,
-                        'waybill_no': None,
-                    }
-                    results.append(result_item)
-                    failed_rentals.append({
-                        'id': rental.id, 'reason': message,
-                        'code': code, 'waybill_no': None,
-                    })
-                except WarehouseMismatchError as exc:
-                    db.session.rollback()
-                    code = 'WAREHOUSE_MISMATCH'
-                    result_item = {
-                        'success': False, 'rental_id': rental.id,
-                        'message': str(exc), 'code': code,
-                        'waybill_no': None,
-                    }
-                    results.append(result_item)
-                    failed_rentals.append({
-                        'id': rental.id, 'reason': str(exc),
-                        'code': code, 'waybill_no': None,
-                    })
-                except ValueError as exc:
-                    db.session.rollback()
-                    result_item = {
-                        'success': False, 'rental_id': rental.id,
-                        'message': str(exc), 'waybill_no': None,
-                    }
-                    results.append(result_item)
-                    failed_rentals.append({
-                        'id': rental.id, 'reason': str(exc),
-                        'waybill_no': None,
-                    })
-                except Exception as e:
-                    db.session.rollback()
-                    current_app.logger.error(
-                        f"Rental {rental.id} 顺丰下单异常: {type(e).__name__}"
-                    )
-                    result_item = {
-                        'success': False,
-                        'rental_id': rental.id,
-                        'message': '顺丰服务调用失败',
-                        'code': 'EXTERNAL_SERVICE_ERROR',
-                        'waybill_no': None
-                    }
-                    results.append(result_item)
-                    failed_rentals.append({
-                        'id': rental.id,
-                        'reason': '顺丰服务调用失败',
-                        'code': 'EXTERNAL_SERVICE_ERROR',
-                        'waybill_no': None
-                    })
-
-            current_app.logger.info(f"预约发货完成: 成功 {success_count} 个, 失败 {len(failed_rentals)} 个")
-
-            return success(data={
-                'scheduled_count': success_count,
-                'failed_rentals': failed_rentals,
-                'results': results
-            })
+                    code = 'EXTERNAL_SERVICE_ERROR'
+                    message = '顺丰服务调用失败'
+                    if isinstance(exc, ConfigurationIncomplete):
+                        code, message = 'CONFIG_INCOMPLETE', '仓库发货配置或收件信息不完整'
+                    elif isinstance(exc, WarehouseMismatchError):
+                        code, message = 'WAREHOUSE_MISMATCH', str(exc)
+                    elif isinstance(exc, ValueError):
+                        code, message = 'VALIDATION_ERROR', str(exc)
+                    current_app.logger.warning('批量预约失败: %s', type(exc).__name__)
+                    results.extend({'success': False, 'rental_id': i, 'message': message,
+                                    'code': code, 'waybill_no': None} for i in ids)
+            failed = [{'id': r['rental_id'], 'reason': r['message'], 'code': r.get('code'), 'waybill_no': None}
+                      for r in results if not r['success']]
+            return success(data={'scheduled_count': sum(r['success'] for r in results),
+                                 'shipment_count': shipment_count, 'failed_rentals': failed, 'results': results})
 
         except Exception as e:
             current_app.logger.error(
@@ -384,6 +262,7 @@ class ShippingBatchHandlers:
             # 构建响应数据
             response_data = {
                 'total': result['total'],
+                'parcel_count': result.get('parcel_count', result['total']),
                 'waybill_success_count': result['waybill_success_count'],
                 'failed_count': result['failed_count'],
                 'results': result['results']

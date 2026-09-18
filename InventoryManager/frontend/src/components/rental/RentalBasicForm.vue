@@ -45,8 +45,10 @@
 
     <!-- 日期信息 -->
     <el-form-item label="开始日期">
-      <el-input :value="rental.start_date" disabled />
-      <div class="form-tip">开始日期不可修改</div>
+      <VueDatePicker v-model="form.startDate" placeholder="选择开始日期"
+        format="yyyy-MM-dd" :enable-time-picker="false" :clearable="false"
+        :max-date="form.endDate || undefined" auto-apply />
+      <div class="form-tip">修改后会检查设备和附件档期，请同时核对寄出时间</div>
     </el-form-item>
 
     <el-form-item label="结束日期" prop="endDate">

@@ -13,7 +13,7 @@
       :title="`同单已录 ${rental.booking.recorded_quantity}/${rental.booking.expected_quantity} 台 · 已发 ${rental.booking.shipped_quantity}/${rental.booking.expected_quantity} 台`" />
     <div v-if="rental?.booking" style="margin-bottom:12px">
       <div v-for="item in rental.booking.rentals" :key="item.id"><el-button v-if="item.id !== rental.id" link @click="openRelated(item.id)">查看此台</el-button> R-{{ item.id }} · {{ item.device_name }} · {{ item.rental_package_name || (item.lens_combo === 'bare' ? '裸机' : item.lens_combo === 'lens_200mm' ? '200mm 镜头' : item.lens_combo === 'lens_dual' ? '双镜头' : '400mm 镜头') }}</div>
-      <small>每台独立验货、归还。订单公共信息和分摊金额保持一致。</small>
+      <small>每台可独立调整开始日期、寄出时间，并独立验货、归还。</small>
     </div>
     <div v-if="rental?.booking?.expected_quantity === 2 && rental.booking.recorded_quantity === 1" style="margin-bottom:12px">
       <el-input v-model="reductionReason" placeholder="客户减租原因（如需补齐，请从预约入口查看同单）" />
@@ -215,6 +215,7 @@ const dialogVisible = computed({
 // Form State
 const form = ref({
   deviceId: 0,
+  startDate: null as Date | null,
   endDate: null as Date | null,
   customerPhone: '',
   destination: '',
@@ -249,7 +250,7 @@ const queryingShipOut = ref(false)
 const queryingShipIn = ref(false)
 const deviceConflictChecked = ref(false)
 const accessoryConflictChecked = ref(false)
-const currentStartDate = ref('')
+const currentStartDate = computed(() => form.value.startDate ? dayjs(form.value.startDate).format('YYYY-MM-DD') : '')
 const initialScheduleSnapshot = ref('')
 
 // Form Rules
@@ -257,8 +258,7 @@ const rules = getEditRentalRules()
 
 // Computed
 const minSelectableDate = computed(() => {
-  if (!props.rental) return null
-  return new Date(props.rental.start_date)
+  return form.value.startDate
 })
 
 const selectedLogisticsDays = computed<number | null>(() => {
@@ -379,6 +379,7 @@ const handleSubmit = async () => {
 
     const updateData = {
       device_id: form.value.deviceId,
+      start_date: dayjs(form.value.startDate).format('YYYY-MM-DD'),
       end_date: dayjs(form.value.endDate).format('YYYY-MM-DD'),
       customer_phone: form.value.customerPhone,
       destination: form.value.destination,
@@ -630,7 +631,6 @@ const initForm = async () => {
 
     const latestRental = await loadLatestRentalData()
     const rentalData = latestRental || props.rental
-    currentStartDate.value = rentalData.start_date
 
     // 从 API 响应转换为 UI 格式
     const bundledAccessories: ('handle' | 'lens_mount')[] = []
@@ -665,6 +665,7 @@ const initForm = async () => {
 
     form.value = {
       deviceId: rentalData.device_id,
+      startDate: new Date(rentalData.start_date),
       endDate: new Date(rentalData.end_date),
       customerPhone: rentalData.customer_phone || '',
       destination: rentalData.destination || '',

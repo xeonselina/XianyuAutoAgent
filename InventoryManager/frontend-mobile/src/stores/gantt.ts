@@ -59,6 +59,8 @@ export interface Device {
 }
 
 export interface Rental {
+  shipping_group_id?: string
+  shipping_group_size?: number
   booking?: {
     id: number; expected_quantity: number; recorded_quantity: number; shipped_quantity: number; total_amount: number | null;
     rentals: { id: number; device_id: number; device_name: string; lens_combo: string; status: string; rental_package_name?: string | null; rental_package_items?: { name: string; qty: number }[];

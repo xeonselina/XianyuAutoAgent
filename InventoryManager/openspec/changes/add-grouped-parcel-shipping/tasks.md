@@ -1,0 +1,5 @@
+- [x] 1. Add parcel grouping and one carrier reservation per group.
+- [x] 2. Deduplicate address labels and print individual contents pages.
+- [x] 3. Display groups on desktop and mobile.
+- [x] 4. Enable start-date and ship-out-time editing.
+- [x] 5. Run only targeted smoke tests and frontend type checks as requested.

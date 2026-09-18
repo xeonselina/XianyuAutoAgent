@@ -42,12 +42,14 @@
     <!-- 卡片列表 -->
     <div class="card-list" v-if="!loading">
       <van-empty v-if="!filteredRentals.length" description="暂无发货单" />
-      <BatchShippingCard
-        v-for="rental in filteredRentals"
-        :key="rental.id"
-        :rental="rental"
-        v-model="checkedIds[rental.id]"
-      />
+      <section v-for="group in shipmentGroups" :key="group.id" class="shipment-group">
+        <div style="padding:12px; font-weight:600">
+          {{ group.rentals.length }} 台 / 1 票 · 同组勾选设备合单预约
+          <van-button size="mini" style="margin-left:8px" @click="toggleGroup(group.rentals)">选择整组</van-button>
+        </div>
+        <BatchShippingCard v-for="rental in group.rentals" :key="rental.id"
+          :rental="rental" v-model="checkedIds[rental.id]" />
+      </section>
     </div>
 
     <div class="loading-center" v-else>
@@ -173,6 +175,20 @@ const selectedIds = computed(() => {
     .map(rental => rental.id)
 })
 
+const shipmentGroups = computed(() => {
+  const groups = new Map<string, Rental[]>()
+  for (const rental of filteredRentals.value) {
+    const key = rental.shipping_group_id || `r-${rental.id}`
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(rental)
+  }
+  return [...groups].map(([id, rentals]) => ({ id, rentals }))
+})
+const toggleGroup = (rows: Rental[]) => {
+  const select = !rows.filter(isSelectableRental).every(r => checkedIds[r.id])
+  rows.filter(isSelectableRental).forEach(r => { checkedIds[r.id] = select })
+}
+
 const selectedCount = computed(() => selectedIds.value.length)
 const allSelected = computed(() =>
   filteredRentals.value.some(isSelectableRental) &&
@@ -283,7 +299,9 @@ const onSchedule = async () => {
       scheduled_time: scheduledTime.value
     })
     if (res.data.success) {
-      showToast({ message: '预约发货成功', type: 'success' })
+      const data = res.data.data
+      const failed = data.failed_rentals?.length || 0
+      showToast({ message: `已预约 ${data.shipment_count ?? data.scheduled_count} 票，${data.scheduled_count} 台；失败 ${failed} 台`, type: failed ? 'fail' : 'success' })
       await onQuery()
     } else {
       showToast({ message: res.data.error || '预约失败', type: 'fail' })
@@ -315,7 +333,8 @@ const onPrint = async () => {
   try {
     const res = await axios.post('/api/shipping-batch/print-waybills', { rental_ids: selectedIds.value })
     if (res.data.success) {
-      showToast({ message: '打印任务已提交', type: 'success' })
+      const data = res.data.data
+      showToast({ message: `地址联 ${data.waybill_success_count} 张，内容联 ${data.slip_success_count} 张；失败 ${data.failed_count} 台`, type: data.failed_count ? 'fail' : 'success' })
     } else {
       showToast({ message: res.data.error || '打印失败', type: 'fail' })
     }

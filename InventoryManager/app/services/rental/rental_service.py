@@ -822,7 +822,7 @@ class RentalService:
             if not rental:
                 raise ValueError('租赁记录不存在')
             if rental.booking_id:
-                for field in ('xianyu_order_no', 'xianyu_shop_id', 'warehouse_id', 'start_date', 'end_date', 'ship_out_time', 'ship_in_time', 'customer_name', 'customer_phone', 'destination', 'order_amount'):
+                for field in ('xianyu_order_no', 'xianyu_shop_id', 'warehouse_id', 'end_date', 'ship_in_time', 'customer_name', 'customer_phone', 'destination', 'order_amount'):
                     if field not in data:
                         continue
                     current = getattr(rental, field)

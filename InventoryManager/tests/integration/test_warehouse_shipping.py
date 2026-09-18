@@ -456,3 +456,63 @@ def test_schedule_rolls_back_only_failed_rental_commit(app, shipping_case, monke
     results = response.get_json()["data"]["results"]
     assert results[0]["code"] == "EXTERNAL_SERVICE_ERROR"
     assert results[1]["success"] is True
+
+
+def test_same_recipient_parcel_schedule_print_and_retry(app, shipping_case, monkeypatch):
+    """Two machines reserve once and print address + contents + contents."""
+    from app.services.shipping.waybill_print_service import WaybillPrintService
+    calls, printed = [], []
+    with app.app_context():
+        first, second = [db.session.get(Rental, i) for i in shipping_case['rentals']]
+        second.warehouse_id = first.warehouse_id
+        second.device.warehouse_id = first.warehouse_id
+        second.destination = first.destination
+        second.customer_phone = first.customer_phone
+        db.session.commit()
+    monkeypatch.setattr(SFExpressService, 'create_order', lambda self, data: (
+        calls.append(data) or {'success': True, 'waybill_no': 'SF-COMBINED'}))
+    payload = {'rental_ids': shipping_case['rentals'], 'scheduled_time': '2026-10-01T10:00:00'}
+    response = _tenant_request(app, 'post', '/api/shipping-batch/schedule', json=payload).json['data']
+    assert response['scheduled_count'] == 2 and response['shipment_count'] == 1
+    assert len(calls) == 1 and calls[0]['cargoDetails'][0]['count'] == 2
+    assert '2 台' in calls[0]['cargoDetails'][0]['name']
+    assert {r['waybill_no'] for r in response['results']} == {'SF-COMBINED'}
+    retry = _tenant_request(app, 'post', '/api/shipping-batch/schedule', json=payload).json['data']
+    assert retry['scheduled_count'] == 0 and len(calls) == 1
+    monkeypatch.setattr(WaybillPrintService, 'print_single_waybill', lambda self, i: (
+        printed.append(('address', i)) or {'success': True, 'job_ids': ['label']}))
+    monkeypatch.setattr(WaybillPrintService, '_print_single_shipping_slip', lambda self, i, *args: (
+        printed.append(('contents', i)) or {'success': True, 'job_id': str(i)}))
+    # Selecting even one member prints the complete confirmed parcel.
+    result = _tenant_request(app, 'post', '/api/shipping-batch/print-waybills', json={
+        'rental_ids': [shipping_case['rentals'][1]], 'include_shipping_slips': True}).json['data']
+    assert result['parcel_count'] == 1 and result['slip_success_count'] == 2
+    assert result['waybill_success_count'] == 1 and result['failed_count'] == 0
+    assert [kind for kind, _ in printed] == ['address', 'contents', 'contents']
+    assert {i for kind, i in printed if kind == 'contents'} == set(shipping_case['rentals'])
+    labels = []
+    monkeypatch.setattr(SFExpressSDK, '_call_sf_express_service', lambda self, method, data: (
+        labels.append(data) or {'apiResultCode': 'ERROR'}))
+    from app.services.integration_resolver import IntegrationResolver
+    with app.app_context():
+        first = db.session.get(Rental, shipping_case['rentals'][0])
+        IntegrationResolver().sf_for_rental(first).get_waybill_pdf(first)
+    assert '机器共 2 台' in labels[0]['documents'][0]['remark']
+
+
+def test_parcel_grouping_boundaries(app, shipping_case):
+    from app.services.shipping.shipment_group_service import group_shipments
+    with app.app_context():
+        first, second = [db.session.get(Rental, i) for i in shipping_case['rentals']]
+        second.destination = first.destination
+        second.customer_phone = first.customer_phone
+        assert len(group_shipments([first, second])) == 2  # different warehouse
+        second.warehouse_id = first.warehouse_id
+        assert len(group_shipments([first, second])) == 1
+        for field, value in [('customer_phone', '13911112222'), ('destination', 'other address'),
+                             ('express_type_id', 263), ('start_date', first.start_date + timedelta(days=1))]:
+            original = getattr(second, field)
+            setattr(second, field, value)
+            assert len(group_shipments([first, second])) == 2
+            setattr(second, field, original)
+        assert len(group_shipments([first, second], [second.id])) == 2  # relay

@@ -331,13 +331,12 @@ class ShippingSlipImageService:
 
             y = self._draw_section_separator(draw, y)
 
-            if rental.booking:
-                info = rental.booking.to_dict()
-                y = self._draw_info_row(draw, y, "同单:", f"已录 {info['recorded_quantity']}/{info['expected_quantity']} 台（逐台核对）")
-                for row in info['rentals']:
-                    y = self._draw_info_row(draw, y, f"R-{row['id']}:", ' / '.join([row['device_name'], row.get('rental_package_name') or lens_combo_display(row['lens_combo']),
-                        *(['手柄'] if row['includes_handle'] else []),
-                        *(['镜头支架'] if row['includes_lens_mount'] else []), *row['accessories']]))
+            from app.services.shipping.shipment_group_service import parcel_members
+            members = parcel_members(rental)
+            position = next((i for i, row in enumerate(members, 1) if row.id == rental.id), 1)
+            y = self._draw_info_row(draw, y, "包裹:", f"第 {position}/{len(members)} 台 · R-{rental.id}")
+            if rental.ship_out_tracking_no:
+                y = self._draw_info_row(draw, y, "运单:", rental.ship_out_tracking_no)
 
             # 4. 归还时间（租期结束日期 + 1天）
             if rental.end_date:

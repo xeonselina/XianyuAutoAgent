@@ -267,3 +267,28 @@ def test_two_custom_packages_keep_independent_snapshots(case):
     assert rows[0]['rental_package_items'] == []
     assert rows[1]['rental_package_items'] == [{'name': '400mm 镜头', 'qty': 1}]
     assert [r['rental_package_name'] for r in rows[0]['booking']['rentals']] == ['裸机套餐', '400mm 套餐']
+
+
+def test_edit_booking_machine_start_and_shipping_dates(case):
+    from datetime import datetime
+    client, payload, _ = case
+    rows = client.post('/api/rentals', json=payload).json['data']['main_rentals']
+    first, second = [db.session.get(Rental, r['id']) for r in rows]
+    other_start = second.start_date
+    new_start = first.start_date - timedelta(days=1)
+    new_ship = datetime.combine(new_start - timedelta(days=2), datetime.min.time())
+    response = client.put(f'/web/rentals/{first.id}', json={
+        'warehouse_id': first.warehouse_id, 'start_date': new_start.isoformat(),
+        'ship_out_time': new_ship.isoformat(),
+    })
+    assert response.status_code == 200, response.json
+    db.session.refresh(first)
+    db.session.refresh(second)
+    assert first.start_date == new_start and first.ship_out_time == new_ship
+    assert second.start_date == other_start
+    invalid = client.put(f'/web/rentals/{first.id}', json={
+        'warehouse_id': first.warehouse_id, 'start_date': (first.end_date + timedelta(days=1)).isoformat(),
+    })
+    assert invalid.status_code == 400
+    db.session.refresh(first)
+    assert first.start_date == new_start

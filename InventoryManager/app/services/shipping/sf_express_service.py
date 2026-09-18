@@ -46,7 +46,7 @@ class SFExpressService:
         )
 
     def place_shipping_order(
-        self, rental, scheduled_time, client_order_id=None
+        self, rental, scheduled_time, client_order_id=None, machine_count=1
     ) -> Dict:
         """
         下速运订单
@@ -85,9 +85,9 @@ class SFExpressService:
             # 使用正则表达式提取收货人、手机号码、收货地址
 
             destination_info = self._parse_destination(rental.destination)
-            receiver_name = destination_info.get('name', rental.customer_name)
-            receiver_phone = destination_info.get('phone', rental.customer_phone)
-            receiver_address = destination_info.get('address', rental.destination)
+            receiver_name = destination_info.get('name') or rental.customer_name
+            receiver_phone = destination_info.get('phone') or rental.customer_phone
+            receiver_address = destination_info.get('address') or rental.destination
 
             # 格式化预约发货时间为 YYYY-MM-DD HH24:MM:SS
             send_start_tm = scheduled_time.strftime('%Y-%m-%d %H:%M:%S')
@@ -104,8 +104,8 @@ class SFExpressService:
                 'orderId': client_order_id,
                 'cargoDetails': [
                     {
-                        'name': rental.device.device_model.name if rental.device and rental.device.device_model else '租赁设备',
-                        'count': 1
+                        'name': f'租赁设备共 {machine_count} 台' if machine_count > 1 else (rental.device.device_model.name if rental.device and rental.device.device_model else '租赁设备'),
+                        'count': machine_count
                     }
                 ],
                 'monthlyCard': str(self.monthly_card),
@@ -250,12 +250,14 @@ class SFExpressService:
                 }
             # 解析目的地信息
             destination_info = self._parse_destination(rental.destination)
-            receiver_name = destination_info.get('name', rental.customer_name)
-            receiver_phone = destination_info.get('phone', rental.customer_phone)
-            receiver_address = destination_info.get('address', rental.destination)
+            receiver_name = destination_info.get('name') or rental.customer_name
+            receiver_phone = destination_info.get('phone') or rental.customer_phone
+            receiver_address = destination_info.get('address') or rental.destination
 
             # 构建备注信息
-            remark = f"客户名：{rental.customer_name}| "
+            from app.services.shipping.shipment_group_service import parcel_members
+            members = parcel_members(rental)
+            remark = f"寄出物：机器共 {len(members)} 台| 客户名：{rental.customer_name}| "
 
             # 添加设备信息
             if rental.device:
@@ -355,7 +357,8 @@ class SFExpressService:
                 'message': '顺丰服务调用失败'
             }
 
-    def _parse_destination(self, destination: str) -> Dict[str, str]:
+    @staticmethod
+    def _parse_destination(destination: str) -> Dict[str, str]:
         """
         解析目的地字符串，提取收货人、手机号码和收货地址
 

@@ -758,11 +758,18 @@ class RentalHandlers:
                 for binding in relay_bindings
             }
 
+            from app.services.shipping.shipment_group_service import group_shipments
+            shipping_groups = group_shipments(rentals, relay_by_successor)
+            group_info = {r.id: {'shipping_group_id': f'parcel-{group[0].id}',
+                                'shipping_group_size': len(group)}
+                          for group in shipping_groups for r in group}
+            rentals = [r for group in shipping_groups for r in group]
             # 构建响应数据，包含上一单状态
             rentals_data = []
             for rental in rentals:
                 rental_dict = rental.to_dict()
                 relay_binding = relay_by_successor.get(rental.id)
+                rental_dict.update(group_info[rental.id])
                 rental_dict['is_relay_shipping'] = relay_binding is not None
                 rental_dict['relay_predecessor_rental_id'] = (
                     relay_binding.predecessor_rental_id

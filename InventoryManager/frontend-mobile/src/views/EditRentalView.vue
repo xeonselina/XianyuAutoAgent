@@ -56,7 +56,8 @@
         <!-- 租赁信息 -->
         <van-cell-group inset title="租赁信息" style="margin-top:12px">
           <!-- 设备型号（只读显示） -->
-          <van-cell title="起租日" :value="form.startDate" />
+          <van-field v-model="form.startDate" label="起租日" type="date" required
+            :rules="[{ required: true, message: '请选择起租日' }]" />
 
           <!-- 还租日（可编辑） -->
           <van-field
@@ -805,6 +806,7 @@ const onSubmit = async () => {
       destination: form.value.destination,
       xianyu_order_no: form.value.xianyuOrderNo || undefined,
       order_amount: form.value.orderAmount ? parseFloat(form.value.orderAmount) : undefined,
+      start_date: form.value.startDate,
       end_date: form.value.endDate,
       device_id: form.value.deviceId,
       logistics_days: form.value.logisticsDays,

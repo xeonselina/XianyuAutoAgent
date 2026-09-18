@@ -76,7 +76,7 @@
         style="width: 100%"
         @update:model-value="handleShipOutTimeChange"
       />
-      <div class="form-tip">设备寄出的具体时间</div>
+      <div class="form-tip">设备寄出的具体时间；修改此处不会改动已预约的快递取件时间</div>
     </el-form-item>
 
     <el-form-item label="收回时间" prop="shipInTime">
