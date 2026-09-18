@@ -634,7 +634,7 @@ fi
             )
             validate_playwright_report(
                 reports_directory / "mock.json",
-                expected_count=27,
+                expected_count=28,
                 process_exit_code=read_playwright_exit_code(
                     reports_directory / "mock.status"
                 ),

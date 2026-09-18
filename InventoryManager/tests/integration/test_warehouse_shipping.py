@@ -516,3 +516,92 @@ def test_parcel_grouping_boundaries(app, shipping_case):
             assert len(group_shipments([first, second])) == 2
             setattr(second, field, original)
         assert len(group_shipments([first, second], [second.id])) == 2  # relay
+
+
+@pytest.mark.parametrize('machine_count', [1, 2, 3])
+def test_parcel_pdf_pipeline_without_upload(app, shipping_case, monkeypatch, tmp_path, machine_count):
+    """Run real PDF conversion and slip rendering; capture the printer boundary."""
+    import base64
+    from io import BytesIO
+    from pathlib import Path
+    from PIL import Image, ImageDraw, ImageFont
+    from pdf2image import pdfinfo_from_bytes
+    from app.services.printing.shipping_slip_image_service import shipping_slip_image_service
+
+    with app.app_context():
+        first = db.session.get(Rental, shipping_case['rentals'][0])
+        first.destination = '测试收件人 13900139001 广东省深圳市南山区测试路一号'
+        first.customer_name = '测试收件人'
+        first.rental_package_name = '裸机'
+        first.ship_out_tracking_no = 'SF-TEST-PARCEL'
+        first.status = 'scheduled_for_shipping'
+        ids = [first.id]
+        for index in range(1, machine_count):
+            device = Device(name=f'测试机器{index + 1}', model='x200u', warehouse_id=first.warehouse_id)
+            db.session.add(device)
+            db.session.flush()
+            row = Rental(device_id=device.id, warehouse_id=first.warehouse_id,
+                         start_date=first.start_date, end_date=first.end_date,
+                         customer_name=first.customer_name, customer_phone=first.customer_phone,
+                         destination=first.destination, status=first.status,
+                         rental_package_name=f'{index * 200}mm 镜头',
+                         ship_out_tracking_no=first.ship_out_tracking_no)
+            db.session.add(row)
+            db.session.flush()
+            ids.append(row.id)
+        db.session.commit()
+
+    pages, requests, content_fields = [], [], []
+    address_pdf = BytesIO()
+    font = ImageFont.truetype(str(Path(__file__).resolve().parents[2] / 'static/fonts/WenQuanYiMicroHei.ttf'), 25)
+
+    def sf_pdf_response(self, method, data):
+        assert method == 'COM_RECE_CLOUD_PRINT_WAYBILLS'
+        requests.append(data)
+        # An explicit synthetic carrier PDF: no real booking/HTTP request.
+        sheet = Image.new('RGB', (607, 1039), 'white')
+        draw = ImageDraw.Draw(sheet)
+        lines = ['地址联测试样本（非真实运单）', 'SF-TEST-PARCEL', '测试收件人 13900139001',
+                 '广东省深圳市南山区测试路一号', *data['documents'][0]['remark'].split('|')]
+        y = 35
+        for line in lines:
+            for start in range(0, len(line), 20):
+                draw.text((25, y), line[start:start + 20], fill='black', font=font)
+                y += 38
+        sheet.save(address_pdf, format='PDF', resolution=203)
+        return {'apiResultCode': 'A1000', 'apiResultData': {'success': True, 'obj': {
+            'files': [{'url': 'https://example.invalid/fixture.pdf', 'token': 'fixture'}]}}}
+
+    def capture(self, base64_image, **kwargs):
+        frame = Image.open(BytesIO(base64.b64decode(base64_image))).convert('RGB')
+        assert frame.width > 500 and frame.height > 500
+        assert frame.getextrema()[0][0] == 0  # not a blank page
+        pages.append(frame.resize((607, 1039)))
+        return {'success': True, 'job_id': f'captured-{len(pages)}'}
+
+    original_draw = shipping_slip_image_service._draw_info_row
+
+    def record_field(draw, y, label, value, *args, **kwargs):
+        content_fields.append((label, value))
+        return original_draw(draw, y, label, value, *args, **kwargs)
+
+    monkeypatch.setattr(SFExpressSDK, '_call_sf_express_service', sf_pdf_response)
+    monkeypatch.setattr(SFExpressService, '_download_pdf', lambda *args: address_pdf.getvalue())
+    monkeypatch.setattr(KuaimaiPrintService, 'print_image', capture)
+    monkeypatch.setattr(shipping_slip_image_service, '_draw_info_row', record_field)
+    response = _tenant_request(app, 'post', '/api/shipping-batch/print-waybills', json={
+        'rental_ids': [ids[-1], ids[-1]], 'include_shipping_slips': True})
+    result = response.json['data']
+    assert result['failed_count'] == 0, result
+    assert result['waybill_success_count'] == 1 and result['slip_success_count'] == machine_count
+    assert len(requests) == 1 and len(pages) == machine_count + 1
+    assert f'机器共 {machine_count} 台' in requests[0]['documents'][0]['remark']
+    assert [value for label, value in content_fields if label == '组合:'] == (
+        ['裸机'] + [f'{i * 200}mm 镜头' for i in range(1, machine_count)])
+    assert [value for label, value in content_fields if label == '包裹:'] == [
+        f'第 {i}/{machine_count} 台 · R-{rental_id}' for i, rental_id in enumerate(ids, 1)]
+    target = Path(os.environ.get('PARCEL_PDF_OUTPUT', str(tmp_path)))
+    target.mkdir(parents=True, exist_ok=True)
+    output = target / f'grouped-parcel-{machine_count}.pdf'
+    pages[0].save(output, format='PDF', save_all=True, append_images=pages[1:], resolution=203)
+    assert pdfinfo_from_bytes(output.read_bytes())['Pages'] == machine_count + 1

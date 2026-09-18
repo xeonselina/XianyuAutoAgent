@@ -21,9 +21,9 @@
       </div>
       <div class="content-section">
         <!-- 页眉 -->
+        <div class="tenant-name">{{ authStore.tenant?.name }}</div>
         <div class="header-section">
           <div class="header-content">
-            <img src="/src/assets/logo.jpg" alt="光影租界" class="logo" />
             <h2><el-icon><Document /></el-icon> 出货单</h2>
           </div>
           <!-- Barcode for Rental ID -->
@@ -181,6 +181,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useGanttStore, type Rental } from '../stores/gantt'
 import { resolveWarehouseReturnContact, useTenantStore } from '@/stores/tenant'
+import { useAuthStore } from '@/stores/auth'
 import { rentalPackageDisplay, rentalProductLines } from '../config/rentalPackage'
 import dayjs from 'dayjs'
 
@@ -188,6 +189,7 @@ const router = useRouter()
 const route = useRoute()
 const ganttStore = useGanttStore()
 const tenantStore = useTenantStore()
+const authStore = useAuthStore()
 
 // 响应式状态
 const rental = ref<Rental | null>(null)
@@ -425,14 +427,12 @@ onMounted(async () => {
   font-weight: bold;
 }
 
-.logo {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  height: 50px;
-  width: auto;
-  filter: brightness(1.2) contrast(1.1);
+.tenant-name {
+  text-align: center;
+  font-size: 22px;
+  font-weight: bold;
+  overflow-wrap: anywhere;
+  margin-bottom: 8px;
 }
 
 .header-section h1 {
@@ -728,11 +728,6 @@ onMounted(async () => {
   
   .sf-express {
     font-size: 24px;
-  }
-
-  .logo {
-    height: 40px;
-    filter: brightness(1) contrast(1);
   }
 
   .qr-codes-section {

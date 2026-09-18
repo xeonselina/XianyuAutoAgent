@@ -80,6 +80,20 @@ describe('RentalBasicForm.vue Component', () => {
     vi.mocked(axios.post).mockClear()
   })
 
+  it('allows changing the rental start date through its date picker', async () => {
+    const form = { ...mockForm, startDate: new Date('2026-05-19') }
+    const wrapper = mount(RentalBasicForm, {
+      props: { form, rental: mockRental, availableDevices: mockDevices, loadingDevices: false, minSelectableDate: null },
+      global: { stubs: { 'el-form-item': { template: '<div><slot /></div>' }, 'el-select': true, 'el-option': true, 'el-input': true, 'el-button': true, 'el-tag': true } },
+    })
+    const picker = wrapper.findAllComponents({ name: 'VueDatePicker' })[0]!
+    const revised = new Date('2026-05-18')
+    picker.vm.$emit('update:modelValue', revised)
+    await wrapper.vm.$nextTick()
+    expect(form.startDate).toEqual(revised)
+    expect(wrapper.text()).not.toContain('开始日期不可修改')
+  })
+
   describe('Rendering', () => {
     it('should render form with device select', () => {
       const wrapper = mount(RentalBasicForm, {

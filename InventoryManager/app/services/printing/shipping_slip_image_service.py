@@ -10,6 +10,7 @@ from typing import Optional
 from datetime import timedelta
 
 from PIL import Image, ImageDraw, ImageFont
+from flask import g
 
 from app.models import Rental
 from app.services.printing.rental_product_lines import rental_package_display
@@ -293,13 +294,18 @@ class ShippingSlipImageService:
 
             y = self.padding
 
-            # 1. 订单号部分
-            order_text = f"光影租界: R-{rental.id}"
-            bbox = self.font_large.getbbox(order_text)
-            text_width = bbox[2] - bbox[0]
-            x_centered = (self.width_px - text_width) // 2
-            draw.text((x_centered, y), order_text, fill='black', font=self.font_large)
-            y += bbox[3] - bbox[1] + 15
+            # 每次从已认证的请求上下文读取，不能在全局服务中缓存租户名称。
+            tenant_name = (getattr(getattr(g, 'tenant', None), 'name', '') or '').strip()
+            header_lines = self._wrap_text(
+                tenant_name or '发货单', self.font_large,
+                self.width_px - 2 * self.padding,
+            )
+            for order_text in [*header_lines, f"R-{rental.id}"]:
+                bbox = self.font_large.getbbox(order_text)
+                text_width = bbox[2] - bbox[0]
+                x_centered = (self.width_px - text_width) // 2
+                draw.text((x_centered, y), order_text, fill='black', font=self.font_large)
+                y += bbox[3] - bbox[1] + 15
 
             y = self._draw_section_separator(draw, y)
 

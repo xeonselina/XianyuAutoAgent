@@ -19,6 +19,7 @@ test.describe('Edit Rental — damage note', () => {
       },
       start_date: '2026-08-01',
       end_date: '2026-08-05',
+      ship_out_time: '2026-07-29T09:00:00',
       customer_name: '测试客户',
       customer_phone: '13800138000',
       destination: '测试地址',
@@ -51,9 +52,12 @@ test.describe('Edit Rental — damage note', () => {
     await expect(damageField).toHaveValue('屏幕右下角碎裂')
     await expect(page.getByTestId('damage-note-warning')).toContainText('已记录用户损坏反馈')
 
+    await page.locator('input[type="date"]').fill('2026-07-31')
     await damageField.fill('镜头卡口松动')
     await page.getByTestId('save-rental').click()
 
     await expect.poll(() => updateBody?.damage_note).toBe('镜头卡口松动')
+    expect(updateBody?.start_date).toBe('2026-07-31')
+    expect(updateBody?.ship_out_time).toBe('2026-07-29T09:00:00')
   })
 })
