@@ -124,19 +124,13 @@
           <!-- 入库时间（只读） -->
           <van-cell title="入库时间" :value="shipInDisplay" />
 
-          <!-- 可用设备 -->
-          <van-field
-            v-model="selectedDeviceName"
-            readonly
-            clickable
-            label="可用设备"
-            :placeholder="availableSlots.length ? '请选择' : '先选择日期和型号'"
-            @click="availableSlots.length && (showDevicePicker = true)"
-          >
-            <template #right-icon>
-              <van-loading v-if="checkingSlots" size="16" />
-            </template>
-          </van-field>
+          <BookingDeviceSelector
+            :name="selectedDeviceName"
+            :loading="checkingSlots && searchingTarget === 0"
+            :can-search="!!form.startDate && !!form.endDate && !!form.modelId"
+            @open="openDevicePicker()"
+            @search="findDeviceSlot()"
+          />
         </van-cell-group>
 
         <!-- 型号租赁组合 -->
@@ -197,43 +191,43 @@
         </van-cell-group>
 
         <van-cell-group inset title="同单设备" style="margin-top:12px">
-          <van-cell v-if="form.xianyuOrderNo" title="查看已录设备 / 补齐第 2 台" is-link @click="loadBookingContext" />
-          <van-notice-bar v-if="appendToRentalId" text="补齐第 2 台：沿用原单租期和收件信息，订单金额自动分摊。" />
-          <van-cell v-else :title="secondDevice ? '移除第 2 台' : '＋ 添加第 2 台'" is-link @click="toggleSecondDevice" />
+          <van-cell v-if="form.xianyuOrderNo" title="查看已录设备 / 补齐设备" is-link @click="loadBookingContext" />
+          <van-notice-bar v-if="appendToRentalId" text="补齐设备：沿用原单租期和收件信息，订单金额自动分摊。" />
+          <van-cell :title="`＋ 添加第 ${additionalDevices.length + 2} 台`" is-link @click="addDevice" />
         </van-cell-group>
-        <van-cell-group v-if="secondDevice" inset title="第 2 台 · 同型号、同租期、同地址" style="margin-top:12px">
-          <van-field label="实际设备">
-            <template #input>
-              <select v-model="secondDevice.device_id" aria-label="第 2 台设备">
-                <option :value="null" disabled>请选择另一台设备</option>
-                <option v-for="slot in availableSlots" :key="slot.device.id" :value="slot.device.id" :disabled="slot.device.id === form.deviceId">{{ slot.device.name }}</option>
-              </select>
-            </template>
-          </van-field>
-          <van-cell title="配置同第 1 台" is-link @click="copySecondConfig" />
+        <van-cell-group v-for="(device, index) in additionalDevices" :key="device.key" inset :title="`第 ${index + 2} 台 · 同型号、同租期、同地址`" style="margin-top:12px">
+          <van-cell :title="`移除第 ${index + 2} 台`" is-link @click="removeDevice(device)" />
+          <BookingDeviceSelector
+            :name="availableSlots.find(slot => slot.device.id === device.device_id)?.device.name || ''"
+            :loading="checkingSlots && searchingTarget === device.key"
+            :can-search="!!form.startDate && !!form.endDate && !!form.modelId"
+            @open="openDevicePicker(device)"
+            @search="findDeviceSlot(device)"
+          />
+          <van-cell title="配置同第 1 台" is-link @click="copyDeviceConfig(device)" />
           <van-field label="镜头组合"><template #input>
-            <select v-model="secondDevice.rental_package_id" aria-label="第 2 台镜头">
+            <select v-model="device.rental_package_id" :aria-label="`第 ${index + 2} 台镜头`">
               <option v-for="combo in allowedPackages" :key="combo.id" :value="combo.id">{{ combo.name }}</option>
             </select>
           </template></van-field>
           <van-field label="随机配件"><template #input>
-            <van-checkbox v-model="secondDevice.includes_handle">手柄</van-checkbox>
-            <van-checkbox v-model="secondDevice.includes_lens_mount">镜头座</van-checkbox>
+            <van-checkbox v-model="device.includes_handle">手柄</van-checkbox>
+            <van-checkbox v-model="device.includes_lens_mount">镜头座</van-checkbox>
           </template></van-field>
           <van-field label="手机支架"><template #input>
-            <select v-model="secondDevice.phoneHolderId" aria-label="第 2 台手机支架">
+            <select v-model="device.phoneHolderId" :aria-label="`第 ${index + 2} 台手机支架`">
               <option :value="null">无</option>
-              <option v-for="a in accessories.phoneHolders" :key="a.id" :value="a.id" :disabled="a.id === form.phoneHolderId">{{ a.name }}</option>
+              <option v-for="a in accessories.phoneHolders" :key="a.id" :value="a.id" :disabled="selectedInventoryIds(device).includes(a.id)">{{ a.name }}</option>
             </select>
           </template></van-field>
           <van-field label="三脚架"><template #input>
-            <select v-model="secondDevice.tripodId" aria-label="第 2 台三脚架">
+            <select v-model="device.tripodId" :aria-label="`第 ${index + 2} 台三脚架`">
               <option :value="null">无</option>
-              <option v-for="a in accessories.tripods" :key="a.id" :value="a.id" :disabled="a.id === form.tripodId">{{ a.name }}</option>
+              <option v-for="a in accessories.tripods" :key="a.id" :value="a.id" :disabled="selectedInventoryIds(device).includes(a.id)">{{ a.name }}</option>
             </select>
           </template></van-field>
-          <van-field label="代传照片"><template #input><van-switch v-model="secondDevice.photo_transfer" size="20" /></template></van-field>
-          <van-cell title="两台一起校验和保存；订单总金额只计一次，按两台均摊。" />
+          <van-field label="代传照片"><template #input><van-switch v-model="device.photo_transfer" size="20" /></template></van-field>
+          <van-cell title="所有设备一起校验和保存；订单总金额只计一次，按设备台数均摊。" />
         </van-cell-group>
 
         <!-- 提交 -->
@@ -245,7 +239,7 @@
             :loading="submitting"
             :disabled="tenantStore.currentWarehouseId === 'all'"
             data-testid="create-rental"
-          >{{ secondDevice ? '一次预约 2 台' : appendToRentalId ? '补齐第 2 台' : '创建租赁' }}</van-button>
+          >{{ appendToRentalId ? '补齐设备' : additionalDevices.length ? `一次预约 ${additionalDevices.length + 1} 台` : '创建租赁' }}</van-button>
         </div>
       </van-form>
     </div>
@@ -268,7 +262,7 @@
         @confirm="onDeviceConfirm"
         @cancel="showDevicePicker = false"
         show-toolbar
-        title="选择可用设备"
+        title="选择设备"
       />
     </van-popup>
 
@@ -324,6 +318,7 @@
 </template>
 
 <script setup lang="ts">
+import BookingDeviceSelector from '../components/BookingDeviceSelector.vue'
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast, showConfirmDialog } from 'vant'
@@ -373,29 +368,53 @@ const form = ref({
   rentalPackageId: undefined as string | undefined,
 })
 
-const secondDevice = ref<{
-  device_id: number | null; rental_package_id: string;
+type AdditionalDevice = {
+  key: number; device_id: number | null; rental_package_id: string;
   includes_handle: boolean; includes_lens_mount: boolean; photo_transfer: boolean;
   phoneHolderId: number | null; tripodId: number | null;
-} | null>(null)
+}
+const additionalDevices = ref<AdditionalDevice[]>([])
+let nextDeviceKey = 1
+let availabilityGeneration = 0
+const searchingTarget = ref(0)
+const pickerTarget = ref<AdditionalDevice | null>(null)
 const appendToRentalId = ref<number | null>(null)
 const xianyuShops = ref<{ id: number; name: string }[]>([])
 let bookingRequestId = ''
 let bookingPayload = ''
-const copySecondConfig = () => {
-  if (!secondDevice.value) return
-  Object.assign(secondDevice.value, {
+const copyDeviceConfig = (device: AdditionalDevice) => {
+  Object.assign(device, {
     rental_package_id: rentalPackageModel.value,
     includes_handle: form.value.bundledAccessories.includes('handle'),
     includes_lens_mount: form.value.bundledAccessories.includes('lens_mount'),
     photo_transfer: form.value.photoTransfer,
   })
 }
-const toggleSecondDevice = () => {
-  if (secondDevice.value) { secondDevice.value = null; return }
-  secondDevice.value = { device_id: null, rental_package_id: rentalPackageModel.value, includes_handle: false,
-    includes_lens_mount: false, photo_transfer: false, phoneHolderId: null, tripodId: null }
-  copySecondConfig()
+const addDevice = () => {
+  if (submitting.value) return
+  const device: AdditionalDevice = { key: nextDeviceKey++, device_id: null, rental_package_id: rentalPackageModel.value,
+    includes_handle: false, includes_lens_mount: false, photo_transfer: false, phoneHolderId: null, tripodId: null }
+  copyDeviceConfig(device)
+  additionalDevices.value.push(device)
+}
+const removeDevice = (device: AdditionalDevice) => {
+  if (submitting.value) return
+  availabilityGeneration++
+  checkingSlots.value = false
+  showDevicePicker.value = false
+  additionalDevices.value = additionalDevices.value.filter(row => row.key !== device.key)
+}
+const selectedInventoryIds = (target?: AdditionalDevice | null): number[] => {
+  const ids = target ? [form.value.deviceId, form.value.phoneHolderId, form.value.tripodId] : []
+  for (const row of additionalDevices.value) {
+    if (row.key !== target?.key) ids.push(row.device_id, row.phoneHolderId, row.tripodId)
+  }
+  return ids.filter((id): id is number => id != null)
+}
+const openDevicePicker = (target?: AdditionalDevice) => {
+  pickerTarget.value = target ?? null
+  if (availableSlots.value.length) showDevicePicker.value = true
+  else showToast('请先选择日期和型号并查找档期')
 }
 const loadBookingContext = async () => {
   try {
@@ -404,14 +423,14 @@ const loadBookingContext = async () => {
     } })
     const rows = res.data.data?.rentals || []
     if (!rows.length) { showToast('该订单尚未录入设备'); return }
-    if (rows.length !== 1 || (rows[0].booking && rows[0].booking.expected_quantity <= rows.length)) {
+    if ((rows.length !== 1 && !rows[0].booking) || (rows[0].booking && rows[0].booking.expected_quantity <= rows.length)) {
       showToast('该订单已录齐，请查看同单设备'); return
     }
     const r = rows[0]
-    await showConfirmDialog({ title: '同单设备', message: `已录设备：${r.device?.name}。沿用此单信息补齐第 2 台？` })
+    await showConfirmDialog({ title: '同单设备', message: `已录设备：${r.device?.name}。沿用此单信息补齐设备？` })
     if (r.warehouse_id !== tenantStore.currentWarehouseId) { showToast('请先切换到原订单仓库'); return }
     await axios.post(`/api/rentals/${r.id}/declare-booking`, { warehouse_id: r.warehouse_id })
-    secondDevice.value = null
+    additionalDevices.value = []
     form.value.modelId = r.device?.model_id || r.device?.device_model?.id
     selectedModelName.value = r.device?.device_model?.display_name || r.device?.model || ''
     form.value.startDate = r.start_date
@@ -424,6 +443,7 @@ const loadBookingContext = async () => {
     form.value.logisticsDays = Math.max(0, dayjs(r.start_date).diff(dayjs(r.ship_out_time), 'day') - 1)
     await nextTick()
     appendToRentalId.value = r.id
+    for (let i = 1; i < (r.booking?.expected_quantity ?? 2) - rows.length; i++) addDevice()
     form.value.deviceId = null
   } catch (e: any) {
     if (e !== 'cancel' && e !== 'close') showToast(e.response?.data?.error || e.message || '查询失败')
@@ -481,7 +501,9 @@ const rentalPackageModel = computed<string>({
 
 // 机型切换 → 重置不属于新型号的组合。
 watch(selectedModelConfig, (newModel) => {
-  if (secondDevice.value && !isRentalPackageAllowed(newModel, secondDevice.value.rental_package_id)) secondDevice.value.rental_package_id = getDefaultRentalPackageId(newModel)
+  additionalDevices.value.forEach(device => {
+    if (!isRentalPackageAllowed(newModel, device.rental_package_id)) device.rental_package_id = getDefaultRentalPackageId(newModel)
+  })
   if (form.value.rentalPackageId && !isRentalPackageAllowed(newModel, form.value.rentalPackageId)) {
     form.value.rentalPackageId = getDefaultRentalPackageId(newModel)
   }
@@ -492,7 +514,7 @@ const modelColumns = computed(() =>
   deviceModels.value.map(m => ({ text: m.display_name || m.name, value: m.id }))
 )
 const deviceColumns = computed(() =>
-  availableSlots.value.map((s: any) => ({
+  availableSlots.value.filter((slot: any) => !selectedInventoryIds(pickerTarget.value).includes(slot.device.id)).map((s: any) => ({
     text: s.device?.name || `设备${s.device?.id}`,
     value: s.device?.id
   }))
@@ -531,12 +553,14 @@ watch(() => form.value.destination, (val) => {
 
 // 日期/型号变化时重新查找可用设备
 const checkAvailability = async () => {
-  if (!form.value.startDate || !form.value.endDate || !form.value.modelId) return
-  if (secondDevice.value) secondDevice.value.device_id = null
+  const generation = ++availabilityGeneration
+  showDevicePicker.value = false
+  additionalDevices.value.forEach(device => { device.device_id = null })
   checkingSlots.value = true
   form.value.deviceId = null
   selectedDeviceName.value = ''
   availableSlots.value = []
+  if (!form.value.startDate || !form.value.endDate || !form.value.modelId) { checkingSlots.value = false; return }
   try {
     const result = await ganttStore.findAvailableSlot(
       form.value.startDate,
@@ -545,6 +569,7 @@ const checkAvailability = async () => {
       form.value.modelId,
       false
     )
+    if (generation !== availabilityGeneration) return
     if (result.availableDevices && result.availableDevices.length > 0) {
       availableSlots.value = result.availableDevices.map((d: any) => ({ device: d }))
     } else if (result.device) {
@@ -554,9 +579,9 @@ const checkAvailability = async () => {
       showToast({ message: '无可用设备', type: 'fail' })
     }
   } catch (e: any) {
-    showToast({ message: e.message || '查找档期失败', type: 'fail' })
+    if (generation === availabilityGeneration) showToast({ message: e.message || '查找档期失败', type: 'fail' })
   } finally {
-    checkingSlots.value = false
+    if (generation === availabilityGeneration) checkingSlots.value = false
   }
 }
 
@@ -572,9 +597,39 @@ const onModelConfirm = ({ selectedValues, selectedOptions }: any) => {
 }
 
 const onDeviceConfirm = ({ selectedValues, selectedOptions }: any) => {
-  form.value.deviceId = selectedValues[0]
-  selectedDeviceName.value = selectedOptions[0]?.text ?? ''
+  const target = pickerTarget.value
+  if (selectedInventoryIds(target).includes(selectedValues[0])) return
+  if (target) {
+    if (!additionalDevices.value.some(row => row.key === target.key)) return
+    target.device_id = selectedValues[0]
+  } else {
+    form.value.deviceId = selectedValues[0]
+    selectedDeviceName.value = selectedOptions[0]?.text ?? ''
+  }
   showDevicePicker.value = false
+}
+
+const findDeviceSlot = async (target?: AdditionalDevice) => {
+  if (!form.value.startDate || !form.value.endDate || !form.value.modelId) return
+  const generation = ++availabilityGeneration
+  searchingTarget.value = target?.key ?? 0
+  checkingSlots.value = true
+  try {
+    const result = await ganttStore.findAvailableSlot(form.value.startDate, form.value.endDate, form.value.logisticsDays, form.value.modelId, false)
+    if (generation !== availabilityGeneration) return
+    if (target && !additionalDevices.value.some(row => row.key === target.key)) return
+    const candidates = result.availableDevices?.length ? result.availableDevices : [result.device].filter(Boolean)
+    availableSlots.value = candidates.map((device: any) => ({ device }))
+    const device = candidates.find((row: any) => !selectedInventoryIds(target).includes(row.id))
+    if (!device) { showToast('没有其他可用设备'); return }
+    if (target) target.device_id = device.id
+    else { form.value.deviceId = device.id; selectedDeviceName.value = device.name }
+    showToast(`找到可用设备：${device.name}`)
+  } catch (e: any) {
+    if (generation === availabilityGeneration) showToast(e.message || '查找档期失败')
+  } finally {
+    if (generation === availabilityGeneration) checkingSlots.value = false
+  }
 }
 
 const onPhoneHolderConfirm = ({ selectedValues, selectedOptions }: any) => {
@@ -656,7 +711,8 @@ const confirmLogisticsTiming = async (): Promise<boolean> => {
 // 提交
 const onSubmit = async () => {
   if (submitting.value || savedRental.value) return
-  if (secondDevice.value && !secondDevice.value.device_id) { showToast('请选择第 2 台设备'); return }
+  const missingIndex = additionalDevices.value.findIndex(device => !device.device_id)
+  if (missingIndex !== -1) { showToast(`请选择第 ${missingIndex + 2} 台设备`); return }
   if (tenantStore.currentWarehouseId === 'all') {
     showToast('请先选择具体仓库')
     return
@@ -730,9 +786,9 @@ const onSubmit = async () => {
       rental_package_id: form.value.rentalPackageId,
       xianyu_shop_id: form.value.xianyuShopId,
       append_to_rental_id: appendToRentalId.value || undefined,
-      additional_devices: secondDevice.value ? [{ ...secondDevice.value,
-        accessories: [secondDevice.value.phoneHolderId, secondDevice.value.tripodId].filter((id): id is number => !!id),
-      }] : [],
+      additional_devices: additionalDevices.value.map(({ key, phoneHolderId, tripodId, ...device }) => ({ ...device,
+        accessories: [phoneHolderId, tripodId].filter((id): id is number => !!id),
+      })),
       accessories: accessoriesArr
     }
 
@@ -836,7 +892,11 @@ onMounted(async () => {
 })
 
 watch(() => tenantStore.currentWarehouseId, async () => {
-  secondDevice.value = null
+  availabilityGeneration += 1
+  checkingSlots.value = false
+  showDevicePicker.value = false
+  selectedDeviceName.value = ''
+  additionalDevices.value = []
   appendToRentalId.value = null
   form.value.deviceId = null
   form.value.phoneHolderId = null

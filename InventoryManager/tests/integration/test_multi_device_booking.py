@@ -292,3 +292,59 @@ def test_edit_booking_machine_start_and_shipping_dates(case):
     assert invalid.status_code == 400
     db.session.refresh(first)
     assert first.start_date == new_start
+
+
+@pytest.mark.parametrize('quantity,total', [(3, '101.01'), (5, '0.02')])
+def test_arbitrary_quantity_preserves_total_and_idempotency(case, quantity, total):
+    from decimal import Decimal
+    client, payload, devices = case
+    for i in range(len(devices), quantity):
+        device = Device(name=f'多机{i}', model='x300u', model_id=devices[0].model_id,
+                        warehouse_id=devices[0].warehouse_id)
+        db.session.add(device)
+        devices.append(device)
+    db.session.commit()
+    payload.update(order_amount=total, additional_devices=[
+        {'device_id': device.id, 'lens_combo': 'bare', 'accessories': []}
+        for device in devices[1:quantity]
+    ])
+    result = client.post('/api/rentals', json=payload)
+    assert result.status_code == 201, result.json
+    rows = Rental.query.filter_by(parent_rental_id=None).all()
+    assert len(rows) == quantity
+    assert rows[0].booking.expected_quantity == quantity
+    assert sum(row.order_amount for row in rows) == Decimal(total)
+    assert all(row.order_amount >= 0 for row in rows)
+    assert client.post('/api/rentals', json=payload).status_code == 201
+    assert Rental.query.count() == quantity
+
+
+def test_third_device_conflict_rolls_back_entire_booking(case):
+    client, payload, devices = case
+    single = dict(payload, device_id=devices[2].id, additional_devices=[], booking_request_id=str(uuid.uuid4()))
+    assert client.post('/api/rentals', json=single).status_code == 201
+    payload['additional_devices'].append({'device_id': devices[2].id, 'lens_combo': 'bare'})
+    result = client.post('/api/rentals', json=payload)
+    assert result.status_code == 409
+    assert '第 3 台' in result.json['message']
+    assert Rental.query.count() == 1
+    assert RentalBooking.query.count() == 0
+    assert RentalBookingRequest.query.count() == 1
+
+
+def test_three_device_booking_can_replenish_cancelled_member(case):
+    from decimal import Decimal
+    client, payload, devices = case
+    payload['additional_devices'].append({'device_id': devices[2].id, 'lens_combo': 'bare'})
+    result = client.post('/api/rentals', json=payload)
+    assert result.status_code == 201, result.json
+    rows = result.json['data']['main_rentals']
+    client.put(f"/api/rentals/{rows[2]['id']}/status", json={'status': 'cancelled'})
+    append = dict(payload, device_id=devices[2].id, additional_devices=[],
+                  append_to_rental_id=rows[0]['id'], booking_request_id=str(uuid.uuid4()))
+    result = client.post('/api/rentals', json=append)
+    assert result.status_code == 201, result.json
+    active = Rental.query.filter(Rental.status != 'cancelled').all()
+    assert len(active) == 3
+    assert sum(row.order_amount for row in active) == Decimal('101.01')
+    assert active[0].booking.expected_quantity == 3

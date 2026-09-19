@@ -108,69 +108,22 @@
       </el-form-item>
 
       <el-form-item v-if="form.xianyuOrderNo" label="同单设备">
-        <el-button @click="loadBookingContext">查看已录设备 / 补齐第 2 台</el-button>
+        <el-button @click="loadBookingContext">查看已录设备 / 补齐设备</el-button>
       </el-form-item>
       <!-- 设备选择 -->
       <el-form-item label="选择设备" prop="selectedDeviceId">
-        <div class="device-selection">
-          <el-select
-            v-model="form.selectedDeviceId"
-            placeholder="请选择设备"
-            style="flex: 1"
-            clearable
-            filterable
-            @focus="handleDeviceFocus"
-          >
-            <el-option
-              v-for="device in filteredDevices"
-              :key="device.id"
-              :label="device.name"
-              :value="device.id"
-              :disabled="getDeviceLifecycleLabel(device) !== null"
-            >
-              <div class="device-option">
-                <span>{{ device.name }}</span>
-                <div class="device-status">
-                  <span class="device-model">{{ device.model }}</span>
-                  <el-tag
-                    v-if="getDeviceLifecycleLabel(device)"
-                    type="info"
-                    size="small"
-                    effect="dark"
-                  >
-                    {{ getDeviceLifecycleLabel(device) }}
-                  </el-tag>
-                  <el-tag
-                    v-else-if="availability.deviceAvailability.value.checked && availability.isDeviceAvailable(device.id)"
-                    type="success"
-                    size="small"
-                    effect="dark"
-                  >
-                    可用
-                  </el-tag>
-                  <el-tag
-                    v-else-if="availability.deviceAvailability.value.checked"
-                    type="danger"
-                    size="small"
-                    effect="dark"
-                  >
-                    档期不可用
-                  </el-tag>
-                </div>
-              </div>
-            </el-option>
-          </el-select>
-          <el-button
-            type="info"
-            @click="findAvailableSlot"
-            :loading="searching"
-            :disabled="!canSearchSlot"
-            style="margin-left: 8px"
-          >
-            查找档期
-          </el-button>
-        </div>
-        <div class="form-tip">选择具体设备或点击查找档期自动匹配可用设备</div>
+        <BookingDeviceSelector
+          v-model="form.selectedDeviceId"
+          :devices="filteredDevices"
+          :excluded-ids="selectedInventoryIds()"
+          :checked="availability.deviceAvailability.value.checked"
+          :is-available="availability.isDeviceAvailable"
+          :lifecycle-label="getDeviceLifecycleLabel"
+          :loading="searching && searchingTarget === 0"
+          :can-search="canSearchSlot"
+          @focus="handleDeviceFocus"
+          @search="findAvailableSlot()"
+        />
       </el-form-item>
 
       <!-- 客户信息 -->
@@ -326,39 +279,51 @@
       </el-form-item>
 
       <el-alert v-if="appendToRentalId" type="info" :closable="false"
-        title="正在补齐第 2 台：沿用原单租期和收件信息，订单金额自动分摊。" />
-      <el-form-item v-if="!appendToRentalId" label="设备台数">
-        <el-button v-if="!secondDevice" @click="addSecondDevice">＋ 添加第 2 台</el-button>
-        <el-button v-else @click="secondDevice = null">移除第 2 台</el-button>
+        title="正在补齐设备：沿用原单租期和收件信息，订单金额自动分摊。" />
+      <el-form-item label="设备台数">
+        <el-button :disabled="submitting" @click="addDevice">＋ 添加第 {{ additionalDevices.length + 2 }} 台</el-button>
       </el-form-item>
-      <el-card v-if="secondDevice" shadow="never" style="margin: 16px 0">
-        <template #header><strong>第 2 台 · 同型号、同租期、同地址</strong></template>
-        <el-form-item label="实际设备">
-          <el-select v-model="secondDevice.device_id" placeholder="选择另一台设备" @focus="handleDeviceFocus">
-            <el-option v-for="device in filteredDevices" :key="device.id" :label="device.name" :value="device.id"
-              :disabled="device.id === form.selectedDeviceId || !!getDeviceLifecycleLabel(device) || (availability.deviceAvailability.value.checked && !availability.isDeviceAvailable(device.id))" />
-          </el-select>
+      <el-card v-for="(device, index) in additionalDevices" :key="device.key" shadow="never" style="margin: 16px 0">
+        <template #header>
+          <div style="display: flex; justify-content: space-between; align-items: center">
+            <strong>第 {{ index + 2 }} 台 · 同型号、同租期、同地址</strong>
+            <el-button type="danger" plain size="small" :disabled="submitting" @click="removeDevice(device)">移除第 {{ index + 2 }} 台</el-button>
+          </div>
+        </template>
+        <el-form-item label="选择设备">
+        <BookingDeviceSelector
+          v-model="device.device_id"
+          :devices="filteredDevices"
+          :excluded-ids="selectedInventoryIds(device)"
+          :checked="availability.deviceAvailability.value.checked"
+          :is-available="availability.isDeviceAvailable"
+          :lifecycle-label="getDeviceLifecycleLabel"
+          :loading="searching && searchingTarget === device.key"
+          :can-search="canSearchSlot"
+          @focus="handleDeviceFocus"
+          @search="findAvailableSlot(device)"
+        />
         </el-form-item>
-        <el-button size="small" @click="copySecondConfig">配置同第 1 台</el-button>
-        <LensComboSelector v-model="secondDevice.rental_package_id" :model="selectedModel" />
+        <el-button size="small" @click="copyDeviceConfig(device)">配置同第 1 台</el-button>
+        <LensComboSelector v-model="device.rental_package_id" :model="selectedModel" />
         <el-form-item label="配套附件">
-          <el-checkbox v-model="secondDevice.includes_handle">手柄</el-checkbox>
-          <el-checkbox v-model="secondDevice.includes_lens_mount">镜头支架</el-checkbox>
+          <el-checkbox v-model="device.includes_handle">手柄</el-checkbox>
+          <el-checkbox v-model="device.includes_lens_mount">镜头支架</el-checkbox>
         </el-form-item>
-        <el-form-item label="附加服务"><el-checkbox v-model="secondDevice.photo_transfer">代传照片</el-checkbox></el-form-item>
+        <el-form-item label="附加服务"><el-checkbox v-model="device.photo_transfer">代传照片</el-checkbox></el-form-item>
         <el-form-item label="手机支架">
-          <el-select v-model="secondDevice.phoneHolderId" clearable placeholder="无" @focus="handleAccessoryFocus">
+          <el-select v-model="device.phoneHolderId" clearable placeholder="无" @focus="handleAccessoryFocus">
             <el-option v-for="a in phoneHolders" :key="a.id" :value="a.id" :label="a.name"
-              :disabled="a.id === form.phoneHolderId || (availability.accessoryAvailability.value.checked && !availability.isAccessoryAvailable(a.id))" />
+              :disabled="selectedInventoryIds(device).includes(a.id) || (availability.accessoryAvailability.value.checked && !availability.isAccessoryAvailable(a.id))" />
           </el-select>
         </el-form-item>
         <el-form-item label="三脚架">
-          <el-select v-model="secondDevice.tripodId" clearable placeholder="无" @focus="handleAccessoryFocus">
+          <el-select v-model="device.tripodId" clearable placeholder="无" @focus="handleAccessoryFocus">
             <el-option v-for="a in tripods" :key="a.id" :value="a.id" :label="a.name"
-              :disabled="a.id === form.tripodId || (availability.accessoryAvailability.value.checked && !availability.isAccessoryAvailable(a.id))" />
+              :disabled="selectedInventoryIds(device).includes(a.id) || (availability.accessoryAvailability.value.checked && !availability.isAccessoryAvailable(a.id))" />
           </el-select>
         </el-form-item>
-        <div class="form-tip">两台会一起校验和保存；订单总金额只计一次，按两台均摊。</div>
+        <div class="form-tip">所有设备会一起校验和保存；订单总金额只计一次，按设备台数均摊。</div>
       </el-card>
 
       <!-- 查找到的档期信息 -->
@@ -383,7 +348,7 @@
           :loading="submitting"
           :disabled="tenantStore.currentWarehouseId === 'all'"
         >
-          {{ secondDevice ? '一次预约 2 台' : appendToRentalId ? '补齐第 2 台' : '提交预定' }}
+          {{ appendToRentalId ? '补齐设备' : additionalDevices.length ? `一次预约 ${additionalDevices.length + 1} 台` : '提交预定' }}
         </el-button>
       </div>
     </template>
@@ -411,6 +376,8 @@ import {
   formatLogisticsWarning,
   getLogisticsMismatch
 } from '@/utils/logisticsWarning'
+import type { Device } from '@/stores/gantt'
+import BookingDeviceSelector from './rental/BookingDeviceSelector.vue'
 import LensComboSelector from './rental/LensComboSelector.vue'
 import { useTenantStore } from '@/stores/tenant'
 
@@ -465,27 +432,40 @@ const form = ref({
   rentalPackageId: undefined as string | undefined,
 })
 
-const secondDevice = ref<{
-  device_id: number | null; rental_package_id: typeof form.value.rentalPackageId;
+type AdditionalDevice = {
+  key: number; device_id: number | null; rental_package_id: typeof form.value.rentalPackageId;
   includes_handle: boolean; includes_lens_mount: boolean; photo_transfer: boolean;
   phoneHolderId: number | null; tripodId: number | null;
-} | null>(null)
+}
+const additionalDevices = ref<AdditionalDevice[]>([])
+let nextDeviceKey = 1
 const appendToRentalId = ref<number | null>(null)
 let bookingRequestId = ''
 let bookingPayload = ''
-const copySecondConfig = () => {
-  if (!secondDevice.value) return
-  Object.assign(secondDevice.value, {
+const copyDeviceConfig = (device: AdditionalDevice) => {
+  Object.assign(device, {
     rental_package_id: form.value.rentalPackageId,
     includes_handle: form.value.bundledAccessories.includes('handle'),
     includes_lens_mount: form.value.bundledAccessories.includes('lens_mount'),
     photo_transfer: form.value.photoTransfer,
   })
 }
-const addSecondDevice = () => {
-  secondDevice.value = { device_id: null, rental_package_id: undefined, includes_handle: false,
-    includes_lens_mount: false, photo_transfer: false, phoneHolderId: null, tripodId: null }
-  copySecondConfig()
+const addDevice = () => {
+  const device: AdditionalDevice = { key: nextDeviceKey++, device_id: null, rental_package_id: undefined,
+    includes_handle: false, includes_lens_mount: false, photo_transfer: false, phoneHolderId: null, tripodId: null }
+  copyDeviceConfig(device)
+  additionalDevices.value.push(device)
+}
+const removeDevice = (device: AdditionalDevice) => {
+  invalidateSlotSearch()
+  additionalDevices.value = additionalDevices.value.filter(row => row.key !== device.key)
+}
+const selectedInventoryIds = (target?: AdditionalDevice): number[] => {
+  const ids = target ? [form.value.selectedDeviceId, form.value.phoneHolderId, form.value.tripodId] : []
+  for (const row of additionalDevices.value) {
+    if (row.key !== target?.key) ids.push(row.device_id, row.phoneHolderId, row.tripodId)
+  }
+  return ids.filter((id): id is number => id != null)
 }
 const loadBookingContext = async () => {
   try {
@@ -494,16 +474,16 @@ const loadBookingContext = async () => {
     } })
     const rows = res.data.data?.rentals || []
     if (!rows.length) { ElMessage.info('该订单尚未录入设备'); return }
-    if (rows.length !== 1 || (rows[0].booking && rows[0].booking.expected_quantity <= rows.length)) {
+    if ((rows.length !== 1 && !rows[0].booking) || (rows[0].booking && rows[0].booking.expected_quantity <= rows.length)) {
       ElMessage.info('该订单已录齐，请在甘特图查看同单设备'); return
     }
     const r = rows[0]
-    await ElMessageBox.confirm(`已录设备：${r.device?.name}。是否沿用此单信息补齐第 2 台？`, '同单设备', { confirmButtonText: '补齐第 2 台' })
+    await ElMessageBox.confirm(`已录设备：${r.device?.name}。是否沿用此单信息补齐设备？`, '同单设备', { confirmButtonText: '补齐设备' })
     if (r.warehouse_id !== tenantStore.currentWarehouseId) {
       ElMessage.error('请先切换到原订单仓库'); return
     }
     await axios.post(`/api/rentals/${r.id}/declare-booking`, { warehouse_id: r.warehouse_id })
-    secondDevice.value = null
+    additionalDevices.value = []
     form.value.selectedModelId = r.device?.model_id || r.device?.device_model?.id
     form.value.startDate = new Date(r.start_date)
     form.value.endDate = new Date(r.end_date)
@@ -515,15 +495,18 @@ const loadBookingContext = async () => {
     form.value.logisticsDays = Math.max(0, dayjs(r.start_date).diff(dayjs(r.ship_out_time), 'day') - 1)
     await nextTick()
     appendToRentalId.value = r.id
+    for (let i = 1; i < (r.booking?.expected_quantity ?? 2) - rows.length; i++) addDevice()
     form.value.selectedDeviceId = null
   } catch (e: any) {
     if (e !== 'cancel' && e !== 'close') ElMessage.error(e.response?.data?.error || e.message || '查询失败')
   }
 }
 watch(() => [form.value.selectedModelId, form.value.startDate, form.value.endDate, form.value.logisticsDays, tenantStore.currentWarehouseId], () => {
-  if (secondDevice.value) secondDevice.value.device_id = null
+  additionalDevices.value.forEach(device => { device.device_id = null })
+  invalidateSlotSearch()
+  availableSlot.value = null
 })
-watch(() => tenantStore.currentWarehouseId, () => { secondDevice.value = null; appendToRentalId.value = null })
+watch(() => tenantStore.currentWarehouseId, () => { additionalDevices.value = []; appendToRentalId.value = null })
 watch(() => [form.value.xianyuOrderNo, form.value.xianyuShopId], () => { appendToRentalId.value = null })
 
 const availableDeviceModels = computed(() =>
@@ -567,6 +550,7 @@ const submitting = ref(false)
 const pendingSuccess = ref<{ rentalId: number } | null>(null)
 const dialogClosed = ref(!props.modelValue)
 const searching = ref(false)
+const searchingTarget = ref(0)
 const searchingAccessory = ref(false)
 const fetchingOrder = ref(false)
 const availableSlot = ref<any>(null)
@@ -727,7 +711,7 @@ const handleAccessoryFocus = async () => {
 }
 
 // Find Available Slot
-const findAvailableSlot = async () => {
+const findAvailableSlot = async (target?: AdditionalDevice) => {
   if (!form.value.selectedModelId) {
     ElMessage.warning('请先选择设备型号')
     return
@@ -740,6 +724,7 @@ const findAvailableSlot = async () => {
 
   const modelId = form.value.selectedModelId.toString()
   const searchGeneration = ++slotSearchGeneration
+  searchingTarget.value = target?.key ?? 0
 
   searching.value = true
   try {
@@ -753,12 +738,18 @@ const findAvailableSlot = async () => {
 
     if (searchGeneration !== slotSearchGeneration) return
 
-    if (result.device) {
-      availableSlot.value = result
-      form.value.selectedDeviceId = result.device.id
-      ElMessage.success(`找到可用设备: ${result.device.name}`)
+    if (target && !additionalDevices.value.some(row => row.key === target.key)) return
+    const candidates = result.availableDevices?.length ? result.availableDevices : [result.device].filter(Boolean)
+    const device = candidates.find((row: Device) => !selectedInventoryIds(target).includes(row.id))
+    if (device) {
+      if (target) target.device_id = device.id
+      else {
+        availableSlot.value = { ...result, device }
+        form.value.selectedDeviceId = device.id
+      }
+      ElMessage.success(`找到可用设备: ${device.name}`)
     } else {
-      throw new Error('在指定时间段内没有可用设备')
+      throw new Error('在指定时间段内没有其他可用设备')
     }
   } catch (error) {
     if (searchGeneration !== slotSearchGeneration) return
@@ -959,8 +950,9 @@ const confirmLogisticsTiming = async (): Promise<boolean> => {
 // Submit Handler
 const handleSubmit = async () => {
   if (submitting.value) return
-  if (secondDevice.value && !secondDevice.value.device_id) {
-    ElMessage.error('请选择第 2 台设备'); return
+  const missingIndex = additionalDevices.value.findIndex(device => !device.device_id)
+  if (missingIndex !== -1) {
+    ElMessage.error(`请选择第 ${missingIndex + 2} 台设备`); return
   }
   try {
     await formRef.value?.validate()
@@ -1047,16 +1039,16 @@ const handleSubmit = async () => {
       photo_transfer: form.value.photoTransfer,  // 代传照片标记
       rental_package_id: form.value.rentalPackageId,
       append_to_rental_id: appendToRentalId.value || undefined,
-      additional_devices: secondDevice.value ? [{ ...secondDevice.value,
-        accessories: [secondDevice.value.phoneHolderId, secondDevice.value.tripodId].filter((id): id is number => !!id),
-      }] : [],
+      additional_devices: additionalDevices.value.map(({ key, phoneHolderId, tripodId, ...device }) => ({ ...device,
+        accessories: [phoneHolderId, tripodId].filter((id): id is number => !!id),
+      })),
     }
 
     const payload = JSON.stringify(rentalData)
     if (payload !== bookingPayload) { bookingRequestId = newBookingRequestId(); bookingPayload = payload }
     const result = await ganttStore.createRental({ ...rentalData, booking_request_id: bookingRequestId })
     const rentalId = result.data?.main_rental?.id
-    ElMessage.success(secondDevice.value ? '两台设备预约成功' : '租赁记录创建成功')
+    ElMessage.success(additionalDevices.value.length ? `${additionalDevices.value.length + 1} 台设备预约成功` : '租赁记录创建成功')
     if (typeof rentalId === 'number') {
       queuePendingSuccess({ rentalId })
     } else {
@@ -1073,7 +1065,7 @@ const handleSubmit = async () => {
 
 // Close Handler
 const handleClose = () => {
-  secondDevice.value = null
+  additionalDevices.value = []
   appendToRentalId.value = null
   bookingRequestId = ''
   bookingPayload = ''

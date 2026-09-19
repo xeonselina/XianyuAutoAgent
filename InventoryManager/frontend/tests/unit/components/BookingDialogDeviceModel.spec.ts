@@ -171,6 +171,8 @@ const mountDialog = async (selectedDeviceModel?: string) => {
     global: {
       plugins: [pinia],
       stubs: {
+        BookingDeviceSelector: false,
+        ElCard: { template: '<div><slot name="header" /><slot /></div>' },
         ElDialog: {
           props: ['modelValue'],
           template: '<div v-if="modelValue"><slot /><slot name="footer" /></div>',
@@ -339,17 +341,17 @@ describe('BookingDialog device model selection', () => {
     vm.form.phoneHolderId = 91
     await flushPromises()
     vm.form.selectedDeviceId = 21
-    vm.addSecondDevice()
-    expect(vm.secondDevice.phoneHolderId).toBeNull()
-    expect(vm.secondDevice.device_id).toBeNull()
-    vm.secondDevice.device_id = 22
-    vm.secondDevice.rental_package_id = 'legacy_bare'
-    vm.secondDevice.tripodId = 92
+    vm.addDevice()
+    expect(vm.additionalDevices[0].phoneHolderId).toBeNull()
+    expect(vm.additionalDevices[0].device_id).toBeNull()
+    vm.additionalDevices[0].device_id = 22
+    vm.additionalDevices[0].rental_package_id = 'legacy_bare'
+    vm.additionalDevices[0].tripodId = 92
     const create = vi.spyOn(useGanttStore(), 'createRental')
       .mockRejectedValueOnce(new Error('第 2 台档期冲突'))
       .mockResolvedValueOnce({ success: true, data: { main_rental: { id: 77 } } })
     await vm.handleSubmit()
-    expect(vm.secondDevice.rental_package_id).toBe('legacy_bare')
+    expect(vm.additionalDevices[0].rental_package_id).toBe('legacy_bare')
     await vm.handleSubmit()
     expect(create).toHaveBeenCalledTimes(2)
     const [first] = create.mock.calls[0]!
@@ -365,10 +367,59 @@ describe('BookingDialog device model selection', () => {
     const { wrapper } = await mountDialog('VIVO X300 Ultra')
     const vm = wrapper.vm as any
     const create = vi.spyOn(useGanttStore(), 'createRental')
-    vm.addSecondDevice()
+    vm.addDevice()
     await vm.handleSubmit()
     expect(create).not.toHaveBeenCalled()
     expect(ElMessage.error).toHaveBeenCalledWith('请选择第 2 台设备')
+  })
+
+  it('adds any number of devices and removes only the chosen card', async () => {
+    const { wrapper } = await mountDialog('VIVO X300 Ultra')
+    const vm = wrapper.vm as any
+    vm.addDevice()
+    vm.addDevice()
+    vm.addDevice()
+    vm.additionalDevices[0].device_id = 22
+    vm.additionalDevices[1].device_id = 23
+    vm.additionalDevices[2].device_id = 24
+    vm.additionalDevices[2].rental_package_id = 'legacy_bare'
+    const lastKey = vm.additionalDevices[2].key
+    vm.removeDevice(vm.additionalDevices[1])
+    await flushPromises()
+    expect(vm.additionalDevices.map((d: any) => d.device_id)).toEqual([22, 24])
+    expect(vm.additionalDevices[1]).toMatchObject({ key: lastKey, rental_package_id: 'legacy_bare' })
+    expect(wrapper.findAllComponents({ name: 'BookingDeviceSelector' })).toHaveLength(3)
+    vm.removeDevice(vm.additionalDevices[0])
+    vm.removeDevice(vm.additionalDevices[0])
+    expect(vm.additionalDevices).toEqual([])
+  })
+
+  it('searches each additional device excluding devices already chosen', async () => {
+    const { findAvailableSlot, wrapper } = await mountDialog('VIVO X300 Ultra')
+    const vm = wrapper.vm as any
+    vm.form.startDate = new Date('2026-10-01')
+    vm.form.endDate = new Date('2026-10-03')
+    await flushPromises()
+    vm.form.selectedDeviceId = 21
+    vm.addDevice()
+    vm.addDevice()
+    findAvailableSlot.mockResolvedValue({
+      device: { ...devices[2], id: 21 },
+      availableDevices: [21, 22, 23].map(id => ({ ...devices[2], id })),
+      shipOutDate: new Date('2026-09-30'), shipInDate: new Date('2026-10-04'),
+    })
+    await vm.findAvailableSlot(vm.additionalDevices[0])
+    await vm.findAvailableSlot(vm.additionalDevices[1])
+    expect(vm.additionalDevices.map((d: any) => d.device_id)).toEqual([22, 23])
+    const pending = deferred<any>()
+    findAvailableSlot.mockReturnValue(pending.promise)
+    const removed = vm.additionalDevices[0]
+    const search = vm.findAvailableSlot(removed)
+    vm.removeDevice(removed)
+    pending.resolve({ device: { ...devices[2], id: 25 } })
+    await search
+    expect(vm.additionalDevices.map((d: any) => d.device_id)).toEqual([23])
+    expect(removed.device_id).toBe(22)
   })
 
 })

@@ -350,7 +350,7 @@ const mockCreateSave = async (
           success: true,
           data: {
             device,
-            available_devices: [device, { ...device, id: 9, name: '第二台' }],
+            available_devices: [device, { ...device, id: 9, name: '第二台' }, { ...device, id: 10, name: '第三台' }, { ...device, id: 11, name: '第四台' }],
             ship_out_date: '2026-07-11',
             ship_in_date: '2026-07-18',
           },
@@ -414,7 +414,7 @@ const mockCreateSave = async (
 
   const confirmPicker = async (title: string) => {
     const popup = page.locator('.van-popup--bottom').filter({
-      has: page.locator('.van-picker__title', { hasText: title }),
+      has: page.locator('.van-picker__title', { hasText: new RegExp(`${title}$`) }),
     })
     await expect(popup).toBeVisible()
     await popup.locator('.van-picker__confirm').click()
@@ -428,10 +428,10 @@ const mockCreateSave = async (
   await page.locator('.van-field').filter({ hasText: '还租日' }).click()
   await confirmPicker('还租日')
 
-  const deviceField = page.locator('.van-field').filter({ hasText: '可用设备' })
+  const deviceField = page.locator('.van-field').filter({ hasText: '选择设备' })
   await expect(deviceField).not.toHaveAttribute('aria-disabled', 'true')
   await deviceField.click()
-  await confirmPicker('可用设备')
+  await confirmPicker('选择设备')
 
   return confirmationIds
 }
@@ -487,7 +487,7 @@ test.describe('mobile create save confirmation popup', () => {
 test('two devices submit distinct configurations in one request and preserve retry key', async ({ page }) => {
   await mockCreateSave(page)
   await page.getByText('＋ 添加第 2 台', { exact: true }).click()
-  await page.getByLabel('第 2 台设备', { exact: true }).selectOption('9')
+  await page.getByRole('button', { name: '查找档期', exact: true }).nth(1).click()
   await page.getByLabel('第 2 台镜头', { exact: true }).selectOption('legacy_bare')
   const payloads: any[] = []
   await page.route('**/api/rentals', async route => {
@@ -500,7 +500,7 @@ test('two devices submit distinct configurations in one request and preserve ret
   })
   await page.getByRole('button', { name: '一次预约 2 台' }).click()
   await expect(page.locator('.van-toast__text')).toHaveText('第 2 台档期冲突')
-  await expect(page.getByLabel('第 2 台设备', { exact: true })).toHaveValue('9')
+  await expect(page.locator('.van-field').filter({ hasText: '选择设备' }).nth(1).locator('input')).toHaveValue('第二台')
   await expect(page.getByLabel('第 2 台镜头', { exact: true })).toHaveValue('legacy_bare')
   await page.getByRole('button', { name: '一次预约 2 台' }).click()
   await expect(page.getByTestId('rental-confirmation-popup')).toBeVisible()
@@ -511,4 +511,31 @@ test('two devices submit distinct configurations in one request and preserve ret
   expect(payloads[0].additional_devices[0].rental_package_id).toBe('legacy_bare')
   expect(payloads[0].booking_request_id).toMatch(/^[0-9a-f-]{36}$/)
   expect(payloads[1].booking_request_id).toBe(payloads[0].booking_request_id)
+})
+
+
+test('adds four devices and preserves remaining configurations after removing the second', async ({ page }) => {
+  await mockCreateSave(page)
+  for (let quantity = 2; quantity <= 4; quantity++) {
+    await page.getByText(`＋ 添加第 ${quantity} 台`, { exact: true }).click()
+    await page.getByRole('button', { name: '查找档期', exact: true }).nth(quantity - 1).click()
+    await expect(page.locator('.van-field').filter({ hasText: '选择设备' }).nth(quantity - 1).locator('input')).toHaveValue(['', '', '第二台', '第三台', '第四台'][quantity]!)
+  }
+  await page.getByLabel('第 3 台镜头', { exact: true }).selectOption('legacy_bare')
+  await page.getByText('移除第 2 台', { exact: true }).click()
+  await expect(page.locator('.van-field').filter({ hasText: '选择设备' })).toHaveCount(3)
+  await expect(page.locator('.van-field').filter({ hasText: '选择设备' }).nth(1).locator('input')).toHaveValue('第三台')
+  await expect(page.getByLabel('第 2 台镜头', { exact: true })).toHaveValue('legacy_bare')
+  await page.screenshot({ path: '/tmp/multi-device-mobile.png', fullPage: true })
+  const payloads: any[] = []
+  await page.route('**/api/rentals', async route => {
+    payloads.push(route.request().postDataJSON())
+    await route.fulfill({ json: { success: true, data: { main_rental: { id: 77 } } } })
+  })
+  await page.getByRole('button', { name: '一次预约 3 台' }).click()
+  await expect(page.getByTestId('rental-confirmation-popup')).toBeVisible()
+  expect(payloads[0].device_id).toBe(8)
+  expect(payloads[0].additional_devices.map((item: any) => item.device_id)).toEqual([10, 11])
+  expect(payloads[0].additional_devices[0].rental_package_id).toBe('legacy_bare')
+  expect(payloads[0].additional_devices[0]).not.toHaveProperty('key')
 })

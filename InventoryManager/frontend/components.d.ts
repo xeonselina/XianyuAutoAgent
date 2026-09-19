@@ -10,6 +10,7 @@ declare module 'vue' {
   export interface GlobalComponents {
     AppHeader: typeof import('./src/components/AppHeader.vue')['default']
     BatchPrintDialog: typeof import('./src/components/rental/BatchPrintDialog.vue')['default']
+    BookingDeviceSelector: typeof import('./src/components/rental/BookingDeviceSelector.vue')['default']
     BookingDialog: typeof import('./src/components/BookingDialog.vue')['default']
     ChecklistForm: typeof import('./src/components/inspection/ChecklistForm.vue')['default']
     CustomerHistoryDialog: typeof import('./src/components/CustomerHistoryDialog.vue')['default']

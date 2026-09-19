@@ -280,17 +280,17 @@ class RentalHandlers:
             current_app.logger.info(f"创建租赁: includes_handle={data['includes_handle']}, includes_lens_mount={data['includes_lens_mount']}, photo_transfer={data['photo_transfer']}, lens_combo={data['lens_combo']}")
 
             extra = data.get('additional_devices', [])
-            if not isinstance(extra, list) or len(extra) > 1:
-                return bad_request('一次只能预约一台或两台设备')
-            for item in extra:
+            if not isinstance(extra, list):
+                return bad_request('附加设备格式错误')
+            for index, item in enumerate(extra, 2):
                 if not isinstance(item, dict) or not item.get('device_id'):
-                    return bad_request('请选择第 2 台设备')
+                    return bad_request(f'请选择第 {index} 台设备')
                 package_error = _normalize_and_validate_rental_package(item, item['device_id'])
                 if package_error:
-                    return bad_request(f'第 2 台：{package_error}')
+                    return bad_request(f'第 {index} 台：{package_error}')
                 lens_error = _normalize_and_validate_lens_combo(item, item['device_id'])
                 if lens_error:
-                    return bad_request(f'第 2 台：{lens_error}')
+                    return bad_request(f'第 {index} 台：{lens_error}')
             results = RentalService.create_booking(data)
             main_rental, accessory_rentals = results[0]
 
