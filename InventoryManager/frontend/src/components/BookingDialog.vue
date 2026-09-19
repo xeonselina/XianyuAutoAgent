@@ -438,6 +438,7 @@ type AdditionalDevice = {
   phoneHolderId: number | null; tripodId: number | null;
 }
 const additionalDevices = ref<AdditionalDevice[]>([])
+const slotDevices = ref<Device[]>([])
 let nextDeviceKey = 1
 const appendToRentalId = ref<number | null>(null)
 let bookingRequestId = ''
@@ -502,6 +503,7 @@ const loadBookingContext = async () => {
   }
 }
 watch(() => [form.value.selectedModelId, form.value.startDate, form.value.endDate, form.value.logisticsDays, tenantStore.currentWarehouseId], () => {
+  slotDevices.value = []
   additionalDevices.value.forEach(device => { device.device_id = null })
   invalidateSlotSearch()
   availableSlot.value = null
@@ -523,7 +525,11 @@ const filteredDevices = computed(() => {
   const model = selectedModel.value
   if (!model) return []
 
-  return deviceManagement.devices.value.filter(device => {
+  // Slot results may include devices added after the list was fetched.
+  // Keep every candidate as an option so Element Plus can resolve its label.
+  const devicesById = new Map(deviceManagement.devices.value.map(device => [device.id, device]))
+  for (const device of slotDevices.value) devicesById.set(device.id, device)
+  return [...devicesById.values()].filter(device => {
     if (device.model_id != null) {
       return device.model_id === model.id
     }
@@ -740,6 +746,9 @@ const findAvailableSlot = async (target?: AdditionalDevice) => {
 
     if (target && !additionalDevices.value.some(row => row.key === target.key)) return
     const candidates = result.availableDevices?.length ? result.availableDevices : [result.device].filter(Boolean)
+    const devicesById = new Map(slotDevices.value.map(device => [device.id, device]))
+    for (const device of candidates) devicesById.set(device.id, device)
+    slotDevices.value = [...devicesById.values()]
     const device = candidates.find((row: Device) => !selectedInventoryIds(target).includes(row.id))
     if (device) {
       if (target) target.device_id = device.id
@@ -1124,6 +1133,7 @@ watch(() => props.modelValue, async (visible) => {
   if (visible) {
     dialogClosed.value = false
     pendingSuccess.value = null
+    slotDevices.value = []
     await Promise.all([
       deviceManagement.loadDevices(),
       deviceManagement.loadAccessories(),

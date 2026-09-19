@@ -488,6 +488,15 @@ test('two devices submit distinct configurations in one request and preserve ret
   await mockCreateSave(page)
   await page.getByText('＋ 添加第 2 台', { exact: true }).click()
   await page.getByRole('button', { name: '查找档期', exact: true }).nth(1).click()
+  const secondSelector = page.locator('.van-field').filter({ hasText: '选择设备' }).nth(1)
+  await expect(secondSelector.locator('input')).toHaveValue('第二台')
+  await secondSelector.locator('input').click()
+  const picker = page.locator('.van-popup--bottom').filter({ has: page.locator('.van-picker__title', { hasText: /^选择设备$/ }) })
+  await expect(picker).toBeVisible()
+  await expect(picker.locator('.van-picker-column__item')).toHaveCount(3)
+  await expect(picker).toContainText('第二台')
+  await expect(picker).toContainText('第三台')
+  await picker.locator('.van-picker__confirm').click()
   await page.getByLabel('第 2 台镜头', { exact: true }).selectOption('legacy_bare')
   const payloads: any[] = []
   await page.route('**/api/rentals', async route => {

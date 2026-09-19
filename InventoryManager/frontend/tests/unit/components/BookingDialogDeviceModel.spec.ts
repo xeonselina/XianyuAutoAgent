@@ -1,6 +1,6 @@
 import { createPinia, setActivePinia } from 'pinia'
-import { flushPromises, shallowMount } from '@vue/test-utils'
-import { ElMessage } from 'element-plus'
+import { flushPromises, mount, shallowMount } from '@vue/test-utils'
+import { ElMessage, ElSelect, ElOption } from 'element-plus'
 import { defineComponent } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -153,7 +153,7 @@ const OptionStub = defineComponent({
   template: '<option :value="value" :disabled="disabled">{{ label }}</option>',
 })
 
-const mountDialog = async (selectedDeviceModel?: string) => {
+const mountDialog = async (selectedDeviceModel?: string, realSelect = false) => {
   const pinia = createPinia()
   setActivePinia(pinia)
   const store = useGanttStore()
@@ -163,7 +163,7 @@ const mountDialog = async (selectedDeviceModel?: string) => {
     shipInDate: new Date('2026-08-05T00:00:00'),
   })
 
-  const wrapper = shallowMount(BookingDialog, {
+  const wrapper = (realSelect ? mount : shallowMount)(BookingDialog, {
     props: {
       modelValue: true,
       selectedDeviceModel,
@@ -172,6 +172,7 @@ const mountDialog = async (selectedDeviceModel?: string) => {
       plugins: [pinia],
       stubs: {
         BookingDeviceSelector: false,
+        ElAlert: true,
         ElCard: { template: '<div><slot name="header" /><slot /></div>' },
         ElDialog: {
           props: ['modelValue'],
@@ -188,8 +189,8 @@ const mountDialog = async (selectedDeviceModel?: string) => {
         ElInputNumber: true,
         ElInput: true,
         ElButton: true,
-        ElSelect: SelectStub,
-        ElOption: OptionStub,
+        ElSelect: realSelect ? ElSelect : SelectStub,
+        ElOption: realSelect ? ElOption : OptionStub,
         ElCheckbox: true,
         ElCheckboxGroup: true,
         ElTag: true,
@@ -420,6 +421,44 @@ describe('BookingDialog device model selection', () => {
     await search
     expect(vm.additionalDevices.map((d: any) => d.device_id)).toEqual([23])
     expect(removed.device_id).toBe(22)
+  })
+
+  it('renders names and dropdown options from slot results even when the initial list is empty', async () => {
+    testState.deviceManagement.devices.value = []
+    const { findAvailableSlot, wrapper } = await mountDialog('VIVO X300 Ultra', true)
+    try {
+      const vm = wrapper.vm as any
+      vm.form.startDate = new Date('2026-10-01')
+      vm.form.endDate = new Date('2026-10-03')
+      await flushPromises()
+      const candidates = [
+        devices[2],
+        { ...devices[2], id: 22, name: 'VIVO X300 Ultra 02' },
+        { ...devices[2], id: 23, name: 'VIVO X300 Ultra 03' },
+      ]
+      findAvailableSlot.mockResolvedValue({ device: candidates[0], availableDevices: candidates,
+        shipOutDate: new Date('2026-09-30'), shipInDate: new Date('2026-10-04') })
+      await vm.findAvailableSlot()
+      vm.addDevice()
+      await vm.findAvailableSlot(vm.additionalDevices[0])
+      await flushPromises()
+      const selectors = wrapper.findAllComponents({ name: 'BookingDeviceSelector' })
+      expect(selectors).toHaveLength(2)
+      expect(selectors[0].find('.el-select__selection').text()).toBe('VIVO X300 Ultra 01')
+      expect(selectors[1].find('.el-select__selection').text()).toBe('VIVO X300 Ultra 02')
+      for (const selector of selectors) {
+        await selector.find('.el-select__wrapper').trigger('click')
+        await flushPromises()
+        expect(selector.findAllComponents(ElOption).map(option => option.props('label'))).toEqual(candidates.map(d => d.name))
+        expect(selector.findComponent(ElSelect).vm.expanded).toBe(true)
+        await selector.find('.el-select__wrapper').trigger('click')
+      }
+      vm.form.selectedModelId = 1
+      await flushPromises()
+      expect(vm.filteredDevices).toEqual([])
+    } finally {
+      wrapper.unmount()
+    }
   })
 
 })

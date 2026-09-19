@@ -3,7 +3,6 @@
  * 提供设备和附件的加载、管理功能
  */
 import { ref } from 'vue'
-import { useGanttStore } from '@/stores/gantt'
 import type { Device, DeviceModel } from '@/stores/gantt'
 import axios from 'axios'
 import { useTenantStore } from '@/stores/tenant'
@@ -15,29 +14,44 @@ export interface DeviceWithStatus extends Device {
 }
 
 export function useDeviceManagement() {
-  const ganttStore = useGanttStore()
   const tenantStore = useTenantStore()
 
   const loading = ref(false)
   const devices = ref<DeviceWithStatus[]>([])
   const accessories = ref<DeviceWithStatus[]>([])
   const deviceModels = ref<DeviceModel[]>([])
+  let devicesGeneration = 0
   let accessoriesGeneration = 0
 
   /**
    * 加载所有设备（非附件）
    */
   const loadDevices = async () => {
+    const requestGeneration = ++devicesGeneration
     loading.value = true
+    devices.value = []
     try {
-      devices.value = ganttStore.devices
-        .filter(device => !device.is_accessory)
-        .map(device => ({ ...device }))
+      await tenantStore.initialize()
+      if (requestGeneration !== devicesGeneration) return
+      const warehouseId = tenantStore.currentWarehouseId
+      const loadedDevices: DeviceWithStatus[] = []
+      let page = 1
+      while (true) {
+        const response = await axios.get('/api/devices', {
+          params: { is_accessory: false, per_page: 100, page, warehouse_id: warehouseId },
+        })
+        if (requestGeneration !== devicesGeneration || warehouseId !== tenantStore.currentWarehouseId) return
+        loadedDevices.push(...response.data.devices)
+        if (!response.data.has_next) break
+        page += 1
+      }
+      devices.value = loadedDevices
     } catch (error) {
+      if (requestGeneration !== devicesGeneration) return
       console.error('加载设备列表失败:', error)
       throw error
     } finally {
-      loading.value = false
+      if (requestGeneration === devicesGeneration) loading.value = false
     }
   }
 
