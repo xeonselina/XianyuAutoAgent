@@ -1,16 +1,17 @@
 import ElementPlus, { ElTag, ElTooltip } from 'element-plus'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import {
   computed,
   defineComponent,
   h,
   inject,
+  markRaw,
   nextTick,
   provide,
   type InjectionKey,
   type Ref,
 } from 'vue'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeAll, afterAll, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import axios from 'axios'
 
@@ -336,5 +337,83 @@ describe('BatchShippingView device status', () => {
     expect(selectionCell.title).toContain('接力订单')
     setup.handleCellMouseLeave(relayRow, { type: 'selection' }, selectionCell)
     expect(selectionCell.hasAttribute('title')).toBe(false)
+  })
+})
+
+// Use the real Element Plus table: a stub cannot verify merged customer cells.
+describe('BatchShippingView grouped customers', () => {
+  beforeAll(() => {
+    // Browser observers are opaque to Vue; preserve that behavior in happy-dom.
+    const Observer = globalThis.MutationObserver
+    vi.stubGlobal('MutationObserver', class extends Observer {
+      constructor(callback: MutationCallback) { super(callback); markRaw(this) }
+    })
+  })
+  afterAll(() => vi.unstubAllGlobals())
+  const mountTable = async (rows: any[]) => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    useTenantStore().setWarehousesForSession([
+      { id: 1, name: 'A 仓', province: '广东省', city: '深圳市' },
+    ])
+    const wrapper = mount(BatchShippingView, {
+      attachTo: document.body,
+      global: { plugins: [pinia, ElementPlus], stubs: { teleport: true, transition: false } },
+    })
+    ;(wrapper.vm.$.setupState as any).rentals = rows
+    await flushPromises()
+    await nextTick()
+    return wrapper
+  }
+  const row = (id: number, group?: string, overrides: any = {}) => ({
+    ...baseRental, id, shipping_group_id: group,
+    device: { name: `设备-${id}`, device_model: { name: 'X300 Ultra' } },
+    ...overrides,
+  })
+
+  it('places scattered members together and merges only their customer cells', async () => {
+    const wrapper = await mountTable([
+      row(101, 'parcel-101'), row(201), row(102, 'parcel-101'), row(103, 'parcel-101'),
+    ])
+    try {
+      const setup = wrapper.vm.$.setupState as any
+      expect(setup.groupedRentals.map((r: any) => r.id)).toEqual([101, 102, 103, 201])
+      expect(setup.rentals.map((r: any) => r.id)).toEqual([101, 201, 102, 103])
+      const rows = wrapper.findAll('.el-table__body tbody tr')
+      expect(rows).toHaveLength(4)
+      expect(rows.map(r => r.text().match(/设备-\d+/)?.[0])).toEqual(['设备-101', '设备-102', '设备-103', '设备-201'])
+      const merged = rows[0].get('td[rowspan="3"]')
+      expect(merged.get('.customer-name').text()).toBe('测试客户')
+      expect(merged.get('.multi-device-tag').text()).toBe('一单多台')
+      expect(rows[1].find('.customer-name').exists()).toBe(false)
+      expect(rows[2].find('.customer-name').exists()).toBe(false)
+      expect(rows[3].find('.multi-device-tag').exists()).toBe(false)
+      expect(wrapper.findAll('.el-table__body .el-checkbox')).toHaveLength(4)
+      expect(wrapper.text()).not.toContain('发货分组')
+      expect(wrapper.text()).not.toContain('parcel-')
+      setup.handleSelectionChange([setup.groupedRentals[0], setup.groupedRentals[1]])
+      expect(setup.selectedRentals.map((r: any) => r.id)).toEqual([101, 102])
+    } finally { wrapper.unmount() }
+  })
+
+  it('does not merge different warehouses or unrelated orders with the same customer', async () => {
+    const wrapper = await mountTable([
+      row(101, 'parcel-101'), row(102, 'parcel-101', { warehouse_id: 2 }), row(103), row(104),
+    ])
+    try {
+      expect(wrapper.findAll('.el-table__body .customer-name')).toHaveLength(4)
+      expect(wrapper.findAll('.el-table__body .multi-device-tag')).toHaveLength(0)
+    } finally { wrapper.unmount() }
+  })
+
+  it('keeps all customer names visible if a parcel contains different customers', async () => {
+    const wrapper = await mountTable([
+      row(101, 'parcel-101', { customer_name: '客户甲' }),
+      row(102, 'parcel-101', { customer_name: '客户乙' }),
+    ])
+    try {
+      const merged = wrapper.get('.el-table__body td[rowspan="2"]')
+      expect(merged.findAll('.customer-name').map(name => name.text())).toEqual(['客户甲', '客户乙'])
+    } finally { wrapper.unmount() }
   })
 })

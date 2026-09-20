@@ -56,8 +56,8 @@
       </div>
 
       <el-table
-        :data="rentals"
-        :span-method="parcelSpan"
+        :data="groupedRentals"
+        :span-method="customerSpan"
         border
         stripe
         :row-key="(row: any) => row.id"
@@ -65,22 +65,16 @@
         @cell-mouse-enter="handleCellMouseEnter"
         @cell-mouse-leave="handleCellMouseLeave"
       >
-        <el-table-column type="selection" width="55" :selectable="isSelectableRow" />
-        <el-table-column label="发货分组" width="150">
-          <template #default="{ row }">
-            <el-tag>{{ row.shipping_group_size || 1 }} 台 / 1 票</el-tag>
-            <div>{{ row.shipping_group_id || `R-${row.id}` }}</div>
-            <small>勾选的同组设备合单预约</small>
-          </template>
-        </el-table-column>
-        <el-table-column label="设备名称" width="80">
+        <el-table-column type="selection" width="44" :selectable="isSelectableRow" />
+        <el-table-column label="设备名称" min-width="110" show-overflow-tooltip>
           <template #default="{ row }">
             {{ row.device?.name || '-' }}
           </template>
         </el-table-column>
-        <el-table-column label="客户" width="130">
+        <el-table-column prop="customer_name" label="客户" min-width="120">
           <template #default="{ row }">
-            <div>{{ row.customer_name }}</div>
+            <div v-for="name in customerNames(row)" :key="name" class="customer-name">{{ name }}</div>
+            <el-tag v-if="shipmentRows(row).length > 1" size="small" class="multi-device-tag">一单多台</el-tag>
             <el-tooltip
               v-if="row.is_relay_shipping"
               :content="RELAY_SELECTION_REASON"
@@ -98,20 +92,20 @@
             </el-tooltip>
           </template>
         </el-table-column>
-        <el-table-column label="设备" width="180">
+        <el-table-column label="设备" min-width="130" show-overflow-tooltip>
           <template #default="{ row }">
             {{ row.device?.device_model?.name || row.device?.name || '-' }}
           </template>
         </el-table-column>
-        <el-table-column prop="destination" label="地址" min-width="260" show-overflow-tooltip />
-        <el-table-column label="状态" width="100">
+        <el-table-column prop="destination" label="地址" min-width="220" show-overflow-tooltip />
+        <el-table-column label="状态" width="86">
           <template #default="{ row }">
-            <el-tag v-if="row.status === 'shipped'" type="success">已发货</el-tag>
-            <el-tag v-else-if="row.status === 'scheduled_for_shipping'" type="warning">预约发货</el-tag>
-            <el-tag v-else type="info">待发货</el-tag>
+            <el-tag v-if="row.status === 'shipped'" type="success" size="small">已发货</el-tag>
+            <el-tag v-else-if="row.status === 'scheduled_for_shipping'" type="warning" size="small">预约发货</el-tag>
+            <el-tag v-else type="info" size="small">待发货</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="设备状态" width="130">
+        <el-table-column label="设备状态" width="128">
           <template #default="{ row }">
             <span v-if="!row.has_previous_rental">-</span>
             <el-tag
@@ -130,8 +124,8 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="ship_out_tracking_no" label="运单号" width="180" />
-        <el-table-column label="快递类型" width="120">
+        <el-table-column prop="ship_out_tracking_no" label="运单号" width="152" show-overflow-tooltip />
+        <el-table-column label="快递类型" width="94">
           <template #default="{ row }">
             <el-select
               v-model="row.express_type_id"
@@ -145,12 +139,12 @@
             </el-select>
           </template>
         </el-table-column>
-        <el-table-column label="预约时间" width="180">
+        <el-table-column label="预约时间" width="116">
           <template #default="{ row }">
             {{ row.scheduled_ship_time ? formatDateTime(row.scheduled_ship_time) : '-' }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="100">
+        <el-table-column label="操作" width="64">
           <template #default="{ row }">
             <el-button
               v-if="row.status === 'scheduled_for_shipping' && row.ship_out_tracking_no"
@@ -297,12 +291,26 @@ const goBack = () => {
   router.push('/')
 }
 
-const parcelSpan = ({ row, rowIndex, columnIndex }: any) => {
-  if (columnIndex !== 1 || !row.shipping_group_id) return [1, 1]
-  if (rowIndex > 0 && rentals.value[rowIndex - 1].shipping_group_id === row.shipping_group_id) return [0, 0]
-  let count = 1
-  while (rentals.value[rowIndex + count]?.shipping_group_id === row.shipping_group_id) count++
-  return [count, 1]
+// Preserve group order while bringing every device in a parcel next to its peers.
+const shipmentKey = (row: any) => row.shipping_group_id
+  ? `warehouse:${row.warehouse_id}:group:${row.shipping_group_id}`
+  : `rental:${row.id}`
+const shipmentGroups = computed(() => {
+  const groups = new Map<string, any[]>()
+  for (const row of rentals.value) {
+    const key = shipmentKey(row)
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(row)
+  }
+  return groups
+})
+const groupedRentals = computed(() => [...shipmentGroups.value.values()].flat())
+const shipmentRows = (row: any) => shipmentGroups.value.get(shipmentKey(row)) || [row]
+const customerNames = (row: any) => [...new Set(shipmentRows(row).map(member => member.customer_name || '-'))]
+const customerSpan = ({ row, column }: any) => {
+  if (column.property !== 'customer_name') return [1, 1]
+  const members = shipmentRows(row)
+  return members[0].id === row.id ? [members.length, 1] : [0, 0]
 }
 
 // Selection handlers
@@ -572,7 +580,8 @@ const printSingle = async (rentalId: number) => {
 <style scoped>
 .batch-shipping-view {
   padding: 20px;
-  max-width: 1400px;
+  width: 100%;
+  min-width: 0;
   margin: 0 auto;
 }
 
@@ -600,8 +609,14 @@ const printSingle = async (rentalId: number) => {
 
 .date-inputs {
   display: flex;
+  flex-wrap: wrap;
   gap: 15px;
   align-items: center;
+}
+
+.date-inputs :deep(.el-date-editor) {
+  flex: 0 1 360px;
+  max-width: 100%;
 }
 
 .orders-table {
@@ -610,6 +625,8 @@ const printSingle = async (rentalId: number) => {
 
 .table-header {
   display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 15px;
@@ -621,7 +638,24 @@ const printSingle = async (rentalId: number) => {
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
+}
+
+.orders-table :deep(.el-table .cell) {
+  padding: 0 8px;
+}
+
+.customer-name {
+  overflow-wrap: anywhere;
+}
+
+.multi-device-tag {
+  margin-top: 6px;
+}
+
+.actions :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 
 .relay-shipping-tag {
