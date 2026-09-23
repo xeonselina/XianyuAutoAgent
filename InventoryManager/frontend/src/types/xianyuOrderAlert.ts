@@ -40,7 +40,7 @@ export interface XianyuRentalAlert {
   order_no: string
   xianyu_shop_id: number
   xianyu_shop_name: string
-  kind: 'closed' | 'refund_review'
+  kind: 'closed' | 'refund_review' | 'not_found'
   status_text: string
   last_seen_at: string
   rentals: XianyuAlertRental[]

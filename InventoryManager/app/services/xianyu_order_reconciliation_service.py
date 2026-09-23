@@ -14,7 +14,10 @@ from app.models.xianyu_order_alert import XianyuOrderAlert
 from app.models.xianyu_rental_alert import XianyuRentalAlert
 from app.models.xianyu_shop import XianyuShop
 from app.services.integration_resolver import IntegrationResolver
-from app.services.xianyu_order_service import XianyuOrderServiceError
+from app.services.xianyu_order_service import (
+    XianyuOrderNotFoundError,
+    XianyuOrderServiceError,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -244,21 +247,47 @@ class XianyuOrderReconciliationService:
 
         failures = 0
         for order_no in sorted(active):
+            alert = cached.get(order_no)
+            # A confirmed not-found response is terminal until this number is
+            # corrected; avoid repeating the same upstream detail request.
+            if alert is not None and alert.kind == "not_found" and order_no not in orders:
+                continue
             try:
                 # 待发货列表中消失不代表关闭，必须查询该订单的真实状态。
                 order = orders.get(order_no)
                 if order is None:
-                    order = client.get_order_detail(order_no)
+                    get_order_detail = getattr(
+                        client,
+                        "get_order_detail_for_reconciliation",
+                        client.get_order_detail,
+                    )
+                    order = get_order_detail(order_no)
                 if not isinstance(order, dict) or self._normalize_order_no(order.get("order_no")) != order_no:
                     raise XianyuOrderServiceError("闲鱼订单详情无效")
                 status = self._rental_alert_status(order)
+            except XianyuOrderNotFoundError:
+                # This is an order-specific data issue, not a shop-wide sync
+                # failure. Keep it visible for review and stop retrying it.
+                if alert is None:
+                    alert = XianyuRentalAlert(
+                        xianyu_shop_id=shop_id,
+                        order_no=order_no,
+                        first_detected_at=now,
+                    )
+                    session.add(alert)
+                    cached[order_no] = alert
+                alert.kind = "not_found"
+                alert.status_text = "闲鱼平台查无此订单，请核对订单号和档期"
+                alert.order_status = -1
+                alert.refund_status = -1
+                alert.last_seen_at = now
+                continue
             except Exception as exc:
                 # 单笔失败保留旧提醒，其他已核实订单仍正常更新。
                 failures += 1
                 logger.warning("闲鱼档期订单核对失败，异常类型: %s", type(exc).__name__)
                 continue
 
-            alert = cached.get(order_no)
             if status is None:
                 if alert is not None:
                     session.delete(alert)
@@ -498,7 +527,7 @@ class XianyuOrderReconciliationService:
         return self.get_snapshot()
 
     def ignore_rental_alert(self, shop_id, order_no, reason):
-        """永久忽略一笔故意保留的退款/关闭档期提醒。"""
+        """永久忽略一笔档期订单提醒。"""
         normalized_order_no = self._normalize_order_no(order_no)
         normalized_reason = str(reason or "").strip()
         if not normalized_reason:

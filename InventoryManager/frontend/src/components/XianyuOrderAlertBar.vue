@@ -32,6 +32,7 @@
           </el-button>
         </div>
         <p v-if="group.kind === 'refund_review'" class="rental-guidance">订单尚未关闭，请核对实际退款范围和仍需履约的设备。</p>
+        <p v-if="group.kind === 'not_found'" class="rental-guidance">闲鱼平台确认查无此订单；请核对订单号和档期记录。修正本地订单号后会重新检查，也可以忽略此提醒。</p>
         <div v-for="rental in alert.rentals" :key="rental.id" class="rental-alert-row">
           <div class="alert-copy">
             <div class="order-main">
@@ -152,15 +153,17 @@ const emit = defineEmits<{
 }>()
 
 const expanded = ref(false)
-const rentalExpanded = ref({ closed: false, refund_review: false })
+const rentalExpanded = ref({ closed: false, refund_review: false, not_found: false })
 const rentalStatusText = { not_shipped: '未发货', scheduled_for_shipping: '预约发货', shipped: '已发货' }
-const rentalAlertGroups = computed(() => (['closed', 'refund_review'] as const).map(kind => {
+const rentalAlertGroups = computed(() => (['closed', 'refund_review', 'not_found'] as const).map(kind => {
   const alerts = (props.snapshot.rental_alerts || []).filter(alert => alert.kind === kind)
   return {
     kind, alerts,
     headline: kind === 'closed'
       ? `发现 ${alerts.length} 笔闲鱼订单已退款或关闭，但仍保留在档期管理中，请及时删除，避免误发货`
-      : `发现 ${alerts.length} 笔档期订单存在退款或退货情况，请核对`,
+      : kind === 'refund_review'
+        ? `发现 ${alerts.length} 笔档期订单存在退款或退货情况，请核对`
+        : `发现 ${alerts.length} 笔档期关联的闲鱼订单不存在，请核对订单号或档期记录`,
   }
 }).filter(group => group.alerts.length > 0))
 
@@ -257,8 +260,8 @@ const confirmIgnore = async (alert: XianyuOrderAlert) => {
 const confirmRentalIgnore = async (alert: XianyuRentalAlert) => {
   try {
     const promptResult = await ElMessageBox.prompt(
-      '请填写忽略这笔退款/关闭档期提醒的原因；档期不会被删除。',
-      '忽略档期提醒',
+      '请填写忽略这笔档期订单提醒的原因；档期不会被删除。',
+      '忽略档期订单提醒',
       {
         confirmButtonText: '下一步',
         cancelButtonText: '取消',

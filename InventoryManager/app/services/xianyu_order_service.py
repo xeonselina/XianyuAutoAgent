@@ -26,6 +26,10 @@ class XianyuOrderServiceError(RuntimeError):
     """闲管家订单接口返回了不可用或不完整的数据。"""
 
 
+class XianyuOrderNotFoundError(XianyuOrderServiceError):
+    """闲管家已明确确认订单不存在。"""
+
+
 class XianyuOrderService:
     """闲鱼管家订单API服务类 - 统一的闲鱼API客户端"""
 
@@ -241,6 +245,17 @@ class XianyuOrderService:
             page_no += 1
 
     def get_order_detail(self, order_no: str) -> Optional[Dict[str, Any]]:
+        return self._get_order_detail(order_no, raise_not_found=False)
+
+    def get_order_detail_for_reconciliation(
+        self, order_no: str,
+    ) -> Optional[Dict[str, Any]]:
+        """保留明确的订单不存在结果，供档期对账分类处理。"""
+        return self._get_order_detail(order_no, raise_not_found=True)
+
+    def _get_order_detail(
+        self, order_no: str, *, raise_not_found: bool,
+    ) -> Optional[Dict[str, Any]]:
         """
         获取订单详情
 
@@ -284,6 +299,15 @@ class XianyuOrderService:
 
         # 检查响应码
         if result.get('code') != 0:
+            if (
+                str(result.get('code')) == '100001'
+                and str(result.get('msg') or result.get('message') or '').strip()
+                == '订单不存在'
+            ):
+                if raise_not_found:
+                    raise XianyuOrderNotFoundError("闲鱼订单不存在")
+                logger.error("获取订单详情失败: 闲鱼订单不存在")
+                return None
             logger.error("获取订单详情失败")
             return None
 
