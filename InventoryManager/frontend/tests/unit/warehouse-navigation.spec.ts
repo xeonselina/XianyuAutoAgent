@@ -370,10 +370,7 @@ describe('warehouse-aware tenant navigation', () => {
     setActivePinia(pinia)
     const tenant = useTenantStore()
     tenant.setWarehousesForSession(warehouses)
-    const fetchMock = vi.fn().mockResolvedValue({
-      json: vi.fn().mockResolvedValue({ success: false }),
-    })
-    vi.stubGlobal('fetch', fetchMock)
+    axiosGet.mockResolvedValue({ data: { success: false } })
 
     const wrapper = shallowMount(RentalStatsView, {
       global: {
@@ -383,33 +380,32 @@ describe('warehouse-aware tenant navigation', () => {
     })
     await flushPromises()
 
-    expect(fetchMock).toHaveBeenCalledWith(
+    expect(axiosGet).toHaveBeenCalledWith(
       '/api/rental-stats/models?warehouse_id=11',
     )
-    expect(fetchMock.mock.calls.some(
+    expect(axiosGet.mock.calls.some(
       ([url]) => String(url).startsWith('/api/rental-stats/periodic?')
         && String(url).includes('warehouse_id=11'),
     )).toBe(true)
-    expect(fetchMock).toHaveBeenCalledWith(
+    expect(axiosGet).toHaveBeenCalledWith(
       '/api/rental-stats/x200u-forecast?warehouse_id=11',
     )
 
     tenant.selectWarehouse(22)
     await flushPromises()
 
-    expect(fetchMock).toHaveBeenCalledWith(
+    expect(axiosGet).toHaveBeenCalledWith(
       '/api/rental-stats/models?warehouse_id=22',
     )
-    expect(fetchMock.mock.calls.some(
+    expect(axiosGet.mock.calls.some(
       ([url]) => String(url).startsWith('/api/rental-stats/periodic?')
         && String(url).includes('warehouse_id=22'),
     )).toBe(true)
-    expect(fetchMock).toHaveBeenCalledWith(
+    expect(axiosGet).toHaveBeenCalledWith(
       '/api/rental-stats/x200u-forecast?warehouse_id=22',
     )
 
     wrapper.unmount()
-    vi.unstubAllGlobals()
   })
 
   it('clears SF tracking rows synchronously and reloads after a warehouse switch', async () => {

@@ -1,6 +1,7 @@
 import axios, {
   isAxiosError,
   type AxiosInstance,
+  type AxiosResponse,
   type InternalAxiosRequestConfig,
 } from 'axios'
 
@@ -13,6 +14,7 @@ type CsrfRecoveryOptions = {
   client?: AxiosInstance
   refreshToken: () => Promise<string | null>
   onInvalidSession: () => void
+  onInvalidPlatformSession?: () => void
 }
 
 const isTenantCsrfFailure = (error: unknown) => {
@@ -22,13 +24,20 @@ const isTenantCsrfFailure = (error: unknown) => {
   return code === 'CSRF_INVALID' && !url.startsWith('/platform/')
 }
 
+const isExpiredSession = (response: AxiosResponse | undefined) => (
+  response?.status === 401
+  && (response.data as { code?: unknown } | undefined)?.code === 'AUTH_REQUIRED'
+)
+
 export const installTenantCsrfRecovery = ({
   client = axios,
   refreshToken,
   onInvalidSession,
+  onInvalidPlatformSession,
 }: CsrfRecoveryOptions) => {
   let refreshPromise: Promise<string | null> | null = null
   let invalidSessionHandled = false
+  let invalidPlatformSessionHandled = false
 
   const recoverToken = () => {
     if (!refreshPromise) {
@@ -45,9 +54,27 @@ export const installTenantCsrfRecovery = ({
     onInvalidSession()
   }
 
+  const handleExpiredSession = (response: AxiosResponse | undefined) => {
+    if (!isExpiredSession(response)) return
+    const url = response?.config.url || ''
+    if (url === '/auth/logout' || url === '/platform/auth/logout') return
+    if (url.startsWith('/platform/')) {
+      if (!invalidPlatformSessionHandled && onInvalidPlatformSession) {
+        invalidPlatformSessionHandled = true
+        onInvalidPlatformSession()
+      }
+    } else {
+      handleInvalidSession()
+    }
+  }
+
   const interceptorId = client.interceptors.response.use(
-    response => response,
+    response => {
+      handleExpiredSession(response)
+      return response
+    },
     async (error: unknown) => {
+      if (isAxiosError(error)) handleExpiredSession(error.response)
       if (!isTenantCsrfFailure(error) || !isAxiosError(error)) {
         return Promise.reject(error)
       }

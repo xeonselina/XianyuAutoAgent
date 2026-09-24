@@ -15,6 +15,7 @@ installTenantCsrfRecovery({
   onInvalidSession: () => {
     useMobileAuthStore(pinia).clearSession()
     const next = `${window.location.pathname}${window.location.search}${window.location.hash}`
+    if (window.location.pathname === '/login') return
     window.location.replace(`/login?next=${encodeURIComponent(next)}`)
   },
 })

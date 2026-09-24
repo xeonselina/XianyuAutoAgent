@@ -157,12 +157,22 @@ def test_runtime_image_context_excludes_sensitive_and_local_files():
     } <= ignored
 
 
-def test_runtime_image_builds_frontend_but_directly_copies_only_qr_assets():
+def test_runtime_image_builds_both_frontends_but_directly_copies_only_qr_assets():
     ignored = set((ROOT / ".dockerignore").read_text().splitlines())
     dockerfile_lines = (ROOT / "Dockerfile").read_text().splitlines()
 
     assert "frontend/src/*" not in ignored
     assert "frontend/*" not in ignored
+    assert "frontend-mobile/" not in ignored
+    assert {
+        "frontend-mobile/node_modules/", "frontend-mobile/tests/",
+        "frontend-mobile/e2e/", "frontend-mobile/*.md",
+    } <= ignored
+    assert {
+        "COPY frontend-mobile/package.json frontend-mobile/package-lock.json ./",
+        "COPY frontend-mobile/ ./",
+        "COPY --from=frontend-mobile-builder /static/vue-mobile-dist ./static/vue-mobile-dist",
+    } <= set(dockerfile_lines)
     assert {
         "frontend/tests/", "frontend/.vscode/", "frontend/app/",
         "frontend/*.md", "frontend/vitest.config.ts",
@@ -208,8 +218,8 @@ def test_one_image_and_parameterized_make_contract():
         "sshpass", "docker-compose", "REGISTRY :=",
     ))
     assert {
-        "tests/", "frontend/tests/", "frontend-mobile/", "openspec/",
-        "static/vue-dist/",
+        "tests/", "frontend/tests/", "frontend-mobile/tests/", "openspec/",
+        "static/vue-dist/", "static/vue-mobile-dist/",
     } <= dockerignore
     for key in (
         "PROVISIONER_DATABASE_URL", "TENCENTCLOUD_SECRET_ID",

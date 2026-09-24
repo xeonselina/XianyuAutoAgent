@@ -42,6 +42,7 @@
 </template>
 
 <script setup lang="ts">
+import axios from 'axios'
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeft } from '@element-plus/icons-vue'
@@ -59,15 +60,15 @@ const goBack = () => {
 const fetchStatistics = async () => {
   try {
     // 获取最新统计
-    const latestRes = await fetch('/api/statistics/latest')
-    const latestData = await latestRes.json()
+    const latestRes = await axios.get('/api/statistics/latest')
+    const latestData = latestRes.data
     if (latestData.success) {
       latestStat.value = latestData.data
     }
 
     // 获取最近30天统计
-    const recentRes = await fetch('/api/statistics/recent?days=30')
-    const recentData = await recentRes.json()
+    const recentRes = await axios.get('/api/statistics/recent?days=30')
+    const recentData = recentRes.data
     if (recentData.success) {
       statsData.value = recentData.data
       renderChart()

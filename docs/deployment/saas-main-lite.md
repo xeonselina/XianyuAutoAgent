@@ -234,10 +234,10 @@ alembic -c control_alembic.ini upgrade head
 python -m flask --app run.py upgrade-tenant-databases
 ```
 
-镜像构建本身使用 `frontend/package-lock.json` 在独立 Node stage 中执行 `npm ci` 和
-前端构建，再把新生成的 `static/vue-dist` 复制进运行镜像。因此
-`make release-nas` 不依赖工作区中被 Git 忽略的旧前端产物，每个不可变 tag 都包含
-与该提交一致的桌面前端。
+镜像构建分别使用 `frontend/package-lock.json` 和 `frontend-mobile/package-lock.json`
+在独立 Node stage 中执行 `npm ci` 和前端构建，再把新生成的
+`static/vue-dist` 与 `static/vue-mobile-dist` 复制进运行镜像。因此每个不可变 tag
+都包含与该提交一致的 PC 与移动端前端。
 
 ## 本地同一镜像的进程（非 NAS 发布）
 

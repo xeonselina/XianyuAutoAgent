@@ -19,6 +19,15 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
+# 移动端也从锁文件构建，避免镜像带入工作区中的旧静态产物。
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS frontend-mobile-builder
+
+WORKDIR /frontend-mobile
+COPY frontend-mobile/package.json frontend-mobile/package-lock.json ./
+RUN npm ci
+COPY frontend-mobile/ ./
+RUN npm run build
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Stage 1: builder —— 编译 Python wheels（含 build-essential / libssl 等编译依赖）
 # ══════════════════════════════════════════════════════════════════════════════
@@ -91,6 +100,7 @@ COPY control_migrations/ ./control_migrations/
 COPY migrations/ ./migrations/
 COPY static/ ./static/
 COPY --from=frontend-builder /static/vue-dist ./static/vue-dist
+COPY --from=frontend-mobile-builder /static/vue-mobile-dist ./static/vue-mobile-dist
 COPY templates/ ./templates/
 COPY config.py run.py worker.py gunicorn_config.py control_alembic.ini ./
 COPY frontend/src/assets/安装调试教程.jpg ./frontend/src/assets/安装调试教程.jpg

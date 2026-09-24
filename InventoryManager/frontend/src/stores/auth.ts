@@ -199,6 +199,7 @@ export const useAuthStore = defineStore('auth', () => {
     requestCode,
     refreshTenantSession,
     clearTenantSession,
+    clearPlatformSession,
     setAuthMethod,
     tenant,
     updatePassword,

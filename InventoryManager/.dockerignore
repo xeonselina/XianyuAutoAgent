@@ -66,6 +66,7 @@ uploads/*
 node_modules/
 **/node_modules/
 static/vue-dist/
+static/vue-mobile-dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -96,7 +97,10 @@ frontend/.vscode/
 frontend/app/
 frontend/*.md
 frontend/vitest.config.ts
-frontend-mobile/
+frontend-mobile/node_modules/
+frontend-mobile/tests/
+frontend-mobile/e2e/
+frontend-mobile/*.md
 vue-demo/
 
 # 设计提案不进入运行镜像

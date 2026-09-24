@@ -31,7 +31,14 @@ installTenantCsrfRecovery({
   onInvalidSession: () => {
     useAuthStore(pinia).clearTenantSession()
     const next = `${window.location.pathname}${window.location.search}${window.location.hash}`
+    if (window.location.pathname === '/login') return
     window.location.replace(`/login?next=${encodeURIComponent(next)}`)
+  },
+  onInvalidPlatformSession: () => {
+    useAuthStore(pinia).clearPlatformSession()
+    const next = `${window.location.pathname}${window.location.search}${window.location.hash}`
+    if (window.location.pathname === '/platform/login') return
+    window.location.replace(`/platform/login?next=${encodeURIComponent(next)}`)
   },
 })
 app.use(router)

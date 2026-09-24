@@ -214,6 +214,7 @@
 </template>
 
 <script setup lang="ts">
+import axios from 'axios'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeft, Download } from '@element-plus/icons-vue'
@@ -277,10 +278,10 @@ async function fetchModels() {
     await tenantStore.initialize()
     if (requestGeneration !== modelsGeneration) return
     const warehouseId = tenantStore.currentWarehouseId
-    const res = await fetch(
+    const res = await axios.get(
       `/api/rental-stats/models?warehouse_id=${warehouseId}`,
     )
-    const json = await res.json()
+    const json = res.data
     if (
       requestGeneration === modelsGeneration
       && warehouseId === tenantStore.currentWarehouseId
@@ -313,8 +314,8 @@ async function fetchStats() {
       params.set('start_date', dateRange.value[0])
       params.set('end_date', dateRange.value[1])
     }
-    const res = await fetch(`/api/rental-stats/periodic?${params}`)
-    const json = await res.json()
+    const res = await axios.get(`/api/rental-stats/periodic?${params}`)
+    const json = res.data
     if (
       requestGeneration === statsGeneration
       && warehouseId === tenantStore.currentWarehouseId
@@ -339,10 +340,10 @@ async function fetchForecast() {
     await tenantStore.initialize()
     if (requestGeneration !== forecastGeneration) return
     const warehouseId = tenantStore.currentWarehouseId
-    const res = await fetch(
+    const res = await axios.get(
       `/api/rental-stats/x200u-forecast?warehouse_id=${warehouseId}`,
     )
-    const json = await res.json()
+    const json = res.data
     if (
       requestGeneration === forecastGeneration
       && warehouseId === tenantStore.currentWarehouseId

@@ -8,6 +8,7 @@ import axios, {
 import { describe, expect, it, vi } from 'vitest'
 
 import { installTenantCsrfRecovery } from '@/api/csrfRecovery'
+import { installTenantCsrfRecovery as installMobileTenantCsrfRecovery } from '../../../../frontend-mobile/src/api/csrfRecovery'
 
 
 const response = (
@@ -28,6 +29,17 @@ const csrfError = (config: InternalAxiosRequestConfig) => new AxiosError(
   config,
   undefined,
   response(config, 403, { code: 'CSRF_INVALID' }),
+)
+
+const authError = (
+  config: InternalAxiosRequestConfig,
+  code = 'AUTH_REQUIRED',
+) => new AxiosError(
+  'unauthorized',
+  AxiosError.ERR_BAD_REQUEST,
+  config,
+  undefined,
+  response(config, 401, { code }),
 )
 
 describe('tenant CSRF recovery', () => {
@@ -106,5 +118,92 @@ describe('tenant CSRF recovery', () => {
     )
     expect(refreshToken).not.toHaveBeenCalled()
     expect(onInvalidSession).not.toHaveBeenCalled()
+  })
+})
+
+describe('expired sessions during API requests', () => {
+  it('redirects once when concurrent tenant requests return AUTH_REQUIRED', async () => {
+    const client = axios.create()
+    client.defaults.adapter = (async (config) => {
+      throw authError(config)
+    }) as AxiosAdapter
+    const onInvalidSession = vi.fn()
+    const onInvalidPlatformSession = vi.fn()
+    installTenantCsrfRecovery({
+      client,
+      refreshToken: async () => null,
+      onInvalidSession,
+      onInvalidPlatformSession,
+    })
+
+    await Promise.allSettled([
+      client.get('/api/gantt/data'),
+      client.post('/api/rentals'),
+    ])
+
+    expect(onInvalidSession).toHaveBeenCalledOnce()
+    expect(onInvalidPlatformSession).not.toHaveBeenCalled()
+  })
+
+  it('handles 401 responses accepted by validateStatus', async () => {
+    const client = axios.create()
+    client.defaults.adapter = (async (config) => response(
+      config,
+      401,
+      { code: 'AUTH_REQUIRED' },
+    )) as AxiosAdapter
+    const onInvalidSession = vi.fn()
+    installTenantCsrfRecovery({
+      client,
+      refreshToken: async () => null,
+      onInvalidSession,
+    })
+
+    const result = await client.put('/api/inspections/3', {}, {
+      validateStatus: () => true,
+    })
+
+    expect(result.status).toBe(401)
+    expect(onInvalidSession).toHaveBeenCalledOnce()
+  })
+
+  it('keeps invalid credentials on the login form and sends expired platform sessions to platform login', async () => {
+    const client = axios.create()
+    client.defaults.adapter = (async (config) => {
+      throw authError(
+        config,
+        config.url === '/auth/password/login' ? 'AUTH_INVALID' : 'AUTH_REQUIRED',
+      )
+    }) as AxiosAdapter
+    const onInvalidSession = vi.fn()
+    const onInvalidPlatformSession = vi.fn()
+    installTenantCsrfRecovery({
+      client,
+      refreshToken: async () => null,
+      onInvalidSession,
+      onInvalidPlatformSession,
+    })
+
+    await expect(client.post('/auth/password/login')).rejects.toBeInstanceOf(AxiosError)
+    expect(onInvalidSession).not.toHaveBeenCalled()
+    await expect(client.get('/platform/api/tenants')).rejects.toBeInstanceOf(AxiosError)
+    expect(onInvalidPlatformSession).toHaveBeenCalledOnce()
+    expect(onInvalidSession).not.toHaveBeenCalled()
+  })
+
+  it('redirects mobile tenant requests when the session expires', async () => {
+    const client = axios.create()
+    client.defaults.adapter = (async (config) => {
+      throw authError(config)
+    }) as AxiosAdapter
+    const onInvalidSession = vi.fn()
+    installMobileTenantCsrfRecovery({
+      client,
+      refreshToken: async () => null,
+      onInvalidSession,
+    })
+
+    await expect(client.post('/api/rentals')).rejects.toBeInstanceOf(AxiosError)
+    expect(onInvalidSession).toHaveBeenCalledOnce()
   })
 })

@@ -1,6 +1,7 @@
 import axios, {
   isAxiosError,
   type AxiosInstance,
+  type AxiosResponse,
   type InternalAxiosRequestConfig,
 } from 'axios'
 
@@ -21,6 +22,13 @@ const isTenantCsrfFailure = (error: unknown) => {
   const url = error.config?.url || ''
   return code === 'CSRF_INVALID' && !url.startsWith('/platform/')
 }
+
+const isExpiredTenantSession = (response: AxiosResponse | undefined) => (
+  response?.status === 401
+  && (response.data as { code?: unknown } | undefined)?.code === 'AUTH_REQUIRED'
+  && !response.config.url?.startsWith('/platform/')
+  && response.config.url !== '/auth/logout'
+)
 
 export const installTenantCsrfRecovery = ({
   client = axios,
@@ -46,8 +54,14 @@ export const installTenantCsrfRecovery = ({
   }
 
   const interceptorId = client.interceptors.response.use(
-    response => response,
+    response => {
+      if (isExpiredTenantSession(response)) handleInvalidSession()
+      return response
+    },
     async (error: unknown) => {
+      if (isAxiosError(error) && isExpiredTenantSession(error.response)) {
+        handleInvalidSession()
+      }
       if (!isTenantCsrfFailure(error) || !isAxiosError(error)) {
         return Promise.reject(error)
       }

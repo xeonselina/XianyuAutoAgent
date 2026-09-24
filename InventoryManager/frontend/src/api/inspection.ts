@@ -23,8 +23,10 @@ const API_BASE_URL = '/api/inspections'
  * @param deviceId 设备ID
  */
 export async function getLatestRentalByDeviceId(deviceId: number) {
-  const response = await fetch(`${API_BASE_URL}/rental/latest/${deviceId}`)
-  return await response.json() as { success: boolean; data?: LatestRentalResponse; message?: string }
+  const response = await axios.get<{ success: boolean; data?: LatestRentalResponse; message?: string }>(
+    `${API_BASE_URL}/rental/latest/${deviceId}`,
+  )
+  return response.data
 }
 
 /**
@@ -32,8 +34,10 @@ export async function getLatestRentalByDeviceId(deviceId: number) {
  * @param deviceName 设备名称（纯数字）
  */
 export async function getLatestRentalByDeviceName(deviceName: string) {
-  const response = await fetch(`${API_BASE_URL}/rental/latest/by-name/${encodeURIComponent(deviceName)}`)
-  return await response.json() as { success: boolean; data?: LatestRentalResponse; message?: string }
+  const response = await axios.get<{ success: boolean; data?: LatestRentalResponse; message?: string }>(
+    `${API_BASE_URL}/rental/latest/by-name/${encodeURIComponent(deviceName)}`,
+  )
+  return response.data
 }
 
 /**
@@ -59,8 +63,10 @@ export async function createInspection(data: CreateInspectionRequest) {
  * @param id 验货记录ID
  */
 export async function getInspectionById(id: number) {
-  const response = await fetch(`${API_BASE_URL}/${id}`)
-  return await response.json() as { success: boolean; data?: InspectionRecord; message?: string }
+  const response = await axios.get<{ success: boolean; data?: InspectionRecord; message?: string }>(
+    `${API_BASE_URL}/${id}`,
+  )
+  return response.data
 }
 
 /**
@@ -96,6 +102,6 @@ export async function getInspectionList(params?: InspectionListParams) {
   }
   
   const url = params ? `${API_BASE_URL}?${queryParams.toString()}` : API_BASE_URL
-  const response = await fetch(url)
-  return await response.json() as { success: boolean; data?: InspectionListResponse; message?: string }
+  const response = await axios.get<{ success: boolean; data?: InspectionListResponse; message?: string }>(url)
+  return response.data
 }

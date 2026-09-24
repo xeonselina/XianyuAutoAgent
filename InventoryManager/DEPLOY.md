@@ -40,6 +40,9 @@ make worker-once IMAGE='<registry/image:tag>' ENV_FILE=.env   # 跑一轮即退�
 `NAS_` / `sshpass` / `docker-compose` / `include .env` / `REGISTRY :=`。
 需要主机特定的部署脚本时，写在 `scripts/` 下，不要塞进 Makefile。
 
+Docker 镜像构建会分别从 `frontend/` 和 `frontend-mobile/` 的锁文件生成 PC 与移动端静态资源，
+不使用工作区中已有的前端构建产物。
+
 多架构构建见 `build-multiarch.sh`（ARM64 + AMD64）。
 
 ## 3. 环境变量
