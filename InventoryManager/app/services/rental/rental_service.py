@@ -269,6 +269,7 @@ class RentalService:
         exclude_rental_ids=(),
         preserve_existing=False,
         allow_main_device_conflict=False,
+        allow_occupancy_overlap=False,
     ):
         try:
             normalized_device_id = int(device_id)
@@ -319,7 +320,7 @@ class RentalService:
                 raise DeviceUnavailableError('附件设备当前不可用于新租赁')
             accessories.append(accessory)
 
-        if preserve_existing:
+        if preserve_existing or allow_occupancy_overlap:
             return device, accessories
 
         conflict_device_ids = normalized_ids if allow_main_device_conflict else selected_ids
@@ -407,6 +408,7 @@ class RentalService:
                     data.get('accessories') or [],
                     occupancy_start,
                     occupancy_end,
+                    allow_occupancy_overlap=True,
                 )
             )
             order_no, shop_id = resolved_shop or RentalService._resolve_shop(

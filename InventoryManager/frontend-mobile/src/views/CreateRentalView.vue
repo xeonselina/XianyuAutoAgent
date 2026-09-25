@@ -131,6 +131,7 @@
             @open="openDevicePicker()"
             @search="findDeviceSlot()"
           />
+          <van-notice-bar v-if="form.deviceId && conflictsChecked && conflictingDeviceIds.has(form.deviceId)" text="所选设备档期冲突，仍可保存" />
         </van-cell-group>
 
         <!-- 型号租赁组合 -->
@@ -173,6 +174,7 @@
             placeholder="无"
             @click="showPhoneHolderPicker = true"
           />
+          <van-notice-bar v-if="form.phoneHolderId && conflictsChecked && conflictingDeviceIds.has(form.phoneHolderId)" text="手机支架档期冲突，仍可保存" />
 
           <van-field
             v-model="selectedTripodName"
@@ -182,6 +184,7 @@
             placeholder="无"
             @click="showTripodPicker = true"
           />
+          <van-notice-bar v-if="form.tripodId && conflictsChecked && conflictingDeviceIds.has(form.tripodId)" text="三脚架档期冲突，仍可保存" />
 
           <van-field label="代传照片">
             <template #input>
@@ -198,12 +201,13 @@
         <van-cell-group v-for="(device, index) in additionalDevices" :key="device.key" inset :title="`第 ${index + 2} 台 · 同型号、同租期、同地址`" style="margin-top:12px">
           <van-cell :title="`移除第 ${index + 2} 台`" is-link @click="removeDevice(device)" />
           <BookingDeviceSelector
-            :name="availableSlots.find(slot => slot.device.id === device.device_id)?.device.name || ''"
+            :name="deviceChoices.find(choice => choice.id === device.device_id)?.name || ''"
             :loading="checkingSlots && searchingTarget === device.key"
             :can-search="!!form.startDate && !!form.endDate && !!form.modelId"
             @open="openDevicePicker(device)"
             @search="findDeviceSlot(device)"
           />
+          <van-notice-bar v-if="device.device_id && conflictsChecked && conflictingDeviceIds.has(device.device_id)" text="所选设备档期冲突，仍可保存" />
           <van-cell title="配置同第 1 台" is-link @click="copyDeviceConfig(device)" />
           <van-field label="镜头组合"><template #input>
             <select v-model="device.rental_package_id" :aria-label="`第 ${index + 2} 台镜头`">
@@ -217,13 +221,13 @@
           <van-field label="手机支架"><template #input>
             <select v-model="device.phoneHolderId" :aria-label="`第 ${index + 2} 台手机支架`">
               <option :value="null">无</option>
-              <option v-for="a in accessories.phoneHolders" :key="a.id" :value="a.id" :disabled="selectedInventoryIds(device).includes(a.id)">{{ a.name }}</option>
+              <option v-for="a in accessories.phoneHolders" :key="a.id" :value="a.id" :disabled="a.lifecycle_status !== 'active' || selectedInventoryIds(device).includes(a.id)">{{ a.name }}{{ conflictsChecked && conflictingDeviceIds.has(a.id) ? ' · 档期冲突（可保存）' : '' }}</option>
             </select>
           </template></van-field>
           <van-field label="三脚架"><template #input>
             <select v-model="device.tripodId" :aria-label="`第 ${index + 2} 台三脚架`">
               <option :value="null">无</option>
-              <option v-for="a in accessories.tripods" :key="a.id" :value="a.id" :disabled="selectedInventoryIds(device).includes(a.id)">{{ a.name }}</option>
+              <option v-for="a in accessories.tripods" :key="a.id" :value="a.id" :disabled="a.lifecycle_status !== 'active' || selectedInventoryIds(device).includes(a.id)">{{ a.name }}{{ conflictsChecked && conflictingDeviceIds.has(a.id) ? ' · 档期冲突（可保存）' : '' }}</option>
             </select>
           </template></van-field>
           <van-field label="代传照片"><template #input><van-switch v-model="device.photo_transfer" size="20" /></template></van-field>
@@ -414,8 +418,12 @@ const selectedInventoryIds = (target?: AdditionalDevice | null): number[] => {
 }
 const openDevicePicker = (target?: AdditionalDevice) => {
   pickerTarget.value = target ?? null
-  if (availableSlots.value.length) showDevicePicker.value = true
-  else showToast('请先选择日期和型号并查找档期')
+  if (!form.value.startDate || !form.value.endDate || !form.value.modelId) {
+    showToast('请先选择日期和型号')
+    return
+  }
+  if (deviceColumns.value.length) showDevicePicker.value = true
+  else showToast('当前仓库没有可选设备')
 }
 const loadBookingContext = async () => {
   try {
@@ -473,6 +481,8 @@ const showTripodPicker = ref(false)
 // 可选项数据
 const deviceModels = ref<DeviceModel[]>([])
 const availableSlots = ref<any[]>([])
+const conflictingDeviceIds = ref<Set<number>>(new Set())
+const conflictsChecked = ref(false)
 const accessories = ref<{ phoneHolders: Device[], tripods: Device[] }>({ phoneHolders: [], tripods: [] })
 
 // 选中名称（显示用）
@@ -514,22 +524,42 @@ watch(selectedModelConfig, (newModel) => {
 const modelColumns = computed(() =>
   deviceModels.value.map(m => ({ text: m.display_name || m.name, value: m.id }))
 )
+const deviceChoices = computed(() => {
+  const model = selectedModelConfig.value
+  if (!model) return []
+  const byId = new Map<number, Device>()
+  for (const device of [...ganttStore.availableDevices, ...availableSlots.value.map(slot => slot.device as Device)]) {
+    if (device.warehouse_id != null && device.warehouse_id !== tenantStore.currentWarehouseId) continue
+    const names = [model.name, model.display_name]
+    const deviceNames = [device.model, device.device_model?.name, device.device_model?.display_name]
+    if (device.model_id !== model.id && device.device_model?.id !== model.id &&
+        !deviceNames.some(name => name && names.includes(name))) continue
+    byId.set(device.id, device)
+  }
+  return [...byId.values()]
+})
 const deviceColumns = computed(() =>
-  availableSlots.value
-    .filter((slot: any) => !selectedInventoryIds(pickerTarget.value).includes(slot.device.id))
-    .sort((left: any, right: any) => compareRentalDevices(left.device, right.device))
-    .map((s: any) => ({
-      text: s.device?.name || `设备${s.device?.id}`,
-      value: s.device?.id
+  deviceChoices.value
+    .filter(device => !selectedInventoryIds(pickerTarget.value).includes(device.id))
+    .sort(compareRentalDevices)
+    .map(device => ({
+      text: `${device.name}${conflictsChecked.value && conflictingDeviceIds.value.has(device.id) ? ' · 档期冲突（可保存）' : ''}`,
+      value: device.id
     }))
 )
 const phoneHolderColumns = computed(() => [
   { text: '无', value: null },
-  ...accessories.value.phoneHolders.map(d => ({ text: d.name, value: d.id }))
+  ...accessories.value.phoneHolders.filter(d => d.lifecycle_status === 'active' && !selectedInventoryIds().includes(d.id) && form.value.tripodId !== d.id).map(d => ({
+    text: `${d.name}${conflictsChecked.value && conflictingDeviceIds.value.has(d.id) ? ' · 档期冲突（可保存）' : ''}`,
+    value: d.id
+  }))
 ])
 const tripodColumns = computed(() => [
   { text: '无', value: null },
-  ...accessories.value.tripods.map(d => ({ text: d.name, value: d.id }))
+  ...accessories.value.tripods.filter(d => d.lifecycle_status === 'active' && !selectedInventoryIds().includes(d.id) && form.value.phoneHolderId !== d.id).map(d => ({
+    text: `${d.name}${conflictsChecked.value && conflictingDeviceIds.value.has(d.id) ? ' · 档期冲突（可保存）' : ''}`,
+    value: d.id
+  }))
 ])
 
 // 自动计算发货/入库时间
@@ -564,26 +594,25 @@ const checkAvailability = async () => {
   form.value.deviceId = null
   selectedDeviceName.value = ''
   availableSlots.value = []
+  conflictingDeviceIds.value = new Set()
+  conflictsChecked.value = false
   if (!form.value.startDate || !form.value.endDate || !form.value.modelId) { checkingSlots.value = false; return }
   try {
-    const result = await ganttStore.findAvailableSlot(
-      form.value.startDate,
-      form.value.endDate,
-      form.value.logisticsDays,
-      form.value.modelId,
-      false
-    )
+    const ids = [
+      ...deviceChoices.value.map(device => device.id),
+      ...accessories.value.phoneHolders.map(device => device.id),
+      ...accessories.value.tripods.map(device => device.id)
+    ]
+    const conflicts = await conflictDetection.checkMultipleDevicesConflict(ids, {
+      startDate: form.value.startDate,
+      endDate: form.value.endDate,
+      logisticsDays: form.value.logisticsDays
+    })
     if (generation !== availabilityGeneration) return
-    if (result.availableDevices && result.availableDevices.length > 0) {
-      availableSlots.value = result.availableDevices.map((d: any) => ({ device: d }))
-    } else if (result.device) {
-      availableSlots.value = [result]
-    }
-    if (!availableSlots.value.length) {
-      showToast({ message: '无可用设备', type: 'fail' })
-    }
+    conflictingDeviceIds.value = new Set(Object.keys(conflicts).filter(id => conflicts[Number(id)]).map(Number))
+    conflictsChecked.value = true
   } catch (e: any) {
-    if (generation === availabilityGeneration) showToast({ message: e.message || '查找档期失败', type: 'fail' })
+    if (generation === availabilityGeneration) showToast({ message: e.message || '档期未确认，仍可选择设备', type: 'fail' })
   } finally {
     if (generation === availabilityGeneration) checkingSlots.value = false
   }
@@ -906,7 +935,10 @@ watch(() => tenantStore.currentWarehouseId, async () => {
   form.value.phoneHolderId = null
   form.value.tripodId = null
   availableSlots.value = []
+  conflictingDeviceIds.value = new Set()
+  conflictsChecked.value = false
   await Promise.all([ganttStore.loadData(), loadInitData()])
+  if (form.value.startDate && form.value.endDate && form.value.modelId) await checkAvailability()
 }, { flush: 'sync' })
 </script>
 

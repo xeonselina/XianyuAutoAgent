@@ -206,14 +206,15 @@
             :key="holder.id"
             :label="holder.name"
             :value="holder.id"
-            :disabled="availability.accessoryAvailability.value.checked && !availability.isAccessoryAvailable(holder.id)"
+            :disabled="getDeviceLifecycleLabel(holder) !== null || selectedInventoryIds().includes(holder.id) || form.tripodId === holder.id"
           >
             <div class="device-option">
               <span>{{ holder.name }}</span>
               <div class="device-status">
                 <span class="device-model">{{ holder.model }}</span>
+                <el-tag v-if="getDeviceLifecycleLabel(holder)" type="info" size="small" effect="dark">{{ getDeviceLifecycleLabel(holder) }}</el-tag>
                 <el-tag
-                  v-if="availability.accessoryAvailability.value.checked && availability.isAccessoryAvailable(holder.id)"
+                  v-else-if="availability.accessoryAvailability.value.checked && availability.isAccessoryAvailable(holder.id)"
                   type="success"
                   size="small"
                   effect="dark"
@@ -226,7 +227,7 @@
                   size="small"
                   effect="dark"
                 >
-                  档期不可用
+                  档期冲突 · 可保存
                 </el-tag>
               </div>
             </div>
@@ -249,14 +250,15 @@
             :key="tripod.id"
             :label="tripod.name"
             :value="tripod.id"
-            :disabled="availability.accessoryAvailability.value.checked && !availability.isAccessoryAvailable(tripod.id)"
+            :disabled="getDeviceLifecycleLabel(tripod) !== null || selectedInventoryIds().includes(tripod.id) || form.phoneHolderId === tripod.id"
           >
             <div class="device-option">
               <span>{{ tripod.name }}</span>
               <div class="device-status">
                 <span class="device-model">{{ tripod.model }}</span>
+                <el-tag v-if="getDeviceLifecycleLabel(tripod)" type="info" size="small" effect="dark">{{ getDeviceLifecycleLabel(tripod) }}</el-tag>
                 <el-tag
-                  v-if="availability.accessoryAvailability.value.checked && availability.isAccessoryAvailable(tripod.id)"
+                  v-else-if="availability.accessoryAvailability.value.checked && availability.isAccessoryAvailable(tripod.id)"
                   type="success"
                   size="small"
                   effect="dark"
@@ -269,7 +271,7 @@
                   size="small"
                   effect="dark"
                 >
-                  档期不可用
+                  档期冲突 · 可保存
                 </el-tag>
               </div>
             </div>
@@ -313,14 +315,16 @@
         <el-form-item label="附加服务"><el-checkbox v-model="device.photo_transfer">代传照片</el-checkbox></el-form-item>
         <el-form-item label="手机支架">
           <el-select v-model="device.phoneHolderId" clearable placeholder="无" @focus="handleAccessoryFocus">
-            <el-option v-for="a in phoneHolders" :key="a.id" :value="a.id" :label="a.name"
-              :disabled="selectedInventoryIds(device).includes(a.id) || (availability.accessoryAvailability.value.checked && !availability.isAccessoryAvailable(a.id))" />
+            <el-option v-for="a in phoneHolders" :key="a.id" :value="a.id"
+              :label="`${a.name}${getDeviceLifecycleLabel(a) === null && availability.accessoryAvailability.value.checked && !availability.isAccessoryAvailable(a.id) ? ' · 档期冲突（可保存）' : ''}`"
+              :disabled="selectedInventoryIds(device).includes(a.id) || getDeviceLifecycleLabel(a) !== null" />
           </el-select>
         </el-form-item>
         <el-form-item label="三脚架">
           <el-select v-model="device.tripodId" clearable placeholder="无" @focus="handleAccessoryFocus">
-            <el-option v-for="a in tripods" :key="a.id" :value="a.id" :label="a.name"
-              :disabled="selectedInventoryIds(device).includes(a.id) || (availability.accessoryAvailability.value.checked && !availability.isAccessoryAvailable(a.id))" />
+            <el-option v-for="a in tripods" :key="a.id" :value="a.id"
+              :label="`${a.name}${getDeviceLifecycleLabel(a) === null && availability.accessoryAvailability.value.checked && !availability.isAccessoryAvailable(a.id) ? ' · 档期冲突（可保存）' : ''}`"
+              :disabled="selectedInventoryIds(device).includes(a.id) || getDeviceLifecycleLabel(a) !== null" />
           </el-select>
         </el-form-item>
         <div class="form-tip">所有设备会一起校验和保存；订单总金额只计一次，按设备台数均摊。</div>

@@ -59,14 +59,17 @@ def test_two_configurations_atomic_and_retry(case):
     assert RentalBookingRequest.query.count() == 1
 
 
-def test_second_conflict_leaves_no_first_rental(case):
+def test_second_device_overlap_saves_entire_booking(case):
     client, payload, _ = case
     single = dict(payload, device_id=payload['additional_devices'][0]['device_id'], additional_devices=[], booking_request_id=str(uuid.uuid4()))
     assert client.post('/api/rentals', json=single).status_code == 201
     response = client.post('/api/rentals', json=payload)
-    assert response.status_code == 409, response.json
-    assert Rental.query.count() == 1
-    assert RentalBooking.query.count() == 0
+    assert response.status_code == 201, response.json
+    assert Rental.query.count() == 3
+    assert RentalBooking.query.count() == 1
+    assert [row['device_id'] for row in response.json['data']['main_rentals']] == [
+        payload['device_id'], payload['additional_devices'][0]['device_id']
+    ]
 
 
 @pytest.mark.parametrize('case_name', ['same_device', 'different_model', 'invalid_combo', 'repeat_accessory'])
@@ -319,17 +322,17 @@ def test_arbitrary_quantity_preserves_total_and_idempotency(case, quantity, tota
     assert Rental.query.count() == quantity
 
 
-def test_third_device_conflict_rolls_back_entire_booking(case):
+def test_third_device_overlap_saves_entire_booking(case):
     client, payload, devices = case
     single = dict(payload, device_id=devices[2].id, additional_devices=[], booking_request_id=str(uuid.uuid4()))
     assert client.post('/api/rentals', json=single).status_code == 201
     payload['additional_devices'].append({'device_id': devices[2].id, 'lens_combo': 'bare'})
     result = client.post('/api/rentals', json=payload)
-    assert result.status_code == 409
-    assert '第 3 台' in result.json['message']
-    assert Rental.query.count() == 1
-    assert RentalBooking.query.count() == 0
-    assert RentalBookingRequest.query.count() == 1
+    assert result.status_code == 201, result.json
+    assert len(result.json['data']['main_rentals']) == 3
+    assert Rental.query.count() == 4
+    assert RentalBooking.query.count() == 1
+    assert RentalBookingRequest.query.count() == 2
 
 
 def test_three_device_booking_can_replenish_cancelled_member(case):

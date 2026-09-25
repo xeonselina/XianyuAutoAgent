@@ -301,6 +301,7 @@ const mockCreateSave = async (
   options: {
     createResponse?: unknown
     lookup?: 'success' | 'null' | 'reject'
+    busyDevice?: boolean
   } = {},
 ) => {
   const device = {
@@ -345,6 +346,10 @@ const mockCreateSave = async (
       return
     }
     if (url.pathname === '/api/rentals/find-slot') {
+      if (options.busyDevice) {
+        await route.fulfill({ status: 404, json: { success: false, message: '无可用设备' } })
+        return
+      }
       await route.fulfill({
         json: {
           success: true,
@@ -361,6 +366,12 @@ const mockCreateSave = async (
     if (url.pathname === '/api/rentals/check-duplicate') {
       await route.fulfill({
         json: { success: true, data: { has_duplicate: false, duplicates: [] } },
+      })
+      return
+    }
+    if (url.pathname === '/api/rentals/check-device-conflicts') {
+      await route.fulfill({
+        json: { success: true, data: { conflicting_device_ids: options.busyDevice ? [device.id] : [] } },
       })
       return
     }
@@ -437,6 +448,13 @@ const mockCreateSave = async (
 }
 
 test.describe('mobile create save confirmation popup', () => {
+  test('allows manual selection and saving when every device has an overlapping schedule', async ({ page }) => {
+    await mockCreateSave(page, { busyDevice: true })
+    await expect(page.getByText('所选设备档期冲突，仍可保存')).toBeVisible()
+    await page.getByTestId('create-rental').click()
+    await expect(page.getByTestId('rental-confirmation-popup')).toBeVisible()
+  })
+
   test('create extracts data.main_rental.id, reloads it, and never uses form values', async ({ page }) => {
     const confirmationIds = await mockCreateSave(page)
 

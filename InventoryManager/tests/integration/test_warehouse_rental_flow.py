@@ -886,7 +886,7 @@ def test_rental_rejects_cross_warehouse_inventory_atomically(
         assert Rental.query.count() == 0
 
 
-def test_rental_create_rejects_busy_device_and_accessory(
+def test_rental_create_allows_busy_device_and_accessory(
     client, app, warehouse_case
 ):
     with app.app_context():
@@ -894,8 +894,9 @@ def test_rental_create_rejects_busy_device_and_accessory(
     busy_main = client.post(
         "/api/rentals", json=_rental_payload(warehouse_case)
     )
-    assert busy_main.status_code == 409
-    assert busy_main.get_json()["code"] == "DEVICE_UNAVAILABLE"
+    assert busy_main.status_code == 201
+    with app.app_context():
+        assert Rental.query.count() == 2
 
     with app.app_context():
         Rental.query.delete()
@@ -908,8 +909,10 @@ def test_rental_create_rejects_busy_device_and_accessory(
             warehouse_case, accessories=[warehouse_case["accessory_a"]]
         ),
     )
-    assert busy_accessory.status_code == 409
-    assert busy_accessory.get_json()["code"] == "DEVICE_UNAVAILABLE"
+    assert busy_accessory.status_code == 201
+    with app.app_context():
+        assert Rental.query.count() == 3
+        assert Rental.query.filter_by(device_id=warehouse_case["accessory_a"]).count() == 2
 
 
 def test_rental_update_validates_whole_selection_before_writing(
@@ -1683,7 +1686,7 @@ def test_invalid_slot_warehouse_is_a_stable_bad_request(
     assert response.status_code == 400
 
 
-def test_rental_create_uses_effective_logistics_occupancy(
+def test_rental_create_allows_effective_logistics_overlap(
     client, app, warehouse_case
 ):
     with app.app_context():
@@ -1704,8 +1707,9 @@ def test_rental_create_uses_effective_logistics_occupancy(
         ),
     )
 
-    assert response.status_code == 409
-    assert response.get_json()["code"] == "DEVICE_UNAVAILABLE"
+    assert response.status_code == 201
+    with app.app_context():
+        assert Rental.query.count() == 2
 
 
 def test_rental_create_rejects_invalid_effective_occupancy_interval(
@@ -1802,7 +1806,7 @@ def test_concurrent_rental_create_serializes_main_device(
         ],
     )
 
-    assert results == [(201, None), (409, "DEVICE_UNAVAILABLE")]
+    assert results == [(201, None), (201, None)]
 
 
 def test_concurrent_rental_create_serializes_shared_accessory(
@@ -1839,7 +1843,7 @@ def test_concurrent_rental_create_serializes_shared_accessory(
         ],
     )
 
-    assert results == [(201, None), (409, "DEVICE_UNAVAILABLE")]
+    assert results == [(201, None), (201, None)]
 
 
 def test_lifecycle_reads_cover_concrete_all_omitted_and_invalid_warehouse(

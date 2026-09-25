@@ -42,7 +42,7 @@
               size="small"
               effect="dark"
             >
-              档期不可用
+              档期冲突 · 可保存
             </el-tag>
           </div>
         </div>
