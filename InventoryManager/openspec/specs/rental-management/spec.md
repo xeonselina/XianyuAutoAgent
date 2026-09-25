@@ -604,7 +604,7 @@ PC 编辑弹窗和移动端租赁详情 MUST 在删除前要求操作员确认�
 
 ### Requirement: 保存后展示租赁确认信息
 
-PC 在新建或编辑成功后、移动端在取得最新租赁详情后，MUST 可显示客户确认信息。确认信息 MUST 组合收货地址与电话、寄出日期、预计收货日（开始日前一天）、客户归还日（结束日后一天）、设备型号、租赁组合和配套／库存附件；同单租赁还显示已录台数及各设备配置。缺少或无效日期使用“未填写”。PC MUST 提供复制全部文本的操作。
+PC 在新建或编辑成功后、移动端在取得最新租赁详情后，MUST 可显示客户确认信息。确认信息 MUST 组合收货地址与电话、寄出日期、预计收货日（开始日前一天）、客户归还日（结束日后一天）、设备型号、租赁组合和配套／库存附件；同单租赁还显示已录台数及各设备配置。缺少或无效日期使用“未填写”。PC 与移动端 MUST 提供复制全部文本的操作。
 
 #### Scenario: 地址已有同一手机号
 - **WHEN** 收件地址文本已包含客户电话
@@ -655,4 +655,356 @@ PC 甘特图 MUST 可打开预定和编辑弹窗，移动端甘特图 MUST 可�
 - PC 编辑页的两个运单号“查询”按钮目前只执行日志输出，没有发起查询；本 spec 只约定运单号可保存，没有把按钮写成已完成的查询功能。
 - 单设备冲突提示及疑似重复检查的前端辅助函数在请求失败时返回“无冲突／无重复”；编辑设备下拉使用的批量查询则把失败状态显示为未确认。这两类错误处理当前并不一致。
 - 查找档期服务端按寄出日 19:00、收回日 12:00 检查可用性，却只把日期返回客户端；PC 选中该结果后将日期解析为零点再提交。最终仍由创建接口重新校验，因此某些边界档期可能出现“找到候选、保存时拒绝”的情况。
-- PC 新建表单只列启用型号，移动端型号选择器目前直接列出返回的全部型号；两端的型号可选范围尚不一致。
+- PC 新建表单再次按 `is_active` 过滤型号，移动端直接列出 `/api/device-models` 返回的型号；该接口本身只返回启用型号，正常情况下两端可选范围相同。
+
+## 复刻用实现契约
+
+本节把前面的行为场景展开为数据、HTTP、算法和页面契约。字段名、状态值、边界与当前代码一致。另一项目可改变技术栈，但要保持这些外部可观察的行为。此契约只涵盖租赁管理及直接依赖；设备管理、租户开通、快递履约、验货、统计、接力排期各自仍需独立规格，不能从这里推断其全部功能。
+
+### 1. 运行边界与依赖
+
+- 业务数据按租户分库。`/api/*`、`/web/*`、`/external-api/*` 请求先解析 `tenant_session` Cookie；缺失或过期返回 HTTP 401、`code=AUTH_REQUIRED`。写请求还需要有效 `X-CSRF-Token`，否则 HTTP 403、`code=CSRF_INVALID`。当前租户暂停、到期、尚未开通时分别按租户边界返回错误，不能读写其他租户的租赁。外部 API 另外检查 `X-API-Key`；API Key 不能代替租户会话。
+- 一个租赁只属于一个仓库，`Rental.warehouse_id` 是履约仓库；`Device.warehouse_id` 是设备当前仓库。读取仓库参数可为具体 ID、`all` 或省略。写入必须得到具体 ID：请求明确给出有效整数 ID，或租户恰有一个仓库时自动选择。多仓库租户省略、非法 ID、布尔值均拒绝。当前代码没有在通用详情读取路由上按 UI 当前仓库再做过滤；跨租户隔离依靠租户数据库。
+- 设备清单依赖 `GET /api/devices`（用 `is_accessory`、`warehouse_id`、分页读取）和 `GET /api/device-models`。主设备 `is_accessory=false`，库存附件为 `true`；可新租的生命周期只有 `active`。设备型号同时保留旧字符串 `model` 和可空 `model_id`。新建/编辑的备选项按型号 `device_model.display_name → device_model.name → model → 空串`，再按设备 `name`，使用中文、数字自然排序，不分大小写；完全相同再按 ID 升序。
+- 页面依赖甘特图 API 提供主设备和主租赁的档期视图，依赖闲鱼店铺／订单接口填充订单，依赖顺丰时效估算提供提醒。这些服务不可用时，租赁核心的直接 API 校验仍是最终写入判断。
+- 当前服务使用 Flask、SQLAlchemy、MySQL 租户库；前端 PC 为 Vue 3 + Element Plus，移动端为 Vue 3 + Vant。服务端返回的日期为 `YYYY-MM-DD`，日期时间为无时区 ISO 字符串。服务端自动补写的时间使用 `datetime.utcnow()`；复制实现不能暗中改用本地时区计算后声称结果一致。
+
+### 2. 持久化数据字典
+
+`rentals` 每条库存附件本身也是一条租赁，通过 `parent_rental_id` 指向主租赁；配套手柄和镜头支架不产生子记录。
+
+| 字段 | 当前类型／默认 | 含义和写入规则 |
+|---|---|---|
+| `id` | 自增整数主键 | 公开租赁标识；列表按它倒序，不用 `created_at` 代替 |
+| `booking_id` | 可空外键 | 指向同单多设备 `rental_bookings`；普通单台为空 |
+| `device_id` | 非空设备外键 | 当前分配的实物设备；子租赁指向库存附件 |
+| `warehouse_id` | 非空仓库外键 | 该租赁的履约仓库；子租赁跟随主租赁 |
+| `parent_rental_id` | 可空自引用外键，删除父记录级联 | 空为主租赁，非空为库存附件子租赁 |
+| `start_date`、`end_date` | 非空日期 | 包含首尾两日；结束日可以等于开始日，不可更早 |
+| `ship_out_time`、`ship_in_time` | 可空日期时间 | 实际／计划的设备占用边界；有值时用于冲突判断，无值回退租赁日期边界 |
+| `customer_name` | 非空，最多 100 字符 | PC 新建标签称“闲鱼 ID”，编辑只读；移动端称“客户姓名”，编辑可提交 |
+| `customer_phone` | 可空，最多 20 字符 | PC 表单正则要求填写时符合 `^1[3-9]\d{9}$`；服务端没有同等正则 |
+| `destination` | 可空，最多 100 字符 | 收件人、电话和地址可合写；表单可从中提取手机号 |
+| `xianyu_order_no` | 可空，最多 50 字符 | 保存时去首尾空白；空订单号同时清空店铺 ID |
+| `xianyu_shop_id` | 可空店铺外键 | 有订单号时按明确店铺／唯一告警店铺／唯一启用店铺解析 |
+| `order_amount` | 可空 `DECIMAL(10,2)` | 单台金额；同单时为总金额分摊值，金额单位元 |
+| `buyer_id` | 可空，最多 100 字符 | 闲鱼买家 EID，可由订单拉取填入 |
+| `damage_note` | 可空文本 | 编辑前去首尾空白；空串变 `null`，非字符串或超过 1000 字拒绝 |
+| `ship_out_tracking_no`、`ship_in_tracking_no` | 最多 50 字符 | 发货／寄回运单号；编辑后同步到库存附件 |
+| `scheduled_ship_time` | 可空日期时间 | 预约发货时间，由发货流程使用；本租赁编辑服务当前不在通用可写字段表中 |
+| `express_type_id` | 整数，默认 2 | 顺丰服务类型：1 特快、2 标快、263 半日达；通用编辑服务允许显式改写 |
+| `status` | 枚举，默认 `not_shipped` | 六种状态见下表；新建忽略客户端自带状态而设为 `not_shipped` |
+| `includes_handle`、`includes_lens_mount` | 非空布尔，默认假 | 随主机配套的手柄／镜头支架；没有单独的实物编号或子租赁 |
+| `photo_transfer` | 非空布尔，默认假 | 是否代传照片 |
+| `lens_combo` | 非空旧枚举，默认 `lens_400mm` | `lens_400mm`、`lens_200mm`、`bare`、`lens_dual`；为旧客户端和旧订单兼容保留 |
+| `rental_package_id`、`rental_package_name` | 可空文本 | 下单时使用的型号组合稳定 ID 和名称快照 |
+| `rental_package_items` | 可空 JSON 文本 | 下单时组合物品快照；合法项目为非空 `name` + 正整数 `qty` |
+| `created_at`、`updated_at` | UTC 日期时间 | 创建／最近更新，响应中为 ISO 字符串 |
+
+`rental_bookings`：`id`、`xianyu_shop_id`、`order_no`、`expected_quantity`（默认 2）、`total_amount`（`DECIMAL(10,2)`）、`quantity_change_reason`、`xianyu_waybill_no`。`(xianyu_shop_id, order_no)` 唯一。计算 `recorded_quantity` 时只计未取消且无父租赁的主机；`shipped_quantity` 只计其中状态为 `shipped`、`returned`、`completed` 的记录。同单成员按租赁 ID 升序返回。
+
+`rental_booking_requests`：UUID 字符串主键 `id`、请求 JSON 按键排序后的 SHA-256 `payload_hash`、本次创建的主租赁 ID 数组 `rental_ids`。请求收据和租赁记录在同一事务写入。其内容不是按订单号去重；不同请求 ID 可触发另外的业务检查。
+
+| 状态 | 中文 UI 文案（移动端） | 是否占用设备档期 | 是否计入同单已发台数 |
+|---|---|---|---|
+| `not_shipped` | 待发货 | 是 | 否 |
+| `scheduled_for_shipping` | 已预约 | 是 | 否 |
+| `shipped` | 已发货 | 是 | 是 |
+| `returned` | 已寄回 | 是 | 是 |
+| `completed` | 已完成 | 否 | 是 |
+| `cancelled` | 已取消 | 否 | 否，亦不计已录台数 |
+
+### 3. 响应协议与租赁详情形状
+
+除外部 API 的旧 JSON 格式外，租赁路由使用统一响应壳：成功至少 `{ "success": true }`，有数据才带 `data`，有消息才带 `message`；失败为 `{ "success": false, "message": "..." }`，认证、CSRF、库存／仓库冲突等特定错误另带 `code`。HTTP 状态码由处理器设置，不能只看 `success`。列表响应的 `data` 包含 `rentals`、`total`、`pages`、`current_page`、`per_page`、`has_next`、`has_prev`。创建成功为 201，`data` 含 `main_rental`、`main_rentals` 和首台的 `accessory_rentals`。
+
+`Rental.to_dict()` 必须返回下列键；空值使用 JSON `null`，空数组使用 `[]`。设备摘要同时在 `device` 和兼容别名 `device_info` 返回。`accessories` 是库存附件的设备摘要，不把两个配套附件混入这个数组；`child_rentals` 是库存附件租赁的递归详情。`rental_package` 是 `{id,name,items}` 快照或 `null`。
+
+```text
+id, booking, device_id, warehouse_id, start_date, end_date,
+ship_out_time, ship_in_time, customer_name, customer_phone, destination,
+xianyu_order_no, xianyu_shop_id, order_amount, buyer_id, damage_note,
+ship_out_tracking_no, ship_in_tracking_no, scheduled_ship_time,
+express_type_id, status, created_at, updated_at, duration_days, is_overdue,
+device, device_info, accessories, parent_rental_id, child_rentals,
+includes_handle, includes_lens_mount, photo_transfer, lens_combo,
+rental_package_id, rental_package_name, rental_package_items, rental_package
+```
+
+- `duration_days = end_date - start_date + 1`。`is_overdue = (status == shipped && today > end_date)`，与待归还列表的 `overdue_days` 是两个不同字段。
+- 库存附件摘要：`{id,name,model,is_accessory,value}`；`model` 优先型号库名称，`value` 来自型号库设备价值。子租赁递归最多两层，避免父子循环。
+- 同单摘要：`{id,expected_quantity,recorded_quantity,shipped_quantity,total_amount,rentals}`。每台摘要包含 `id,device_id,device_name,lens_combo,status,rental_package_name,rental_package_items,includes_handle,includes_lens_mount,photo_transfer,accessories`，其中 `accessories` 为库存附件名称数组。已经取消的成员不显示。
+- 甘特图的 `/api/gantt/data` 返回另一个轻量形状：`{devices,rentals,date_range:{start,end},today}`。只列主租赁、排除取消状态；设备列表只含主设备。每条甘特租赁带 ID、设备 ID／名称、仓库、订单号／店铺、客户、日期、物流时间、运单号、状态、旧镜头组合、同单摘要和用于展示的附件。甘特图数据不能代替 `GET /api/rentals/<id>` 作为编辑详情。
+
+### 4. HTTP 路由清单
+
+以下路径均在租户业务上下文中运行；表中的 `body` 指 JSON。除明确说明的旧外部接口外，错误消息在响应壳的 `message`，不是 `error`。
+
+| 方法与路径 | 输入和核心处理 | 成功结果 | 主要失败结果 |
+|---|---|---|---|
+| `GET /api/rentals` | 查询参数 `page` 默认 1、`per_page` 默认 20 最多 100、`device_id,customer_name,phone,destination,status,start_date,end_date,warehouse_id` | 200，分页 `data` | 仓库、数字或日期不合法 400 |
+| `POST /api/rentals/search` | 同上参数放 JSON，另有 `q`；有 `q` 时覆盖 `customer_name`，仅按客户姓名模糊查 | 200，和列表同形 | 参数无效 400 |
+| `GET /api/rentals/<id>`、`GET /web/rentals/<id>` | 当前租户内按 ID 查 | 200，完整租赁详情 | 不存在 404 |
+| `POST /api/rentals` | 主租赁请求；可附 `additional_devices` 和补齐字段 | 201，`main_rental,main_rentals,accessory_rentals` | 必填、日期、组合、同单错误 400；跨仓库 `409 WAREHOUSE_MISMATCH`；库存不可用 `409 DEVICE_UNAVAILABLE` |
+| `PUT /api/rentals/<id>`、`PUT /web/rentals/<id>` | 相同编辑处理器；部分字段可省略，但需可解析的具体仓库 | 200，编辑后的完整详情 | 不存在 404；无数据／无效值 400；库存或仓库冲突 409 |
+| `DELETE /api/rentals/<id>`、`DELETE /web/rentals/<id>` | 删除主租赁和所有子租赁；若直接给子 ID 则只删子租赁 | 200，成功消息 | 不存在 404 |
+| `PUT /api/rentals/<id>/status` | `{"status":"..."}`；只接受 `not_shipped,shipped,returned,completed,cancelled` | 200，`{id,status,ship_out_time,ship_in_time}` | 缺失／非法状态 400；不存在 404 |
+| `POST /api/rentals/<id>/ship-to-xianyu` | 租赁须已有闲鱼订单号、寄出运单号，调用对应店铺外部发货 | 200，`{rental_id,xianyu_order_no,ship_out_tracking_no,status}` | 不存在 404；缺号或外部明确失败 400；异常 500 |
+| `POST /api/rentals/check-conflict` | `device_id,ship_out_time,ship_in_time` 必含，可选 `exclude_rental_id` | 200，`{has_conflicts,conflicts}` | 缺字段 400；当前时间解析异常走 500 |
+| `POST /api/rentals/check-device-conflicts` | `device_ids` 为最多 500 个正整数，ISO 寄出／收回时间，可选排除 ID | 200，`{conflicting_device_ids:[...升序]}` | 请求形状或时间无效 400 |
+| `POST /api/rentals/check-duplicate` | `customer_name,destination` 至少一个非空；可选日期和排除 ID | 200，`{has_duplicate,duplicates}`，最多 10 条 | 无 JSON 400；内部异常 500 |
+| `GET /api/rentals/pending-returns`、`GET /api/rentals/due-today` | 可选 `warehouse_id`，两条路由同一处理器 | 200，`{rentals,count}` | 非法仓库 400 |
+| `GET /api/rentals/by-ship-date` | 必填 `start_date,end_date`，可选 `warehouse_id` | 200，`{rentals,count,date_range:{start,end}}` | 缺日期、格式不符、逆序、跨度超过 365 天均 400 |
+| `GET /api/rentals/booking-context` | `order_no,shop_id`；同店同订单号的未取消主租赁 | 200，`{rentals:[...]}`；无订单号为空数组 | 店铺无法解析 400 |
+| `POST /api/rentals/<id>/declare-booking` | `warehouse_id`；声明现有有效单台为应租两台 | 200，同单摘要 | 原单无效、跨仓或已有多条未关联记录 400 |
+| `POST /api/rentals/<id>/reduce-booking` | `warehouse_id,reason,total_amount` | 200，改为 1 台后的同单摘要 | 前置条件、原因或金额不合法 400 |
+| `POST /api/rentals/fetch-xianyu-order` | `order_no` 非空，`xianyu_shop_id` 必须为整数且有效 | 200，订单收件人、电话、地区、地址、买家、付款金额（分） | 缺参 400；配置不全 `409 CONFIG_INCOMPLETE`；无外部结果 `502 EXTERNAL_SERVICE_ERROR` |
+| `GET /api/rentals/estimate-logistics` | `destination` 非空 | 200，时效估算详情 | 空地址 400 |
+| `GET /api/gantt/data` | 可选 `start_date,end_date,warehouse_id`；缺日期时用当前月 | 200，设备、主租赁、日期窗口、今天 | 参数错误 400 |
+| `POST /api/rentals/find-slot` | `start_date,end_date,logistics_days,model,is_accessory,warehouse_id` | 200，首台／全部可用设备及物流日期 | 缺参或日期错误 400；无候选 404 |
+
+请求体示例，省略的可选字段按服务端默认或 `null` 处理；具体 ID 须来自当前租户与仓库：
+
+```json
+{
+  "warehouse_id": 3,
+  "device_id": 101,
+  "start_date": "2026-10-10",
+  "end_date": "2026-10-12",
+  "ship_out_time": "2026-10-08 09:00:00",
+  "ship_in_time": "2026-10-14 18:00:00",
+  "customer_name": "buyer_abc",
+  "customer_phone": "13800000000",
+  "destination": "张三 13800000000 广东省深圳市某地址",
+  "xianyu_order_no": "ORDER-42",
+  "xianyu_shop_id": 7,
+  "order_amount": "101.01",
+  "buyer_id": "buyer-eid",
+  "rental_package_id": "legacy_bare",
+  "includes_handle": true,
+  "includes_lens_mount": false,
+  "photo_transfer": true,
+  "accessories": [201],
+  "booking_request_id": "771f40d0-c14f-4c91-ab49-a92681d125cb",
+  "additional_devices": [
+    {"device_id": 102, "rental_package_id": "legacy_lens_200mm", "includes_handle": false,
+     "includes_lens_mount": true, "photo_transfer": false, "accessories": [202]}
+  ]
+}
+```
+
+这是一条两台同单预约：请求总金额 101.01 元，两台主租赁各有独立组合和库存附件。`additional_devices` 只接受设备、组合、配套附件、代传照片、库存附件等每台配置；客户、地址、日期和订单字段以首台为准。普通单台创建可省略 `additional_devices` 和 `booking_request_id`；一旦存在附加设备或 `append_to_rental_id`，请求标识必须是 UUID。首台和第 N 台都必须显式选择设备；补齐时还要提供原租赁 ID。
+
+编辑请求示例，路径为 `PUT /web/rentals/123` 或相同的 `/api/rentals/123`；两个入口行为相同：
+
+```json
+{
+  "warehouse_id": 3,
+  "device_id": 102,
+  "start_date": "2026-10-10",
+  "end_date": "2026-10-12",
+  "ship_out_time": "2026-10-08 09:00:00",
+  "ship_in_time": "2026-10-14 18:00:00",
+  "customer_phone": "13800000000",
+  "destination": "广东省深圳市某地址",
+  "status": "not_shipped",
+  "ship_out_tracking_no": "SF0001",
+  "ship_in_tracking_no": "",
+  "rental_package_id": "legacy_bare",
+  "includes_handle": true,
+  "includes_lens_mount": false,
+  "photo_transfer": true,
+  "accessories": [201],
+  "damage_note": "机身右侧有划痕"
+}
+```
+
+`accessories` 只能是库存设备 ID 数组，不能传 `{id,is_bundled}` 对象。编辑服务的其它显式可写字段是 `customer_name,xianyu_order_no,xianyu_shop_id,order_amount,buyer_id,lens_combo,express_type_id` 及组合快照字段；省略字段保留原值。编辑同单单台时，服务端会拒绝共同仓库、结束日、收回时间、客户、地址、订单号／店铺和分摊金额的变化。
+
+### 5. 关键算法与事务顺序
+
+#### 5.1 日期和占用区间
+
+- `start_date`、`end_date` 先转日期，必须满足 `start_date <= end_date`。同一天租赁的 `duration_days` 为 1。
+- `ship_out_time`、`ship_in_time` 接受 ISO 日期时间、`T` 或空格分隔，以及纯 `YYYY-MM-DD`；空串与 `null` 视为无值。有效占用起点 = `ship_out_time ?? start_date 00:00:00`；终点 = `ship_in_time ?? end_date 23:59:59.999999`。必须满足起点严格早于终点。
+- 两条有效占用区间 `[a,b)`、`[c,d)` 冲突当且仅当 `a < d && b > c`。恰在边界相接不冲突。参与占用的状态仅有 `not_shipped`、`scheduled_for_shipping`、`shipped`、`returned`。已完成和已取消均不占用。
+- 列表的起止日期筛选是“记录完全落入指定窗口”：`Rental.start_date >= query.start_date && Rental.end_date <= query.end_date`；只给一端日期时不应用日期筛选。甘特图窗口则用租赁日期的重叠判断，两者语义不同。
+
+#### 5.2 新建：严格库存校验
+
+1. 解析具体仓库、日期、物流时间和组合快照。锁定所有选中设备，顺序为设备 ID 升序。
+2. 主设备必须存在、`is_accessory=false`、属于目标仓库，且生命周期为 `active`。每个库存附件必须存在、`is_accessory=true`、同仓、`active`。附件 ID 不得重复。
+3. 锁定选中实物对应的有效占用租赁，顺序为租赁 ID 升序。主设备和库存附件任何一件在所选有效占用区间冲突，就整单返回 `409 DEVICE_UNAVAILABLE`，不写入半条数据。
+4. 解析订单号与店铺；空订单号对应空店铺。主租赁状态固定为 `not_shipped`。每件被接受的库存附件创建子租赁，继承客户、电话、地址、租期、物流时间、运单号和状态。名字中含“手柄”或“镜头支架”的库存设备被跳过，不创建子记录；这两个配套物由布尔字段表示。
+5. `additional_devices` 和补齐动作进入同一个 `create_booking` 事务；第二台失败时，首台和所有附件、同单记录、请求收据全部回滚。单台普通创建也走该入口，但不强制提供请求 UUID。
+
+#### 5.3 编辑：冲突提示与保存约束
+
+- 编辑可换主机，即使目标主机与另一有效租赁占用区间重叠。客户端仍显示“档期冲突”，提交时主机冲突不使服务端拒绝。这使 A、B 两条租赁可以依次对换设备。新建仍禁止这种冲突。
+- 换入的主机或库存附件仍必须同仓、类型正确、生命周期 `active`。库存附件冲突仍拒绝。因此“允许冲突”只放宽编辑主机的档期重叠，不放宽已售出／停用状态、仓库、库存附件或数据格式。
+- 当仓库、主机 ID、库存附件 ID 集合以及四个日期／时间边界都与原记录相同时，进入 `preserve_existing`：允许继续保存历史已售出、停用或已有冲突的原选择。只修改备注、地址等字段不迫使操作员更换历史设备。任一选择或占用边界变化就重新验证。
+- 编辑先按 ID 锁设备，再锁相关占用记录，最后锁当前主租赁及其子租赁。对省略的设备、附件或时间字段，若在锁定期间已被另一修改更新，返回“租赁记录已被其他操作修改，请重试”；不能把旧快照覆盖到新状态。
+- 提交成功后，库存附件子租赁集合等于请求中的有效附件集合：删去未选子记录，新增新选子记录，其余保留 ID。所有子记录同步仓库、客户、电话、地址、起止日期、寄出／收回时间、寄出／寄回运单号、状态。主子更新在同一事务中。
+- 编辑 `status` 字段可接受六种状态；切换到 `shipped` 且寄出时间为空时填当前 UTC，切换到 `completed` 且收回时间为空时填当前 UTC。独立 `PUT /api/rentals/<id>/status` 不接受 `scheduled_for_shipping`，但其余状态变化也同步子租赁状态。
+
+#### 5.4 同单多设备、重试与金额
+
+- `additional_devices` 必须为对象数组。第 2 台起只允许覆盖 `device_id,lens_combo,rental_package_id,rental_package_name,rental_package_items,includes_handle,includes_lens_mount,photo_transfer,accessories`；其余公共字段取首台。各台主机和附件、既有同单成员使用的实物 ID 不得重复；所有主机必须同一 `model_id`（无 ID 时按旧 `model` 字符串）。
+- 提交多设备或 `append_to_rental_id` 时必须带合法 UUID `booking_request_id`。服务端对完整请求对象按 JSON 键排序并计算 SHA-256；同 UUID + 同内容返回原租赁 ID 对应的记录，不重复创建；同 UUID + 不同内容拒绝。原记录已删除也拒绝并要求人工核对。UUID 收据与租赁记录同事务提交。
+- 同单由 `(xianyu_shop_id,order_no)` 唯一确定。先锁店铺，再读取并锁同单，再锁设备，避免并发新增突破应录数量。新建多台同单的 `expected_quantity` 为本次台数；已有同单补齐受其应录数量约束。补齐时从原租赁强制继承客户、电话、地址、起止日期、寄出／收回时间和买家 ID，不能用新请求覆盖。未关联的同店同单有效主租赁会使补齐拒绝，要求先核对。
+- 订单总金额按十进制处理，必须有限、非负，且不超过 `99999999.99`；按 `ROUND_HALF_UP` 四舍五入到 2 位。设总分数 `C`、总台数 `N`，`q=floor(C/N)`、`r=C mod N`，按既有主租赁 ID 升序再到新增请求顺序，前 `r` 台分配 `q+1` 分，其余 `q` 分。每台金额之和严格等于总金额。例如 `101.01` 元分两台为 `50.51` 与 `50.50` 元；`0.01` 元分两台为 `0.01` 与 `0.00` 元。
+- 声明两台仅针对有效、未关联同单、同店同订单号的单台租赁；重复声明返回现有同单。取消一台后 `recorded_quantity` 降低，可补齐空缺。正式减租只允许 `expected_quantity=2` 且当前一台有效，要求非空且最多 500 字的原因和合法总金额；保存减租原因、应录数量 1、总金额及该台分摊金额，并记操作日志。
+- 编辑同单某一台时，仓库、结束日、收回时间、客户、电话、地址、订单号／店铺、分摊金额不可在单台编辑里改；开始日、寄出时间、设备、组合、附件、状态可独立改变，但换入设备仍须与同单其他有效主机同型号。
+
+#### 5.5 列表、提醒和辅助查询
+
+- 租赁列表包含主租赁与库存附件子租赁，按 ID 倒序分页；查询对象可筛设备、客户名、电话、地址、状态。`POST /search` 的 `q` 只映射到客户名模糊匹配。前端甘特只显示主租赁。
+- 待归还提醒只收集 `status=shipped`、无父记录、`end_date <= 今天-1天` 的租赁。`due_date=end_date+1天`，`overdue_days=今天-due_date`；按逾期天数降序，再按 ID 升序。接力前单另附 `is_relay_handoff` 和后单 ID。`GET /pending-returns` 与 `/due-today` 当前结果相同。
+- 按发货日期查询只收集未取消主租赁。待发货使用 `ship_out_time`，空时用 `start_date`；已预约使用 `scheduled_ship_time`；已发货、已寄回、已完成使用 `ship_out_time`。返回行保留原状态、是否接力、物流与仓库信息以供批量发货单处理。
+- 冲突详情接口返回每条重叠租赁的 `rental_id,customer_name,start_date,end_date,ship_out_time,ship_in_time,status`；批量冲突接口只返回去重并升序的设备 ID，最多查 500 台。编辑时传当前租赁 ID 排除自身。
+- 疑似重复使用客户名或收件地址的**精确相等**条件（两者择一匹配），只查有效占用状态，最多返回最近 10 条；给了两端日期时还要求租赁日期窗口有交集。这只是创建前确认提示，不能代替库存冲突校验。
+
+### 6. PC 与移动端页面契约
+
+#### 6.1 甘特图与入口
+
+- PC 甘特图从 `/api/gantt/data` 取得按仓库及日期窗口的主设备与主租赁；点击空档可打开“预定档期”，点击租赁可打开“编辑租赁记录”。移动端甘特点击租赁条先出现底部详情，再进入编辑；新建为独立页面。两端切换仓库都要重新加载，移动端还关闭旧详情。
+- 移动甘特每条租赁有两层时间表达：浅色外层按寄出／收回占用时间（缺失时用租赁日期），内层按起租／还租日期；状态改变颜色。点击条形区域打开详情，不能把条上显示的轻量信息当编辑源。
+- 创建、编辑、删除成功后刷新甘特。PC 同时刷新日统计与相关提醒；移动端返回当前仓库数据。失败保留原表单和用户输入，显示服务端错误消息。
+
+#### 6.2 新建表单字段矩阵
+
+| 业务字段 | PC“预定档期” | 移动端“新建租赁” | 数据规则 |
+|---|---|---|---|
+| 仓库 | 沿用当前仓库 | 沿用当前仓库；`all` 不可提交 | 写入具体 `warehouse_id` |
+| 起租日／还租日 | 日期选择器 | 日期弹层 | 必填；结束不早于开始；PC 禁止选择过去的起租日 |
+| 设备型号 | 仅启用主机型号下拉 | 型号弹层，列出 `/api/device-models` 返回的启用型号 | 选型后筛设备与组合；变化时清空旧选择并重查档期 |
+| 物流天数 | 数字控件，默认 1 | 步进器，默认 1，范围 0–7 | 生成寄出日 `start-(1+days)`、收回日 `end+(1+days)` |
+| 主设备 | 可筛选下拉＋“查找档期”按钮 | 设备弹层／候选选择 | 按型号、名称自然排序；选具体实物 ID；新建服务端严格验占用 |
+| 客户标识 | “闲鱼ID”，必填 | “客户姓名”，必填 | 同存 `customer_name`；不同端的标签需要保持各自文案 |
+| 电话／收件地址 | 可选电话、收件信息多行文本 | 电话、收货地址 | 电话非空时 PC 正则校验；电话空时从地址提取手机号 |
+| 闲鱼店铺／订单号 | 有店铺时下拉；订单号输入＋拉取按钮 | 店铺选择、订单输入＋拉取按钮 | 拉取结果填姓名、电话、地区与地址、买家 EID、付款分转元 |
+| 金额／买家 ID | 金额输入；买家 ID 显示只读 | 金额与买家 ID 输入 | 单台金额；多台时输入总金额，再由服务端分摊 |
+| 型号租赁组合 | 依选中型号显示组合选择器 | 组合单选 | 保存组合 ID、名称和物品清单快照；切换型号重算默认 |
+| 配套物 | 手柄、镜头支架勾选 | 手柄、镜头座勾选 | 对应两个布尔字段，不选择库存 ID |
+| 库存附件 | 手机支架、三脚架两个具体设备选择器 | 两个附件选择弹层 | 提交整数 ID 数组；不能与其他同单台数重复使用 |
+| 附加服务 | “代传照片”勾选 | 开关 | 保存 `photo_transfer` |
+| 同单设备 | 加第 N 台卡片、复制首台配置、移除 | 加第 N 台卡片、复制配置、移除 | 公共租期、客户和地址只填一次；每台设备／组合／配件独立 |
+
+- PC 新建设备下拉显示设备名、型号、生命周期、档期可用性；生命周期非正常和已被本单其他台数选用的 ID 禁用。档期不可用会显示警告，实际提交仍由服务端严格拒绝。库存附件选项在查询到占用冲突后禁用。
+- “查找档期”需先有型号、起止日期和非负物流天数；服务端候选按对应仓库、主机／附件类型和型号过滤，必须生命周期 `active`。PC 多台查找时跳过已被本单其他台选择的 ID；查询代次变化后，旧异步结果不得覆盖新条件。服务端按寄出日 19:00、收回日 12:00 校验，返回日期字符串；PC 把结果日期解析为零点再保存。这一边界不一致见“代码核对中发现的缺口”。
+- 提交顺序：验证必填和每台设备 → 查询疑似重复并允许人工继续 → 估算顺丰时效，不足则允许人工继续 → 生成占用时间与所有台数请求 → 保存 → 读取最新详情 → 显示确认信息。确认框取消时不得写入。保存请求内容不变的重试沿用同一 UUID；表单内容变化生成新 UUID。
+
+#### 6.3 编辑表单字段矩阵
+
+| 区块 | PC 编辑弹窗 | 移动端编辑页 | 关键交互 |
+|---|---|---|---|
+| 最新资料 | 打开时重新 GET 详情，500px 对话框 | 路由进入后重新 GET 详情 | 加载失败显示错误，不用甘特旧缓存覆盖 |
+| 主设备 | 名称和序列号下拉 | 底部选择弹层 | 两端按型号、设备名、ID 排序；同时显示“档期冲突／可用／未确认”和“已售出／已损坏／已停用／已退役”；档期冲突仍可选，非正常生命周期只允许保留当前设备 |
+| 租期 | 开始／结束日期 | 起租日、还租日 | 改日期重查设备冲突、同步校验附件；改结束日时界面自动更新预计收回时间 |
+| 物流 | 寄出／寄回运单号、寄出／收回日期时间 | 同字段，时间在弹层选日期和小时分钟 | 寄出时间与预约快递取件时间不是同一字段；修改前者不自动改后者 |
+| 客户与订单 | 客户“闲鱼 ID”只读、电话、地址、店铺、订单号、金额、只读买家 ID | 客户姓名可编辑、电话、地址、订单号、金额 | PC 可拉取闲鱼订单并覆盖相关收件字段；同单公共字段修改受服务端拒绝 |
+| 状态 | 未发货、已发货、已寄回、已完成、已取消 | 待发货、已预约、已发货、已寄回、已完成、已取消 | PC 下拉缺“已预约”；通用编辑 API 接受六种状态 |
+| 损坏反馈 | 1000 字文本框，非空显示红色验货提醒 | 同字段与提醒 | 清空提交后取消该提醒 |
+| 组合和配件 | 组合、手柄、镜头支架、手机支架、三脚架、代传照片 | 同字段；“镜头座”为镜头支架标签 | 库存附件需以 ID 数组提交；移动端当前对象格式缺口见上节 |
+| 同单 | 顶部显示已录／应录、已发／应录，切换另一台、减租 | 详情展示并可进入另一台，减租 | 切换另一台若当前有未保存内容先确认放弃 |
+| 操作 | 保存、取消、删除、发货到闲鱼、发货单 | 保存、删除、满足条件时发货到闲鱼 | 删除需确认；闲鱼发货要求已有订单号与寄出运单号 |
+
+- 打开设备选择器时用当前编辑租赁的 ID 排除自身，调用批量冲突查询。查询期间标签为“查询中”；失败后显示“档期未确认”和错误提示。冲突状态与生命周期状态是两个独立标签，不能用一个状态覆盖另一个。仓库、租期、设备或物流时间变化后，旧查询结果必须作废。
+- 选中档期冲突主机时，PC 编辑表单允许保存；移动端保存前再检查一次，若冲突显示“设备档期与其他租赁重叠，将继续保存”。服务端按 5.3 节执行最终判断。附件档期冲突仍阻止保存。
+- 仅改变损坏备注不触发物流时效二次确认；当地址、主机、租期、物流天数或寄出时间的快照改变时，预留天数小于时效估计则提示“仍要保存／返回修改”。移动端运单查询调用 `/api/shipping/track/<trackingNo>`；PC 当前两个查询按钮没有接入实际查询，不能在复刻验收中把它们当作已工作功能。
+- 成功保存后重新拉取完整详情显示确认信息；如果新详情失败，明确提示“保存成功，但确认信息加载失败”，不能让用户重复保存。关闭确认信息后返回甘特／刷新相应数据。
+
+#### 6.4 客户确认信息精确格式
+
+PC 与移动端均按以下顺序以换行符拼接。日期按 `YYYY-MM-DD` 显示；缺失或无效为“未填写”。电话已包含在地址的数字串内则不重复附加，反之在地址后添加 `，<电话>`。附件去重；识别“手机支架／phone”和“三脚架／tripod”后使用类别名。
+
+```text
+收货地址：<地址和电话或未填写>
+寄出时间：<ship_out_time 的日期或未填写>
+预计收货：<start_date - 1 天或未填写>
+客户归还：<end_date + 1 天或未填写>
+寄出型号：<设备型号或未识别型号> + <租赁组合或未填写租赁组合> + <镜头支架/手柄/库存附件类别，若没有则无附件>
+```
+
+同单时追加 `同单设备：已录 <recorded_quantity>/<expected_quantity> 台`，再按同单摘要顺序逐台追加 `第 N 台：<设备名> + <租赁组合> + <手柄/镜头支架/库存附件名称/代传照片>`。PC 与移动端都提供复制全部文字的操作。
+
+### 7. 型号组合与物流估算字典
+
+- 型号库 `DeviceModel` 若为库存附件，不提供主机租赁组合。主机型号若有 `rental_packages` 数组，且 `default_rental_package_id` 对应其中启用的组合，则用该配置；否则回退到旧镜头组合配置。每个组合有稳定 `id`、`name`、`is_active`、`items:[{name,qty}]`。创建或编辑更换组合时从型号配置验证启用状态，并保存名称与物品快照；历史原组合在编辑未变时应继续显示。
+- 旧组合枚举顺序为 `lens_400mm,lens_200mm,bare,lens_dual`，稳定 ID 为 `legacy_` 前缀加枚举值。旧型号名去小写、空格、`+` 后包含 `x300u` 的型号允许全部四种，默认 `lens_400mm`；其他旧型号允许 `lens_200mm,bare`，默认 `lens_200mm`。这个回退仅用于没有有效自由组合配置的主机型号。
+
+| 旧组合 ID | 展示名 | 默认物品快照（每项 `qty=1`） |
+|---|---|---|
+| `legacy_lens_400mm` | `400MM 镜头` | `90w 充电头+充电线`；`400MM 增距镜+增距镜脚架+手机壳`；`套装便携手提包` |
+| `legacy_lens_200mm` | `200MM 镜头` | `90w 充电头+充电线`；`200MM 镜头+手机壳`；`套装便携手提包` |
+| `legacy_bare` | `裸机` | `90w 充电头+充电线` |
+| `legacy_lens_dual` | `双镜头` | `90w 充电头+充电线`；`400MM 增距镜+增距镜脚架+手机壳`；`200MM 镜头`；`套装便携手提包` |
+
+- 顺丰标快从广东深圳发出，地址命中以下省市名称时按对应天数预估；多个命中以**最长名称优先**，未命中默认 3 天。接口返回 `logistics_days,destination,matched_location,shipping_method='顺丰标快',origin='广东深圳',message`。表单预留少于估算只弹确认，不自动改变日期或拒绝提交。
+
+| 天数 | 地址可匹配词 |
+|---|---|
+| 1 | 广东、深圳、广州、东莞、佛山、珠海、中山、惠州、江门、肇庆、汕头、湛江、韶关、河源、梅州、清远、阳江、潮州、揭阳、云浮、汕尾 |
+| 2 | 福建、福州、厦门、泉州、湖南、长沙、湖北、武汉、江西、南昌、浙江、杭州、宁波、温州、上海、江苏、南京、苏州、无锡、常州、广西、南宁、桂林、海南、海口、三亚 |
+| 3 | 北京、天津、河北、石家庄、山东、济南、青岛、河南、郑州、安徽、合肥、四川、成都、重庆、贵州、贵阳、云南、昆明、山西、太原、陕西、西安 |
+| 4 | 辽宁、沈阳、大连、吉林、长春、黑龙江、哈尔滨、甘肃、兰州、青海、西宁、宁夏、银川、内蒙古、呼和浩特 |
+| 6 | 新疆、乌鲁木齐 |
+| 7 | 西藏、拉萨 |
+
+### 8. 旧外部 API 的兼容边界
+
+`/external-api/*` 除租户会话和写操作 CSRF 外还要求 `X-API-Key`。此路由返回旧格式错误 `{success:false,error:"..."}`，与 `/api/rentals/*` 的 `message` 不同；不能把两种协议混为一个客户端。外部接口也在当前租户库内执行。
+
+| 方法与路径 | 当前行为 | 复刻限制 |
+|---|---|---|
+| `GET /external-api/rentals/<id>` | 200 `{success:true,data:<Rental.to_dict()>}`；不存在 404 `error` | 直接读当前租户记录，无仓库筛选参数 |
+| `PUT /external-api/rentals/<id>` | 接受非空 JSON，仅写非空 `ship_out_time,ship_in_time` 和存在的 `status`，提交后返回详情 | 不走主表单库存／同单校验；无状态枚举的处理器级验证；解析或数据库异常以 500 `error` 返回 |
+| `POST /external-api/rentals/<id>/cancel` | 调旧服务 `can_cancel()` 规则，仅 `not_shipped` 或未逾期的 `shipped` 可取消 | 与主表单编辑为 `cancelled` 的入口不同；请按旧服务结果返回 |
+| `POST /external-api/rentals` | 当前路由未传旧服务必需的寄出／收回时间位置参数，实际会失败 | 属于已知实现缺口，不作为可用的创建入口；复刻当前行为时不能误称其已可创建 |
+
+### 9. 固定数据验收样例
+
+下面的 ID 是**测试夹具**，用来验证复刻实现的行为，不要求生产数据库存在这些 ID。每例从干净租户数据库开始或明确继承上一例。设置仓库 `W=3`、主机型号 `M=9`（显示名 `X300U`）、主机 `D101` 名 `机身2`、`D102` 名 `机身10`、`D103` 名 `机身1`（生命周期 `sold`），库存手机支架 `A201` 与三脚架 `A202`；其余设备均 `active` 且在 W。另一型号 `M=10` 显示名 `X200U`、主机 `D104` 名 `机身3`。请求都携带当前租户会话及写请求的 CSRF Token。
+
+| 编号 | 初始记录／操作 | 必须观察到的结果 |
+|---|---|---|
+| F01 自然排序 | 将 `D104,D102,D101,D103` 放入同一设备下拉 | 先 `X200U` 的 `D104`，再 `X300U` 的 `D103,D101,D102`；同型号 `机身2` 在 `机身10` 前。排序遵循 `Intl.Collator('zh-CN',{numeric:true,sensitivity:'base'})`。 |
+| F02 占用与新建 | 先存在主租赁 `R500(D102,10月10日至12日,ship_out=10月8日09:00,ship_in=10月14日18:00,status=not_shipped)`；再请求新建 `D102`、10月11日至12日且物流占用重叠 | 返回 HTTP 409、`code=DEVICE_UNAVAILABLE`；不产生新主租赁或子租赁。 |
+| F03 边界相接 | 沿用 F02 的 `R500`，请求同一 `D102` 的有效占用起点恰好为 `10月14日18:00` 且终点更晚 | 不因 `R500` 判为冲突；仍需通过日期、生命周期、仓库等其余校验。 |
+| F04 对换主机 | 已有相同时段 `R500→D102` 和 `R501→D101`；先 PUT `R501.device_id=D102`，再 PUT `R500.device_id=D101`，均保留 W 和起止时间 | 两次编辑都成功；最终两条有效租赁在相同档期各有目标设备。中途两条占同一实物被允许，编辑下拉在第一步后显示冲突。 |
+| F05 生命周期与档期独立 | `D103` 已售出，并是历史租赁 `R502` 当前设备；为 `R502` 只改损坏备注，再从另一租赁尝试选 `D103` | 前者保留当前设备并成功；后者下拉显示“已售出”且不可选择，服务端直接请求也拒绝 `409 DEVICE_UNAVAILABLE`。即使 `D103` 同时冲突，两个状态标签都应可见。 |
+| F06 库存附件仍严格 | `A201` 已被有效租赁在同一占用区间使用；编辑 `R501` 选择 `A201` | 返回 HTTP 409、`code=DEVICE_UNAVAILABLE`，`R501` 主机、时间、备注和子租赁全保持原值。 |
+| F07 同单分摊 | 一个新订单请求 `D101+D102`，总金额 `101.01` 元，两个附件分别为 `A201,A202`，请求 UUID 合法 | 只生成一个 `RentalBooking`、两条主租赁和两条附件子租赁；按请求顺序主租赁金额为 `50.51,50.50`；`recorded_quantity=2`，`shipped_quantity=0`。 |
+| F08 幂等 | F07 的 UUID 与完整 JSON 原样重发；随后仅将金额改为 `102.00` 而继续用该 UUID | 原样重发返回相同主租赁 ID，不增加记录；改内容返回 400 和“此请求已保存，请刷新后重新操作”。 |
+| F09 状态分歧 | 对 F07 第一台调用独立状态接口写 `scheduled_for_shipping`，随后在编辑 PUT 中写相同状态 | 独立接口返回 400；通用编辑保存成功，附件子租赁状态同步。 |
+| F10 删除 | 对带 `A201` 的主租赁 DELETE，再查主／子 ID | 主／子都不存在；若只 DELETE 子 ID，主仍可查。 |
+| F11 详情与甘特 | 一条主租赁带手机支架、手柄布尔值和同单关系，GET 详情、GET 甘特 | 详情 `accessories` 只含手机支架设备摘要，`includes_handle=true`，有 `child_rentals` 与 `booking`；甘特只列主租赁且展示配套＋库存附件信息。 |
+| F12 确认文案 | 租赁起租 `2026-10-10`、还租 `2026-10-12`、寄出 `2026-10-08 09:00`、地址中已有电话 `13800000000`、设备型号 `X300U`、组合“裸机”、无附件 | 前五行分别为地址原文、`寄出时间：2026-10-08`、`预计收货：2026-10-09`、`客户归还：2026-10-13`、`寄出型号：X300U + 裸机 + 无附件`；电话不重复。 |
+| F13 会话过期 | 从甘特打开编辑前使 `tenant_session` 过期，再触发租赁 API；重新登录后继续访问原页面 | API 返回 401 `AUTH_REQUIRED`；客户端进入登录页，并在成功登录后恢复原目标路由。此场景是系统登录契约对租赁界面的要求，具体认证页面仍需认证模块规格。 |
+
+对于 F01，中文／英文混合型号的扩展夹具须以 `Intl.Collator` 的实际输出为准，不能按 ASCII 臆测。对于 F04，“先换第一台”阶段产生刻意的重叠，因此编辑界面必须提醒操作员，服务端不得以主机重叠阻断。所有写入失败样例都应再次读取数据库确认事务回滚。
+
+### 10. 实现来源与复刻核对表
+
+| 契约段落 | 代码来源 | 复刻时至少做的核对 |
+|---|---|---|
+| 运行边界、仓库与租户 | `app/routes/web.py`、`app/models/warehouse.py`、`app/models/device.py` | 会话过期、CSRF、跨仓库读取和写入 |
+| 持久化与详情序列化 | `app/models/rental.py`、`app/models/device_model.py` | 列名、空值、子租赁递归、同单摘要、金额分单位 |
+| HTTP 接口与错误码 | `app/routes/rental_api.py`、`app/handlers/rental_handlers.py`、`app/utils/response.py` | 每个方法／路径的正反例，尤其 400／401／403／404／409／500 |
+| 档期、创建、编辑、同单 | `app/services/rental/rental_service.py` | 区间边界、设备锁顺序、对换、附件回滚、幂等与分摊 |
+| 甘特和可用档期 | `app/services/gantt/gantt_service.py` | 只列主机及非取消主租赁、候选查找、日期窗口 |
+| PC 页面 | `frontend/src/components/BookingDialog.vue`、`frontend/src/components/BookingDeviceSelector.vue`、`frontend/src/components/rental/`、`frontend/src/utils/` | 字段、排序、冲突标签、确认框、异步结果作废 |
+| 移动页面 | `frontend-mobile/src/views/CreateRentalView.vue`、`frontend-mobile/src/views/EditRentalView.vue`、`frontend-mobile/src/components/RentalBottomSheet.vue`、`frontend-mobile/src/components/GanttGrid.vue` | 字段、弹层、状态选项、保存后的确认与仓库切换 |
+| 旧外部接口 | `app/routes/external_api.py`、`app/services/rental_service.py` | API Key、旧错误格式、可用读取更新取消和创建缺口 |
+
+按此规格复刻租赁管理时，先实现数据与接口，再用 F01–F13 验证两端页面；依赖项（完整设备管理、闲鱼订单服务、物流查询、认证、仓库管理）必须提供本节写明的最小契约。若目标是复制**整个 InventoryManager 系统**，这些依赖项和其它业务模块都还需要逐模块从代码另写规格；本文件只声称覆盖租赁管理。
+
+### 11. 租赁界面依赖的最小设备契约
+
+本节只定义租赁页面要读取的设备数据，不代替完整设备管理规格。
+
+- `GET /api/devices?is_accessory=false&warehouse_id=<id>&page=1&per_page=100` 返回**直接分页对象** `{devices,total,pages,current_page,per_page,has_next,has_prev}`，此旧查询路径没有 `success/data` 壳。`is_accessory=true` 查库存附件；省略生命周期过滤时返回正常、售出、损坏、停用、退役设备，编辑下拉才能显示历史状态。`per_page` 上限 100，客户端须翻页读取全部备选，不得把第一页误当完整清单。`status` 参数已移除，应使用 `lifecycle_status`。查询结果原始数据库顺序是生命周期日期／创建时间降序，租赁下拉必须在客户端另按第 1 节自然排序。
+- 每条设备 JSON 含 `id,name,serial_number,model,model_id,device_model,is_accessory,warehouse_id,lifecycle_status,lifecycle_reason,lifecycle_date,created_at,updated_at`。`lifecycle_status` 只允许 `active,sold,decommissioned,damaged,retired`；租赁新选可用的只有 `active`。设备当前仓库和租赁履约仓库必须相同；设备移仓或售出后，历史租赁仍可读取，编辑选择不变时按 5.3 节保留。
+- `GET /api/device-models` 返回 `{success:true,data:[...]}`，顶层列表只含启用的主设备型号，主型号的 `accessories` 嵌套数组只含启用的附件型号。型号 JSON 至少含 `id,name,display_name,is_active,is_accessory,parent_model_id,default_accessories,device_value,allowed_lens_combos,default_lens_combo,rental_packages,default_rental_package_id`；`accessories` 只在主型号上有。设备自身可关联 `device_model` 对象；若 `model_id` 为空或型号关联不可用，租赁显示与排序回退旧 `model` 字符串。
+- 库存附件类型在租赁界面用设备 `name` 和 `model` 中是否包含“手机支架／phone”或“三脚架／tripod”识别。甘特展示数组又带 `type`、`is_bundled`：配套手柄／镜头支架 `is_bundled=true` 且没有库存 ID；库存附件 `is_bundled=false` 且有 `id,serial_number,name,type`。任何未知库存附件仍按通用设备 ID 参与服务端占用校验，界面上的两个专用选择器未必能展示它。
