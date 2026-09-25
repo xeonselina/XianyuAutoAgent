@@ -34,11 +34,8 @@ make run-worker IMAGE='<registry/image:tag>' ENV_FILE=.env
 make worker-once IMAGE='<registry/image:tag>' ENV_FILE=.env   # 跑一轮即退出，等价于 python worker.py --once
 ```
 
-`Makefile` 只有这 6 个 target（含 `help`）。**不允许新增 target**——
-`tests/unit/test_production_config.py` 会断言 target 集合恰为
-`{help, build, push, run-app, run-worker, worker-once}`，且 Makefile 中不得出现
-`NAS_` / `sshpass` / `docker-compose` / `include .env` / `REGISTRY :=`。
-需要主机特定的部署脚本时，写在 `scripts/` 下，不要塞进 Makefile。
+`Makefile` 还提供 `build-push`、`check-nas`、`deploy-nas`、`release-nas`、
+`nas-status`、`nas-logs`。NAS 的连接配置保存在仓库外，具体操作见第 7 节。
 
 Docker 镜像构建会分别从 `frontend/` 和 `frontend-mobile/` 的锁文件生成 PC 与移动端静态资源，
 不使用工作区中已有的前端构建产物。
@@ -127,27 +124,18 @@ worker 用 MySQL/MariaDB advisory lock 保证单实例：取锁 `GET_LOCK`、
 | 接流量前失败 | 保持维护窗口，停 app/worker，用迁移前**完整备份**恢复业务库与控制库。不要只回滚部分表 |
 | 接流量后失败 | 停止受影响写操作、保留完整备份，**向前修复**；已有新数据时禁止直接降级迁移 |
 
-## 7. NAS 部署（群晖）—— 【待补】
+## 7. NAS 部署（群晖）
 
-本项目的 NAS 部署**尚未落地文档**。仓库根 `docs/deployment/saas-main-lite.md` 明确写着
-「NAS 专用配置等待用户样例后再适配」。
+现网部署目录为 `/volume1/docker_5/inventory-manager`，生产环境文件为该目录下的
+`app.env`。开发机通过仓库外的 `~/.config/xianyu-agent/nas.env` 指定这两个绝对路径；
+发布脚本不会上传或覆盖生产密钥。`app` 和 `worker` 使用同一个镜像，运行在
+`xianyu-saas-lite` 网络，`xianyu-frpc` 提供入口。
 
-已知的相邻参考：`ai_kefu` 有一套独立的 NAS 部署（`ai_kefu/Makefile` 的 `deploy-nas`
-+ `ai_kefu/scripts/deploy_nas.sh`，NAS 192.168.50.132 / 用户 xeon_pan /
-日志 `/volume1/docker/aikefu/logs/`）。**那是 ai_kefu 的，不适用于本项目，不要照抄。**
-
-**TODO(用户确认)** —— 补齐下列信息后才能写成本章：
-
-| 待确认项 | 为什么必须问 |
-|---|---|
-| NAS 上 MySQL 的位置（NAS 容器 / 群晖套件 / 另一台机器） | 决定 `DATABASE_URL` / `TENANT_DB_HOST` 能否用 `host.docker.internal`；`config.py` 会按 `/.dockerenv` 分叉 |
-| 建库权限账号 | `PROVISIONER_DATABASE_URL` 需 `CREATE DATABASE` + `GRANT` 权限 |
-| 镜像仓库路径与凭据 | ai_kefu 用 `docker.cnb.cool/tdcc-demo/jimmy`，本项目是否复用 |
-| 容器名、宿主端口、app/worker 是否都上 NAS | worker 是否与 app 同机 |
-| `.env` 在 NAS 上的绝对路径 | ai_kefu 放在 `/var/services/homes/xeon_pan/aikefu.env` |
-| 日志目录挂载点 | ai_kefu 用 `/volume1/docker/aikefu/logs` |
-| 反向代理 / TLS / 公网入口 | 决定 `SESSION_COOKIE_SECURE` 与 `TRUSTED_PROXY_HOPS` 取值 |
-| NAS CPU 架构 | Makefile 默认 `linux/amd64`；群晖若为 ARM 需改 `PLATFORM` |
+日常发布先执行 `make check-nas`，完成控制库及所有租户库备份与恢复验证后执行
+`make release-nas BACKUP_VERIFIED=backup-verified`，最后用 `make nas-status` 和
+健康检查验收。完整发布、回滚与首次准备步骤见仓库根
+`docs/deployment/saas-main-lite.md`。若容器曾通过其他方式更新，发布前应对照运行中的
+app/worker 镜像核对 `current.env`，确保它记录的是实际运行版本。
 
 ## 8. 故障速查
 

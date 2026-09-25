@@ -13,21 +13,21 @@ Compose 文件、release metadata 和命令输出都不得保存或打印密码�
 
 ## NAS 首次准备
 
-以下内容由有 NAS 管理权限的操作员完成。首次发布前还没有执行过真实 NAS 验收；
-请先用只读预检确认实际容器、网络和配置挂载，而不是猜测现网配置。
+以下内容用于新 NAS 的首次准备。现网目录为
+`/volume1/docker_5/inventory-manager`；发布前仍需预检实际容器、网络和配置挂载。
 
 ### 1. 准备 NAS 生产环境文件
 
 在 NAS 上建立部署目录，并把完整的生产环境变量写入固定的
-`/volume1/docker/inventory-manager/app.env`。该文件是 Compose 的
+`/volume1/docker_5/inventory-manager/app.env`。该文件是 Compose 的
 `APP_ENV_FILE`，必须只允许 root 读取；发布过程不会上传本机 `.env` 或覆盖它。
 
 ```bash
-sudo install -d -o root -g root -m 0755 /volume1/docker/inventory-manager
+sudo install -d -o root -g root -m 0755 /volume1/docker_5/inventory-manager
 sudo install -o root -g root -m 0600 /dev/null \
-  /volume1/docker/inventory-manager/app.env
-sudoedit /volume1/docker/inventory-manager/app.env
-sudo chmod 600 /volume1/docker/inventory-manager/app.env
+  /volume1/docker_5/inventory-manager/app.env
+sudoedit /volume1/docker_5/inventory-manager/app.env
+sudo chmod 600 /volume1/docker_5/inventory-manager/app.env
 ```
 
 按 `InventoryManager/.env.example` 和当前生产拓扑填写 app 所需变量，例如数据库
@@ -75,8 +75,8 @@ chmod 600 ~/.config/xianyu-agent/nas.env
 NAS_HOST=nas.example.internal
 NAS_USER=deployer
 NAS_PORT=22
-NAS_DEPLOY_DIR=/volume1/docker/inventory-manager
-APP_ENV_FILE=/volume1/docker/inventory-manager/app.env
+NAS_DEPLOY_DIR=/volume1/docker_5/inventory-manager
+APP_ENV_FILE=/volume1/docker_5/inventory-manager/app.env
 FRPC_CONTAINER=frpc
 FRPC_NETWORK=xianyu-frp
 MIN_FREE_SPACE_MB=1024
@@ -302,7 +302,7 @@ Tencent SMS app-only 配置。
 
 ```bash
 sudo -i
-cd /volume1/docker/inventory-manager
+cd /volume1/docker_5/inventory-manager
 read -r -s tenant_password; printf '\n'
 printf '%s\n' "$tenant_password" | docker compose \
   --project-directory . \
