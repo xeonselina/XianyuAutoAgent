@@ -1,65 +1,43 @@
-# sf-waybill-api Specification
+# 顺丰云面单 PDF 获取
 
 ## Purpose
-TBD - created by archiving change batch-print-sf-waybills. Update Purpose after archive.
+
+描述现役 `SFExpressService.get_waybill_pdf` 的请求、下载与错误映射。创建顺丰运单、批量预约与接力发货另见 `shipping-fulfillment`。
+
 ## Requirements
-### Requirement: Retrieve waybill PDF from SF Express
-The system SHALL call SF Express `COM_RECE_CLOUD_PRINT_WAYBILLS` API to obtain waybill PDF for a rental order.
 
-#### Scenario: Successfully retrieve waybill PDF
-**GIVEN** a rental with valid tracking number "SF1234567890"
-**AND** SF Express API credentials are configured
-**WHEN** get_waybill_pdf() is called
-**THEN** the system returns waybill PDF as bytes
-**AND** response includes success=True status
+### Requirement: 面单必须基于已有运单和收件信息
 
-#### Scenario: Handle missing tracking number
-**GIVEN** a rental without tracking number
-**WHEN** get_waybill_pdf() is called
-**THEN** the system returns success=False
-**AND** error message "缺少运单号"
+读取 PDF 前 MUST 检查主租赁已有 `ship_out_tracking_no`，否则返回 `{success:false,message:'缺少运单号'}`；客户名、电话或目的地缺失则返回“缺少收件人信息”。面单服务按租赁履约仓的顺丰配置实例执行；上层打印服务在此之前还要核对主设备与实际附件仓库一致，并解析同仓快麦配置。
 
-#### Scenario: Handle SF API error
-**GIVEN** SF Express API returns error code "ERR_001"
-**WHEN** get_waybill_pdf() is called
-**THEN** the system logs the error
-**AND** returns success=False with SF error message
-**AND** does not raise exception
+#### Scenario: 没有寄出运单
+- **WHEN** 尚未预约生成运单的租赁请求打印面单
+- **THEN** 不调用顺丰云打印，返回“缺少运单号”
 
-### Requirement: Construct SF API request with rental details
-The system SHALL include all required rental information in the SF API request.
+### Requirement: 顺丰云打印使用固定模板和租赁备注
 
-#### Scenario: Include order details in API request
-**GIVEN** rental with ID 123 and tracking number "SF1234567890"
-**WHEN** constructing SF API request
-**THEN** request includes orderId field
-**AND** request includes tracking number
-**AND** request includes receiver contact information
-**AND** request includes sender contact information
+服务 MUST 调 `COM_RECE_CLOUD_PRINT_WAYBILLS`，请求 `language='zh-CN'`、一个 `documents` 条目（`masterWaybillNo`、`isPrintLogo='true'`、`remark`）、`templateCode='fm_76130_standard_Y45WBDEO'`、`version='2.0'`、`fileType='pdf'`、`sync=1`。备注含同票设备台数、客户名、主设备编号、勾选的手柄／转接环、库存附件型号及寄出／寄还日期；寄还日期后注明“16:00前”。目的地解析会计算收件人、电话与地址以做基础兼容，但此云打印请求的 `documents` 实际只提交运单号及备注，不能把旧规格所称的整套 `orderId`／联系人字段当作当前请求。
 
-### Requirement: Handle API authentication
-The system SHALL use existing msgDigest authentication method for SF API calls.
+#### Scenario: 一票双机带附件
+- **WHEN** 面单对应同一包裹两台主机且首台含手柄和库存附件
+- **THEN** 备注中的机器数为 2，并列首台设备号与附件；请求只含一个面单文件条目
 
-#### Scenario: Generate valid authentication signature
-**GIVEN** SF API credentials (partner_id, checkword)
-**WHEN** making API request
-**THEN** request includes valid msgDigest signature
-**AND** request includes timestamp
-**AND** request includes requestID
+### Requirement: 顺丰业务结果必须再下载 PDF
 
-### Requirement: Support API retry on transient failures
-The system SHALL retry SF API calls up to 2 times on network errors.
+外层 `apiResultCode` MUST 等于 `A1000` 且解析后的 `apiResultData.success=true`，从 `obj.files[0]` 取得 `url,token`；缺文件返回“未获取到面单文件”。下载向该 URL 发 GET，头为 `X-Auth-Token: <token>`、超时 30 秒，成功把响应字节作为 `pdf_data` 返回 `{success:true,message:'获取成功'}`。顺丰业务失败、JSON 解析异常或下载异常在当前顶层统一返回“顺丰服务调用失败”；该方法没有代码实现的指数退避或两次重试。
 
-#### Scenario: Retry on timeout error
-**GIVEN** first SF API call times out
-**WHEN** get_waybill_pdf() is executed
-**THEN** the system retries the request
-**AND** waits 1 second before retry
-**AND** maximum 2 retries are attempted
+#### Scenario: 云打印返回空 files
+- **WHEN** 顺丰外层与内层均成功，但 `obj.files=[]`
+- **THEN** 返回失败“未获取到面单文件”，不向快麦提交图像
 
-#### Scenario: No retry on business logic error
-**GIVEN** SF API returns error "运单号不存在"
-**WHEN** get_waybill_pdf() is executed
-**THEN** the system does NOT retry
-**AND** returns error immediately
+### Requirement: 下载错误不能改变租赁或运单状态
 
+取面单 PDF 与打印是读取既有运单的后续操作；失败时 MUST 保留 `ship_out_tracking_no` 和 `scheduled_ship_time`，且不能把订单标已发货。打印服务把顺丰失败映射成逐条 `EXTERNAL_SERVICE_ERROR`，批量操作可继续处理其它包裹。
+
+#### Scenario: 下载超时
+- **WHEN** PDF URL GET 超时
+- **THEN** 当前包裹报告打印失败，原租赁仍保留预约与运单号；其它包裹继续
+
+## 代码依据
+
+`app/services/shipping/sf_express_service.py`、`app/services/shipping/waybill_print_service.py`、`app/services/shipping/shipment_group_service.py`。旧归档规格里“网络错误最多重试两次”与当前代码不符。
