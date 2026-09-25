@@ -268,6 +268,7 @@ class RentalService:
         occupancy_end,
         exclude_rental_ids=(),
         preserve_existing=False,
+        allow_main_device_conflict=False,
     ):
         try:
             normalized_device_id = int(device_id)
@@ -321,8 +322,11 @@ class RentalService:
         if preserve_existing:
             return device, accessories
 
+        conflict_device_ids = normalized_ids if allow_main_device_conflict else selected_ids
+        if not conflict_device_ids:
+            return device, accessories
         conflict_query = Rental.query.filter(
-            Rental.device_id.in_(selected_ids),
+            Rental.device_id.in_(conflict_device_ids),
             Rental.status.in_(RentalService.ACTIVE_OCCUPANCY_STATUSES),
         )
         excluded = tuple(exclude_rental_ids)
@@ -752,7 +756,7 @@ class RentalService:
         try:
             query = Rental.query.filter(
                 Rental.device_id == device_id,
-                Rental.status != 'cancelled'
+                Rental.status.in_(RentalService.ACTIVE_OCCUPANCY_STATUSES),
             )
 
             if exclude_rental_id:
@@ -760,20 +764,27 @@ class RentalService:
 
             existing_rentals = query.all()
             conflicts = []
+            requested_start, requested_end = RentalService._effective_occupancy(
+                start_date, end_date, ship_out_time, ship_in_time
+            )
 
             for existing in existing_rentals:
-                if existing.ship_out_time and existing.ship_in_time:
-                    # 检查物流时间是否重叠
-                    if not (ship_in_time <= existing.ship_out_time or ship_out_time >= existing.ship_in_time):
-                        conflicts.append({
-                            'rental_id': existing.id,
-                            'customer_name': existing.customer_name,
-                            'start_date': existing.start_date.isoformat(),
-                            'end_date': existing.end_date.isoformat(),
-                            'ship_out_time': existing.ship_out_time.isoformat(),
-                            'ship_in_time': existing.ship_in_time.isoformat(),
-                            'status': existing.status
-                        })
+                existing_start, existing_end = RentalService._effective_occupancy(
+                    existing.start_date,
+                    existing.end_date,
+                    existing.ship_out_time,
+                    existing.ship_in_time,
+                )
+                if requested_start < existing_end and requested_end > existing_start:
+                    conflicts.append({
+                        'rental_id': existing.id,
+                        'customer_name': existing.customer_name,
+                        'start_date': existing.start_date.isoformat(),
+                        'end_date': existing.end_date.isoformat(),
+                        'ship_out_time': existing.ship_out_time.isoformat() if existing.ship_out_time else None,
+                        'ship_in_time': existing.ship_in_time.isoformat() if existing.ship_in_time else None,
+                        'status': existing.status,
+                    })
 
             return conflicts
 
@@ -924,6 +935,7 @@ class RentalService:
                         child.id for child in children
                     ],
                     preserve_existing=preserve_existing,
+                    allow_main_device_conflict=True,
                 )
             )
 

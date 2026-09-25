@@ -953,6 +953,143 @@ def test_rental_update_validates_whole_selection_before_writing(
         }
 
 
+def test_existing_rentals_can_swap_overlapping_devices(
+    client, app, warehouse_case
+):
+    with app.app_context():
+        first = _create_existing_rental(warehouse_case, "warehouse_a")
+        second_device = Device(
+            name="深圳备用主机",
+            serial_number="WH-MAIN-A-2",
+            model="warehouse-camera",
+            model_id=warehouse_case["model"],
+            is_accessory=False,
+            warehouse_id=warehouse_case["warehouse_a"],
+        )
+        db.session.add(second_device)
+        db.session.flush()
+        second = Rental(
+            device_id=second_device.id,
+            warehouse_id=warehouse_case["warehouse_a"],
+            start_date=first.start_date,
+            end_date=first.end_date,
+            ship_out_time=first.ship_out_time,
+            ship_in_time=first.ship_in_time,
+            customer_name="待交换客户",
+            status="not_shipped",
+        )
+        db.session.add(second)
+        db.session.commit()
+        first_id, second_id = first.id, second.id
+        first_device_id, second_device_id = first.device_id, second.device_id
+
+    first_update = client.put(
+        f"/web/rentals/{first_id}",
+        json={
+            "warehouse_id": warehouse_case["warehouse_a"],
+            "device_id": second_device_id,
+        },
+    )
+    assert first_update.status_code == 200
+
+    second_update = client.put(
+        f"/api/rentals/{second_id}",
+        json={
+            "warehouse_id": warehouse_case["warehouse_a"],
+            "device_id": first_device_id,
+        },
+    )
+    assert second_update.status_code == 200
+    with app.app_context():
+        assert db.session.get(Rental, first_id).device_id == second_device_id
+        assert db.session.get(Rental, second_id).device_id == first_device_id
+
+
+def test_rental_edit_still_rejects_inactive_device(
+    client, app, warehouse_case
+):
+    with app.app_context():
+        rental = _create_existing_rental(warehouse_case, "warehouse_a")
+        unavailable = Device(
+            name="已售设备",
+            serial_number="WH-SOLD-A",
+            model="warehouse-camera",
+            model_id=warehouse_case["model"],
+            is_accessory=False,
+            warehouse_id=warehouse_case["warehouse_a"],
+            lifecycle_status="sold",
+        )
+        db.session.add(unavailable)
+        db.session.commit()
+        rental_id, unavailable_id = rental.id, unavailable.id
+
+    response = client.put(
+        f"/api/rentals/{rental_id}",
+        json={
+            "warehouse_id": warehouse_case["warehouse_a"],
+            "device_id": unavailable_id,
+        },
+    )
+    assert response.status_code == 409
+    assert response.get_json()["code"] == "DEVICE_UNAVAILABLE"
+    with app.app_context():
+        assert db.session.get(Rental, rental_id).device_id == warehouse_case["main_a"]
+
+
+def test_rental_edit_still_rejects_occupied_accessory(
+    client, app, warehouse_case
+):
+    with app.app_context():
+        rental = _create_existing_rental(warehouse_case, "warehouse_a")
+        occupied_accessory = Rental(
+            device_id=warehouse_case["accessory_a"],
+            warehouse_id=warehouse_case["warehouse_a"],
+            start_date=rental.start_date,
+            end_date=rental.end_date,
+            customer_name="其他订单附件",
+            status="not_shipped",
+        )
+        db.session.add(occupied_accessory)
+        db.session.commit()
+        rental_id = rental.id
+
+    response = client.put(
+        f"/api/rentals/{rental_id}",
+        json={
+            "warehouse_id": warehouse_case["warehouse_a"],
+            "accessories": [warehouse_case["accessory_a"]],
+        },
+    )
+    assert response.status_code == 409
+    assert response.get_json()["code"] == "DEVICE_UNAVAILABLE"
+    with app.app_context():
+        assert list(db.session.get(Rental, rental_id).child_rentals) == []
+
+
+def test_conflict_warning_includes_rentals_without_logistics_times(
+    client, app, warehouse_case
+):
+    with app.app_context():
+        existing = _create_existing_rental(warehouse_case, "warehouse_a")
+        existing.ship_out_time = None
+        existing.ship_in_time = None
+        db.session.commit()
+        existing_id = existing.id
+        start = existing.start_date
+
+    response = client.post(
+        "/api/rentals/check-conflict",
+        json={
+            "device_id": warehouse_case["main_a"],
+            "ship_out_time": datetime.combine(start, time(9)).isoformat(),
+            "ship_in_time": datetime.combine(start + timedelta(days=1), time(18)).isoformat(),
+        },
+    )
+    assert response.status_code == 200
+    assert response.get_json()["data"]["has_conflicts"] is True
+    assert response.get_json()["data"]["conflicts"][0]["rental_id"] == existing_id
+
+
 def test_concurrent_rental_updates_serialize_the_fresh_whole_group(
     client, app, warehouse_case, monkeypatch
 ):
@@ -1008,8 +1145,9 @@ def test_concurrent_rental_updates_serialize_the_fresh_whole_group(
         _occupancy_end,
         exclude_rental_ids=(),
         preserve_existing=False,
+        allow_main_device_conflict=False,
     ):
-        del exclude_rental_ids, preserve_existing
+        del exclude_rental_ids, preserve_existing, allow_main_device_conflict
         selected_ids = sorted({int(device_id), *map(int, accessory_ids)})
         selected = (
             Device.query.filter(Device.id.in_(selected_ids))
@@ -1563,7 +1701,7 @@ def test_rental_create_rejects_invalid_effective_occupancy_interval(
         assert Rental.query.count() == 0
 
 
-def test_rental_update_merges_logistics_before_conflict_check(
+def test_rental_update_allows_overlapping_logistics_time(
     client, app, warehouse_case
 ):
     with app.app_context():
@@ -1586,7 +1724,6 @@ def test_rental_update_merges_logistics_before_conflict_check(
         db.session.add(later)
         db.session.commit()
         later_id = later.id
-        original_ship_out = later.ship_out_time
         overlapping_ship_out = existing.ship_in_time - timedelta(hours=1)
 
     response = client.put(
@@ -1597,11 +1734,10 @@ def test_rental_update_merges_logistics_before_conflict_check(
         },
     )
 
-    assert response.status_code == 409
-    assert response.get_json()["code"] == "DEVICE_UNAVAILABLE"
+    assert response.status_code == 200
     with app.app_context():
         assert db.session.get(Rental, later_id).ship_out_time == (
-            original_ship_out
+            overlapping_ship_out
         )
 
 

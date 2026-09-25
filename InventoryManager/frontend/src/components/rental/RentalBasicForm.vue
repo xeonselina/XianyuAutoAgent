@@ -11,7 +11,7 @@
         :loading="loadingDevices"
       >
         <el-option
-          v-for="device in availableDevices"
+          v-for="device in sortedDevices"
           :key="device.id"
           :label="`${device.name} (${device.serial_number || '无序列号'})`"
           :value="device.id"
@@ -118,6 +118,7 @@ import VueDatePicker from '@vuepic/vue-datepicker'
 import type { Device, Rental } from '@/stores/gantt'
 import axios from 'axios'
 import LensComboSelector from './LensComboSelector.vue'
+import { compareRentalDevices } from '@/utils/deviceSort'
 
 interface DeviceWithConflictStatus extends Device {
   conflicted?: boolean
@@ -133,6 +134,7 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+const sortedDevices = computed(() => [...props.availableDevices].sort(compareRentalDevices))
 
 const selectedModel = computed(() => {
   const dev = props.availableDevices.find(d => d.id === props.form.deviceId)

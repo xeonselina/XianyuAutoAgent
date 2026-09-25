@@ -319,6 +319,7 @@
 
 <script setup lang="ts">
 import BookingDeviceSelector from '../components/BookingDeviceSelector.vue'
+import { compareRentalDevices } from '@/utils/deviceSort'
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast, showConfirmDialog } from 'vant'
@@ -514,10 +515,13 @@ const modelColumns = computed(() =>
   deviceModels.value.map(m => ({ text: m.display_name || m.name, value: m.id }))
 )
 const deviceColumns = computed(() =>
-  availableSlots.value.filter((slot: any) => !selectedInventoryIds(pickerTarget.value).includes(slot.device.id)).map((s: any) => ({
-    text: s.device?.name || `设备${s.device?.id}`,
-    value: s.device?.id
-  }))
+  availableSlots.value
+    .filter((slot: any) => !selectedInventoryIds(pickerTarget.value).includes(slot.device.id))
+    .sort((left: any, right: any) => compareRentalDevices(left.device, right.device))
+    .map((s: any) => ({
+      text: s.device?.name || `设备${s.device?.id}`,
+      value: s.device?.id
+    }))
 )
 const phoneHolderColumns = computed(() => [
   { text: '无', value: null },

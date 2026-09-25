@@ -10,6 +10,8 @@ import EditRentalDialogNew from '@/components/rental/EditRentalDialogNew.vue'
 import { useGanttStore, type Rental } from '@/stores/gantt'
 import { useTenantStore } from '@/stores/tenant'
 
+const conflictCheckMock = vi.hoisted(() => vi.fn().mockResolvedValue(false))
+
 vi.mock('vue-router', () => ({
   useRouter: () => ({
     resolve: vi.fn(() => ({ href: '/' })),
@@ -46,7 +48,7 @@ vi.mock('@/composables/useConflictDetection', () => ({
       hasDuplicate: false,
       duplicates: [],
     }),
-    checkDeviceConflict: vi.fn().mockResolvedValue(false),
+    checkDeviceConflict: conflictCheckMock,
   }),
 }))
 
@@ -203,8 +205,10 @@ const mountEditDialog = async () => {
 describe('rental save success events', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    conflictCheckMock.mockReset().mockResolvedValue(false)
     vi.spyOn(ElMessage, 'success').mockImplementation(() => undefined as never)
     vi.spyOn(ElMessage, 'error').mockImplementation(() => undefined as never)
+    vi.spyOn(ElMessage, 'warning').mockImplementation(() => undefined as never)
   })
 
   it('漏录订单入口复用现有弹框并自动拉取订单详情', async () => {
@@ -267,6 +271,21 @@ describe('rental save success events', () => {
     expect(wrapper.emitted('success')).toBeUndefined()
     await emitDialogClosed(wrapper)
     expect(wrapper.emitted('success')).toEqual([[77]])
+  })
+
+  it('编辑保存检测到设备档期冲突时提示后继续保存', async () => {
+    const { store, wrapper } = await mountEditDialog()
+    const update = vi.spyOn(store, 'updateRental').mockResolvedValue({ success: true })
+    conflictCheckMock.mockResolvedValue(true)
+
+    await clickButton(wrapper, '保存')
+
+    expect(conflictCheckMock).toHaveBeenCalledWith(expect.objectContaining({
+      deviceId: 9,
+      excludeRentalId: 77,
+    }))
+    expect(ElMessage.warning).toHaveBeenCalledWith('设备档期与其他租赁重叠，将继续保存')
+    expect(update).toHaveBeenCalledWith(77, expect.objectContaining({ device_id: 9 }))
   })
 
   it('删除成功时保留无参数 success 刷新信号', async () => {

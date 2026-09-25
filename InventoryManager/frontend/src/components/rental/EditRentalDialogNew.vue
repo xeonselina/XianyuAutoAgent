@@ -406,6 +406,18 @@ const handleSubmit = async () => {
       rental_package_id: form.value.rentalPackageId,
     }
 
+    if (form.value.deviceId && props.rental && ['not_shipped', 'scheduled_for_shipping', 'shipped', 'returned'].includes(form.value.status)) {
+      const hasConflict = await conflictDetection.checkDeviceConflict({
+        deviceId: form.value.deviceId,
+        startDate: updateData.start_date,
+        endDate: updateData.end_date,
+        shipOutTime: updateData.ship_out_time || dayjs(form.value.startDate).startOf('day').toDate(),
+        shipInTime: updateData.ship_in_time || dayjs(form.value.endDate).endOf('day').toDate(),
+        excludeRentalId: props.rental.id,
+      })
+      if (hasConflict) ElMessage.warning('设备档期与其他租赁重叠，将继续保存')
+    }
+
     await ganttStore.updateRental(props.rental!.id, updateData)
     ElMessage.success('租赁记录更新成功')
     queuePendingSuccess({ rentalId: props.rental!.id })
@@ -454,21 +466,7 @@ const handleDeviceChange = async (deviceId: number) => {
     })
 
     if (hasConflict) {
-      ElMessageBox.confirm(
-        `设备 "${selectedDevice.name}" 在该时间段有冲突，确定要选择吗？`,
-        '设备冲突警告',
-        {
-          confirmButtonText: '确定选择',
-          cancelButtonText: '取消',
-          type: 'warning'
-        }
-      ).catch(() => {
-        if (props.rental) {
-          form.value.deviceId = props.rental.device_id
-          form.value.rentalPackageId = props.rental.rental_package_id
-            || undefined
-        }
-      })
+      ElMessage.warning(`设备 "${selectedDevice.name}" 在该时间段有冲突，仍可保存`)
     }
   } catch (error) {
     console.error('检查设备冲突失败:', error)

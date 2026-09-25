@@ -12,6 +12,8 @@ export interface ConflictCheckParams {
   endDate: string | Date
   logisticsDays?: number
   excludeRentalId?: number
+  shipOutTime?: string | Date
+  shipInTime?: string | Date
 }
 
 export function useConflictDetection() {
@@ -44,13 +46,17 @@ export function useConflictDetection() {
       const { ship_out_time, ship_in_time } = calculateShipTimes(
         params.startDate,
         params.endDate,
-        params.logisticsDays || 1
+        params.logisticsDays ?? 1
       )
 
       const response = await axios.post('/api/rentals/check-conflict', {
         device_id: params.deviceId,
-        ship_out_time,
-        ship_in_time,
+        ship_out_time: params.shipOutTime
+          ? dayjs(params.shipOutTime).format('YYYY-MM-DD HH:mm:ss')
+          : ship_out_time,
+        ship_in_time: params.shipInTime
+          ? dayjs(params.shipInTime).format('YYYY-MM-DD HH:mm:ss')
+          : ship_in_time,
         exclude_rental_id: params.excludeRentalId
       })
 

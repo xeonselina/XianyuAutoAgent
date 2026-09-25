@@ -87,6 +87,9 @@
               <van-icon v-else-if="conflictWarning" name="warning-o" color="#ff976a" />
             </template>
           </van-field>
+          <div v-if="conflictWarning" class="device-conflict-tip">
+            设备档期与其他租赁重叠，仍可保存
+          </div>
 
           <!-- 物流天数 -->
           <van-field label="物流天数">
@@ -399,6 +402,7 @@ import { useMobileTenantStore } from '@/stores/tenant'
 import type { DeviceModel, Rental, Device } from '@/stores/gantt'
 import RentalConfirmationPopup from '@/components/RentalConfirmationPopup.vue'
 import { useConflictDetection } from '@/composables/useConflictDetection'
+import { compareRentalDevices } from '@/utils/deviceSort'
 import {
   formatLogisticsWarning,
   getLogisticsMismatch
@@ -532,6 +536,7 @@ const shipInTimeDisplay = computed(() => {
 const deviceColumns = computed(() =>
   allDevices.value
     .filter(d => !d.is_accessory && d.lifecycle_status === 'active')
+    .sort(compareRentalDevices)
     .map(d => ({ text: d.name, value: d.id }))
 )
 
@@ -744,7 +749,7 @@ const checkDeviceConflict = async () => {
     })
     conflictWarning.value = hasConflict
     if (hasConflict) {
-      showToast({ message: '所选设备在该时段有冲突', type: 'fail' })
+      showToast('所选设备在该时段有冲突，仍可保存')
     }
   } catch {
     // 忽略检测错误
@@ -796,6 +801,19 @@ const onSubmit = async () => {
       type: 'fail'
     })
     return
+  }
+
+  if (['not_shipped', 'scheduled_for_shipping', 'shipped', 'returned'].includes(form.value.status)) {
+    const hasConflict = await conflictDetection.checkDeviceConflict({
+      deviceId: form.value.deviceId,
+      startDate: form.value.startDate,
+      endDate: form.value.endDate,
+      shipOutTime: form.value.shipOutTime || dayjs(form.value.startDate).startOf('day').toDate(),
+      shipInTime: form.value.shipInTime || dayjs(form.value.endDate).endOf('day').toDate(),
+      excludeRentalId: rentalId.value,
+    })
+    conflictWarning.value = hasConflict
+    if (hasConflict) showToast('设备档期与其他租赁重叠，将继续保存')
   }
 
   submitting.value = true
@@ -972,6 +990,12 @@ watch(() => tenantStore.currentWarehouseId, async () => {
 
 .submit-wrap {
   padding: 16px;
+}
+
+.device-conflict-tip {
+  padding: 4px 16px 10px;
+  color: #ed6a0c;
+  font-size: 12px;
 }
 
 .combo-radio-group {

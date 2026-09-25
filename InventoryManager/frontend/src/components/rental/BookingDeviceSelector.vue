@@ -10,7 +10,7 @@
       @focus="emit('focus')"
     >
       <el-option
-        v-for="device in devices"
+        v-for="device in sortedDevices"
         :key="device.id"
         :label="device.name"
         :value="device.id"
@@ -60,8 +60,11 @@
   <div class="form-tip">选择具体设备或点击查找档期自动匹配可用设备</div>
 </template>
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { Device } from '@/stores/gantt'
-defineProps<{
+import { compareRentalDevices } from '@/utils/deviceSort'
+
+const props = defineProps<{
   modelValue: number | null
   devices: Device[]
   excludedIds: number[]
@@ -71,6 +74,7 @@ defineProps<{
   loading: boolean
   canSearch: boolean
 }>()
+const sortedDevices = computed(() => [...props.devices].sort(compareRentalDevices))
 const emit = defineEmits<{
   'update:modelValue': [value: number | null]
   focus: []
