@@ -22,6 +22,8 @@
 7. **`Makefile` 只允许 6 个 target**，禁止加入 `NAS_` / `sshpass` / `docker-compose`
    （`tests/unit/test_production_config.py` 会失败）。主机特定脚本写到 `scripts/` 下。
 8. **前端改动必须同时考虑 PC 端（`frontend/`）与移动端（`frontend-mobile/`）两侧。**
+9. **行为变更先核对 spec。** 修改本子项目功能前，使用仓库级
+   `.agents/skills/inventory-spec-first/SKILL.md`，先明确 OpenSpec 场景再改实现。
 
 ## 技术栈
 
