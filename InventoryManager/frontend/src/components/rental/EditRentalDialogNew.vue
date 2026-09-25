@@ -46,8 +46,10 @@
       <RentalBasicForm
         :form="form"
         :rental="rental"
-        :available-devices="deviceManagement.devices.value"
+        :available-devices="deviceOptions"
         :loading-devices="deviceManagement.loading.value"
+        :device-status-checked="availability.deviceAvailability.value.checked"
+        :checking-device-status="checkingDeviceOptions"
         :min-selectable-date="minSelectableDate"
         :xianyu-shops="xianyuShops"
         @device-change="handleDeviceChange"
@@ -248,7 +250,7 @@ const latestDataError = ref<string | null>(null)
 const searchingAccessory = ref(false)
 const queryingShipOut = ref(false)
 const queryingShipIn = ref(false)
-const deviceConflictChecked = ref(false)
+const checkingDeviceOptions = ref(false)
 const accessoryConflictChecked = ref(false)
 const currentStartDate = computed(() => form.value.startDate ? dayjs(form.value.startDate).format('YYYY-MM-DD') : '')
 const initialScheduleSnapshot = ref('')
@@ -259,6 +261,15 @@ const rules = getEditRentalRules()
 // Computed
 const minSelectableDate = computed(() => {
   return form.value.startDate
+})
+
+const deviceOptions = computed(() => {
+  const checked = availability.deviceAvailability.value
+  if (!checked.checked) return deviceManagement.devices.value
+  const statuses = new Map(
+    [...checked.availableItems, ...checked.unavailableItems].map(device => [device.id, device])
+  )
+  return deviceManagement.devices.value.map(device => statuses.get(device.id) || device)
 })
 
 const selectedLogisticsDays = computed<number | null>(() => {
@@ -436,9 +447,12 @@ const handleEndDateChange = (date: Date) => {
 }
 
 const handleDeviceSelectorFocus = async () => {
-  if (!deviceConflictChecked.value && props.rental) {
+  if (!props.rental || checkingDeviceOptions.value) return
+  checkingDeviceOptions.value = true
+  try {
     await checkDevicesConflict()
-    deviceConflictChecked.value = true
+  } finally {
+    checkingDeviceOptions.value = false
   }
 }
 
@@ -589,15 +603,15 @@ const handleShipToXianyu = async () => {
 // Check devices conflict
 const checkDevicesConflict = async () => {
   if (!props.rental) return
-
-  const shipOutTime = props.rental.ship_out_time || props.rental.start_date
-  const shipInTime = props.rental.ship_in_time || props.rental.end_date
-
+  availability.resetDeviceAvailability()
+  if (!form.value.startDate || !form.value.endDate) return
   await availability.checkDevicesAvailability(
     deviceManagement.devices.value,
     {
-      startDate: shipOutTime,
-      endDate: shipInTime,
+      startDate: form.value.startDate,
+      endDate: form.value.endDate,
+      shipOutTime: form.value.shipOutTime || dayjs(form.value.startDate).startOf('day').toDate(),
+      shipInTime: form.value.shipInTime || dayjs(form.value.endDate).endOf('day').toDate(),
       excludeRentalId: props.rental.id
     }
   )
@@ -624,7 +638,7 @@ const loadLatestRentalData = async () => {
 // Initialize form
 const initForm = async () => {
   if (props.rental) {
-    deviceConflictChecked.value = false
+    availability.resetDeviceAvailability()
     accessoryConflictChecked.value = false
 
     const latestRental = await loadLatestRentalData()

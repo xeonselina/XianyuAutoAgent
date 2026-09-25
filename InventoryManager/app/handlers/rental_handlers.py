@@ -411,6 +411,51 @@ class RentalHandlers:
             return server_error('检查冲突失败')
 
     @staticmethod
+    def handle_check_device_conflicts() -> ApiResponse:
+        """一次查询编辑页设备列表的档期冲突。"""
+        try:
+            data = request.get_json(silent=True)
+            if not isinstance(data, dict):
+                return bad_request('缺少请求数据')
+            device_ids = data.get('device_ids')
+            if (
+                not isinstance(device_ids, list)
+                or len(device_ids) > 500
+                or any(
+                    isinstance(device_id, bool)
+                    or not isinstance(device_id, int)
+                    or device_id <= 0
+                    for device_id in device_ids
+                )
+            ):
+                return bad_request('device_ids 必须是最多 500 个有效设备 ID')
+            ship_out_time = datetime.fromisoformat(data['ship_out_time'])
+            ship_in_time = datetime.fromisoformat(data['ship_in_time'])
+            if ship_in_time <= ship_out_time:
+                return bad_request('入库时间必须晚于发货时间')
+            exclude_rental_id = data.get('exclude_rental_id')
+            if exclude_rental_id is not None:
+                if isinstance(exclude_rental_id, bool):
+                    return bad_request('exclude_rental_id 无效')
+                exclude_rental_id = int(exclude_rental_id)
+                if exclude_rental_id <= 0:
+                    return bad_request('exclude_rental_id 无效')
+            conflicting_ids = RentalService.check_device_conflicts(
+                device_ids=sorted(set(device_ids)),
+                start_date=ship_out_time.date(),
+                end_date=ship_in_time.date(),
+                ship_out_time=ship_out_time,
+                ship_in_time=ship_in_time,
+                exclude_rental_id=exclude_rental_id,
+            )
+            return success(data={'conflicting_device_ids': conflicting_ids})
+        except (KeyError, TypeError, ValueError):
+            return bad_request('设备或时间参数无效')
+        except Exception as e:
+            current_app.logger.error(f"批量检查租赁冲突失败: {e}")
+            return server_error('检查冲突失败')
+
+    @staticmethod
     def handle_web_update_rental(rental_id: str) -> ApiResponse:
         """处理Web界面更新租赁记录请求"""
         try:

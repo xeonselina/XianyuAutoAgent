@@ -35,6 +35,7 @@ vi.mock('@/composables/useAvailabilityCheck', () => ({
     deviceAvailability: { value: { checked: false, availableItems: [], unavailableItems: [] } },
     accessoryAvailability: { value: { checked: false, availableItems: [], unavailableItems: [] } },
     resetAll: vi.fn(),
+    resetDeviceAvailability: vi.fn(),
     checkDevicesAvailability: vi.fn().mockResolvedValue(undefined),
     checkAccessoriesAvailability: vi.fn().mockResolvedValue(undefined),
     isDeviceAvailable: vi.fn(() => true),

@@ -1090,6 +1090,31 @@ def test_conflict_warning_includes_rentals_without_logistics_times(
     assert response.get_json()["data"]["conflicts"][0]["rental_id"] == existing_id
 
 
+def test_batch_device_conflicts_excludes_current_rental_and_checks_other_devices(
+    client, app, warehouse_case
+):
+    with app.app_context():
+        own_rental = _create_existing_rental(warehouse_case, "warehouse_a")
+        other_rental = _create_existing_rental(warehouse_case, "warehouse_b")
+        own_id = own_rental.id
+        start = other_rental.start_date
+
+    payload = {
+        "device_ids": [warehouse_case["main_a"], warehouse_case["main_b"]],
+        "ship_out_time": datetime.combine(start, time(9)).isoformat(),
+        "ship_in_time": datetime.combine(start + timedelta(days=1), time(18)).isoformat(),
+        "exclude_rental_id": own_id,
+    }
+    response = client.post("/api/rentals/check-device-conflicts", json=payload)
+    assert response.status_code == 200
+    assert response.get_json()["data"]["conflicting_device_ids"] == [warehouse_case["main_b"]]
+
+    payload.pop("exclude_rental_id")
+    response = client.post("/api/rentals/check-device-conflicts", json=payload)
+    assert response.status_code == 200
+    assert response.get_json()["data"]["conflicting_device_ids"] == sorted(payload["device_ids"])
+
+
 def test_concurrent_rental_updates_serialize_the_fresh_whole_group(
     client, app, warehouse_case, monkeypatch
 ):

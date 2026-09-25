@@ -15,14 +15,17 @@
           :key="device.id"
           :label="`${device.name} (${device.serial_number || '无序列号'})`"
           :value="device.id"
+          :disabled="Boolean(device.lifecycle_status && device.lifecycle_status !== 'active' && device.id !== form.deviceId)"
         >
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <span>{{ device.name }}</span>
             <div style="font-size: 12px; color: #999; display: flex; align-items: center; gap: 8px;">
               <span v-if="device.serial_number">{{ device.serial_number }}</span>
-              <el-tag v-if="device.conflicted" type="danger" size="small" effect="dark">
-                时间冲突
-              </el-tag>
+              <el-tag v-if="device.lifecycle_status && device.lifecycle_status !== 'active'" type="info" size="small">{{ lifecycleLabel(device.lifecycle_status) }}</el-tag>
+              <el-tag v-if="deviceStatusChecked && device.conflicted" type="danger" size="small">档期冲突</el-tag>
+              <el-tag v-else-if="deviceStatusChecked" type="success" size="small">档期可用</el-tag>
+              <el-tag v-else-if="checkingDeviceStatus" type="info" size="small">查询中</el-tag>
+              <el-tag v-else type="warning" size="small">档期未确认</el-tag>
             </div>
           </div>
         </el-option>
@@ -129,12 +132,17 @@ interface Props {
   rental: Rental
   availableDevices: DeviceWithConflictStatus[]
   loadingDevices: boolean
+  deviceStatusChecked?: boolean
+  checkingDeviceStatus?: boolean
   minSelectableDate: Date | null
   xianyuShops?: { id: number; name: string }[]
 }
 
 const props = defineProps<Props>()
 const sortedDevices = computed(() => [...props.availableDevices].sort(compareRentalDevices))
+const lifecycleLabel = (status: string | undefined) => ({
+  sold: '已售出', damaged: '已损坏', decommissioned: '已停用', retired: '已退役'
+}[status || ''] || status || '状态异常')
 
 const selectedModel = computed(() => {
   const dev = props.availableDevices.find(d => d.id === props.form.deviceId)

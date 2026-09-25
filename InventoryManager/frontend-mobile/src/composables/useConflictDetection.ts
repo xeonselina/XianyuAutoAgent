@@ -53,6 +53,43 @@ export function useConflictDetection() {
     }
   }
 
+  const checkMultipleDevicesConflict = async (
+    deviceIds: number[],
+    params: Omit<ConflictCheckParams, 'deviceId'>
+  ): Promise<Record<number, boolean>> => {
+    if (!deviceIds.length) return {}
+    checking.value = true
+    try {
+      const ids = [...new Set(deviceIds)]
+      const calculated = calculateShipTimes(params.startDate, params.endDate, params.logisticsDays ?? 1)
+      const requests = []
+      for (let index = 0; index < ids.length; index += 500) {
+        requests.push(axios.post('/api/rentals/check-device-conflicts', {
+          device_ids: ids.slice(index, index + 500),
+          ship_out_time: params.shipOutTime
+            ? dayjs(params.shipOutTime).format('YYYY-MM-DD HH:mm:ss')
+            : calculated.ship_out_time,
+          ship_in_time: params.shipInTime
+            ? dayjs(params.shipInTime).format('YYYY-MM-DD HH:mm:ss')
+            : calculated.ship_in_time,
+          exclude_rental_id: params.excludeRentalId
+        }))
+      }
+      const responses = await Promise.all(requests)
+      const conflictingIds = new Set<number>()
+      for (const response of responses) {
+        const result = response.data?.data?.conflicting_device_ids
+        if (!response.data?.success || !Array.isArray(result)) {
+          throw new Error('检查设备档期失败')
+        }
+        result.forEach((id: number) => conflictingIds.add(id))
+      }
+      return Object.fromEntries(ids.map(id => [id, conflictingIds.has(id)]))
+    } finally {
+      checking.value = false
+    }
+  }
+
   const checkDuplicateRental = async (params: {
     customerName: string
     destination?: string
@@ -84,6 +121,7 @@ export function useConflictDetection() {
   return {
     checking,
     checkDeviceConflict,
+    checkMultipleDevicesConflict,
     checkDuplicateRental,
     calculateShipTimes
   }

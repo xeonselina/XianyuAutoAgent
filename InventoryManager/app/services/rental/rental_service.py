@@ -793,6 +793,39 @@ class RentalService:
             raise
 
     @staticmethod
+    def check_device_conflicts(
+        device_ids,
+        start_date,
+        end_date,
+        ship_out_time,
+        ship_in_time,
+        exclude_rental_id=None,
+    ):
+        """返回给定租期内存在有效租赁冲突的设备 ID。"""
+        if not device_ids:
+            return []
+        requested_start, requested_end = RentalService._effective_occupancy(
+            start_date, end_date, ship_out_time, ship_in_time
+        )
+        query = Rental.query.filter(
+            Rental.device_id.in_(device_ids),
+            Rental.status.in_(RentalService.ACTIVE_OCCUPANCY_STATUSES),
+        )
+        if exclude_rental_id is not None:
+            query = query.filter(Rental.id != exclude_rental_id)
+        conflicting_ids = set()
+        for existing in query.all():
+            existing_start, existing_end = RentalService._effective_occupancy(
+                existing.start_date,
+                existing.end_date,
+                existing.ship_out_time,
+                existing.ship_in_time,
+            )
+            if requested_start < existing_end and requested_end > existing_start:
+                conflicting_ids.add(existing.device_id)
+        return sorted(conflicting_ids)
+
+    @staticmethod
     def update_rental_accessories(
         rental: Rental,
         requested_devices: List[Device],

@@ -23,6 +23,8 @@ vi.mock('@/composables/useDeviceManagement', () => ({
 
 vi.mock('@/composables/useAvailabilityCheck', () => ({
   useAvailabilityCheck: () => ({
+    deviceAvailability: { value: { checked: false, availableItems: [], unavailableItems: [] } },
+    resetDeviceAvailability: vi.fn(),
     checkDevicesAvailability: vi.fn().mockResolvedValue(undefined),
   }),
 }))

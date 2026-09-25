@@ -80,7 +80,7 @@
             placeholder="请选择"
             required
             :rules="[{ required: true, message: '请选择设备' }]"
-            @click="showDevicePicker = true"
+            @click="openDevicePicker"
           >
             <template #right-icon>
               <van-loading v-if="checkingConflict" size="16" />
@@ -278,6 +278,8 @@
 
     <!-- 设备选择器 -->
     <van-popup v-model:show="showDevicePicker" position="bottom" round>
+      <div v-if="checkingDeviceOptions" class="device-conflict-tip">正在查询设备档期…</div>
+      <div v-else-if="deviceOptionsError" class="device-conflict-tip">{{ deviceOptionsError }}</div>
       <van-picker
         :columns="deviceColumns"
         @confirm="onDeviceConfirm"
@@ -434,6 +436,11 @@ const initialScheduleSnapshot = ref('')
 
 // Picker 显示状态
 const showDevicePicker = ref(false)
+const checkingDeviceOptions = ref(false)
+const deviceOptionsError = ref('')
+const deviceConflictStatuses = ref<Record<number, boolean>>({})
+const deviceStatusChecked = ref(false)
+let deviceOptionsGeneration = 0
 const showStatusPicker = ref(false)
 const showEndDatePicker = ref(false)
 const showShipOutDatePicker = ref(false)
@@ -535,10 +542,58 @@ const shipInTimeDisplay = computed(() => {
 // Picker 列数据
 const deviceColumns = computed(() =>
   allDevices.value
-    .filter(d => !d.is_accessory && d.lifecycle_status === 'active')
+    .filter(d => !d.is_accessory)
     .sort(compareRentalDevices)
-    .map(d => ({ text: d.name, value: d.id }))
+    .map(d => {
+      const labels: string[] = []
+      const lifecycle = d.lifecycle_status || 'active'
+      if (lifecycle !== 'active') {
+        labels.push(({
+          sold: '已售出', damaged: '已损坏', decommissioned: '已停用', retired: '已退役'
+        } as Record<string, string>)[lifecycle] || lifecycle)
+      }
+      labels.push(deviceStatusChecked.value
+        ? (deviceConflictStatuses.value[d.id] ? '档期冲突' : '档期可用')
+        : (checkingDeviceOptions.value ? '查询中' : '档期未确认'))
+      return {
+        text: `${d.name} · ${labels.join(' · ')}`,
+        value: d.id,
+        disabled: lifecycle !== 'active' && d.id !== form.value.deviceId
+      }
+    })
 )
+
+const openDevicePicker = async () => {
+  showDevicePicker.value = true
+  const generation = ++deviceOptionsGeneration
+  deviceStatusChecked.value = false
+  deviceOptionsError.value = ''
+  deviceConflictStatuses.value = {}
+  if (!form.value.startDate || !form.value.endDate) {
+    deviceOptionsError.value = '请先选择租期'
+    return
+  }
+  checkingDeviceOptions.value = true
+  try {
+    const ids = allDevices.value.filter(d => !d.is_accessory).map(d => d.id)
+    const conflicts = await conflictDetection.checkMultipleDevicesConflict(ids, {
+      startDate: form.value.startDate,
+      endDate: form.value.endDate,
+      shipOutTime: form.value.shipOutTime || dayjs(form.value.startDate).startOf('day').toDate(),
+      shipInTime: form.value.shipInTime || dayjs(form.value.endDate).endOf('day').toDate(),
+      excludeRentalId: rentalId.value
+    })
+    if (generation !== deviceOptionsGeneration) return
+    deviceConflictStatuses.value = conflicts
+    deviceStatusChecked.value = true
+  } catch (error) {
+    if (generation !== deviceOptionsGeneration) return
+    console.error('查询设备档期失败:', error)
+    deviceOptionsError.value = '设备档期查询失败，请重试'
+  } finally {
+    if (generation === deviceOptionsGeneration) checkingDeviceOptions.value = false
+  }
+}
 
 const phoneHolderColumns = computed(() => [
   { text: '无', value: null },
@@ -673,14 +728,14 @@ const initForm = (rental: Rental) => {
 }
 
 // Picker 确认处理
-const onDeviceConfirm = ({ selectedValues, selectedOptions }: any) => {
+const onDeviceConfirm = ({ selectedValues }: any) => {
   const newDeviceId = selectedValues[0]
   if (newDeviceId !== form.value.deviceId) {
     form.value.deviceId = newDeviceId
-    selectedDeviceName.value = selectedOptions[0]?.text ?? ''
     const selectedDevice = allDevices.value.find(
       device => device.id === newDeviceId
     )
+    selectedDeviceName.value = selectedDevice?.name || ''
     const selectedModel = selectedDevice?.device_model
       || selectedDevice?.model
       || null
@@ -745,6 +800,8 @@ const checkDeviceConflict = async () => {
       startDate: form.value.startDate,
       endDate: form.value.endDate,
       logisticsDays: form.value.logisticsDays,
+      shipOutTime: form.value.shipOutTime || dayjs(form.value.startDate).startOf('day').toDate(),
+      shipInTime: form.value.shipInTime || dayjs(form.value.endDate).endOf('day').toDate(),
       excludeRentalId: rentalId.value
     })
     conflictWarning.value = hasConflict
@@ -932,9 +989,7 @@ const loadAccessories = async () => {
 onMounted(async () => {
   try {
     // 加载设备列表
-    if (!ganttStore.devices.length) {
-      await ganttStore.loadData()
-    }
+    await ganttStore.loadData()
     allDevices.value = ganttStore.devices
     await loadAccessories()
 
@@ -955,6 +1010,10 @@ onMounted(async () => {
 })
 
 watch(() => tenantStore.currentWarehouseId, async () => {
+  deviceOptionsGeneration += 1
+  deviceStatusChecked.value = false
+  deviceConflictStatuses.value = {}
+  checkingDeviceOptions.value = false
   currentRental.value = null
   allDevices.value = []
   form.value.deviceId = null

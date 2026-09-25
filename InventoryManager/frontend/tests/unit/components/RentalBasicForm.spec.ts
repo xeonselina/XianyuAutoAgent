@@ -60,7 +60,7 @@ describe('RentalBasicForm.vue Component', () => {
         name: 'iPad',
         display_name: 'iPad Pro'
       },
-      status: 'sold',
+      lifecycle_status: 'sold',
       is_accessory: false,
       rentals: []
     }
@@ -95,6 +95,43 @@ describe('RentalBasicForm.vue Component', () => {
   })
 
   describe('Rendering', () => {
+    it('shows conflict and lifecycle status in device options without disabling conflicts', () => {
+      const wrapper = mount(RentalBasicForm, {
+        props: {
+          form: mockForm,
+          rental: mockRental,
+          availableDevices: [
+            { ...mockDevices[0]!, conflicted: true },
+            mockDevices[1]!,
+          ],
+          loadingDevices: false,
+          deviceStatusChecked: true,
+          minSelectableDate: null,
+        },
+        global: {
+          stubs: {
+            'el-form-item': { template: '<div><slot /></div>' },
+            'el-select': { template: '<div><slot /></div>' },
+            'el-option': { props: ['disabled'], template: '<div class="option" :data-disabled="disabled"><slot /></div>' },
+            'el-tag': { template: '<span><slot /></span>' },
+            'el-input': true,
+            'el-button': true,
+            'el-radio-button': true,
+            'el-radio-group': true,
+            'VueDatePicker': true,
+          },
+        },
+      })
+      const options = wrapper.findAll('.option')
+      const conflicted = options.find(option => option.text().includes('iPhone'))
+      const sold = options.find(option => option.text().includes('iPad'))
+      expect(conflicted?.text()).toContain('档期冲突')
+      expect(conflicted?.attributes('data-disabled')).toBe('false')
+      expect(sold?.text()).toContain('已售出')
+      expect(sold?.text()).toContain('档期可用')
+      expect(sold?.attributes('data-disabled')).toBe('true')
+    })
+
     it('should render form with device select', () => {
       const wrapper = mount(RentalBasicForm, {
         props: {

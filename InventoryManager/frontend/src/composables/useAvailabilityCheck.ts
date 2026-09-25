@@ -40,7 +40,7 @@ export function useAvailabilityCheck() {
 
   /**
    * 检查设备列表的可用性
-   * 非 active 生命周期状态的设备直接标记为不可用，不发起冲突检测请求
+   * 同时检查所有设备的档期和生命周期状态，供设备下拉项分别显示。
    */
   const checkDevicesAvailability = async (
     devices: DeviceWithStatus[],
@@ -49,9 +49,11 @@ export function useAvailabilityCheck() {
       endDate: string | Date
       logisticsDays?: number
       excludeRentalId?: number
+      shipOutTime?: string | Date
+      shipInTime?: string | Date
     }
   ) => {
-    const checkGeneration = deviceCheckGeneration
+    const checkGeneration = ++deviceCheckGeneration
     if (!devices.length) {
       if (checkGeneration !== deviceCheckGeneration) return
       deviceAvailability.value = {
@@ -64,45 +66,21 @@ export function useAvailabilityCheck() {
 
     checking.value = true
     try {
-      // 前置过滤：非 active 生命周期的设备直接归入不可用列表
-      const activeDevices: DeviceWithStatus[] = []
+      const conflicts = await checkMultipleDevicesConflict(devices.map(d => d.id), params)
+      const available: DeviceWithStatus[] = []
       const unavailable: DeviceWithStatus[] = []
-
       devices.forEach(device => {
         const lifecycle = (device as any).lifecycle_status || 'active'
-        if (lifecycle !== 'active') {
-          unavailable.push({
-            ...device,
-            conflicted: false,
-            isAvailable: false,
-            conflictReason: LIFECYCLE_LABELS[lifecycle] || lifecycle
-          })
-        } else {
-          activeDevices.push(device)
+        const hasConflict = conflicts[device.id] === true
+        const deviceWithStatus = {
+          ...device,
+          conflicted: hasConflict,
+          isAvailable: lifecycle === 'active' && !hasConflict,
+          conflictReason: lifecycle === 'active' ? undefined : (LIFECYCLE_LABELS[lifecycle] || lifecycle)
         }
+        if (deviceWithStatus.isAvailable) available.push(deviceWithStatus)
+        else unavailable.push(deviceWithStatus)
       })
-
-      // 仅对 active 设备发起冲突检测
-      const available: DeviceWithStatus[] = []
-      if (activeDevices.length > 0) {
-        const deviceIds = activeDevices.map(d => d.id)
-        const conflicts = await checkMultipleDevicesConflict(deviceIds, params)
-
-        activeDevices.forEach(device => {
-          const hasConflict = conflicts[device.id]
-          const deviceWithStatus = {
-            ...device,
-            conflicted: hasConflict,
-            isAvailable: !hasConflict
-          }
-
-          if (hasConflict) {
-            unavailable.push(deviceWithStatus)
-          } else {
-            available.push(deviceWithStatus)
-          }
-        })
-      }
 
       if (checkGeneration !== deviceCheckGeneration) return
       deviceAvailability.value = {
@@ -114,9 +92,9 @@ export function useAvailabilityCheck() {
       if (checkGeneration !== deviceCheckGeneration) return
       console.error('检查设备可用性失败:', error)
       deviceAvailability.value = {
-        checked: true,
+        checked: false,
         availableItems: [],
-        unavailableItems: devices
+        unavailableItems: []
       }
     } finally {
       if (checkGeneration === deviceCheckGeneration) {

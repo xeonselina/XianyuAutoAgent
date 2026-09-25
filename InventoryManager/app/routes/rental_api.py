@@ -91,6 +91,13 @@ def check_rental_conflict():
     return RentalHandlers.handle_check_rental_conflict()
 
 
+@bp.route('/api/rentals/check-device-conflicts', methods=['POST'])
+@handle_response
+def check_device_conflicts():
+    """批量检查设备在同一租期内的冲突"""
+    return RentalHandlers.handle_check_device_conflicts()
+
+
 @bp.route('/api/rentals/check-duplicate', methods=['POST'])
 @handle_response
 def check_duplicate_rental():

@@ -59,4 +59,21 @@ describe('useAvailabilityCheck request invalidation', () => {
       unavailableItems: [],
     })
   })
+
+  it('keeps lifecycle and schedule conflicts visible independently', async () => {
+    conflictState.checkMultipleDevicesConflict.mockResolvedValue({ 11: false, 12: true })
+    const availability = useAvailabilityCheck()
+    await availability.checkDevicesAvailability([
+      device,
+      { ...device, id: 12, lifecycle_status: 'sold' },
+    ], {
+      startDate: '2026-08-01', endDate: '2026-08-03',
+    })
+
+    expect(conflictState.checkMultipleDevicesConflict).toHaveBeenCalledWith([11, 12], expect.any(Object))
+    expect(availability.deviceAvailability.value.availableItems[0]?.id).toBe(11)
+    expect(availability.deviceAvailability.value.unavailableItems[0]).toMatchObject({
+      id: 12, conflicted: true, conflictReason: '已售出', isAvailable: false,
+    })
+  })
 })
