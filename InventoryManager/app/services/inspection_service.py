@@ -13,6 +13,7 @@ from app.models.inspection_check_item import InspectionCheckItem
 from app.models.warehouse import Warehouse
 from app.services.checklist_generator import ChecklistGenerator
 from app.services.warehouse_movement_service import WarehouseMovementService
+from app.utils.business_time import business_now_naive
 
 
 class ConcurrentInspectionChangeError(RuntimeError):
@@ -221,6 +222,8 @@ class InspectionService:
                     if inspected_rental.status != "shipped":
                         continue
                     inspected_rental.status = "returned"
+                    if inspected_rental.fulfillment_mode == 'onsite' and inspected_rental.onsite_returned_at is None:
+                        inspected_rental.onsite_returned_at = business_now_naive()
                     rental_status_changes.append({
                         "rental_id": inspected_rental.id,
                         "from": "shipped",

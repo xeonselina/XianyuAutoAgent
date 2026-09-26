@@ -42,19 +42,19 @@
     />
 
     <!-- 客户信息（只读） -->
-    <el-form-item label="闲鱼 ID">
+    <el-form-item :label="rental.fulfillment_mode === 'onsite' ? '客户姓名' : '闲鱼 ID'">
       <el-input :value="rental.customer_name" disabled />
     </el-form-item>
 
     <!-- 日期信息 -->
-    <el-form-item label="开始日期">
+    <el-form-item :label="rental.fulfillment_mode === 'onsite' ? '使用日期' : '开始日期'">
       <VueDatePicker v-model="form.startDate" placeholder="选择开始日期"
         format="yyyy-MM-dd" :enable-time-picker="false" :clearable="false"
         :max-date="form.endDate || undefined" auto-apply />
-      <div class="form-tip">修改后会检查设备和附件档期，请同时核对寄出时间</div>
+      <div v-if="rental.fulfillment_mode !== 'onsite'" class="form-tip">修改后会检查设备和附件档期，请同时核对寄出时间</div>
     </el-form-item>
 
-    <el-form-item label="结束日期" prop="endDate">
+    <el-form-item v-if="rental.fulfillment_mode !== 'onsite'" label="结束日期" prop="endDate">
       <VueDatePicker
         v-model="form.endDate"
         placeholder="选择结束日期"

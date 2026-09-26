@@ -3,9 +3,10 @@
 """
 
 from app import db
-from datetime import datetime, date
+from datetime import datetime, date, time, timedelta
 import uuid
 from app.rental_packages import parse_package_items
+from app.utils.business_time import business_now_naive
 
 
 class Rental(db.Model):
@@ -32,6 +33,9 @@ class Rental(db.Model):
     end_date = db.Column(db.Date, nullable=False, comment='结束日期')
     ship_out_time = db.Column(db.DateTime, nullable=True, comment='寄出时间')
     ship_in_time = db.Column(db.DateTime, nullable=True, comment='收回时间')
+    fulfillment_mode = db.Column(db.String(16), nullable=False, default='courier', server_default='courier')
+    onsite_note = db.Column(db.Text, nullable=True)
+    onsite_returned_at = db.Column(db.DateTime, nullable=True)
     
     # 客户信息
     customer_name = db.Column(db.String(100), nullable=False, comment='客户姓名')
@@ -155,6 +159,9 @@ class Rental(db.Model):
             'end_date': self.end_date.isoformat(),
             'ship_out_time': self.ship_out_time.isoformat() if self.ship_out_time else None,
             'ship_in_time': self.ship_in_time.isoformat() if self.ship_in_time else None,
+            'fulfillment_mode': self.fulfillment_mode,
+            'onsite_note': self.onsite_note,
+            'onsite_returned_at': self.onsite_returned_at.isoformat() if self.onsite_returned_at else None,
             'customer_name': self.customer_name,
             'customer_phone': self.customer_phone,
             'destination': self.destination,
@@ -205,6 +212,20 @@ class Rental(db.Model):
         if self.start_date and self.end_date:
             return (self.end_date - self.start_date).days + 1
         return 0
+
+    def occupancy_interval(self):
+        if self.fulfillment_mode == 'onsite':
+            start = datetime.combine(self.start_date, time.min)
+            end = datetime.combine(self.end_date + timedelta(days=1), time.min)
+            if self.status == 'shipped':
+                end = datetime.max
+            elif self.onsite_returned_at:
+                end = max(end, datetime.combine(self.onsite_returned_at.date() + timedelta(days=1), time.min))
+            return start, end
+        return (
+            self.ship_out_time or datetime.combine(self.start_date, time.min),
+            self.ship_in_time or datetime.combine(self.end_date, time.max),
+        )
     
     def is_overdue(self):
         """检查是否逾期"""
@@ -232,7 +253,8 @@ class Rental(db.Model):
         """发货租赁申请"""
         if self.status == 'not_shipped':
             self.status = 'shipped'
-            self.ship_out_time = datetime.utcnow()
+            if self.fulfillment_mode != 'onsite':
+                self.ship_out_time = datetime.utcnow()
             return True
         return False
     
@@ -240,7 +262,10 @@ class Rental(db.Model):
         """设备已寄回"""
         if self.status == 'shipped':
             self.status = 'returned'
-            self.ship_in_time = datetime.utcnow()
+            if self.fulfillment_mode == 'onsite':
+                self.onsite_returned_at = business_now_naive()
+            else:
+                self.ship_in_time = datetime.utcnow()
             return True
         return False
 
@@ -248,7 +273,9 @@ class Rental(db.Model):
         """完成租赁"""
         if self.status in ['shipped', 'returned']:
             self.status = 'completed'
-            if not self.ship_in_time:
+            if self.fulfillment_mode == 'onsite' and not self.onsite_returned_at:
+                self.onsite_returned_at = business_now_naive()
+            if self.fulfillment_mode != 'onsite' and not self.ship_in_time:
                 self.ship_in_time = datetime.utcnow()
             return True
         return False

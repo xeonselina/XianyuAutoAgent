@@ -17,7 +17,7 @@
 
       <!-- 信息列表 -->
       <div v-if="rental?.booking" style="padding:12px">
-        <strong>同单已录 {{ rental.booking.recorded_quantity }}/{{ rental.booking.expected_quantity }} 台 · 已发 {{ rental.booking.shipped_quantity }} 台</strong>
+        <strong>同单已录 {{ rental.booking.recorded_quantity }}/{{ rental.booking.expected_quantity }} 台 · {{ rental.fulfillment_mode === 'onsite' ? '已交付' : '已发' }} {{ rental.booking.shipped_quantity }} 台</strong>
         <div v-for="item in rental.booking.rentals" :key="item.id"><van-button v-if="item.id !== rental.id" size="mini" @click="router.push({ name: 'edit-rental', params: { id: item.id } }); visible = false">查看此台</van-button> R-{{ item.id }} · {{ item.device_name }} · {{ item.rental_package_name || (item.lens_combo === 'bare' ? '裸机' : item.lens_combo === 'lens_200mm' ? '200mm 镜头' : item.lens_combo === 'lens_dual' ? '双镜头' : '400mm 镜头') }}</div>
       </div>
       <van-cell-group v-if="rental?.booking?.expected_quantity === 2 && rental.booking.recorded_quantity === 1">
@@ -30,27 +30,27 @@
           <span class="info-label">租客</span>
           <span class="info-value">{{ rental.customer_name || '—' }}</span>
         </div>
-        <div class="info-row">
+        <div v-if="rental.fulfillment_mode !== 'onsite'" class="info-row">
           <span class="info-label">发货日</span>
           <span class="info-value">{{ fmtDate(rental.ship_out_time) }}</span>
         </div>
         <div class="info-row">
-          <span class="info-label">起租日</span>
+          <span class="info-label">{{ rental.fulfillment_mode === 'onsite' ? '使用日期' : '起租日' }}</span>
           <span class="info-value">{{ rental.start_date || '—' }}</span>
         </div>
-        <div class="info-row">
+        <div v-if="rental.fulfillment_mode !== 'onsite'" class="info-row">
           <span class="info-label">还租日</span>
           <span class="info-value">{{ rental.end_date || '—' }}</span>
         </div>
-        <div class="info-row">
+        <div v-if="rental.fulfillment_mode !== 'onsite'" class="info-row">
           <span class="info-label">入库日</span>
           <span class="info-value">{{ fmtDate(rental.ship_in_time) }}</span>
         </div>
-        <div class="info-row">
+        <div v-if="rental.fulfillment_mode !== 'onsite'" class="info-row">
           <span class="info-label">地址</span>
           <span class="info-value address">{{ rental.destination || '—' }}</span>
         </div>
-        <div class="info-row">
+        <div v-if="rental.fulfillment_mode !== 'onsite'" class="info-row">
           <span class="info-label">运单号</span>
           <span class="info-value">{{ rental.ship_out_tracking_no || '—' }}</span>
         </div>
@@ -58,7 +58,7 @@
           <span class="info-label">状态</span>
           <span class="info-value">
             <van-tag :color="statusColor(rental.status)" text-color="#fff">
-              {{ statusLabel(rental.status) }}
+              {{ rental.fulfillment_mode === 'onsite' ? onsiteStatusLabel(rental.status) : statusLabel(rental.status) }}
             </van-tag>
           </span>
         </div>
@@ -139,6 +139,7 @@ const STATUS_MAP: Record<string, { label: string; color: string }> = {
 }
 
 const statusLabel = (s: string) => STATUS_MAP[s]?.label ?? s
+const onsiteStatusLabel = (s: string) => ({ not_shipped: '待交付', shipped: '使用中', returned: '已归还', completed: '已完成', cancelled: '已取消' } as Record<string, string>)[s] || s
 const statusColor = (s: string) => STATUS_MAP[s]?.color ?? '#999'
 
 const onEdit = () => {

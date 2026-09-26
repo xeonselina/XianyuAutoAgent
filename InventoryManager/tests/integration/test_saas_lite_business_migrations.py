@@ -26,7 +26,8 @@ CONTRACT_REVISION = "20260824_saas_lite_contract"
 MODEL_LENS_COMBO_REVISION = "20260830_model_lens_combos"
 RENTAL_PACKAGES_REVISION = "20260830_rental_packages"
 RENTAL_ALERTS_REVISION = "20260907_xianyu_rental_alerts"
-CURRENT_HEAD = "20260914_merge_booking_alerts"
+MERGE_REVISION = "20260914_merge_booking_alerts"
+CURRENT_HEAD = "20260926_add_onsite_rentals"
 APPROVED_NEW_TABLES = {
     "warehouses",
     "warehouse_sf_configs",
@@ -301,7 +302,8 @@ def test_phase_2_and_model_configuration_use_a_linear_chain():
     assert revisions[RENTAL_ALERTS_REVISION].down_revision == RENTAL_PACKAGES_REVISION
     assert script.get_heads() == [CURRENT_HEAD]
     assert revisions["20260908_xianyu_alert_ignore"].down_revision == RENTAL_ALERTS_REVISION
-    assert set(revisions[CURRENT_HEAD].down_revision) == {"20260908_xianyu_alert_ignore", "20260914_multi_device_booking"}
+    assert revisions[CURRENT_HEAD].down_revision == MERGE_REVISION
+    assert set(revisions[MERGE_REVISION].down_revision) == {"20260908_xianyu_alert_ignore", "20260914_multi_device_booking"}
     assert revisions["20260914_multi_device_booking"].down_revision == CONTRACT_REVISION
     phase_2_revisions = {
         revision.revision

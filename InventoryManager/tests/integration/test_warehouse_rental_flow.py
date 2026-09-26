@@ -15,6 +15,11 @@ from app.models.rental import Rental
 from app.models.warehouse import Warehouse
 from app.models.xianyu_order_alert import XianyuOrderAlert
 from app.models.xianyu_shop import XianyuShop
+from app.services.rental.rental_service import RentalService
+from app.services.inventory_service import InventoryService
+from app.services.gantt.gantt_service import GanttService
+from app.services.shipping.waybill_print_service import validate_shipping_preflight
+from app.utils.scheduler_tasks import process_scheduled_shipments_for_current_tenant
 from config import TestingConfig
 from tests.support.test_database import (
     assert_current_user_has_test_only_grants,
@@ -178,6 +183,130 @@ def _ids(response, key):
     data = payload.get("data", payload)
     rows = data if key == "data" and isinstance(data, list) else data[key]
     return {row["id"] for row in rows}
+
+
+def test_onsite_rental_occupancy_pending_return_and_shipping_guard(app, warehouse_case):
+    with app.app_context():
+        today = date.today()
+        payload = {
+            'warehouse_id': warehouse_case['warehouse_a'],
+            'device_id': warehouse_case['main_a'],
+            'customer_name': '现场客户',
+            'start_date': today.isoformat(),
+            'end_date': today.isoformat(),
+            'fulfillment_mode': 'onsite',
+            'onsite_note': '展厅交接',
+            'accessories': [warehouse_case['accessory_a']],
+        }
+        rental, children = RentalService.create_rental_with_accessories(payload)
+        assert rental.ship_out_time is None and rental.ship_in_time is None
+        assert rental.destination is None or rental.destination == ''
+        assert children[0].fulfillment_mode == 'onsite'
+        assert rental.to_dict()['onsite_note'] == '展厅交接'
+
+        start = datetime.combine(today, time.min)
+        end = datetime.combine(today + timedelta(days=1), time.min)
+        assert not InventoryService.check_device_availability(rental.device_id, start, end)['available']
+        assert not InventoryService.check_device_availability(children[0].device_id, start, end)['available']
+        assert RentalService.check_device_conflicts([rental.device_id], today, today, start, end) == [rental.device_id]
+        stats = GanttService.get_daily_statistics_range(today.isoformat(), today.isoformat(), warehouse_id=warehouse_case['warehouse_a'])
+        assert stats['stats'][today.isoformat()]['available_count'] == 0
+        assert stats['stats'][today.isoformat()]['ship_out_count'] == 0
+        assert GanttService.find_available_slot(today, today, 0, warehouse_case['model'], warehouse_id=warehouse_case['warehouse_a'], fulfillment_mode='onsite') is None
+        other_warehouse_slot = GanttService.find_available_slot(today, today, 0, warehouse_case['model'], warehouse_id=warehouse_case['warehouse_b'], fulfillment_mode='onsite')
+        assert other_warehouse_slot['available_devices'][0]['id'] == warehouse_case['main_b']
+        with pytest.raises(ValueError, match='现场租赁'):
+            validate_shipping_preflight(rental)
+
+        RentalService.update_rental_status(rental.id, 'shipped')
+        assert RentalService.get_pending_returns(today=today, warehouse_id=warehouse_case['warehouse_a'])[0]['due_date'] == today.isoformat()
+        assert RentalService.get_pending_returns(today=today + timedelta(days=1), warehouse_id=warehouse_case['warehouse_a'])[0]['overdue_days'] == 1
+        future = datetime.combine(today + timedelta(days=2), time.min)
+        assert not InventoryService.check_device_availability(rental.device_id, future, future + timedelta(days=1))['available']
+
+        RentalService.update_rental_status(rental.id, 'returned')
+        db.session.refresh(rental)
+        assert rental.onsite_returned_at is not None
+        assert rental.ship_in_time is None
+        assert children[0].onsite_returned_at is not None
+        assert RentalService.get_pending_returns(today=today, warehouse_id=warehouse_case['warehouse_a']) == []
+        RentalService.update_rental_status(rental.id, 'shipped')
+        assert rental.onsite_returned_at is None
+        assert not InventoryService.check_device_availability(rental.device_id, future, future + timedelta(days=1))['available']
+
+
+def test_onsite_rental_rejects_logistics_and_mode_change(app, warehouse_case):
+    with app.app_context():
+        today = date.today().isoformat()
+        payload = {
+            'warehouse_id': warehouse_case['warehouse_a'],
+            'device_id': warehouse_case['main_a'],
+            'customer_name': '现场客户',
+            'start_date': today,
+            'end_date': today,
+            'fulfillment_mode': 'onsite',
+        }
+        with pytest.raises(ValueError, match='物流'):
+            RentalService.create_rental_with_accessories(dict(payload, destination='深圳'))
+        with pytest.raises(ValueError, match='只能使用一天'):
+            RentalService.create_rental_with_accessories(dict(payload, end_date=(date.today() + timedelta(days=1)).isoformat()))
+        rental, _ = RentalService.create_rental_with_accessories(payload)
+        with pytest.raises(ValueError, match='不可修改'):
+            RentalService.update_rental_with_accessories(rental.id, {'fulfillment_mode': 'courier', 'warehouse_id': warehouse_case['warehouse_a']})
+        with pytest.raises(ValueError, match='不能预约发货'):
+            RentalService.update_rental_status(rental.id, 'scheduled_for_shipping')
+        with pytest.raises(ValueError, match='同单设备的租赁方式'):
+            RentalService.create_booking(dict(payload, fulfillment_mode='courier', append_to_rental_id=rental.id, booking_request_id='00000000-0000-4000-8000-000000000001'))
+
+
+def test_onsite_api_create_and_return_without_order_or_address(client, warehouse_case):
+    today = date.today().isoformat()
+    created = client.post('/api/rentals', json={
+        'warehouse_id': warehouse_case['warehouse_a'],
+        'device_id': warehouse_case['main_a'],
+        'customer_name': '现场客户',
+        'start_date': today,
+        'end_date': today,
+        'fulfillment_mode': 'onsite',
+        'accessories': [warehouse_case['accessory_a']],
+    })
+    assert created.status_code == 201
+    rental = created.get_json()['data']['main_rental']
+    assert rental['xianyu_order_no'] is None
+    assert rental['ship_out_time'] is None
+    assert rental['child_rentals'][0]['fulfillment_mode'] == 'onsite'
+
+    rental_id = rental['id']
+    assert client.post(f'/api/rentals/{rental_id}/ship-to-xianyu').status_code == 400
+    handed_over = client.put(f'/api/rentals/{rental_id}/status', json={'status': 'shipped'})
+    assert handed_over.status_code == 200
+    pending = client.get('/api/rentals/pending-returns', query_string={'warehouse_id': warehouse_case['warehouse_a']})
+    assert [row['id'] for row in pending.get_json()['data']['rentals']] == [rental_id]
+    returned = client.put(f'/api/rentals/{rental_id}/status', json={'status': 'returned'})
+    assert returned.status_code == 200
+    detail = client.get(f'/api/rentals/{rental_id}').get_json()['data']
+    assert detail['onsite_returned_at'] is not None
+    assert detail['ship_in_time'] is None
+
+
+def test_onsite_rental_is_ignored_by_scheduled_shipping_worker(app, warehouse_case):
+    with app.app_context():
+        today = date.today().isoformat()
+        rental, _ = RentalService.create_rental_with_accessories({
+            'warehouse_id': warehouse_case['warehouse_a'],
+            'device_id': warehouse_case['main_a'],
+            'customer_name': '现场客户',
+            'start_date': today,
+            'end_date': today,
+            'fulfillment_mode': 'onsite',
+        })
+        rental.status = 'scheduled_for_shipping'
+        rental.scheduled_ship_time = datetime.now() - timedelta(days=1)
+        db.session.commit()
+        process_scheduled_shipments_for_current_tenant()
+        db.session.refresh(rental)
+        assert rental.status == 'scheduled_for_shipping'
+        assert rental.ship_out_time is None
 
 
 def test_device_inventory_and_rental_reads_accept_warehouse_or_all(

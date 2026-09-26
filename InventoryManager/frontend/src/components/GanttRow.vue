@@ -39,7 +39,8 @@
           <div class="rental-content">
             <div class="rental-customer-line">
               <span class="rental-customer">
-                <span v-if="rental.status === 'shipped'" class="status-icon shipped-icon">🚀</span>
+                <span v-if="rental.fulfillment_mode === 'onsite'" class="status-icon" title="现场租赁">现场</span>
+                <span v-else-if="rental.status === 'shipped'" class="status-icon shipped-icon">🚀</span>
                 <span v-else-if="rental.status === 'returned'" class="status-icon returned-icon">✅</span>
                 <span v-else-if="rental.status === 'not_shipped'" class="status-icon">📦</span>
                 {{ rental.customer_name }}<small v-if="rental.booking"> · 同单 {{ rental.booking.recorded_quantity }}/{{ rental.booking.expected_quantity }} 台</small>

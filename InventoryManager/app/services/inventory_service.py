@@ -46,6 +46,14 @@ class InventoryService:
                 )
             all_devices = devices_query.all()
             available_devices = []
+            rentals_by_device = {device.id: [] for device in all_devices}
+            device_ids = list(rentals_by_device)
+            for offset in range(0, len(device_ids), 500):
+                for rental in Rental.query.filter(
+                    Rental.device_id.in_(device_ids[offset:offset + 500]),
+                    Rental.status.in_(['not_shipped', 'scheduled_for_shipping', 'shipped', 'returned']),
+                ).all():
+                    rentals_by_device[rental.device_id].append(rental)
             
             for device in all_devices:
                 # 排除非 active 生命周期设备（已售出/已损坏/已停用/已退役）
@@ -53,19 +61,12 @@ class InventoryService:
                     continue
                 
                 # 检查设备在指定时间段内是否有冲突的租赁记录
-                conflicting_rentals = Rental.query.filter(
-                    db.and_(
-                        Rental.device_id == device.id,
-                        Rental.status.in_(['not_shipped', 'scheduled_for_shipping', 'shipped', 'returned']),  # 不包括取消和已完成的租赁
-                        Rental.ship_out_time.isnot(None),  # 必须有寄出时间
-                        Rental.ship_in_time.isnot(None),   # 必须有收回时间
-                        # 检查时间段重叠：租赁的物流时间段与查询时间段重叠
-                        db.and_(
-                            Rental.ship_out_time < ship_in_time,   # 租赁寄出时间 < 查询收回时间
-                            Rental.ship_in_time > ship_out_time    # 租赁收回时间 > 查询寄出时间
-                        )
-                    )
-                ).all()
+                active_rentals = rentals_by_device[device.id]
+                conflicting_rentals = [
+                    rental for rental in active_rentals
+                    if rental.occupancy_interval()[0] < ship_in_time
+                    and rental.occupancy_interval()[1] > ship_out_time
+                ]
                 
                 if not conflicting_rentals:
                     # 没有冲突的租赁记录，设备可用
@@ -165,22 +166,20 @@ class InventoryService:
             device_filters = [
                 Rental.device_id == device_id,
                 Rental.status.in_(['not_shipped', 'scheduled_for_shipping', 'shipped', 'returned']),  # 排除已取消和已完成的
-                Rental.ship_out_time.isnot(None),  # 必须有寄出时间
-                Rental.ship_in_time.isnot(None),   # 必须有收回时间
-                # 时间段重叠检测：寄出时间和收回时间有交叉
-                db.and_(
-                    Rental.ship_out_time < ship_in_time,   # 现有记录的寄出时间 < 新记录的收回时间
-                    Rental.ship_in_time > ship_out_time    # 现有记录的收回时间 > 新记录的寄出时间
-                )
             ]
             
             # 如果提供了要排除的租赁记录ID，则排除该记录
             if exclude_rental_id:
                 device_filters.append(Rental.id != exclude_rental_id)
             
-            all_conflicting_rentals = Rental.query.filter(
+            active_rentals = Rental.query.filter(
                 db.and_(*device_filters)
             ).all()
+            all_conflicting_rentals = [
+                rental for rental in active_rentals
+                if rental.occupancy_interval()[0] < ship_in_time
+                and rental.occupancy_interval()[1] > ship_out_time
+            ]
             
             if not all_conflicting_rentals:
                 return {

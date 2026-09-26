@@ -112,6 +112,8 @@ export function useAvailabilityCheck() {
       startDate: string | Date
       endDate: string | Date
       excludeRentalId?: number
+      shipOutTime?: string | Date
+      shipInTime?: string | Date
     }
   ) => {
     const checkGeneration = accessoryCheckGeneration

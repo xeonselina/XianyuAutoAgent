@@ -10,10 +10,10 @@
     @closed="handleClosed"
   >
     <el-alert v-if="rental?.booking" type="info" :closable="false" style="margin-bottom:12px"
-      :title="`同单已录 ${rental.booking.recorded_quantity}/${rental.booking.expected_quantity} 台 · 已发 ${rental.booking.shipped_quantity}/${rental.booking.expected_quantity} 台`" />
+      :title="`同单已录 ${rental.booking.recorded_quantity}/${rental.booking.expected_quantity} 台 · ${rental.fulfillment_mode === 'onsite' ? '已交付' : '已发'} ${rental.booking.shipped_quantity}/${rental.booking.expected_quantity} 台`" />
     <div v-if="rental?.booking" style="margin-bottom:12px">
       <div v-for="item in rental.booking.rentals" :key="item.id"><el-button v-if="item.id !== rental.id" link @click="openRelated(item.id)">查看此台</el-button> R-{{ item.id }} · {{ item.device_name }} · {{ item.rental_package_name || (item.lens_combo === 'bare' ? '裸机' : item.lens_combo === 'lens_200mm' ? '200mm 镜头' : item.lens_combo === 'lens_dual' ? '双镜头' : '400mm 镜头') }}</div>
-      <small>每台可独立调整开始日期、寄出时间，并独立验货、归还。</small>
+      <small v-if="rental.fulfillment_mode !== 'onsite'">每台可独立调整开始日期、寄出时间，并独立验货、归还。</small>
     </div>
     <div v-if="rental?.booking?.expected_quantity === 2 && rental.booking.recorded_quantity === 1" style="margin-bottom:12px">
       <el-input v-model="reductionReason" placeholder="客户减租原因（如需补齐，请从预约入口查看同单）" />
@@ -58,10 +58,11 @@
       />
 
       <!-- 客户与物流信息 -->
-      <el-divider content-position="left">
+      <el-divider v-if="rental.fulfillment_mode !== 'onsite'" content-position="left">
         <span class="divider-title">🚚 客户与物流信息</span>
       </el-divider>
       <RentalShippingForm
+        v-if="rental.fulfillment_mode !== 'onsite'"
         :form="form"
         :querying-ship-out="queryingShipOut"
         :querying-ship-in="queryingShipIn"
@@ -71,6 +72,19 @@
         @ship-in-time-change="handleShipInTimeChange"
         @status-change="handleStatusChange"
       />
+      <template v-else>
+        <el-form-item label="客户电话"><el-input v-model="form.customerPhone" /></el-form-item>
+        <el-form-item label="现场备注"><el-input v-model="form.onsiteNote" type="textarea" :rows="2" /></el-form-item>
+        <el-form-item label="租赁状态">
+          <el-select v-model="form.status" style="width:100%">
+            <el-option label="待交付" value="not_shipped" />
+            <el-option label="使用中" value="shipped" />
+            <el-option label="已归还" value="returned" />
+            <el-option label="已完成" value="completed" />
+            <el-option label="已取消" value="cancelled" />
+          </el-select>
+        </el-form-item>
+      </template>
 
       <!-- 损坏反馈 -->
       <el-divider content-position="left">
@@ -237,8 +251,12 @@ const form = ref({
   orderAmount: '',
   buyerId: '',
   damageNote: '',
+  onsiteNote: '',
   photoTransfer: false,  // 代传照片标记
   rentalPackageId: undefined as string | undefined,
+})
+watch(() => form.value.startDate, (value) => {
+  if (props.rental?.fulfillment_mode === 'onsite') form.value.endDate = value
 })
 
 // UI State
@@ -381,7 +399,8 @@ const handleDelete = async () => {
 const handleSubmit = async () => {
   try {
     await formRef.value?.validate()
-    if (!await confirmLogisticsTiming()) return
+    const onsite = props.rental?.fulfillment_mode === 'onsite'
+    if (!onsite && !await confirmLogisticsTiming()) return
     submitting.value = true
 
     // 转换UI格式到API格式
@@ -391,15 +410,16 @@ const handleSubmit = async () => {
     const updateData = {
       device_id: form.value.deviceId,
       start_date: dayjs(form.value.startDate).format('YYYY-MM-DD'),
-      end_date: dayjs(form.value.endDate).format('YYYY-MM-DD'),
+      end_date: dayjs(onsite ? form.value.startDate : form.value.endDate).format('YYYY-MM-DD'),
       customer_phone: form.value.customerPhone,
-      destination: form.value.destination,
-      ship_out_tracking_no: form.value.shipOutTrackingNo,
-      ship_in_tracking_no: form.value.shipInTrackingNo,
-      ship_out_time: form.value.shipOutTime
+      destination: onsite ? undefined : form.value.destination,
+      onsite_note: onsite ? form.value.onsiteNote : undefined,
+      ship_out_tracking_no: onsite ? undefined : form.value.shipOutTrackingNo,
+      ship_in_tracking_no: onsite ? undefined : form.value.shipInTrackingNo,
+      ship_out_time: !onsite && form.value.shipOutTime
         ? dayjs(form.value.shipOutTime).format('YYYY-MM-DD HH:mm:ss')
         : null,
-      ship_in_time: form.value.shipInTime
+      ship_in_time: !onsite && form.value.shipInTime
         ? dayjs(form.value.shipInTime).format('YYYY-MM-DD HH:mm:ss')
         : null,
       status: form.value.status,
@@ -423,7 +443,7 @@ const handleSubmit = async () => {
         startDate: updateData.start_date,
         endDate: updateData.end_date,
         shipOutTime: updateData.ship_out_time || dayjs(form.value.startDate).startOf('day').toDate(),
-        shipInTime: updateData.ship_in_time || dayjs(form.value.endDate).endOf('day').toDate(),
+        shipInTime: updateData.ship_in_time || dayjs(form.value.endDate).add(1, 'day').startOf('day').toDate(),
         excludeRentalId: props.rental.id,
       })
       if (hasConflict) ElMessage.warning('设备档期与其他租赁重叠，将继续保存')
@@ -697,6 +717,7 @@ const initForm = async () => {
       orderAmount: rentalData.order_amount ? String(rentalData.order_amount) : '',
       buyerId: rentalData.buyer_id || '',
       damageNote: rentalData.damage_note || '',
+      onsiteNote: rentalData.onsite_note || '',
       photoTransfer: rentalData.photo_transfer || false,  // 代传照片标记
       rentalPackageId: rentalData.rental_package_id || undefined,
     }

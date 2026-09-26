@@ -3,6 +3,7 @@
     <!-- 顶部操作按钮 -->
     <div class="top-actions">
       <el-button
+        v-if="rental?.fulfillment_mode !== 'onsite'"
         type="warning"
         size="small"
         @click="openShippingOrder"
@@ -12,6 +13,7 @@
         发货单
       </el-button>
       <el-tooltip
+        v-if="rental?.fulfillment_mode !== 'onsite'"
         :content="canShipToXianyu ? '' : '缺少闲鱼订单号或快递单号'"
         :disabled="canShipToXianyu"
         placement="top"

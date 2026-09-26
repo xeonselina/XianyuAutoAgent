@@ -20,6 +20,7 @@ def process_scheduled_shipments_for_current_tenant(now=None):
         select(Rental).where(
             Rental.parent_rental_id.is_(None),
             Rental.status == "scheduled_for_shipping",
+            Rental.fulfillment_mode == "courier",
             Rental.scheduled_ship_time <= now,
         ).order_by(Rental.id)
     ))

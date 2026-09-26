@@ -23,8 +23,14 @@
       label-width="120px"
       @submit.prevent="handleSubmit"
     >
+      <el-form-item label="租赁方式">
+        <el-radio-group v-model="form.fulfillmentMode" @change="handleModeChange">
+          <el-radio-button label="courier">快递租赁</el-radio-button>
+          <el-radio-button label="onsite">现场租赁</el-radio-button>
+        </el-radio-group>
+      </el-form-item>
       <!-- 日期选择 -->
-      <el-form-item label="开始日期" prop="startDate">
+      <el-form-item :label="form.fulfillmentMode === 'onsite' ? '使用日期' : '开始日期'" prop="startDate">
         <VueDatePicker
           :model-value="form.startDate"
           @update:model-value="handleStartDateChange"
@@ -39,7 +45,7 @@
         />
       </el-form-item>
 
-      <el-form-item label="结束日期" prop="endDate">
+      <el-form-item v-if="form.fulfillmentMode === 'courier'" label="结束日期" prop="endDate">
         <VueDatePicker
           :model-value="form.endDate"
           @update:model-value="handleEndDateChange"
@@ -73,7 +79,7 @@
         <div class="form-tip">默认使用甘特图当前型号，可在此处单独修改</div>
       </el-form-item>
 
-      <el-form-item label="物流天数" prop="logisticsDays">
+      <el-form-item v-if="form.fulfillmentMode === 'courier'" label="物流天数" prop="logisticsDays">
         <el-input-number
           v-model="form.logisticsDays"
           :min="0"
@@ -104,7 +110,7 @@
             拉取订单信息
           </el-button>
         </div>
-        <div class="form-tip">输入订单号后点击按钮可自动填充收件人、地址等信息</div>
+        <div v-if="form.fulfillmentMode === 'courier'" class="form-tip">输入订单号后点击按钮可自动填充收件人、地址等信息</div>
       </el-form-item>
 
       <el-form-item v-if="form.xianyuOrderNo" label="同单设备">
@@ -127,7 +133,7 @@
       </el-form-item>
 
       <!-- 客户信息 -->
-      <el-form-item label="闲鱼ID" prop="customerName">
+      <el-form-item :label="form.fulfillmentMode === 'onsite' ? '客户姓名' : '闲鱼ID'" prop="customerName">
         <el-input
           v-model="form.customerName"
           placeholder="请输入闲鱼ID"
@@ -143,7 +149,7 @@
         <div class="form-tip">可选填写，也可在收件信息中提供</div>
       </el-form-item>
 
-      <el-form-item label="收件信息" prop="destination">
+      <el-form-item v-if="form.fulfillmentMode === 'courier'" label="收件信息" prop="destination">
         <el-input
           v-model="form.destination"
           type="textarea"
@@ -151,6 +157,10 @@
           placeholder="请输入收件人信息（姓名、电话、地址）"
         />
         <div class="form-tip">可选填写，系统会自动从收件信息中提取手机号码</div>
+      </el-form-item>
+
+      <el-form-item v-if="form.fulfillmentMode === 'onsite'" label="现场备注">
+        <el-input v-model="form.onsiteNote" type="textarea" :rows="2" placeholder="选填：交接地点或现场联系人" />
       </el-form-item>
 
       <el-form-item label="订单金额(元)">
@@ -281,14 +291,14 @@
       </el-form-item>
 
       <el-alert v-if="appendToRentalId" type="info" :closable="false"
-        title="正在补齐设备：沿用原单租期和收件信息，订单金额自动分摊。" />
+        :title="form.fulfillmentMode === 'onsite' ? '正在补齐设备：沿用原单使用日期，订单金额自动分摊。' : '正在补齐设备：沿用原单租期和收件信息，订单金额自动分摊。'" />
       <el-form-item label="设备台数">
         <el-button :disabled="submitting" @click="addDevice">＋ 添加第 {{ additionalDevices.length + 2 }} 台</el-button>
       </el-form-item>
       <el-card v-for="(device, index) in additionalDevices" :key="device.key" shadow="never" style="margin: 16px 0">
         <template #header>
           <div style="display: flex; justify-content: space-between; align-items: center">
-            <strong>第 {{ index + 2 }} 台 · 同型号、同租期、同地址</strong>
+            <strong>第 {{ index + 2 }} 台 · 同型号、同{{ form.fulfillmentMode === 'onsite' ? '使用日期' : '租期、同地址' }}</strong>
             <el-button type="danger" plain size="small" :disabled="submitting" @click="removeDevice(device)">移除第 {{ index + 2 }} 台</el-button>
           </div>
         </template>
@@ -416,6 +426,8 @@ const dialogVisible = computed({
 
 // Form State
 const form = ref({
+  fulfillmentMode: 'courier' as 'courier' | 'onsite',
+  onsiteNote: '',
   startDate: null as Date | null,
   endDate: null as Date | null,
   logisticsDays: 1,
@@ -492,12 +504,14 @@ const loadBookingContext = async () => {
     form.value.selectedModelId = r.device?.model_id || r.device?.device_model?.id
     form.value.startDate = new Date(r.start_date)
     form.value.endDate = new Date(r.end_date)
+    form.value.fulfillmentMode = r.fulfillment_mode === 'onsite' ? 'onsite' : 'courier'
+    form.value.onsiteNote = r.onsite_note || ''
     form.value.customerName = r.customer_name
     form.value.customerPhone = r.customer_phone || ''
     form.value.destination = r.destination || ''
     form.value.xianyuShopId = r.xianyu_shop_id
     form.value.orderAmount = String(r.booking?.total_amount ?? r.order_amount ?? '')
-    form.value.logisticsDays = Math.max(0, dayjs(r.start_date).diff(dayjs(r.ship_out_time), 'day') - 1)
+    form.value.logisticsDays = r.fulfillment_mode === 'onsite' ? 0 : Math.max(0, dayjs(r.start_date).diff(dayjs(r.ship_out_time), 'day') - 1)
     await nextTick()
     appendToRentalId.value = r.id
     for (let i = 1; i < (r.booking?.expected_quantity ?? 2) - rows.length; i++) addDevice()
@@ -640,6 +654,7 @@ const formatDateTime = (date: Date) => {
 const handleStartDateChange = (date: Date | null) => {
   invalidateSlotSearch()
   form.value.startDate = date
+  if (form.value.fulfillmentMode === 'onsite') form.value.endDate = date
   if (date && form.value.endDate && dayjs(form.value.endDate).isBefore(dayjs(date))) {
     form.value.endDate = null
   }
@@ -652,6 +667,26 @@ const handleStartDateChange = (date: Date | null) => {
       checkAvailabilities()
     })
   }
+}
+
+const handleModeChange = () => {
+  appendToRentalId.value = null
+  form.value.selectedDeviceId = null
+  additionalDevices.value.forEach(device => { device.device_id = null })
+  slotDevices.value = []
+  if (form.value.fulfillmentMode === 'onsite') {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
+    const value = (type: string) => parts.find(part => part.type === type)?.value || ''
+    form.value.startDate = new Date(`${value('year')}-${value('month')}-${value('day')}T00:00:00`)
+    form.value.endDate = form.value.startDate
+    form.value.destination = ''
+  } else {
+    form.value.startDate = null
+    form.value.endDate = null
+  }
+  availableSlot.value = null
+  availability.resetAll()
+  if (form.value.startDate && form.value.selectedModelId) nextTick(checkAvailabilities)
 }
 
 const handleEndDateChange = (date: Date | null) => {
@@ -674,7 +709,11 @@ const checkAvailabilities = async () => {
   const params = {
     startDate: dayjs(form.value.startDate).format('YYYY-MM-DD'),
     endDate: dayjs(form.value.endDate).format('YYYY-MM-DD'),
-    logisticsDays: form.value.logisticsDays
+    logisticsDays: form.value.logisticsDays,
+    ...(form.value.fulfillmentMode === 'onsite' ? {
+      shipOutTime: dayjs(form.value.startDate).startOf('day').toDate(),
+      shipInTime: dayjs(form.value.startDate).add(1, 'day').startOf('day').toDate(),
+    } : {})
   }
 
   await Promise.all([
@@ -743,7 +782,8 @@ const findAvailableSlot = async (target?: AdditionalDevice) => {
       dayjs(form.value.endDate).format('YYYY-MM-DD'),
       form.value.logisticsDays,
       modelId,
-      false
+      false,
+      form.value.fulfillmentMode
     )
 
     if (searchGeneration !== slotSearchGeneration) return
@@ -794,7 +834,8 @@ const findAvailableAccessory = async () => {
       dayjs(form.value.endDate).format('YYYY-MM-DD'),
       form.value.logisticsDays,
       accessoryModelId, // 查找所有附件
-      true
+      true,
+      form.value.fulfillmentMode
     )
 
     if (result.device) {
@@ -902,7 +943,7 @@ const handleFetchOrderInfo = async () => {
       }
 
       if (destinationParts.length > 0) {
-        form.value.destination = destinationParts.join(' ')
+        if (form.value.fulfillmentMode === 'courier') form.value.destination = destinationParts.join(' ')
         console.log('填充收件信息:', form.value.destination)
       }
 
@@ -1006,7 +1047,7 @@ const handleSubmit = async () => {
   }
 
   try {
-    if (!await confirmLogisticsTiming()) return
+    if (form.value.fulfillmentMode === 'courier' && !await confirmLogisticsTiming()) return
   } catch (error: any) {
     ElMessage.error(error.message || '顺丰时效预估失败，请稍后重试')
     return
@@ -1037,9 +1078,11 @@ const handleSubmit = async () => {
       end_date: dayjs(form.value.endDate).format('YYYY-MM-DD'),
       customer_name: form.value.customerName,
       customer_phone: form.value.customerPhone,
-      destination: form.value.destination,
-      ship_out_time: dayjs(shipOutTime).format('YYYY-MM-DD HH:mm:ss'),
-      ship_in_time: dayjs(shipInTime).format('YYYY-MM-DD HH:mm:ss'),
+      destination: form.value.fulfillmentMode === 'courier' ? form.value.destination : undefined,
+      fulfillment_mode: form.value.fulfillmentMode,
+      onsite_note: form.value.fulfillmentMode === 'onsite' ? form.value.onsiteNote : undefined,
+      ship_out_time: form.value.fulfillmentMode === 'courier' ? dayjs(shipOutTime).format('YYYY-MM-DD HH:mm:ss') : undefined,
+      ship_in_time: form.value.fulfillmentMode === 'courier' ? dayjs(shipInTime).format('YYYY-MM-DD HH:mm:ss') : undefined,
       // 新：配套附件使用布尔值
       includes_handle: form.value.bundledAccessories.includes('handle'),
       includes_lens_mount: form.value.bundledAccessories.includes('lens_mount'),
@@ -1085,6 +1128,8 @@ const handleClose = () => {
   invalidateSlotSearch()
   formRef.value?.resetFields()
   form.value = {
+    fulfillmentMode: 'courier',
+    onsiteNote: '',
     startDate: null,
     endDate: null,
     logisticsDays: 1,
@@ -1146,6 +1191,7 @@ watch(() => props.modelValue, async (visible) => {
     form.value.selectedModelId = deviceManagement.deviceModels.value.find(
       model => model.display_name === props.selectedDeviceModel
     )?.id ?? null
+    if (form.value.fulfillmentMode === 'onsite' && !form.value.startDate) handleModeChange()
     if (props.initialXianyuOrderNo) {
       form.value.xianyuOrderNo = props.initialXianyuOrderNo
       form.value.xianyuShopId = props.initialXianyuShopId

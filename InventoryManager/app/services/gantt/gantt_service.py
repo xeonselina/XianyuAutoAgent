@@ -125,6 +125,7 @@ class GanttService:
                         'ship_out_tracking_no': rental.ship_out_tracking_no,
                         'ship_in_tracking_no': rental.ship_in_tracking_no,
                         'status': rental.status,
+                        'fulfillment_mode': rental.fulfillment_mode,
                         'ship_out_time': rental.ship_out_time.isoformat() if rental.ship_out_time else None,
                         'ship_in_time': rental.ship_in_time.isoformat() if rental.ship_in_time else None
                     }
@@ -154,6 +155,8 @@ class GanttService:
                     'ship_out_tracking_no': rental.ship_out_tracking_no,
                     'ship_in_tracking_no': rental.ship_in_tracking_no,
                     'status': rental.status,
+                    'fulfillment_mode': rental.fulfillment_mode,
+                    'onsite_note': rental.onsite_note,
                     'ship_out_time': rental.ship_out_time.isoformat() if rental.ship_out_time else None,
                     'ship_in_time': rental.ship_in_time.isoformat() if rental.ship_in_time else None,
                     'accessories': accessories_info  # 包含is_bundled标记的附件信息
@@ -255,11 +258,7 @@ class GanttService:
 
             occupancy_rows = []
             if eligible_device_ids:
-                occupancy_rows = Rental.query.with_entities(
-                    Rental.device_id,
-                    Rental.ship_out_time,
-                    Rental.ship_in_time,
-                ).filter(
+                occupancy_rows = Rental.query.filter(
                     Rental.device_id.in_(eligible_device_ids),
                     Rental.status.in_([
                         'not_shipped',
@@ -267,10 +266,24 @@ class GanttService:
                         'shipped',
                         'returned',
                     ]),
-                    Rental.ship_out_time.isnot(None),
-                    Rental.ship_in_time.isnot(None),
-                    Rental.ship_out_time < range_end,
-                    Rental.ship_in_time > range_start,
+                    db.or_(
+                        db.and_(
+                            Rental.fulfillment_mode == 'onsite',
+                            Rental.start_date <= end_date,
+                            db.or_(
+                                Rental.end_date >= start_date,
+                                Rental.status == 'shipped',
+                                Rental.onsite_returned_at >= range_start,
+                            ),
+                        ),
+                        db.and_(
+                            Rental.fulfillment_mode != 'onsite',
+                            db.or_(
+                                db.and_(Rental.ship_out_time <= range_end, Rental.ship_in_time >= range_start),
+                                db.and_(Rental.start_date <= end_date, Rental.end_date >= start_date),
+                            ),
+                        ),
+                    ),
                 ).all()
 
             for target_date in dates:
@@ -283,8 +296,8 @@ class GanttService:
                 occupied_device_ids = {
                     row.device_id
                     for row in occupancy_rows
-                    if row.ship_out_time < target_end
-                    and row.ship_in_time > target_start
+                    if row.occupancy_interval()[0] < target_end
+                    and row.occupancy_interval()[1] > target_start
                 }
                 stats[target_date.isoformat()]['available_count'] -= len(
                     occupied_device_ids
@@ -314,6 +327,7 @@ class GanttService:
                 parent_device.model_id == parent_model.id,
             ).filter(
                 Rental.ship_out_time.isnot(None),
+                Rental.fulfillment_mode == 'courier',
                 Rental.status.in_([
                     'not_shipped', 'scheduled_for_shipping'
                 ]),
@@ -362,6 +376,7 @@ class GanttService:
         model_filter,
         is_accessory=False,
         warehouse_id=None,
+        fulfillment_mode='courier',
     ) -> dict:
         """查找可用的租赁时间段
         
@@ -377,8 +392,12 @@ class GanttService:
         """
         try:
             # 计算寄出时间和收回时间
-            ship_out_date = start_date - timedelta(days=1 + logistics_days)
-            ship_in_date = end_date + timedelta(days=1 + logistics_days)
+            if fulfillment_mode not in ('courier', 'onsite'):
+                raise ValueError('租赁方式无效')
+            if fulfillment_mode == 'onsite' and start_date != end_date:
+                raise ValueError('现场租赁只能使用一天')
+            ship_out_date = start_date if fulfillment_mode == 'onsite' else start_date - timedelta(days=1 + logistics_days)
+            ship_in_date = end_date if fulfillment_mode == 'onsite' else end_date + timedelta(days=1 + logistics_days)
 
             current_app.logger.info(
                 f"find_rental_slot: start_date: {start_date}, end_date: {end_date}, "
@@ -393,6 +412,9 @@ class GanttService:
                 ship_out_hour="19:00:00",
                 ship_in_hour="12:00:00"
             )
+            if fulfillment_mode == 'onsite':
+                ship_out_time = datetime.combine(start_date, datetime.min.time())
+                ship_in_time = datetime.combine(end_date + timedelta(days=1), datetime.min.time())
 
             # 根据 model_filter 查找设备
             device_type = "附件" if is_accessory else "主设备"

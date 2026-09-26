@@ -96,9 +96,14 @@ class GanttHandlers:
         """处理查找可用租赁时间段请求"""
         try:
             data = request.get_json() or {}
+            mode = data.get('fulfillment_mode', 'courier')
+            if mode not in ('courier', 'onsite'):
+                return bad_request('租赁方式无效')
 
             # 验证必填字段
-            required_fields = ['start_date', 'end_date', 'logistics_days', 'model', 'is_accessory']
+            required_fields = ['start_date', 'end_date', 'model', 'is_accessory']
+            if mode == 'courier':
+                required_fields.append('logistics_days')
             for field in required_fields:
                 if field not in data:
                     return bad_request(f'缺少必填字段: {field}')
@@ -111,7 +116,7 @@ class GanttHandlers:
 
             # 获取其他参数
             try:
-                logistics_days = int(data['logistics_days'])
+                logistics_days = int(data.get('logistics_days', 0))
             except (ValueError, TypeError):
                 return bad_request('logistics_days 必须是整数')
 
@@ -134,6 +139,7 @@ class GanttHandlers:
                 model,
                 is_accessory,
                 warehouse_id,
+                mode,
             )
 
             if available_slot:

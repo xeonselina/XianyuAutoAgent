@@ -13,4 +13,6 @@ export interface PendingReturn {
   destination: string | null
   customer_phone: string | null
   status: 'shipped'
+  fulfillment_mode: 'courier' | 'onsite'
+  onsite_note: string | null
 }

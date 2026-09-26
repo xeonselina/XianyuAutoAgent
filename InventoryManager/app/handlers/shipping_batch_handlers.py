@@ -126,7 +126,7 @@ class ShippingBatchHandlers:
             rental_ids_str = request.args.get('rental_ids')
 
             # 构建基础查询
-            query = Rental.query
+            query = Rental.query.filter(Rental.fulfillment_mode == 'courier')
 
             if rental_ids_str:
                 try:
@@ -179,6 +179,8 @@ class ShippingBatchHandlers:
             rental = Rental.query.get(rental_id)
             if not rental:
                 return not_found('租赁记录不存在')
+            if rental.fulfillment_mode == 'onsite':
+                return bad_request('现场租赁没有快递类型')
 
             # 更新快递类型
             rental.express_type_id = express_type_id
@@ -285,6 +287,8 @@ class ShippingBatchHandlers:
             rental = Rental.query.get(rental_id)
             if not rental:
                 return not_found('租赁记录不存在')
+            if rental.fulfillment_mode == 'onsite':
+                return bad_request('现场租赁不能发货到闲鱼')
 
             # 验证必要字段
             if not rental.xianyu_order_no:

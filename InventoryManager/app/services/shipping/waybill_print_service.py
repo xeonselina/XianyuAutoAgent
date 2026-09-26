@@ -27,6 +27,8 @@ def build_sf_client_order_id(tenant_id: int, rental_id: int) -> str:
 
 def validate_shipping_warehouse(rental) -> None:
     """Validate the main Rental and every physical Device warehouse."""
+    if rental.fulfillment_mode == 'onsite':
+        raise ValueError('现场租赁不能发货或打印快递面单')
     if rental.parent_rental_id is not None:
         raise WarehouseMismatchError("附件租赁不能单独发货")
     if rental.warehouse_id is None or rental.warehouse is None:

@@ -849,6 +849,7 @@ const openPendingReturns = async () => {
 }
 
 const handleMarkPendingReturnReturned = async (rentalId: number) => {
+  const onsite = pendingReturns.value.find(item => item.id === rentalId)?.fulfillment_mode === 'onsite'
   try {
     await markPendingReturnReturned(rentalId)
   } catch (error) {
@@ -856,7 +857,7 @@ const handleMarkPendingReturnReturned = async (rentalId: number) => {
     return
   }
 
-  ElMessage.success('已标记为已寄回')
+  ElMessage.success(onsite ? '已标记为已归还' : '已标记为已寄回')
   try {
     await ganttStore.loadData()
   } catch {

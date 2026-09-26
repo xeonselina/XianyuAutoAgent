@@ -29,7 +29,7 @@
                 <tr>
                   <th>设备</th>
                   <th>租赁时间</th>
-                  <th>地址</th>
+                  <th>地址 / 现场备注</th>
                   <th>租赁人 / 电话</th>
                   <th>操作</th>
                 </tr>
@@ -39,6 +39,7 @@
                   <td class="model-cell">
                     <div class="device-model-line">
                       <span>{{ rental.device_model }}</span>
+                      <el-tag v-if="rental.fulfillment_mode === 'onsite'" type="success" size="small">现场</el-tag>
                       <el-tag
                         v-if="rental.is_relay_handoff"
                         type="warning"
@@ -58,7 +59,7 @@
                     <div>{{ rental.start_date }} 至 {{ rental.end_date }}</div>
                     <div class="due-date">应归还：{{ rental.due_date }}</div>
                   </td>
-                  <td class="address-cell">{{ rental.destination || '-' }}</td>
+                  <td class="address-cell">{{ rental.fulfillment_mode === 'onsite' ? (rental.onsite_note || '现场交接') : (rental.destination || '-') }}</td>
                   <td class="phone-cell">
                     <div class="customer-name">
                       {{ rental.customer_name || '-' }}
@@ -89,7 +90,7 @@
                       data-test="mark-returned"
                       @click="emit('mark-returned', rental.id)"
                     >
-                      标记为已寄回
+                      {{ rental.fulfillment_mode === 'onsite' ? '标记已归还' : '标记为已寄回' }}
                     </el-button>
                   </td>
                 </tr>

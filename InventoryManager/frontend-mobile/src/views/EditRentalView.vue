@@ -32,6 +32,7 @@
             type="tel"
           />
           <van-field
+            v-if="currentRental?.fulfillment_mode !== 'onsite'"
             v-model="form.destination"
             label="收货地址"
             placeholder="请输入"
@@ -39,6 +40,7 @@
             rows="2"
             autosize
           />
+          <van-field v-if="currentRental?.fulfillment_mode === 'onsite'" v-model="form.onsiteNote" label="现场备注" type="textarea" rows="2" autosize />
           <van-field
             v-model="form.xianyuOrderNo"
             label="闲鱼订单号"
@@ -56,11 +58,12 @@
         <!-- 租赁信息 -->
         <van-cell-group inset title="租赁信息" style="margin-top:12px">
           <!-- 设备型号（只读显示） -->
-          <van-field v-model="form.startDate" label="起租日" type="date" required
+          <van-field v-model="form.startDate" :label="currentRental?.fulfillment_mode === 'onsite' ? '使用日期' : '起租日'" type="date" required
             :rules="[{ required: true, message: '请选择起租日' }]" />
 
           <!-- 还租日（可编辑） -->
           <van-field
+            v-if="currentRental?.fulfillment_mode !== 'onsite'"
             v-model="form.endDate"
             readonly
             clickable
@@ -92,7 +95,7 @@
           </div>
 
           <!-- 物流天数 -->
-          <van-field label="物流天数">
+          <van-field v-if="currentRental?.fulfillment_mode !== 'onsite'" label="物流天数">
             <template #input>
               <van-stepper v-model="form.logisticsDays" :min="0" :max="7" />
             </template>
@@ -100,7 +103,7 @@
         </van-cell-group>
 
         <!-- 物流信息 -->
-        <van-cell-group inset title="物流信息" style="margin-top:12px">
+        <van-cell-group v-if="currentRental?.fulfillment_mode !== 'onsite'" inset title="物流信息" style="margin-top:12px">
           <!-- 发货运单号 -->
           <van-field
             v-model="form.shipOutTrackingNo"
@@ -260,7 +263,7 @@
             data-testid="save-rental"
           >保存修改</van-button>
           <van-button
-            v-if="form.status === 'not_shipped'"
+            v-if="form.status === 'not_shipped' && currentRental?.fulfillment_mode !== 'onsite'"
             type="warning"
             block
             :loading="shippingToXianyu"
@@ -450,6 +453,7 @@ const showTripodPicker = ref(false)
 
 // 表单数据
 const form = ref({
+  onsiteNote: '',
   customerName: '',
   customerPhone: '',
   destination: '',
@@ -470,6 +474,9 @@ const form = ref({
   phoneHolderId: null as number | null,
   tripodId: null as number | null,
   rentalPackageId: undefined as string | undefined,
+})
+watch(() => form.value.startDate, (value) => {
+  if (currentRental.value?.fulfillment_mode === 'onsite') form.value.endDate = value
 })
 
 const formRef = ref()
@@ -612,7 +619,9 @@ const STATUS_OPTS = [
   { text: '已完成',  value: 'completed' },
   { text: '已取消',  value: 'cancelled' }
 ]
-const statusColumns = STATUS_OPTS
+const statusColumns = computed(() => currentRental.value?.fulfillment_mode === 'onsite'
+  ? STATUS_OPTS.filter(o => o.value !== 'scheduled_for_shipping').map(o => ({ ...o, text: ({ not_shipped: '待交付', shipped: '使用中', returned: '已归还' } as Record<string, string>)[o.value] || o.text }))
+  : STATUS_OPTS)
 
 const getScheduleSnapshot = () => JSON.stringify({
   destination: form.value.destination.trim(),
@@ -657,6 +666,7 @@ const initForm = (rental: Rental) => {
   form.value.customerName = rental.customer_name || ''
   form.value.customerPhone = rental.customer_phone || ''
   form.value.destination = rental.destination || ''
+  form.value.onsiteNote = rental.onsite_note || ''
   form.value.xianyuOrderNo = (rental as any).xianyu_order_no || ''
   form.value.orderAmount = (rental as any).order_amount ? String((rental as any).order_amount) : ''
   form.value.startDate = rental.start_date || ''
@@ -702,7 +712,7 @@ const initForm = (rental: Rental) => {
   selectedDeviceName.value = rental.device?.name || `设备${rental.device_id}`
 
   // 状态标签
-  const statusOpt = STATUS_OPTS.find(o => o.value === rental.status)
+  const statusOpt = statusColumns.value.find(o => o.value === rental.status)
   selectedStatusLabel.value = statusOpt?.text || rental.status
 
   // 日期 parts
@@ -841,6 +851,8 @@ const queryTrackingStatus = async (type: 'out' | 'in') => {
 
 // 提交
 const onSubmit = async () => {
+  const onsite = currentRental.value?.fulfillment_mode === 'onsite'
+  if (onsite) form.value.endDate = form.value.startDate
   if (tenantStore.currentWarehouseId === 'all') {
     showToast('请先选择具体仓库')
     return
@@ -851,7 +863,7 @@ const onSubmit = async () => {
   }
 
   try {
-    if (!await confirmLogisticsTiming()) return
+    if (!onsite && !await confirmLogisticsTiming()) return
   } catch (e: any) {
     showToast({
       message: e.message || '顺丰时效预估失败，请稍后重试',
@@ -866,7 +878,7 @@ const onSubmit = async () => {
       startDate: form.value.startDate,
       endDate: form.value.endDate,
       shipOutTime: form.value.shipOutTime || dayjs(form.value.startDate).startOf('day').toDate(),
-      shipInTime: form.value.shipInTime || dayjs(form.value.endDate).endOf('day').toDate(),
+      shipInTime: form.value.shipInTime || dayjs(form.value.endDate).add(1, 'day').startOf('day').toDate(),
       excludeRentalId: rentalId.value,
     })
     conflictWarning.value = hasConflict
@@ -878,17 +890,18 @@ const onSubmit = async () => {
     const updateData: any = {
       customer_name: form.value.customerName,
       customer_phone: form.value.customerPhone,
-      destination: form.value.destination,
+      destination: onsite ? undefined : form.value.destination,
+      onsite_note: onsite ? form.value.onsiteNote : undefined,
       xianyu_order_no: form.value.xianyuOrderNo || undefined,
       order_amount: form.value.orderAmount ? parseFloat(form.value.orderAmount) : undefined,
       start_date: form.value.startDate,
       end_date: form.value.endDate,
       device_id: form.value.deviceId,
       logistics_days: form.value.logisticsDays,
-      ship_out_tracking_no: form.value.shipOutTrackingNo || undefined,
-      ship_in_tracking_no: form.value.shipInTrackingNo || undefined,
-      ship_out_time: form.value.shipOutTime || undefined,
-      ship_in_time: form.value.shipInTime || undefined,
+      ship_out_tracking_no: onsite ? undefined : form.value.shipOutTrackingNo || undefined,
+      ship_in_tracking_no: onsite ? undefined : form.value.shipInTrackingNo || undefined,
+      ship_out_time: onsite ? undefined : form.value.shipOutTime || undefined,
+      ship_in_time: onsite ? undefined : form.value.shipInTime || undefined,
       status: form.value.status,
       includes_handle: form.value.bundledAccessories.includes('handle'),
       includes_lens_mount: form.value.bundledAccessories.includes('lens_mount'),

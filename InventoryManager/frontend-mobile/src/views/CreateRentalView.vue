@@ -16,6 +16,14 @@
 
     <div class="form-scroll">
       <van-form ref="formRef" @submit="onSubmit">
+        <van-cell-group inset title="租赁方式">
+          <van-field label="方式"><template #input>
+            <van-radio-group v-model="form.fulfillmentMode" direction="horizontal" @change="onModeChange">
+              <van-radio name="courier">快递租赁</van-radio>
+              <van-radio name="onsite">现场租赁</van-radio>
+            </van-radio-group>
+          </template></van-field>
+        </van-cell-group>
         <!-- 闲鱼订单号 -->
         <van-cell-group inset title="订单信息">
           <van-field v-if="xianyuShops.length" label="闲鱼店铺"><template #input>
@@ -53,7 +61,7 @@
             placeholder="请输入"
             type="tel"
           />
-          <van-field
+          <van-field v-if="form.fulfillmentMode === 'courier'"
             v-model="form.destination"
             label="收货地址"
             placeholder="请输入"
@@ -61,6 +69,7 @@
             rows="2"
             autosize
           />
+          <van-field v-if="form.fulfillmentMode === 'onsite'" v-model="form.onsiteNote" label="现场备注" placeholder="交接地点或联系人（选填）" type="textarea" rows="2" autosize />
           <van-field
             v-model="form.orderAmount"
             label="订单金额"
@@ -93,7 +102,7 @@
             v-model="form.startDate"
             readonly
             clickable
-            label="起租日"
+            :label="form.fulfillmentMode === 'onsite' ? '使用日期' : '起租日'"
             placeholder="请选择"
             required
             :rules="[{ required: true, message: '请选择起租日' }]"
@@ -101,7 +110,7 @@
           />
 
           <!-- 还租日 -->
-          <van-field
+          <van-field v-if="form.fulfillmentMode === 'courier'"
             v-model="form.endDate"
             readonly
             clickable
@@ -113,16 +122,16 @@
           />
 
           <!-- 物流天数 -->
-          <van-field label="物流天数">
+          <van-field v-if="form.fulfillmentMode === 'courier'" label="物流天数">
             <template #input>
               <van-stepper v-model="form.logisticsDays" :min="0" :max="7" />
             </template>
           </van-field>
 
           <!-- 发货时间（只读） -->
-          <van-cell title="发货时间" :value="shipOutDisplay" />
+          <van-cell v-if="form.fulfillmentMode === 'courier'" title="发货时间" :value="shipOutDisplay" />
           <!-- 入库时间（只读） -->
-          <van-cell title="入库时间" :value="shipInDisplay" />
+          <van-cell v-if="form.fulfillmentMode === 'courier'" title="入库时间" :value="shipInDisplay" />
 
           <BookingDeviceSelector
             :name="selectedDeviceName"
@@ -195,10 +204,10 @@
 
         <van-cell-group inset title="同单设备" style="margin-top:12px">
           <van-cell v-if="form.xianyuOrderNo" title="查看已录设备 / 补齐设备" is-link @click="loadBookingContext" />
-          <van-notice-bar v-if="appendToRentalId" text="补齐设备：沿用原单租期和收件信息，订单金额自动分摊。" />
+          <van-notice-bar v-if="appendToRentalId" :text="form.fulfillmentMode === 'onsite' ? '补齐设备：沿用原单使用日期，订单金额自动分摊。' : '补齐设备：沿用原单租期和收件信息，订单金额自动分摊。'" />
           <van-cell :title="`＋ 添加第 ${additionalDevices.length + 2} 台`" is-link @click="addDevice" />
         </van-cell-group>
-        <van-cell-group v-for="(device, index) in additionalDevices" :key="device.key" inset :title="`第 ${index + 2} 台 · 同型号、同租期、同地址`" style="margin-top:12px">
+        <van-cell-group v-for="(device, index) in additionalDevices" :key="device.key" inset :title="`第 ${index + 2} 台 · 同型号、同${form.fulfillmentMode === 'onsite' ? '使用日期' : '租期、同地址'}`" style="margin-top:12px">
           <van-cell :title="`移除第 ${index + 2} 台`" is-link @click="removeDevice(device)" />
           <BookingDeviceSelector
             :name="deviceChoices.find(choice => choice.id === device.device_id)?.name || ''"
@@ -354,6 +363,8 @@ const conflictDetection = useConflictDetection()
 
 // 表单状态
 const form = ref({
+  fulfillmentMode: 'courier' as 'courier' | 'onsite',
+  onsiteNote: '',
   xianyuOrderNo: '',
   xianyuShopId: undefined as number | undefined,
   customerName: '',
@@ -444,12 +455,14 @@ const loadBookingContext = async () => {
     selectedModelName.value = r.device?.device_model?.display_name || r.device?.model || ''
     form.value.startDate = r.start_date
     form.value.endDate = r.end_date
+    form.value.fulfillmentMode = r.fulfillment_mode === 'onsite' ? 'onsite' : 'courier'
+    form.value.onsiteNote = r.onsite_note || ''
     form.value.customerName = r.customer_name
     form.value.customerPhone = r.customer_phone || ''
     form.value.destination = r.destination || ''
     form.value.xianyuShopId = r.xianyu_shop_id
     form.value.orderAmount = String(r.booking?.total_amount ?? r.order_amount ?? '')
-    form.value.logisticsDays = Math.max(0, dayjs(r.start_date).diff(dayjs(r.ship_out_time), 'day') - 1)
+    form.value.logisticsDays = r.fulfillment_mode === 'onsite' ? 0 : Math.max(0, dayjs(r.start_date).diff(dayjs(r.ship_out_time), 'day') - 1)
     await nextTick()
     appendToRentalId.value = r.id
     for (let i = 1; i < (r.booking?.expected_quantity ?? 2) - rows.length; i++) addDevice()
@@ -471,6 +484,26 @@ const showStartDatePicker = ref(false)
 const showEndDatePicker = ref(false)
 const startDateParts = ref(dayjs().format('YYYY-MM-DD').split('-'))
 const endDateParts = ref(dayjs().add(3, 'day').format('YYYY-MM-DD').split('-'))
+const onModeChange = () => {
+  appendToRentalId.value = null
+  form.value.deviceId = null
+  selectedDeviceName.value = ''
+  additionalDevices.value.forEach(device => { device.device_id = null })
+  availableSlots.value = []
+  conflictingDeviceIds.value = new Set()
+  conflictsChecked.value = false
+  if (form.value.fulfillmentMode === 'onsite') {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
+    const value = (type: string) => parts.find(part => part.type === type)?.value || ''
+    form.value.startDate = `${value('year')}-${value('month')}-${value('day')}`
+    form.value.endDate = form.value.startDate
+    startDateParts.value = form.value.startDate.split('-')
+    form.value.destination = ''
+  } else {
+    form.value.startDate = ''
+    form.value.endDate = ''
+  }
+}
 
 // 各种 Picker 状态
 const showModelPicker = ref(false)
@@ -606,7 +639,11 @@ const checkAvailability = async () => {
     const conflicts = await conflictDetection.checkMultipleDevicesConflict(ids, {
       startDate: form.value.startDate,
       endDate: form.value.endDate,
-      logisticsDays: form.value.logisticsDays
+      logisticsDays: form.value.logisticsDays,
+      ...(form.value.fulfillmentMode === 'onsite' ? {
+        shipOutTime: `${form.value.startDate} 00:00:00`,
+        shipInTime: dayjs(form.value.startDate).add(1, 'day').format('YYYY-MM-DD 00:00:00'),
+      } : {})
     })
     if (generation !== availabilityGeneration) return
     conflictingDeviceIds.value = new Set(Object.keys(conflicts).filter(id => conflicts[Number(id)]).map(Number))
@@ -648,7 +685,7 @@ const findDeviceSlot = async (target?: AdditionalDevice) => {
   searchingTarget.value = target?.key ?? 0
   checkingSlots.value = true
   try {
-    const result = await ganttStore.findAvailableSlot(form.value.startDate, form.value.endDate, form.value.logisticsDays, form.value.modelId, false)
+    const result = await ganttStore.findAvailableSlot(form.value.startDate, form.value.endDate, form.value.logisticsDays, form.value.modelId, false, form.value.fulfillmentMode)
     if (generation !== availabilityGeneration) return
     if (target && !additionalDevices.value.some(row => row.key === target.key)) return
     const candidates = result.availableDevices?.length ? result.availableDevices : [result.device].filter(Boolean)
@@ -679,6 +716,7 @@ const onTripodConfirm = ({ selectedValues, selectedOptions }: any) => {
 
 const onStartDateConfirm = ({ selectedValues }: any) => {
   form.value.startDate = selectedValues.join('-')
+  if (form.value.fulfillmentMode === 'onsite') form.value.endDate = form.value.startDate
   startDateParts.value = selectedValues
   showStartDatePicker.value = false
 }
@@ -706,7 +744,7 @@ const fetchOrderInfo = async () => {
       form.value.customerName = d.buyer_nick || d.receiver_name || form.value.customerName
       form.value.customerPhone = d.receiver_mobile || form.value.customerPhone
       const fullAddress = [d.receiver_name, d.receiver_mobile, d.prov_name, d.city_name, d.area_name, d.town_name, d.address].filter(Boolean).join(' ')
-      form.value.destination = fullAddress || form.value.destination
+      if (form.value.fulfillmentMode === 'courier') form.value.destination = fullAddress || form.value.destination
       form.value.buyerId = d.buyer_eid || form.value.buyerId
       form.value.orderAmount = d.pay_amount ? String(d.pay_amount / 100) : form.value.orderAmount
       showToast({ message: '订单信息已填充', type: 'success' })
@@ -775,7 +813,7 @@ const onSubmit = async () => {
   }
 
   try {
-    if (!await confirmLogisticsTiming()) return
+    if (form.value.fulfillmentMode === 'courier' && !await confirmLogisticsTiming()) return
   } catch (e: any) {
     showToast({
       message: e.message || '顺丰时效预估失败，请稍后重试',
@@ -806,13 +844,15 @@ const onSubmit = async () => {
       end_date: form.value.endDate,
       customer_name: form.value.customerName,
       customer_phone: form.value.customerPhone,
-      destination: form.value.destination,
+      destination: form.value.fulfillmentMode === 'courier' ? form.value.destination : undefined,
+      fulfillment_mode: form.value.fulfillmentMode,
+      onsite_note: form.value.fulfillmentMode === 'onsite' ? form.value.onsiteNote : undefined,
       order_amount: form.value.orderAmount ? parseFloat(form.value.orderAmount) : undefined,
       buyer_id: form.value.buyerId || undefined,
       xianyu_order_no: form.value.xianyuOrderNo || undefined,
       logistics_days: form.value.logisticsDays,
-      ship_out_time: shipTimes.ship_out_time,
-      ship_in_time: shipTimes.ship_in_time,
+      ship_out_time: form.value.fulfillmentMode === 'courier' ? shipTimes.ship_out_time : undefined,
+      ship_in_time: form.value.fulfillmentMode === 'courier' ? shipTimes.ship_in_time : undefined,
       includes_handle: form.value.bundledAccessories.includes('handle'),
       includes_lens_mount: form.value.bundledAccessories.includes('lens_mount'),
       photo_transfer: form.value.photoTransfer,

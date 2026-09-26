@@ -747,6 +747,7 @@ class RentalHandlers:
             #   - 已发货/完成/退回：按实际发货时间匹配
             rentals_query = Rental.query.filter(
                 Rental.parent_rental_id.is_(None),
+                Rental.fulfillment_mode == 'courier',
                 Rental.status != 'cancelled',
                 or_(
                     and_(
@@ -867,6 +868,8 @@ class RentalHandlers:
             rental = RentalService.get_rental_by_id(rental_id)
             if not rental:
                 return not_found('租赁记录不存在')
+            if rental.fulfillment_mode == 'onsite':
+                return bad_request('现场租赁不能发货到闲鱼')
 
             # 验证必填字段
             if not rental.xianyu_order_no:

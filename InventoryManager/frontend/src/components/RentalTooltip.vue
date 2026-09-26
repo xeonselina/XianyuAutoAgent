@@ -19,23 +19,23 @@
         <div class="tooltip-header">
           <h4>{{ rental.device?.name }}</h4>
           <el-tag :type="getStatusType(rental.status)" size="small">
-            {{ getStatusText(rental.status) }}
+            {{ rental.fulfillment_mode === 'onsite' ? ({ not_shipped: '待交付', shipped: '使用中', returned: '已归还', completed: '已完成', cancelled: '已取消' } as Record<string, string>)[rental.status] || rental.status : getStatusText(rental.status) }}
           </el-tag>
         </div>
         
         <div class="tooltip-body">
-          <div v-if="rental.booking" class="info-row">同单已录 {{ rental.booking.recorded_quantity }}/{{ rental.booking.expected_quantity }} 台 · 已发 {{ rental.booking.shipped_quantity }} 台</div>
+          <div v-if="rental.booking" class="info-row">同单已录 {{ rental.booking.recorded_quantity }}/{{ rental.booking.expected_quantity }} 台 · {{ rental.fulfillment_mode === 'onsite' ? '已交付' : '已发' }} {{ rental.booking.shipped_quantity }} 台</div>
           <div class="info-row">
-            <span class="label">闲鱼 ID:</span>
+            <span class="label">{{ rental.fulfillment_mode === 'onsite' ? '客户：' : '闲鱼 ID:' }}</span>
             <span class="value">{{ rental.customer_name || '未填写' }}</span>
           </div>
           
           <div class="info-row">
-            <span class="label">开始日期:</span>
+            <span class="label">{{ rental.fulfillment_mode === 'onsite' ? '使用日期:' : '开始日期:' }}</span>
             <span class="value">{{ rental.start_date }}</span>
           </div>
           
-          <div class="info-row">
+          <div v-if="rental.fulfillment_mode !== 'onsite'" class="info-row">
             <span class="label">结束日期:</span>
             <span class="value">{{ rental.end_date }}</span>
           </div>
@@ -43,6 +43,9 @@
           <div class="info-row" v-if="rental.customer_phone">
             <span class="label">客户电话:</span>
             <span class="value">{{ rental.customer_phone }}</span>
+          </div>
+          <div class="info-row" v-if="rental.fulfillment_mode === 'onsite' && rental.onsite_note">
+            <span class="label">现场备注:</span><span class="value">{{ rental.onsite_note }}</span>
           </div>
           
           <div class="info-row" v-if="rental.destination">
@@ -94,7 +97,7 @@
         </div>
 
         <!-- 档期冲突警告 -->
-        <div v-if="conflictInfo?.hasConflict" class="conflict-warning-section">
+        <div v-if="rental.fulfillment_mode !== 'onsite' && conflictInfo?.hasConflict" class="conflict-warning-section">
           <div class="warning-header">⚠️ 档期冲突警告</div>
           <div class="warning-details">
             <p>下一个租赁距离本次结束仅 {{ conflictInfo.dayGap }} 天</p>

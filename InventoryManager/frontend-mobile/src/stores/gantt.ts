@@ -59,6 +59,9 @@ export interface Device {
 }
 
 export interface Rental {
+  fulfillment_mode?: 'courier' | 'onsite'
+  onsite_note?: string | null
+  onsite_returned_at?: string | null
   shipping_group_id?: string
   shipping_group_size?: number
   booking?: {
@@ -235,7 +238,7 @@ export const useGanttStore = defineStore('gantt', () => {
     selectedDate.value = date
   }
 
-  const findAvailableSlot = async (startDate: string, endDate: string, logisticsDays: number, model: string | number, isAccessory: boolean = false) => {
+  const findAvailableSlot = async (startDate: string, endDate: string, logisticsDays: number, model: string | number, isAccessory: boolean = false, fulfillmentMode: 'courier' | 'onsite' = 'courier') => {
     try {
       const response = await axios.post('/api/rentals/find-slot', {
         start_date: startDate,
@@ -243,6 +246,7 @@ export const useGanttStore = defineStore('gantt', () => {
         logistics_days: logisticsDays,
         model: model,
         is_accessory: isAccessory,
+        fulfillment_mode: fulfillmentMode,
         warehouse_id: tenantStore.requireConcreteWarehouse(),
       })
 

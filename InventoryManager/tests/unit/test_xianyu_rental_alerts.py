@@ -14,7 +14,12 @@ from tests.unit.test_xianyu_order_reconciliation_service import (
 
 
 def client_for(**orders):
-    return Mock(list_orders=Mock(return_value=[]), get_order_detail=Mock(side_effect=orders.get))
+    get_order_detail = Mock(side_effect=orders.get)
+    return Mock(
+        list_orders=Mock(return_value=[]),
+        get_order_detail=get_order_detail,
+        get_order_detail_for_reconciliation=get_order_detail,
+    )
 
 
 def order(status=24, refund_status=0, **values):

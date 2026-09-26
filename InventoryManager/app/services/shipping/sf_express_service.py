@@ -60,6 +60,8 @@ class SFExpressService:
         """
         try:
             # 检查必要字段
+            if getattr(rental, 'fulfillment_mode', 'courier') == 'onsite':
+                return {'success': False, 'message': '现场租赁不能创建快递订单'}
             if not rental.customer_name or not rental.customer_phone or not rental.destination:
                 logger.error(f"Rental {rental.id} 缺少收件人信息")
                 return {

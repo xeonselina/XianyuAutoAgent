@@ -14,6 +14,7 @@ from app.models.warehouse import resolve_write_warehouse_id
 from app.models.xianyu_order_alert import XianyuOrderAlert
 from app.models.xianyu_shop import XianyuShop
 from app.utils.date_utils import parse_date_strings, validate_date_range
+from app.utils.business_time import business_now_naive
 
 
 class WarehouseMismatchError(ValueError):
@@ -36,13 +37,16 @@ class RentalService:
         today: Optional[date] = None, warehouse_id=None
     ) -> List[Dict[str, Any]]:
         """获取今天及以前应归还、仍未寄回的主租赁记录。"""
-        current_date = today or date.today()
+        current_date = today or business_now_naive().date()
         latest_end_date = current_date - timedelta(days=1)
         query = (
             Rental.query
             .options(joinedload(Rental.device))
             .filter(
-                Rental.end_date <= latest_end_date,
+                db.or_(
+                    db.and_(Rental.fulfillment_mode == 'onsite', Rental.end_date <= current_date),
+                    db.and_(Rental.fulfillment_mode != 'onsite', Rental.end_date <= latest_end_date),
+                ),
                 Rental.status == 'shipped',
                 Rental.parent_rental_id.is_(None),
             )
@@ -66,7 +70,7 @@ class RentalService:
 
         rows = []
         for rental in rentals:
-            due_date = rental.end_date + timedelta(days=1)
+            due_date = rental.end_date if rental.fulfillment_mode == 'onsite' else rental.end_date + timedelta(days=1)
             overdue_days = (current_date - due_date).days
             device = rental.device
             device_model = None
@@ -94,6 +98,8 @@ class RentalService:
                 'destination': rental.destination,
                 'customer_phone': rental.customer_phone,
                 'status': rental.status,
+                'fulfillment_mode': rental.fulfillment_mode,
+                'onsite_note': rental.onsite_note,
             })
 
         return sorted(
@@ -340,14 +346,7 @@ class RentalService:
             .all()
         )
         for conflict in conflicts:
-            existing_start, existing_end = (
-                RentalService._effective_occupancy(
-                    conflict.start_date,
-                    conflict.end_date,
-                    conflict.ship_out_time,
-                    conflict.ship_in_time,
-                )
-            )
+            existing_start, existing_end = conflict.occupancy_interval()
             if (
                 occupancy_start < existing_end
                 and occupancy_end > existing_start
@@ -380,6 +379,14 @@ class RentalService:
 
             # 解析日期
             start_date, end_date = parse_date_strings(data['start_date'], data['end_date'])
+            mode = data.get('fulfillment_mode', 'courier')
+            if mode not in ('courier', 'onsite'):
+                raise ValueError('租赁方式无效')
+            if mode == 'onsite':
+                if start_date != end_date:
+                    raise ValueError('现场租赁只能使用一天')
+                if any(data.get(field) for field in ('ship_out_time', 'ship_in_time', 'destination', 'ship_out_tracking_no', 'ship_in_tracking_no', 'scheduled_ship_time')):
+                    raise ValueError('现场租赁不需要物流或收件信息')
 
             # 验证日期范围
             validation_error = validate_date_range(start_date, end_date)
@@ -400,6 +407,8 @@ class RentalService:
                     ship_in_time,
                 )
             )
+            if mode == 'onsite':
+                occupancy_end = datetime.combine(end_date + timedelta(days=1), time.min)
 
             _device, validated_accessories = (
                 RentalService._validate_selection(
@@ -422,13 +431,15 @@ class RentalService:
                 warehouse_id=warehouse_id,
                 customer_name=data['customer_name'],
                 customer_phone=data.get('customer_phone'),
-                destination=data.get('destination', ''),
+                destination=None if mode == 'onsite' else data.get('destination', ''),
                 start_date=start_date,
                 end_date=end_date,
                 ship_out_time=ship_out_time,
                 ship_in_time=ship_in_time,
-                ship_out_tracking_no=data.get('ship_out_tracking_no', ''),
-                ship_in_tracking_no=data.get('ship_in_tracking_no', ''),
+                fulfillment_mode=mode,
+                onsite_note=data.get('onsite_note') if mode == 'onsite' else None,
+                ship_out_tracking_no=None if mode == 'onsite' else data.get('ship_out_tracking_no', ''),
+                ship_in_tracking_no=None if mode == 'onsite' else data.get('ship_in_tracking_no', ''),
                 xianyu_order_no=order_no,
                 xianyu_shop_id=shop_id,
                 order_amount=data.get('order_amount'),
@@ -467,17 +478,14 @@ class RentalService:
                     warehouse_id=warehouse_id,
                     customer_name=data['customer_name'],
                     customer_phone=data.get('customer_phone'),
-                    destination=data.get('destination', ''),
+                    destination=None if mode == 'onsite' else data.get('destination', ''),
                     start_date=start_date,
                     end_date=end_date,
                     ship_out_time=ship_out_time,
                     ship_in_time=ship_in_time,
-                    ship_out_tracking_no=data.get(
-                        'ship_out_tracking_no', ''
-                    ),
-                    ship_in_tracking_no=data.get(
-                        'ship_in_tracking_no', ''
-                    ),
+                    fulfillment_mode=mode,
+                    ship_out_tracking_no=None if mode == 'onsite' else data.get('ship_out_tracking_no', ''),
+                    ship_in_tracking_no=None if mode == 'onsite' else data.get('ship_in_tracking_no', ''),
                     status='not_shipped',
                     parent_rental_id=main_rental.id
                 )
@@ -548,6 +556,10 @@ class RentalService:
                     raise WarehouseMismatchError('请切换到原订单仓库补齐')
                 if (source.xianyu_order_no, source.xianyu_shop_id) != (order_no, shop_id):
                     raise ValueError('补齐订单的店铺或订单号不一致')
+                if data.get('fulfillment_mode', 'courier') != source.fulfillment_mode:
+                    raise ValueError('同单设备的租赁方式必须一致')
+                base['fulfillment_mode'] = source.fulfillment_mode
+                base['onsite_note'] = source.onsite_note
                 for field in ('customer_name', 'customer_phone', 'destination', 'start_date', 'end_date', 'ship_out_time', 'ship_in_time', 'buyer_id'):
                     value = getattr(source, field)
                     base[field] = value.isoformat() if isinstance(value, (date, datetime)) else value
@@ -557,6 +569,8 @@ class RentalService:
                 booking = RentalBooking.query.filter_by(id=source.booking_id).populate_existing().with_for_update().one()
             elif order_no:
                 booking = RentalBooking.query.filter_by(xianyu_shop_id=shop_id, order_no=order_no).populate_existing().with_for_update().first()
+            if booking and any(row.fulfillment_mode != base.get('fulfillment_mode', 'courier') for row in booking.rentals):
+                raise ValueError('同单设备的租赁方式必须一致')
             if booking and not source and any(r.status != 'cancelled' for r in booking.rentals):
                 raise ValueError('该订单已有关联设备，请查看同单记录后补齐')
             if extra and not source and order_no and Rental.query.filter_by(xianyu_shop_id=shop_id, xianyu_order_no=order_no, parent_rental_id=None).filter(Rental.status != 'cancelled').first():
@@ -680,6 +694,8 @@ class RentalService:
                 raise ValueError('租赁记录不存在')
 
             old_status = rental.status
+            if rental.fulfillment_mode == 'onsite' and new_status == 'scheduled_for_shipping':
+                raise ValueError('现场租赁不能预约发货')
             rental.status = new_status
 
             current_app.logger.info(f"状态更新: 接收到状态 {new_status}, 当前状态 {old_status}")
@@ -690,16 +706,21 @@ class RentalService:
                 current_app.logger.info(f"租赁状态从 {old_status} 变更为 {new_status}")
 
                 # 如果状态变为已发货，设置发货时间
-                if new_status == 'shipped' and not rental.ship_out_time:
+                if new_status == 'shipped' and rental.fulfillment_mode != 'onsite' and not rental.ship_out_time:
                     rental.ship_out_time = datetime.utcnow()
 
                 # 如果状态变为已完成，设置收回时间
-                if new_status == 'completed' and not rental.ship_in_time:
+                if new_status == 'completed' and rental.fulfillment_mode != 'onsite' and not rental.ship_in_time:
                     rental.ship_in_time = datetime.utcnow()
+                if rental.fulfillment_mode == 'onsite' and new_status in ('returned', 'completed') and not rental.onsite_returned_at:
+                    rental.onsite_returned_at = business_now_naive()
+                if rental.fulfillment_mode == 'onsite' and new_status in ('not_shipped', 'shipped'):
+                    rental.onsite_returned_at = None
 
                 # 同步更新子租赁（附件）的状态
                 for child_rental in rental.child_rentals:
                     child_rental.status = new_status
+                    child_rental.onsite_returned_at = rental.onsite_returned_at
 
             current_app.logger.info(f"准备提交数据库事务，当前状态: {rental.status}")
             db.session.commit()
@@ -771,12 +792,7 @@ class RentalService:
             )
 
             for existing in existing_rentals:
-                existing_start, existing_end = RentalService._effective_occupancy(
-                    existing.start_date,
-                    existing.end_date,
-                    existing.ship_out_time,
-                    existing.ship_in_time,
-                )
+                existing_start, existing_end = existing.occupancy_interval()
                 if requested_start < existing_end and requested_end > existing_start:
                     conflicts.append({
                         'rental_id': existing.id,
@@ -817,12 +833,7 @@ class RentalService:
             query = query.filter(Rental.id != exclude_rental_id)
         conflicting_ids = set()
         for existing in query.all():
-            existing_start, existing_end = RentalService._effective_occupancy(
-                existing.start_date,
-                existing.end_date,
-                existing.ship_out_time,
-                existing.ship_in_time,
-            )
+            existing_start, existing_end = existing.occupancy_interval()
             if requested_start < existing_end and requested_end > existing_start:
                 conflicting_ids.add(existing.device_id)
         return sorted(conflicting_ids)
@@ -865,6 +876,8 @@ class RentalService:
             child.end_date = rental.end_date
             child.ship_out_time = rental.ship_out_time
             child.ship_in_time = rental.ship_in_time
+            child.fulfillment_mode = rental.fulfillment_mode
+            child.onsite_returned_at = rental.onsite_returned_at
             child.ship_out_tracking_no = rental.ship_out_tracking_no
             child.ship_in_tracking_no = rental.ship_in_tracking_no
             child.status = rental.status
@@ -876,6 +889,9 @@ class RentalService:
             rental = db.session.get(Rental, rental_id)
             if not rental:
                 raise ValueError('租赁记录不存在')
+            if data.get('fulfillment_mode', rental.fulfillment_mode) != rental.fulfillment_mode:
+                raise ValueError('租赁方式保存后不可修改')
+            onsite = rental.fulfillment_mode == 'onsite'
             if rental.booking_id:
                 for field in ('xianyu_order_no', 'xianyu_shop_id', 'warehouse_id', 'end_date', 'ship_in_time', 'customer_name', 'customer_phone', 'destination', 'order_amount'):
                     if field not in data:
@@ -904,6 +920,10 @@ class RentalService:
             validation_error = validate_date_range(start_date, end_date)
             if validation_error:
                 raise ValueError(validation_error)
+            if onsite and start_date != end_date:
+                raise ValueError('现场租赁只能使用一天')
+            if onsite and any(data.get(field) for field in ('ship_out_time', 'ship_in_time', 'destination', 'ship_out_tracking_no', 'ship_in_tracking_no', 'scheduled_ship_time')):
+                raise ValueError('现场租赁不需要物流或收件信息')
 
             status = data.get('status', rental.status)
             valid_statuses = {
@@ -912,6 +932,8 @@ class RentalService:
             }
             if status not in valid_statuses:
                 raise ValueError(f'无效的状态值: {status}')
+            if onsite and status == 'scheduled_for_shipping':
+                raise ValueError('现场租赁不能预约发货')
             ship_out_time = (
                 RentalService._parse_datetime(data['ship_out_time'])
                 if 'ship_out_time' in data
@@ -923,9 +945,9 @@ class RentalService:
                 else rental.ship_in_time
             )
             if status != rental.status:
-                if status == 'shipped' and not ship_out_time:
+                if status == 'shipped' and not onsite and not ship_out_time:
                     ship_out_time = datetime.utcnow()
-                if status == 'completed' and not ship_in_time:
+                if status == 'completed' and not onsite and not ship_in_time:
                     ship_in_time = datetime.utcnow()
             occupancy_start, occupancy_end = (
                 RentalService._effective_occupancy(
@@ -935,6 +957,8 @@ class RentalService:
                     ship_in_time,
                 )
             )
+            if onsite:
+                occupancy_end = datetime.combine(end_date + timedelta(days=1), time.min)
 
             children = list(rental.child_rentals)
             accessory_ids = data.get(
@@ -1065,6 +1089,12 @@ class RentalService:
             rental.device_id = device_id
             rental.start_date = start_date
             rental.end_date = end_date
+            if onsite:
+                rental.onsite_note = data.get('onsite_note', rental.onsite_note)
+                if status in ('returned', 'completed') and rental.onsite_returned_at is None:
+                    rental.onsite_returned_at = business_now_naive()
+                if status in ('not_shipped', 'shipped') and status != rental.status:
+                    rental.onsite_returned_at = None
             rental.xianyu_order_no = order_no
             rental.xianyu_shop_id = shop_id
             for field in (

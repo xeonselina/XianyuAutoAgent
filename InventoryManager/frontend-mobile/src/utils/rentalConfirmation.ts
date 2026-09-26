@@ -58,6 +58,16 @@ export const buildRentalConfirmation = (rental: Rental): RentalConfirmationConte
     if (label) accessories.add(label)
   }
   const accessoryParts = accessories.size ? [...accessories] : ['无附件']
+  if (rental.fulfillment_mode === 'onsite') {
+    const lines = [
+      `现场租赁：${dateOnly(rental.start_date)}`,
+      `客户：${rental.customer_name || '未填写'}`,
+      `联系电话：${rental.customer_phone || '未填写'}`,
+      `设备：${[model, rentalPackage, ...accessoryParts].join(' + ')}`,
+    ]
+    if (rental.onsite_note) lines.push(`现场备注：${rental.onsite_note}`)
+    return { lines, text: lines.join('\n') }
+  }
   const lines = [
     `收货地址：${addressWithPhone(rental.destination, rental.customer_phone)}`,
     `寄出时间：${dateOnly(rental.ship_out_time)}`,
