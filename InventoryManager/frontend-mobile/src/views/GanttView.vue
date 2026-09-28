@@ -45,6 +45,17 @@
       </template>
     </van-nav-bar>
 
+    <XianyuOrderAlertBar
+      :snapshot="alertSnapshot"
+      :loading="alertsLoading"
+      :busy-rental-id="busyRentalId"
+      @book="bookMissingOrder"
+      @ignore="payload => ignoreAlert('order', payload)"
+      @rental-ignore="payload => ignoreAlert('rental', payload)"
+      @rental-action="handleRentalAlertAction"
+      @refresh="refreshAlerts"
+    />
+
     <!-- 甘特图表格 -->
     <GanttGrid
       :devices="filteredDevices"
@@ -73,19 +84,129 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onActivated, onDeactivated, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { showConfirmDialog, showToast } from 'vant'
 import dayjs from 'dayjs'
 import axios from 'axios'
 import { useGanttStore } from '@/stores/gantt'
 import type { Rental } from '@/stores/gantt'
 import GanttGrid from '@/components/GanttGrid.vue'
 import RentalBottomSheet from '@/components/RentalBottomSheet.vue'
+import XianyuOrderAlertBar from '@/components/XianyuOrderAlertBar.vue'
 import { useMobileTenantStore } from '@/stores/tenant'
+import type { XianyuOrderAlertSnapshot, XianyuRentalAlertAction } from '@/types/xianyuOrderAlert'
 
 const router = useRouter()
 const ganttStore = useGanttStore()
 const tenantStore = useMobileTenantStore()
+const alertSnapshot = ref<XianyuOrderAlertSnapshot>({
+  alerts: [], rental_alerts: [], count: 0, refreshing: false,
+  sync: { last_success_at: null, last_error: null, is_stale: false },
+})
+const alertsLoading = ref(false)
+const busyRentalId = ref<number>()
+let alertTimer: ReturnType<typeof setInterval> | undefined
+let alertReadId = 0
+let alertMutationVersion = 0
+let alertMutationCount = 0
+
+const applyAlertResponse = (response: any) => {
+  if (response.data?.success && response.data.data) alertSnapshot.value = response.data.data
+}
+const loadAlerts = async () => {
+  if (alertMutationCount) return
+  const readId = ++alertReadId
+  const version = alertMutationVersion
+  try {
+    const response = await axios.get('/api/xianyu-order-alerts')
+    if (readId === alertReadId && version === alertMutationVersion && !alertMutationCount) applyAlertResponse(response)
+  } catch {
+    if (readId === alertReadId && version === alertMutationVersion && !alertMutationCount) {
+      alertSnapshot.value = {
+        ...alertSnapshot.value,
+        sync: { ...alertSnapshot.value.sync, last_error: '读取订单提醒失败，当前显示上次结果' },
+      }
+    }
+  }
+}
+const mutateAlerts = async (request: () => Promise<any>, errorMessage: string) => {
+  if (alertsLoading.value) return
+  alertMutationCount += 1
+  alertMutationVersion += 1
+  alertsLoading.value = true
+  try {
+    applyAlertResponse(await request())
+  } catch (error: any) {
+    showToast({ message: error.response?.data?.message || errorMessage, type: 'fail' })
+  } finally {
+    alertMutationCount -= 1
+    alertsLoading.value = false
+  }
+}
+const refreshAlerts = () => mutateAlerts(
+  () => axios.post('/api/xianyu-order-alerts/refresh'), '刷新订单提醒失败',
+)
+const ignoreAlert = (kind: 'order' | 'rental', payload: { shopId: number; orderNo: string; reason: string }) => mutateAlerts(
+  () => axios.post(
+    `/api/xianyu-order-alerts/${payload.shopId}/${encodeURIComponent(payload.orderNo)}/${kind === 'order' ? 'ignore' : 'rental-ignore'}`,
+    { reason: payload.reason },
+  ),
+  kind === 'order' ? '忽略订单失败' : '忽略档期提醒失败',
+)
+const bookMissingOrder = (payload: { orderNo: string; shopId: number }) => {
+  router.push({ name: 'create-rental', query: { orderNo: payload.orderNo, shopId: String(payload.shopId) } })
+}
+const handleRentalAlertAction = async (payload: XianyuRentalAlertAction) => {
+  if (busyRentalId.value !== undefined) return
+  busyRentalId.value = payload.rentalId
+  try {
+    await tenantStore.initialize()
+    let rental = await ganttStore.getRentalById(payload.rentalId)
+    if (!rental || rental.xianyu_order_no?.trim() !== payload.orderNo || rental.xianyu_shop_id !== payload.shopId) {
+      showToast('档期已变更或不存在，请刷新提醒后重试')
+      await loadAlerts()
+      return
+    }
+    if (!['not_shipped', 'scheduled_for_shipping', 'shipped'].includes(rental.status)) {
+      showToast('该档期已处理')
+      await loadAlerts()
+      return
+    }
+    if (!rental.warehouse_id) throw new Error('档期缺少仓库信息')
+    tenantStore.selectWarehouse(rental.warehouse_id)
+    await ganttStore.loadData()
+    rental = await ganttStore.getRentalById(payload.rentalId)
+    if (!rental || rental.warehouse_id !== tenantStore.currentWarehouseId
+      || rental.xianyu_order_no?.trim() !== payload.orderNo || rental.xianyu_shop_id !== payload.shopId) {
+      throw new Error('档期或仓库已变更，请刷新后重试')
+    }
+    if (!['not_shipped', 'scheduled_for_shipping', 'shipped'].includes(rental.status)) {
+      showToast('该档期已处理')
+      await loadAlerts()
+      return
+    }
+    if (payload.action === 'delete' && rental.status !== 'shipped') {
+      try {
+        await showConfirmDialog({
+          title: '确认删除',
+          message: `确定删除 ${rental.customer_name} 的 ${rental.device?.name || '设备'} 档期（${rental.start_date} 至 ${rental.end_date}）吗？关联附件档期也会一并删除，此操作不可恢复。`,
+          confirmButtonText: '确定删除',
+          confirmButtonColor: '#ee0a24',
+        })
+      } catch { return }
+      await ganttStore.deleteRental(rental.id)
+      showToast({ message: '删除成功', type: 'success' })
+      await Promise.all([loadAlerts(), fetchDailyStats()])
+    } else {
+      router.push({ name: 'edit-rental', params: { id: rental.id } })
+    }
+  } catch (error: any) {
+    showToast({ message: error.message || '读取档期失败', type: 'fail' })
+  } finally {
+    busyRentalId.value = undefined
+  }
+}
 
 // 窗口起始日期：今天 -2 天
 const windowOffset = ref(0) // 以7天为单位的偏移
@@ -150,6 +271,7 @@ const openSheet = (rental: Rental) => {
 const onDeleted = () => {
   ganttStore.loadData()
   fetchDailyStats()
+  loadAlerts()
 }
 
 const goCreate = () => {
@@ -183,7 +305,29 @@ const filteredDevices = computed(() => {
 onMounted(() => {
   ganttStore.loadData()
   fetchDailyStats()
+  loadAlerts()
+  startAlertPolling()
 })
+
+let activatedOnce = false
+const startAlertPolling = () => {
+  if (!alertTimer) alertTimer = setInterval(loadAlerts, 60_000)
+}
+const stopAlertPolling = () => {
+  if (alertTimer) clearInterval(alertTimer)
+  alertTimer = undefined
+}
+onActivated(() => {
+  if (activatedOnce) {
+    ganttStore.loadData()
+    fetchDailyStats()
+    loadAlerts()
+  }
+  activatedOnce = true
+  startAlertPolling()
+})
+onDeactivated(stopAlertPolling)
+onUnmounted(stopAlertPolling)
 
 watch(() => tenantStore.currentWarehouseId, () => {
   selectedRental.value = null

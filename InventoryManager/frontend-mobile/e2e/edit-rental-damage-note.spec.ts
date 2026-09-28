@@ -38,6 +38,9 @@ test.describe('Edit Rental — damage note', () => {
     await page.route('**/api/devices**', route => route.fulfill({
       json: { devices: [] },
     }))
+    await page.route('**/api/rentals/estimate-logistics**', route => route.fulfill({
+      json: { success: true, data: { logistics_days: 2 } },
+    }))
     await page.route('**/api/rentals/77', route => route.fulfill({
       json: { success: true, data: rental },
     }))

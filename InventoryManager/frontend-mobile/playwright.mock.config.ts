@@ -8,6 +8,7 @@ export const mockTestMatch = [
   '**/edit-rental-damage-note.spec.ts',
   '**/relay-management.spec.ts',
   '**/rental-confirmation.spec.ts',
+  '**/xianyu-order-alerts.spec.ts',
 ]
 
 export default defineConfig(baseConfig, {
