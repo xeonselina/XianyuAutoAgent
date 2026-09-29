@@ -48,7 +48,7 @@ def password_environment(tmp_path, monkeypatch):
         tenant = Tenant(
             name="Password Tenant",
             status="active",
-            expires_at=now + timedelta(days=30),
+            expires_at=max(now, datetime.utcnow()) + timedelta(days=30),
             db_name="password_tenant",
             db_username="password_user",
             db_password_ciphertext=box.encrypt(

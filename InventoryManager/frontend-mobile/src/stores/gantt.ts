@@ -112,6 +112,7 @@ export interface Rental {
   rental_package_name?: string | null
   rental_package_items?: RentalPackageItem[]
   xianyu_order_no?: string
+  xianyu_shop_id?: number
   order_amount?: number
   buyer_id?: string
   damage_note?: string | null

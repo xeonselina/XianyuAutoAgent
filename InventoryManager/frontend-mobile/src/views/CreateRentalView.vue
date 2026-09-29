@@ -952,6 +952,12 @@ const loadInitData = async () => {
 }
 
 onMounted(async () => {
+  const initialOrderNo = typeof route.query.orderNo === 'string' ? route.query.orderNo : ''
+  const initialShopId = typeof route.query.shopId === 'string' ? Number(route.query.shopId) : NaN
+  if (initialOrderNo && Number.isInteger(initialShopId) && initialShopId > 0) {
+    form.value.xianyuOrderNo = initialOrderNo
+    form.value.xianyuShopId = initialShopId
+  }
   // 先确保甘特store有设备数据
   if (!ganttStore.devices.length) {
     await ganttStore.loadData()
@@ -960,8 +966,9 @@ onMounted(async () => {
   try {
     const res = await axios.get('/api/xianyu-order-alerts')
     xianyuShops.value = res.data.data?.shops || []
-    if (xianyuShops.value.length === 1) form.value.xianyuShopId = xianyuShops.value[0]!.id
+    if (xianyuShops.value.length === 1 && !form.value.xianyuShopId) form.value.xianyuShopId = xianyuShops.value[0]!.id
   } catch { /* order-less rentals remain available without configured shops */ }
+  if (initialOrderNo && form.value.xianyuShopId) await fetchOrderInfo()
 })
 
 watch(() => tenantStore.currentWarehouseId, async () => {
