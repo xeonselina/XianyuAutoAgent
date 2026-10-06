@@ -10,6 +10,7 @@ from app.lens_combos import (
     compatibility_lens_combo_config,
     normalize_legacy_model_name,
 )
+from app.rental_packages import LEGACY_PACKAGE_PREFIX
 
 # 机型 -> 主机品名中文显示
 MODEL_DISPLAY = {
@@ -54,6 +55,26 @@ def rental_package_display(rental):
         return package_name
     combo = getattr(rental, 'lens_combo', None)
     return lens_combo_display(combo)
+
+
+def is_non_default_rental_package(rental):
+    """按型号当前默认组合判断；无组合信息时不作非默认标记。"""
+    device = getattr(rental, 'device', None)
+    model = getattr(device, 'device_model', None) if device else None
+    package_id = getattr(rental, 'rental_package_id', None)
+    if package_id and model:
+        _, default_id = model.get_effective_rental_package_config()
+        return bool(default_id and package_id != default_id)
+
+    combo = getattr(rental, 'lens_combo', None)
+    if not combo or (package_id and not package_id.startswith(LEGACY_PACKAGE_PREFIX)):
+        return False
+    if model:
+        _, default_combo = model.get_effective_lens_combo_config()
+    else:
+        model_name = getattr(device, 'model', None) if device else None
+        default_combo = get_default_combo(model_name)
+    return bool(default_combo and combo != default_combo)
 
 
 def _resolve_model_name(rental):

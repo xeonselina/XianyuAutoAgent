@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 
-from app.services.printing.rental_product_lines import get_product_lines
+from app.services.printing.rental_product_lines import (
+    get_product_lines, is_non_default_rental_package,
+)
 
 
 def test_product_lines_prefer_canonical_model_display_name():
@@ -47,3 +49,29 @@ def test_product_lines_use_immutable_rental_package_snapshot():
         {"name": "70-200 镜头", "qty": 1, "is_main": False},
         {"name": "相机电池", "qty": 2, "is_main": False},
     ]
+
+
+def test_print_highlight_uses_model_package_default_and_legacy_combo_fallback():
+    model = SimpleNamespace(
+        get_effective_rental_package_config=lambda: ([], 'pkg_default'),
+        get_effective_lens_combo_config=lambda: ([], 'bare'),
+    )
+    rental = SimpleNamespace(
+        device=SimpleNamespace(model='x300u', device_model=model),
+        rental_package_id='pkg_special', lens_combo='bare',
+    )
+    assert is_non_default_rental_package(rental)
+    rental.rental_package_id = 'pkg_default'
+    assert not is_non_default_rental_package(rental)
+
+    rental.rental_package_id = None
+    rental.lens_combo = 'lens_400mm'
+    assert is_non_default_rental_package(rental)
+    rental.lens_combo = 'bare'
+    assert not is_non_default_rental_package(rental)
+    rental.device.device_model = None
+    assert is_non_default_rental_package(rental)  # x300u 默认 400MM
+    rental.rental_package_id = 'legacy_bare'
+    assert is_non_default_rental_package(rental)
+    rental.lens_combo = None
+    assert not is_non_default_rental_package(rental)

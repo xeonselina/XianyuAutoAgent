@@ -7,6 +7,9 @@ import logging
 import requests
 from dataclasses import dataclass
 from typing import Dict, Optional
+from app.services.printing.rental_product_lines import (
+    is_non_default_rental_package, rental_package_display,
+)
 from app.utils.sf.sf_sdk_wrapper import SFExpressSDK
 
 logger = logging.getLogger(__name__)
@@ -261,9 +264,15 @@ class SFExpressService:
             members = parcel_members(rental)
             remark = f"寄出物：机器共 {len(members)} 台| 客户名：{rental.customer_name}| "
 
-            # 添加设备信息
-            if rental.device:
-                remark+=f"设备号：{rental.device.name}| "
+            # 同票每台设备都标明下单时的组合，便于按地址联核对打包内容。
+            for member in members:
+                if not member.device:
+                    continue
+                package_name = rental_package_display(member)
+                if package_name and is_non_default_rental_package(member):
+                    package_name = f"【{package_name}】"
+                suffix = f" {package_name}" if package_name else ""
+                remark += f"设备号：{member.device.name}{suffix}| "
 
             # 添加附件信息
             accessories = []

@@ -13,7 +13,9 @@ from PIL import Image, ImageDraw, ImageFont
 from flask import g
 
 from app.models import Rental
-from app.services.printing.rental_product_lines import rental_package_display
+from app.services.printing.rental_product_lines import (
+    is_non_default_rental_package, rental_package_display,
+)
 from app import db
 
 logger = logging.getLogger(__name__)
@@ -223,7 +225,7 @@ class ShippingSlipImageService:
     def _draw_info_row(self, draw: ImageDraw.Draw, y: int, label: str, value: str,
                       label_font: ImageFont.FreeTypeFont = None,
                       value_font: ImageFont.FreeTypeFont = None,
-                      highlight: bool = False) -> int:
+                      highlight: bool = False, boxed: bool = False) -> int:
         """
         绘制信息行
 
@@ -235,6 +237,7 @@ class ShippingSlipImageService:
             label_font: 标签字体
             value_font: 值字体
             highlight: 是否高亮
+            boxed: 是否给值绘制黑色矩形边框
 
         Returns:
             新的Y坐标
@@ -252,14 +255,25 @@ class ShippingSlipImageService:
 
         # 绘制值(可能需要换行)
         value_x = x + label_width
-        max_value_width = self.width_px - value_x - self.padding
+        box_padding = 6 if boxed else 0
+        max_value_width = self.width_px - value_x - self.padding - 2 * box_padding
         value_lines = self._wrap_text(value, value_font, max_value_width)
 
         value_color = 'red' if highlight else 'black'
+        text_bounds = []
         for line in value_lines:
+            if boxed:
+                text_bounds.append(draw.textbbox((value_x, y), line, font=value_font))
             draw.text((value_x, y), line, fill=value_color, font=value_font)
             bbox = value_font.getbbox(line)
             y += bbox[3] - bbox[1] + 5
+
+        if text_bounds:
+            right = min(self.width_px - self.padding, max(box[2] for box in text_bounds) + box_padding)
+            bottom = max(box[3] for box in text_bounds) + box_padding
+            draw.rectangle((value_x - box_padding, text_bounds[0][1] - box_padding,
+                            right, bottom), outline='black', width=3)
+            y = max(y, bottom + 5)
 
         return y
 
@@ -319,7 +333,9 @@ class ShippingSlipImageService:
             y = self._draw_info_row(draw, y, "设备:", device_name)
 
             # 使用下单时保存的组合名称；旧订单自动回退到镜头枚举中文名。
-            y = self._draw_info_row(draw, y, "组合:", rental_package_display(rental))
+            package_name = rental_package_display(rental)
+            y = self._draw_info_row(draw, y, "组合:", package_name,
+                                    boxed=bool(package_name and is_non_default_rental_package(rental)))
 
             # 附件信息（库存附件如手机支架/三脚架；配套附件 handle/lens_mount 不单列）
             all_accessories = rental.get_all_accessories_for_display()

@@ -468,6 +468,8 @@ def test_same_recipient_parcel_schedule_print_and_retry(app, shipping_case, monk
         second.device.warehouse_id = first.warehouse_id
         second.destination = first.destination
         second.customer_phone = first.customer_phone
+        first.lens_combo = 'lens_200mm'
+        second.lens_combo = 'bare'
         db.session.commit()
     monkeypatch.setattr(SFExpressService, 'create_order', lambda self, data: (
         calls.append(data) or {'success': True, 'waybill_no': 'SF-COMBINED'}))
@@ -497,7 +499,10 @@ def test_same_recipient_parcel_schedule_print_and_retry(app, shipping_case, monk
     with app.app_context():
         first = db.session.get(Rental, shipping_case['rentals'][0])
         IntegrationResolver().sf_for_rental(first).get_waybill_pdf(first)
-    assert '机器共 2 台' in labels[0]['documents'][0]['remark']
+    remark = labels[0]['documents'][0]['remark']
+    assert '机器共 2 台' in remark
+    assert '设备号：device-1 200MM 镜头' in remark
+    assert '设备号：device-2 【裸机】' in remark
 
 
 def test_parcel_grouping_boundaries(app, shipping_case):
