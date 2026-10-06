@@ -38,6 +38,17 @@
 - **WHEN** PDF URL GET 超时
 - **THEN** 当前包裹报告打印失败，原租赁仍保留预约与运单号；其它包裹继续
 
+### Requirement: 地址联标明每台设备的实际租赁组合
+顺丰云打印备注 MUST 在包裹中每台设备名后紧跟该订单保存的组合名称；组合不是该设备型号的默认组合时 MUST 用黑色醒目括号围住组合名称，默认组合正常显示。没有组合数据时只显示设备名。打印失败时不得改写租赁、组合或运单数据。PC 批量打印和移动端发货流程共用此服务，各履约仓的规则相同。
+
+#### Scenario: 非默认组合的单机包裹
+- **WHEN** 操作员打印一台设备的地址联，订单组合不同于该型号的默认组合
+- **THEN** 顺丰备注中的设备名后显示带黑色醒目括号的订单组合名称
+
+#### Scenario: 默认组合与同票多机
+- **WHEN** 操作员打印含默认和非默认组合两台设备的同票地址联
+- **THEN** 备注依次显示两台设备及各自的组合名称，只有非默认组合带醒目括号
+
 ## 代码依据
 
 `app/services/shipping/sf_express_service.py`、`app/services/shipping/waybill_print_service.py`、`app/services/shipping/shipment_group_service.py`。旧归档规格里“网络错误最多重试两次”与当前代码不符。
